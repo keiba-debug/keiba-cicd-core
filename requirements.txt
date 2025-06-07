@@ -1,0 +1,28 @@
+# 競馬ブックスクレイピングプロジェクトの依存関係
+
+# Web スクレイピング
+selenium==4.15.2
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# HTTP リクエスト
+requests==2.31.0
+urllib3==2.0.7
+
+# データ処理
+pandas==2.1.3
+numpy==1.25.2
+
+# ファイル・データ形式
+openpyxl==3.1.2
+
+# ログ・設定
+python-dotenv==1.0.0
+
+# 開発・テスト
+pytest==7.4.3
+pytest-cov==4.1.0
+
+# その他のユーティリティ
+pathlib2==2.3.7; python_version < "3.6"
+typing-extensions==4.8.0; python_version < "3.8"
