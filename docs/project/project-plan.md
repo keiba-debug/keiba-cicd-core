@@ -203,7 +203,52 @@ Phase 4: 運用・改善（継続）
 - **セキュリティ**: 脆弱性スキャン実施
 - **ユーザビリティ**: ユーザビリティテスト実施
 
-### 6.2 テスト計画
+### 6.2 パフォーマンステスト計画
+
+#### 6.2.1 負荷テスト設計
+```yaml
+load_test_scenarios:
+  normal_load:
+    concurrent_users: 100
+    duration: 30m
+    ramp_up: 5m
+    test_data: "レース検索、期待値計算"
+    
+  peak_load:
+    concurrent_users: 1000
+    duration: 15m
+    ramp_up: 3m
+    test_data: "重賞レース日の想定負荷"
+    
+  stress_test:
+    concurrent_users: 2000
+    duration: 10m
+    ramp_up: 2m
+    test_data: "限界性能の測定"
+    
+  endurance_test:
+    concurrent_users: 500
+    duration: 2h
+    test_data: "長時間運用の安定性確認"
+```
+
+#### 6.2.2 パフォーマンス指標
+| 指標 | 目標値 | 計測方法 |
+|------|--------|----------|
+| API応答時間 | 95%ile < 200ms | JMeter/Artillery |
+| スループット | > 1000 req/min | 負荷テストツール |
+| エラー率 | < 0.1% | アプリケーションログ |
+| CPU使用率 | < 70% | システム監視 |
+| メモリ使用率 | < 80% | システム監視 |
+| データベース応答時間 | < 50ms | DB監視ツール |
+
+#### 6.2.3 テストデータ設計
+- **馬データ**: 10,000頭分の過去実績
+- **レースデータ**: 過去5年分（約50,000レース）
+- **コメントデータ**: 100万件の分析対象コメント
+- **ユーザーデータ**: 10,000アカウント分
+
+### 6.3 テスト計画
 
 #### テスト種別
 - **単体テスト**: 各機能の個別テスト
@@ -307,30 +352,231 @@ Phase 4: 運用・改善（継続）
 | 品質達成率 | 95%以上 | 品質基準達成項目数/全項目数 |
 | ユーザー満足度 | 80%以上 | ユーザーアンケート |
 
-## 11. 運用移行計画
+## 11. 障害対応計画
 
-### 11.1 移行スケジュール
+### 11.1 インシデント対応フロー
+
+#### 11.1.1 障害検知から復旧まで
+```mermaid
+graph TD
+    A[障害検知] --> B[初期対応開始]
+    B --> C[影響範囲特定]
+    C --> D[緊急度判定]
+    D --> E[復旧作業]
+    E --> F[動作確認]
+    F --> G[事後分析]
+    
+    subgraph "時間目標"
+        H[検知: 5分以内]
+        I[初期対応: 15分以内]
+        J[復旧: 4時間以内]
+    end
+```
+
+#### 11.1.2 障害レベル定義
+| レベル | 影響度 | 対応時間 | エスカレーション |
+|--------|--------|----------|-----------------|
+| Critical | 全サービス停止 | 15分以内 | 即座に経営層へ報告 |
+| High | 主要機能停止 | 1時間以内 | 1時間以内に管理層報告 |
+| Medium | 一部機能影響 | 4時間以内 | 日次報告 |
+| Low | 軽微な問題 | 24時間以内 | 週次報告 |
+
+#### 11.1.3 復旧手順
+```bash
+# 1. 現状把握
+kubectl get pods --all-namespaces
+docker ps -a
+tail -f /var/log/application.log
+
+# 2. 緊急対応
+kubectl rollback deployment/api-server
+docker restart keiba-analysis
+
+# 3. 詳細調査
+kubectl logs -f deployment/api-server
+curl -I https://api.keiba-cicd.com/health
+
+# 4. 恒久対策
+git revert <commit-hash>
+kubectl apply -f k8s/deployment.yaml
+```
+
+### 11.2 災害対策・事業継続計画
+
+#### 11.2.1 データバックアップ戦略
+- **リアルタイムレプリケーション**: PostgreSQL、MongoDB
+- **日次フルバックアップ**: 全データベース
+- **週次オフサイトバックアップ**: 異なるリージョンへ保存
+- **月次バックアップテスト**: 復旧手順の動作確認
+
+#### 11.2.2 多重化・冗長化
+- **アプリケーション**: 複数AZでのマルチインスタンス
+- **データベース**: Master-Slave構成
+- **ネットワーク**: 複数回線での冗長化
+- **ストレージ**: RAID構成・レプリケーション
+
+## 12. 技術的負債の管理計画
+
+### 12.1 技術的負債の定期評価
+
+#### 12.1.1 評価サイクル
+- **月次**: コード品質メトリクスの確認
+- **四半期**: 大規模リファクタリング計画の策定
+- **年次**: 技術スタックの見直し
+
+#### 12.1.2 SonarQubeによるコード品質測定
+```yaml
+sonar_quality_gates:
+  coverage: "> 80%"
+  duplicated_lines: "< 3%"
+  maintainability_rating: "A"
+  reliability_rating: "A"
+  security_rating: "A"
+  technical_debt_ratio: "< 5%"
+```
+
+#### 12.1.3 リファクタリング計画の策定
+- **緊急度判定**: セキュリティ、パフォーマンス、保守性
+- **工数見積**: 影響範囲とリスク評価
+- **実施計画**: スプリント計画への組み込み
+- **効果測定**: リファクタリング前後の品質比較
+
+### 12.2 依存関係の更新戦略
+
+#### 12.2.1 Dependabotの設定
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    reviewers:
+      - "tech-lead"
+    assignees:
+      - "frontend-team"
+      
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    reviewers:
+      - "tech-lead"
+    assignees:
+      - "backend-team"
+```
+
+#### 12.2.2 更新戦略
+- **セキュリティパッチ**: 即座に適用（24時間以内）
+- **マイナーアップデート**: 週次での検討・適用
+- **メジャーアップデート**: 四半期での計画的実施
+- **EOLライブラリ**: 年次での移行計画策定
+
+## 13. データガバナンス計画
+
+### 13.1 データ品質管理
+
+#### 13.1.1 スクレイピングデータの検証ルール
+```python
+# データ品質検証ルール
+data_quality_rules = {
+    "race_data": {
+        "required_fields": ["race_id", "date", "venue", "entries"],
+        "validation_rules": {
+            "race_id": r"^\d{12}$",
+            "date": "YYYY-MM-DD format",
+            "entries": "min 5, max 18 horses"
+        }
+    },
+    "horse_data": {
+        "required_fields": ["horse_name", "age", "weight"],
+        "validation_rules": {
+            "age": "2-20 years",
+            "weight": "380-600 kg"
+        }
+    }
+}
+```
+
+#### 13.1.2 データ整合性チェック
+- **レース整合性**: 出走馬数、オッズ合計値のチェック
+- **時系列整合性**: レース日時の論理的整合性確認
+- **クロスリファレンス**: 複数データソース間の整合性検証
+
+#### 13.1.3 異常値検出の自動化
+```python
+# 異常値検出アルゴリズム
+def detect_anomalies(race_data):
+    anomalies = []
+    
+    # 統計的異常値検出
+    if race_data['avg_odds'] > 100 or race_data['avg_odds'] < 1:
+        anomalies.append("Unusual odds distribution")
+    
+    # ビジネスルール違反
+    if len(race_data['entries']) < 5:
+        anomalies.append("Insufficient number of entries")
+    
+    return anomalies
+```
+
+### 13.2 個人情報保護
+
+#### 13.2.1 騎手・調教師名の取り扱い
+- **公開情報**: JRA公式データのみ使用
+- **匿名化**: 分析用途では騎手IDのみ使用
+- **同意確認**: インタビューコメント等の使用許可確認
+
+#### 13.2.2 GDPRコンプライアンス
+```python
+# GDPR対応データモデル
+class PersonalDataHandler:
+    def anonymize_data(self, data):
+        """個人識別情報の匿名化"""
+        pass
+    
+    def delete_personal_data(self, user_id):
+        """忘れられる権利への対応"""
+        pass
+    
+    def export_personal_data(self, user_id):
+        """データポータビリティ権への対応"""
+        pass
+```
+
+#### 13.2.3 データ保持期間の設定
+| データ種別 | 保持期間 | 削除方法 |
+|-----------|----------|----------|
+| レース結果 | 永続 | 削除なし（公開データ） |
+| ユーザー分析履歴 | 2年 | 自動削除バッチ |
+| ログデータ | 90日 | 自動アーカイブ・削除 |
+| 個人設定 | ユーザー削除まで | 手動削除 |
+
+## 14. 運用移行計画
+
+### 14.1 移行スケジュール
 
 - **移行準備**: リリース1ヶ月前
 - **段階移行**: 機能別段階的移行
 - **完全移行**: 全機能移行完了
 - **旧システム停止**: 移行確認後
 
-### 11.2 運用体制
+### 14.2 運用体制
 
 - **運用チーム**: 24時間365日監視体制
 - **保守チーム**: 障害対応・機能改善
 - **ユーザーサポート**: 問い合わせ対応
 
-## 12. 継続的改善計画
+## 15. 継続的改善計画
 
-### 12.1 改善サイクル
+### 15.1 改善サイクル
 
 - **月次レビュー**: 運用状況・ユーザーフィードバック確認
 - **四半期改善**: 機能改善・性能向上
 - **年次見直し**: 大規模機能追加・技術刷新
 
-### 12.2 改善指標
+### 15.2 改善指標
 
 - **システム性能**: レスポンス時間、スループット
 - **予測精度**: 期待値計算の精度向上
