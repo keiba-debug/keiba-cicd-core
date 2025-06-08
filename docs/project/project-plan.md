@@ -335,4 +335,499 @@ Phase 4: 運用・改善（継続）
 - **システム性能**: レスポンス時間、スループット
 - **予測精度**: 期待値計算の精度向上
 - **ユーザー満足度**: 継続的なユーザー調査
-- **ビジネス価値**: ROI、ユーザー数増加 
+- **ビジネス価値**: ROI、ユーザー数増加
+
+## 13. 技術的負債管理計画
+
+### 13.1 技術的負債の定期評価
+
+#### 13.1.1 評価プロセス
+- **月次技術的負債レビュー**: 開発チーム全体での負債状況確認
+- **四半期負債評価**: 外部専門家による客観的評価
+- **年次技術監査**: システム全体の技術的健全性評価
+
+#### 13.1.2 SonarQubeによるコード品質測定
+```yaml
+# SonarQube品質ゲート設定
+quality_gates:
+  coverage: ">= 80%"
+  duplicated_lines: "< 3%"
+  maintainability_rating: "A"
+  reliability_rating: "A"
+  security_rating: "A"
+  code_smells: "< 100"
+  bugs: "= 0"
+  vulnerabilities: "= 0"
+```
+
+**測定項目:**
+- **コードカバレッジ**: 80%以上維持
+- **重複コード**: 3%未満
+- **循環的複雑度**: 関数あたり10以下
+- **技術的負債比率**: 5%未満
+- **セキュリティホットスポット**: 0件
+
+#### 13.1.3 リファクタリング計画の策定
+- **緊急度分類**: Critical > High > Medium > Low
+- **影響範囲評価**: システム全体への影響度分析
+- **リファクタリング優先順位**: ビジネス価値 × 技術的リスク
+- **実施スケジュール**: 開発スプリント内での計画的実施
+
+### 13.2 依存関係の更新戦略
+
+#### 13.2.1 Dependabotの設定
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    reviewers:
+      - "tech-lead"
+    assignees:
+      - "backend-team"
+    
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    reviewers:
+      - "frontend-lead"
+    
+  - package-ecosystem: "nuget"
+    directory: "/jravan-api"
+    schedule:
+      interval: "weekly"
+    reviewers:
+      - "dotnet-team"
+```
+
+#### 13.2.2 四半期ごとの大規模アップデート
+- **Q1**: Python依存関係の大規模更新
+- **Q2**: Node.js/React生態系の更新
+- **Q3**: .NET Core/C#依存関係の更新
+- **Q4**: インフラ・ミドルウェアの更新
+
+#### 13.2.3 セキュリティパッチの即時適用
+- **Critical**: 24時間以内
+- **High**: 72時間以内
+- **Medium**: 1週間以内
+- **Low**: 次回定期更新時
+
+**緊急パッチ適用フロー:**
+1. セキュリティアラート受信
+2. 影響範囲の即座評価
+3. 緊急パッチ適用判断
+4. テスト環境での検証
+5. 本番環境への適用
+6. 事後影響確認
+
+## 14. データガバナンス計画
+
+### 14.1 データ品質管理
+
+#### 14.1.1 スクレイピングデータの検証ルール
+```python
+# データ検証ルール例
+class DataValidationRules:
+    def validate_race_data(self, race_data):
+        """レースデータの検証"""
+        rules = [
+            self.check_race_id_format,      # YYYYMMDDHHRR形式
+            self.check_horse_count,         # 出走頭数の妥当性
+            self.check_odds_range,          # オッズの範囲チェック
+            self.check_date_consistency,    # 日付の整合性
+            self.check_venue_validity,      # 競馬場コードの妥当性
+        ]
+        
+        for rule in rules:
+            if not rule(race_data):
+                raise DataValidationError(f"Validation failed: {rule.__name__}")
+    
+    def check_race_id_format(self, data):
+        """レースID形式チェック"""
+        pattern = r'^\d{12}$'  # YYYYMMDDHHRR
+        return re.match(pattern, data.get('race_id', ''))
+    
+    def check_horse_count(self, data):
+        """出走頭数チェック"""
+        horse_count = len(data.get('horses', []))
+        return 2 <= horse_count <= 18  # 競馬の出走頭数範囲
+```
+
+#### 14.1.2 データ整合性チェック
+- **参照整合性**: 外部キー制約の確認
+- **論理整合性**: ビジネスルールに基づく整合性
+- **時系列整合性**: 時間軸での論理的整合性
+- **統計的整合性**: 統計的に異常な値の検出
+
+#### 14.1.3 異常値検出の自動化
+```python
+# 異常値検出システム
+class AnomalyDetector:
+    def __init__(self):
+        self.models = {
+            'odds_anomaly': IsolationForest(),
+            'time_anomaly': LocalOutlierFactor(),
+            'statistical_anomaly': OneClassSVM()
+        }
+    
+    def detect_odds_anomaly(self, odds_data):
+        """オッズ異常値検出"""
+        # 過去データとの比較による異常検出
+        
+    def detect_scraping_anomaly(self, scraped_data):
+        """スクレイピングデータ異常検出"""
+        # データ量、形式、内容の異常検出
+```
+
+### 14.2 個人情報保護
+
+#### 14.2.1 騎手・調教師名の取り扱い
+- **データ分類**: 公開情報として分類
+- **匿名化**: 分析用途での仮名化オプション
+- **アクセス制御**: 必要最小限のアクセス権限
+- **保存期間**: 競馬法に基づく保存期間遵守
+
+#### 14.2.2 GDPRコンプライアンス
+```yaml
+# GDPR対応チェックリスト
+gdpr_compliance:
+  data_mapping:
+    - personal_data_inventory: "完了"
+    - processing_purposes: "文書化済み"
+    - legal_basis: "正当利益に基づく"
+  
+  rights_management:
+    - access_right: "API実装済み"
+    - rectification_right: "修正機能実装済み"
+    - erasure_right: "削除機能実装済み"
+    - portability_right: "エクスポート機能実装済み"
+  
+  security_measures:
+    - encryption_at_rest: "AES-256"
+    - encryption_in_transit: "TLS 1.3"
+    - access_logging: "全アクセス記録"
+    - regular_audits: "四半期実施"
+```
+
+#### 14.2.3 データ保持期間の設定
+| データ種別 | 保持期間 | 削除方法 | 根拠 |
+|------------|----------|----------|------|
+| レース結果 | 永続 | - | 公開情報 |
+| ユーザー行動ログ | 2年 | 自動削除 | プライバシー保護 |
+| エラーログ | 1年 | 自動削除 | 運用要件 |
+| 個人設定 | アカウント削除まで | 手動削除 | ユーザー権利 |
+
+## 15. 障害対応計画の具体化
+
+### 15.1 インシデント対応フロー
+
+```mermaid
+graph TD
+    A[障害検知] --> B{重要度判定}
+    B -->|Critical| C[15分以内初期対応]
+    B -->|High| D[1時間以内初期対応]
+    B -->|Medium| E[4時間以内初期対応]
+    B -->|Low| F[24時間以内対応]
+    
+    C --> G[緊急対応チーム招集]
+    D --> G
+    E --> H[通常対応チーム対応]
+    F --> H
+    
+    G --> I[影響範囲特定]
+    H --> I
+    I --> J[復旧作業実施]
+    J --> K[復旧確認]
+    K --> L[事後分析]
+    L --> M[改善策実装]
+```
+
+#### 15.1.1 検知（監視アラート）
+**自動検知システム:**
+```yaml
+# Prometheus アラートルール
+groups:
+  - name: keiba_critical_alerts
+    rules:
+      - alert: APIResponseTimeHigh
+        expr: histogram_quantile(0.95, http_request_duration_seconds_bucket) > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API response time is too high"
+      
+      - alert: DatabaseConnectionFailed
+        expr: up{job="postgresql"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failed"
+      
+      - alert: ScrapingJobFailed
+        expr: increase(scraping_job_failures_total[5m]) > 3
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Multiple scraping job failures detected"
+```
+
+#### 15.1.2 初期対応（15分以内）
+**Critical障害の初期対応手順:**
+1. **即座確認** (2分以内)
+   - 監視ダッシュボードでの状況確認
+   - 影響範囲の初期評価
+   - ユーザー影響の確認
+
+2. **緊急連絡** (5分以内)
+   - オンコール担当者への自動通知
+   - エスカレーション先への連絡
+   - ステークホルダーへの第一報
+
+3. **初期対応** (15分以内)
+   - 緊急回避策の実施
+   - ログ・メトリクスの収集
+   - 復旧作業の開始
+
+#### 15.1.3 影響範囲の特定
+**影響範囲評価マトリクス:**
+| 機能 | ユーザー影響 | ビジネス影響 | 技術的影響 |
+|------|-------------|-------------|------------|
+| 期待値計算 | 高 | 高 | 中 |
+| レース検索 | 中 | 中 | 低 |
+| 3D可視化 | 低 | 低 | 高 |
+| データ同期 | 中 | 高 | 高 |
+
+#### 15.1.4 復旧作業
+**復旧作業優先順位:**
+1. **データ整合性確保**: データ破損の防止・修復
+2. **コア機能復旧**: 期待値計算・レース分析機能
+3. **周辺機能復旧**: 可視化・レポート機能
+4. **パフォーマンス最適化**: 性能問題の解決
+
+#### 15.1.5 事後分析（ポストモーテム）
+```markdown
+# ポストモーテムテンプレート
+
+## インシデント概要
+- **発生日時**: YYYY-MM-DD HH:MM:SS
+- **検知日時**: YYYY-MM-DD HH:MM:SS
+- **復旧日時**: YYYY-MM-DD HH:MM:SS
+- **影響時間**: X時間Y分
+- **影響範囲**: 具体的な影響内容
+
+## 根本原因分析
+### 直接原因
+- 何が直接的に障害を引き起こしたか
+
+### 根本原因
+- なぜその直接原因が発生したか（5 Whys分析）
+
+## タイムライン
+| 時刻 | 出来事 | 対応者 |
+|------|--------|--------|
+| HH:MM | 障害発生 | - |
+| HH:MM | 検知 | 監視システム |
+| HH:MM | 初期対応開始 | 担当者A |
+
+## 改善アクション
+| アクション | 担当者 | 期限 | 優先度 |
+|------------|--------|------|--------|
+| 監視強化 | インフラチーム | 1週間 | High |
+| 手順改善 | 運用チーム | 2週間 | Medium |
+
+## 学んだ教訓
+- 今回のインシデントから得られた知見
+- 今後の予防策
+```
+
+### 15.2 障害レベル定義と対応時間
+
+| レベル | 定義 | 対応時間 | エスカレーション |
+|--------|------|----------|------------------|
+| Critical | サービス全停止、データ損失 | 15分以内 | 即座にCTO/CEO |
+| High | 主要機能停止、大幅性能劣化 | 1時間以内 | 30分後にマネージャー |
+| Medium | 一部機能停止、軽微な性能劣化 | 4時間以内 | 2時間後にリーダー |
+| Low | 軽微な不具合、将来的リスク | 24時間以内 | 定期報告 |
+
+## 16. パフォーマンステスト計画
+
+### 16.1 負荷テストシナリオ
+
+#### 16.1.1 同時接続数テスト
+**基本シナリオ:**
+- **通常時**: 10ユーザー同時接続
+- **ピーク時**: 50ユーザー同時接続（レース開催日）
+- **極限テスト**: 100ユーザー同時接続
+
+**テストパターン:**
+```python
+# Locustテストシナリオ例
+from locust import HttpUser, task, between
+
+class KeibaUser(HttpUser):
+    wait_time = between(1, 3)
+    
+    def on_start(self):
+        """テスト開始時の初期化"""
+        self.login()
+    
+    @task(3)
+    def view_race_list(self):
+        """レース一覧表示（高頻度）"""
+        self.client.get("/api/v1/races/today")
+    
+    @task(2)
+    def calculate_expected_value(self):
+        """期待値計算（中頻度）"""
+        race_id = "202501050111"
+        self.client.get(f"/api/v1/races/{race_id}/expected-values")
+    
+    @task(1)
+    def view_3d_visualization(self):
+        """3D可視化（低頻度）"""
+        race_id = "202501050111"
+        self.client.get(f"/api/v1/races/{race_id}/3d-data")
+    
+    def login(self):
+        """ログイン処理"""
+        self.client.post("/api/v1/auth/login", json={
+            "username": "test_user",
+            "password": "test_password"
+        })
+```
+
+#### 16.1.2 レース開催日のピークトラフィック想定
+**ピーク時間帯の特徴:**
+- **12:00-15:00**: 昼間レースの分析需要
+- **15:30-16:30**: メインレース前の集中アクセス
+- **土日**: 平日の3-5倍のトラフィック
+
+**負荷パターン:**
+```yaml
+# 負荷テスト設定
+load_test_scenarios:
+  normal_day:
+    users: 10
+    spawn_rate: 1
+    duration: "30m"
+  
+  race_day_peak:
+    users: 50
+    spawn_rate: 5
+    duration: "1h"
+    ramp_up: "10m"
+    steady_state: "40m"
+    ramp_down: "10m"
+  
+  stress_test:
+    users: 100
+    spawn_rate: 10
+    duration: "15m"
+    failure_threshold: "5%"
+```
+
+#### 16.1.3 スクレイピング処理の並列実行限界
+**スクレイピング負荷テスト:**
+- **同時スクレイピング数**: 1, 3, 5, 10スレッド
+- **対象サイト**: 競馬ブック、JRA公式
+- **データ量**: 1日分、1週間分、1ヶ月分
+- **エラー率**: 5%以下を維持
+
+**並列処理制限:**
+```python
+# スクレイピング並列制御
+import asyncio
+import aiohttp
+from asyncio import Semaphore
+
+class ScrapingLoadTest:
+    def __init__(self, max_concurrent=5):
+        self.semaphore = Semaphore(max_concurrent)
+        self.session = None
+    
+    async def scrape_with_limit(self, url):
+        """制限付きスクレイピング"""
+        async with self.semaphore:
+            async with self.session.get(url) as response:
+                return await response.text()
+    
+    async def load_test_scraping(self, urls):
+        """スクレイピング負荷テスト"""
+        async with aiohttp.ClientSession() as session:
+            self.session = session
+            tasks = [self.scrape_with_limit(url) for url in urls]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # エラー率計算
+            errors = sum(1 for r in results if isinstance(r, Exception))
+            error_rate = errors / len(results)
+            
+            return {
+                "total_requests": len(results),
+                "errors": errors,
+                "error_rate": error_rate,
+                "success_rate": 1 - error_rate
+            }
+```
+
+### 16.2 パフォーマンス目標値
+
+| 項目 | 目標値 | 測定方法 |
+|------|--------|----------|
+| API応答時間 | 95%ile < 200ms | Prometheus監視 |
+| ページロード時間 | < 2秒 | Lighthouse測定 |
+| 3D描画フレームレート | > 30fps | ブラウザ開発者ツール |
+| データベースクエリ | < 100ms | APM監視 |
+| スクレイピング成功率 | > 95% | ログ分析 |
+| 同時ユーザー処理 | 50ユーザー | 負荷テスト |
+
+### 16.3 パフォーマンス監視・改善
+
+#### 16.3.1 継続的パフォーマンス監視
+```yaml
+# パフォーマンス監視設定
+monitoring:
+  metrics:
+    - name: "api_response_time"
+      threshold: "200ms"
+      alert_condition: "95th_percentile > threshold"
+    
+    - name: "database_query_time"
+      threshold: "100ms"
+      alert_condition: "average > threshold"
+    
+    - name: "memory_usage"
+      threshold: "80%"
+      alert_condition: "current > threshold"
+  
+  dashboards:
+    - name: "Performance Overview"
+      panels:
+        - "API Response Times"
+        - "Database Performance"
+        - "Memory & CPU Usage"
+        - "Error Rates"
+```
+
+#### 16.3.2 パフォーマンス改善計画
+**Phase 1: 基本最適化**
+- データベースインデックス最適化
+- APIレスポンスキャッシュ実装
+- 画像・静的ファイル最適化
+
+**Phase 2: 高度最適化**
+- CDN導入
+- データベース読み取りレプリカ
+- 非同期処理の最適化
+
+**Phase 3: スケーリング対応**
+- ロードバランサー導入
+- マイクロサービス分割
+- 自動スケーリング実装 
