@@ -498,7 +498,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r src/keibabook/requirements.txt
           pip install pytest pytest-cov
       - name: Run unit tests
         run: |

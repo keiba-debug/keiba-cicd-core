@@ -26,8 +26,12 @@ try:
 except ImportError:
     print("[WARNING] python-dotenvがインストールされていません。環境変数を手動で設定してください。")
 
-from src.keibabook.utils.config import Config
-from src.keibabook.utils.logger import setup_logger
+# Keibabookパッケージのパスを追加
+keibabook_src = project_root / "KeibaCICD.keibabook" / "src"
+sys.path.insert(0, str(keibabook_src))
+
+from utils.config import Config
+from utils.logger import setup_logger
 
 
 class ConfigManager:
