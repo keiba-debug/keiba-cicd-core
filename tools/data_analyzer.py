@@ -16,7 +16,11 @@ import sys
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.keibabook.utils.logger import setup_logger
+# Keibabookパッケージのパスを追加
+keibabook_src = project_root / "KeibaCICD.keibabook" / "src"
+sys.path.insert(0, str(keibabook_src))
+
+from utils.logger import setup_logger
 
 
 class DataAnalyzer:

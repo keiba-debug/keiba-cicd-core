@@ -2,25 +2,31 @@
 """
 競馬ブックスクレイピングシステム エントリーポイント
 
-このファイルは、src/keibabook/main.pyへの簡潔なエントリーポイントです。
+このファイルは、KeibaCICD.keibabook/src/keibabook/main.pyへの簡潔なエントリーポイントです。
 """
 
 import sys
 import subprocess
 from pathlib import Path
+import os
 
 def main():
     """
-    メイン処理をsrc/keibabook/main.pyに委譲する
+    メイン処理をKeibaCICD.keibabook/src/keibabook/main.pyに委譲する
     """
     # プロジェクトルート
     project_root = Path(__file__).parent
-    main_script = project_root / "src" / "keibabook" / "main.py"
+    keibabook_src = project_root / "KeibaCICD.keibabook" / "src"
+    main_script = keibabook_src / "main.py"
     
-    # 引数をそのまま渡してスクリプトを実行
+    # PYTHONPATHを設定
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(keibabook_src)
+    
+    # スクリプトとして実行
     try:
         result = subprocess.run([sys.executable, str(main_script)] + sys.argv[1:], 
-                               cwd=str(project_root))
+                               cwd=str(project_root), env=env)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
         print("\n[INFO] ユーザーによって中断されました")

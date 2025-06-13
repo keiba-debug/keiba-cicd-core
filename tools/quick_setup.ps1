@@ -16,7 +16,7 @@ try {
 # Install dependencies
 Write-Host "Installing dependencies..." -ForegroundColor Yellow
 try {
-    pip install -r requirements.txt
+    pip install -r src/keibabook/requirements.txt
     Write-Host "✓ Dependencies installed successfully" -ForegroundColor Green
 } catch {
     Write-Host "✗ Failed to install dependencies" -ForegroundColor Red
@@ -73,7 +73,7 @@ if ($testFiles) {
     Write-Host "Using test file: $($testFile.Name)" -ForegroundColor Cyan
     
     try {
-        $result = python main.py --mode parse_only --html-file $testFile.FullName --race-id test 2>&1
+        $result = python src/keibabook/main.py --mode parse_only --html-file $testFile.FullName --race-id test 2>&1
         if ($LASTEXITCODE -eq 0) {
             Write-Host "✓ Basic parsing test passed" -ForegroundColor Green
         } else {
@@ -90,12 +90,12 @@ if ($testFiles) {
 Write-Host "`n=== Setup Complete ===" -ForegroundColor Green
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "1. Edit .env file with your actual cookies from keibabook.co.jp" -ForegroundColor White
-Write-Host "2. Test with: python main.py --test" -ForegroundColor White
+Write-Host "2. Test with: python src/keibabook/main.py --test" -ForegroundColor White
 Write-Host "3. Run analysis with: python tools\data_analyzer.py" -ForegroundColor White
 Write-Host "4. For daily scraping: .\scripts\daily_scraping.ps1 -TestMode -DryRun" -ForegroundColor White
 
 Write-Host "`nAvailable commands:" -ForegroundColor Cyan
-Write-Host "• python main.py --help" -ForegroundColor White
+Write-Host "• python src/keibabook/main.py --help" -ForegroundColor White
 Write-Host "• python tools\data_analyzer.py --help" -ForegroundColor White
 Write-Host "• .\scripts\daily_scraping.ps1 -TestMode" -ForegroundColor White
 
