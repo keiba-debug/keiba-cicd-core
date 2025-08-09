@@ -427,7 +427,7 @@ python -m src.keibabook.fast_batch_cli full \
   --debug
 ```
 
-#### ディスク容量
+#### ディスク容量（保存先は `KEIBA_DATA_ROOT_DIR` 直下）
 - 1日分: 約50-100MB
 - 1週間分: 約350-700MB  
 - 1ヶ月分: 約1.5-3GB

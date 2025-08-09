@@ -24,12 +24,14 @@ wheels/
 # 環境変数
 .env
 .env.*
+KeibaCICD.keibabook/.env
+KeibaCICD.keibabook/.env.*
 
 # ログ
 logs/
 *.log
 
-# データ
+# データ（ルート直下の旧dataは無視。実データは KEIBA_DATA_ROOT_DIR を使う想定）
 data/
 
 # IDE

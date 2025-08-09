@@ -29,14 +29,15 @@ try:
 except ImportError:
     print("[WARNING] python-dotenvがインストールされていません。")
 
-from scrapers.keibabook_scraper import KeibabookScraper
-from scrapers.requests_scraper import RequestsScraper
-from parsers.seiseki_parser import SeisekiParser
-from parsers.syutuba_parser import SyutubaParser
-from parsers.cyokyo_parser import CyokyoParser
-from parsers.danwa_parser import DanwaParser
-from utils.config import Config
-from utils.logger import setup_logger
+from .scrapers.keibabook_scraper import KeibabookScraper
+from .scrapers.requests_scraper import RequestsScraper
+from .parsers.seiseki_parser import SeisekiParser
+from .parsers.syutuba_parser import SyutubaParser
+from .parsers.cyokyo_parser import CyokyoParser
+from .parsers.danwa_parser import DanwaParser
+from .utils.config import Config
+from .utils.logger import setup_logger
+from .batch.core.common import get_json_file_path, ensure_batch_directories
 # from batch_processor import BatchProcessor  # 存在しないファイル
 # from simple_batch import SimpleBatchProcessor  # 存在しないファイル
 
@@ -56,8 +57,9 @@ def scrape_and_parse(race_id: str, save_html: bool = True, use_requests: bool = 
     logger = setup_logger("main", level="INFO")
     
     try:
-        # 必要なディレクトリを作成
+        # 必要なディレクトリを作成（従来 + 新保存先）
         Config.ensure_directories()
+        ensure_batch_directories()
         
         logger.info(f"レースID {race_id} のデータ取得を開始します")
         
@@ -104,9 +106,9 @@ def scrape_and_parse(race_id: str, save_html: bool = True, use_requests: bool = 
             logger.error("抽出されたデータが不正です")
             return False
         
-        # ステップ3: 結果の保存
+        # ステップ3: 結果の保存（保存先を KEIBA_DATA_ROOT_DIR に統一）
         logger.info("=== 結果の保存 ===")
-        output_path = Config.get_seiseki_dir() / f"seiseki_{race_id}.json"
+        output_path = Path(get_json_file_path('seiseki', race_id))
         parser.save_json(data, str(output_path))
         
         # 統計情報を表示
@@ -143,8 +145,9 @@ def parse_only(html_file_path: str, race_id: str = None) -> bool:
     logger = setup_logger("main", level="INFO")
     
     try:
-        # 必要なディレクトリを作成
+        # 必要なディレクトリを作成（従来 + 新保存先）
         Config.ensure_directories()
+        ensure_batch_directories()
         
         # HTMLファイルの存在確認
         html_path = Path(html_file_path)
@@ -164,12 +167,8 @@ def parse_only(html_file_path: str, race_id: str = None) -> bool:
             return False
         
         # 結果の保存
-        if race_id:
-            output_filename = f"seiseki_{race_id}.json"
-        else:
-            output_filename = f"seiseki_{html_path.stem}.json"
-        
-        output_path = Config.get_seiseki_dir() / output_filename
+        identifier = race_id if race_id else html_path.stem
+        output_path = Path(get_json_file_path('seiseki', identifier))
         parser.save_json(data, str(output_path))
         
         # 統計情報を表示
@@ -286,8 +285,9 @@ def scrape_and_parse_multi_type(race_id: str, data_types: List[str],
     logger = setup_logger("multi_main", level="INFO")
     
     try:
-        # 必要なディレクトリを作成
+        # 必要なディレクトリを作成（従来 + 新保存先）
         Config.ensure_directories()
+        ensure_batch_directories()
         
         logger.info(f"🏇 複数データタイプ処理開始: レースID {race_id}")
         logger.info(f"📊 対象データタイプ: {', '.join(data_types)}")
@@ -351,25 +351,8 @@ def scrape_and_parse_multi_type(race_id: str, data_types: List[str],
                     results[data_type] = False
                     continue
                 
-                # 保存
-                if data_type == 'seiseki':
-                    output_path = Config.get_seiseki_dir() / f"seiseki_{race_id}.json"
-                elif data_type == 'syutuba':
-                    # 出馬表用ディレクトリ作成
-                    syutuba_dir = Config.get_data_dir() / "keibabook" / "syutuba"
-                    syutuba_dir.mkdir(parents=True, exist_ok=True)
-                    output_path = syutuba_dir / f"syutuba_{race_id}.json"
-                elif data_type == 'cyokyo':
-                    # 調教用ディレクトリ作成
-                    cyokyo_dir = Config.get_data_dir() / "keibabook" / "cyokyo"
-                    cyokyo_dir.mkdir(parents=True, exist_ok=True)
-                    output_path = cyokyo_dir / f"cyokyo_{race_id}.json"
-                elif data_type == 'danwa':
-                    # 厩舎の話用ディレクトリ作成
-                    danwa_dir = Config.get_data_dir() / "keibabook" / "danwa"
-                    danwa_dir.mkdir(parents=True, exist_ok=True)
-                    output_path = danwa_dir / f"danwa_{race_id}.json"
-                
+                # 保存（保存先を KEIBA_DATA_ROOT_DIR に統一）
+                output_path = Path(get_json_file_path(data_type, race_id))
                 parser.save_json(data, str(output_path))
                 
                 logger.info(f"✅ {data_type}: 保存完了 - {output_path}")
@@ -532,8 +515,8 @@ def test_config_loading() -> bool:
 def test_parsers_initialization() -> bool:
     """パーサー初期化テスト"""
     try:
-        from parsers.seiseki_parser import SeisekiParser
-        from parsers.syutuba_parser import SyutubaParser
+        from .parsers.seiseki_parser import SeisekiParser
+        from .parsers.syutuba_parser import SyutubaParser
         
         seiseki_parser = SeisekiParser(debug=True)
         syutuba_parser = SyutubaParser(debug=True)
@@ -560,7 +543,7 @@ def test_directory_creation() -> bool:
 def test_basic_functionality() -> bool:
     """基本機能チェック"""
     try:
-        from utils.logger import setup_logger
+        from .utils.logger import setup_logger
         test_logger = setup_logger("test", level="INFO")
         test_logger.info("基本機能テスト")
         return True

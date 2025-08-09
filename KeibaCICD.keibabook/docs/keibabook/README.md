@@ -35,7 +35,7 @@
 
 ## 🚀 クイックスタート
 
-### 1. 環境構築
+### 1. 環境構築（保存先は `KEIBA_DATA_ROOT_DIR`）
 ```bash
 # 依存関係インストール
 pip install -r requirements.txt
@@ -44,7 +44,7 @@ pip install -r requirements.txt
 python -m src.keibabook.batch_cli --help
 ```
 
-### 2. 基本的な使用方法
+### 2. 基本的な使用方法（JSONは `KEIBA_DATA_ROOT_DIR` 直下）
 ```bash
 # レース日程取得
 python -m src.keibabook.batch_cli schedule --start-date 2025/02/01
@@ -56,7 +56,7 @@ python -m src.keibabook.batch_cli data --start-date 2025/02/01 --data-types seis
 python -m src.keibabook.batch_cli full --start-date 2025/02/01
 ```
 
-### 3. 既存システムとの互換性
+### 3. 既存システムとの互換性（保存は `KEIBA_DATA_ROOT_DIR` 直下）
 ```bash
 # 従来のmain.pyも引き続き利用可能
 python src/keibabook/main.py --race-id 202502041211 --mode scrape_and_parse
@@ -165,10 +165,10 @@ python src/keibabook/main.py \
 
 ## ⚙️ 設定・カスタマイズ
 
-### 環境変数設定
+### 環境変数設定（統一保存）
 ```bash
 # .env ファイル
-KEIBA_DATA_DIR=/path/to/data           # データ保存先
+KEIBA_DATA_ROOT_DIR=/path/to/data      # データ保存先（直下に JSON を保存）
 KEIBABOOK_SESSION=session_value        # 認証情報
 KEIBABOOK_TK=tk_value                  # 認証トークン
 LOG_LEVEL=INFO                         # ログレベル

@@ -9,28 +9,55 @@
 - **リソース使用量削減**: Selenium不使用でメモリ・CPU使用量を大幅削減
 - **安定性向上**: HTTP直接通信による高い安定性
 
-## 🔥 推奨使用方法
+## 🔥 推奨使用方法（統合CLI）
 
-### 基本的なバッチ処理（最も簡単）
+まず作業ディレクトリを移動します。
+
 ```bash
-# 指定日のデータを取得
-python batch_process.py --start-date 2025/6/14 --end-date 2025/6/15 --data-types shutsuba,seiseki,cyokyo --delay 3 --wait-time 5
-
-# 単一日のデータを取得
-python batch_process.py --start-date 2025/6/14 --data-types seiseki --delay 2
-
-# 短縮形式での日付指定
-python batch_process.py --start-date 25/6/14 --data-types seiseki
+cd KeibaCICD.keibabook
 ```
 
-### 単一レース処理
+### 基本的な実行例（従来版CLI）
 ```bash
-# 特定レースの成績データを取得
-python main.py --race-id 202502041211 --mode scrape_and_parse --use-requests
+# レース日程の取得
+python -m src.batch_cli schedule --start-date 2025/06/14
 
-# 複数データタイプを同時取得
-python main.py --race-id 202502041211 --mode multi_type --data-types seiseki,syutuba,cyokyo --use-requests
+# レースデータの取得（成績のみ）
+python -m src.batch_cli data --start-date 2025/06/14 --data-types seiseki
+
+# 日程→データの一括実行
+python -m src.batch_cli full --start-date 2025/06/14
 ```
+
+### 高速版（実験的）
+```bash
+# 高速日程取得
+python -m src.fast_batch_cli schedule --start-date 2025/06/14 --delay 0.5
+
+# 高速データ取得（並列）
+python -m src.fast_batch_cli data --start-date 2025/06/14 --data-types seiseki,shutsuba --delay 0.5
+```
+
+### Windows PowerShell 実行例
+```powershell
+# 作業ディレクトリへ移動
+Set-Location KeibaCICD.keibabook
+
+# 環境変数（例）
+$env:KEIBA_DATA_ROOT_DIR = "C:\\keiba_data"
+$env:LOG_LEVEL = "INFO"
+
+# 従来版CLI
+python -m src.batch_cli full --start-date 2025/06/14
+
+# 高速版CLI（実験）
+python -m src.fast_batch_cli data --start-date 2025/06/14 --data-types seiseki --delay 0.5 --max-workers 8
+```
+
+### WSL の注意点
+- `.env` は必ず `KeibaCICD.keibabook/.env` に配置してください
+- `KEIBA_DATA_ROOT_DIR` は WSL 上のパス（例: `/mnt/c/keiba_data`）で指定してください
+- Windows 側の PowerShell で実行する場合は `C:\keiba_data` のように Windows パスで指定してください
 
 ### 高速スクリプト（上級者向け）
 ```bash
@@ -50,95 +77,31 @@ python main.py --race-id 202502041211 --mode multi_type --data-types seiseki,syu
 | **並列処理** | 困難 | **最大22並列対応** | **大幅改善** |
 | **安定性** | 中（ブラウザ依存） | **高（HTTP直接）** | **向上** |
 
-## スクリプトの概要
+## スクリプトの概要（現行）
+- 統合CLI（従来版）: `src/keibabook/batch_cli.py`
+- 統合CLI（高速版）: `src/keibabook/fast_batch_cli.py`
+- 単体レースエントリーポイント（互換）: `src/keibabook/main.py`
 
-### batch_process.py
+## 使用方法（まとめ）
 
-日付範囲を指定して、レースID取得からデータ取得までを自動で実行するスクリプトです。
-
-```bash
-python batch_process.py --start-date 2025/6/7 --end-date 2025/6/8 --data-types shutsuba,seiseki,cyokyo --delay 3 --wait-time 5
-```
-
-- `--start-date`: 取得開始日 (YYYY/MM/DD or YY/MM/DD)
-- `--end-date`: 取得終了日 (YYYY/MM/DD or YY/MM/DD、省略時は開始日と同じ)
-- `--data-types`: 取得するデータタイプ (カンマ区切り) [shutsuba,seiseki,cyokyo]
-- `--delay`: リクエスト間の待機時間(秒)
-- `--wait-time`: レースID取得とデータ取得の間の待機時間(秒)
-
-このスクリプトは以下の処理を順番に実行します：
-1. `fetch_race_schedule.py` を使用して、指定期間の日程情報とレースIDを取得
-2. 待機時間を挟んで
-3. `fetch_race_ids.py` を使用して、取得したレースIDを元に各種データを取得
-
-### fetch_race_schedule.py
-
-競馬ブックのサイトから日程情報とレースIDを取得して保存するスクリプトです。
-
-```bash
-python fetch_race_schedule.py --start-date 2025/6/7 --end-date 2025/6/8 --delay 3
-```
-
-- `--start-date`: 取得開始日 (YYYY/MM/DD or YY/MM/DD)
-- `--end-date`: 取得終了日 (YYYY/MM/DD or YY/MM/DD、省略時は開始日と同じ)
-- `--delay`: リクエスト間の待機時間(秒)
-
-### fetch_race_ids.py
-
-競馬ブックから取得したレースID情報を利用して、各種データを取得するスクリプトです。
-
-```bash
-python fetch_race_ids.py --start-date 2025/6/7 --end-date 2025/6/8 --data-types shutsuba,seiseki,cyokyo --delay 3
-```
-
-- `--start-date`: 取得開始日 (YYYY/MM/DD or YY/MM/DD)
-- `--end-date`: 取得終了日 (YYYY/MM/DD or YY/MM/DD、省略時は開始日と同じ)
-- `--data-types`: 取得するデータタイプ (カンマ区切り) [shutsuba,seiseki,cyokyo]
-- `--delay`: リクエスト間の待機時間(秒)
-
-## 使用方法
-
-### 自動処理（推奨）
-
-1. `batch_process.py` を実行して、レースID取得からデータ取得までを一括で行います
-
-```bash
-python batch_process.py --start-date 2025/6/7 --end-date 2025/6/8
-```
-
-### 個別処理
-
-1. 最初に `fetch_race_schedule.py` を実行して、指定期間の日程情報とレースIDを取得します
-2. 次に `fetch_race_ids.py` を実行して、取得したレースIDを使って実際のレースデータを取得します
+1. `cd KeibaCICD.keibabook`
+2. 統合CLI（従来版）を実行
+   - `python -m src.batch_cli full --start-date 2025/06/14`
+3. 高速版が必要なら
+   - `python -m src.fast_batch_cli full --start-date 2025/06/14 --delay 0.5`
 
 ## 環境変数の設定
 
-データの保存先ディレクトリは環境変数 `KEIBA_DATA_DIR` で指定できます。設定されていない場合は、カレントディレクトリがデフォルトとして使用されます。
+- 保存先ディレクトリは環境変数 `KEIBA_DATA_ROOT_DIR` で指定します。
+- `.env` は `KeibaCICD.keibabook/.env` に配置します。
 
-### .envファイルによる設定
-
-プロジェクトディレクトリに `.env` ファイルを作成することで、環境変数を簡単に設定できます。このファイルは自動的に読み込まれます。
-
+### .envファイル例（KeibaCICD.keibabook/.env）
 ```
-# .envファイルの例
-KEIBA_DATA_DIR=/path/to/data/directory
-```
-
-### 直接設定する方法
-
-#### Windows (PowerShell)
-```powershell
-$env:KEIBA_DATA_DIR = "C:\path\to\data\directory"
-```
-
-#### Windows (コマンドプロンプト)
-```
-set KEIBA_DATA_DIR=C:\path\to\data\directory
-```
-
-#### Linux/macOS
-```
-export KEIBA_DATA_DIR=/path/to/data/directory
+KEIBA_DATA_ROOT_DIR=/path/to/data
+LOG_LEVEL=INFO
+KEIBABOOK_SESSION=...
+KEIBABOOK_TK=...
+KEIBABOOK_XSRF_TOKEN=...
 ```
 
 ## データ構造
@@ -158,14 +121,13 @@ export KEIBA_DATA_DIR=/path/to/data/directory
 
 ## 保存先ディレクトリ
 
-以下は `KEIBA_DATA_DIR` からの相対パスです：
+すべてのJSONは `KEIBA_DATA_ROOT_DIR` 直下に保存されます。
 
-- 日程情報: `data/keibabook/schedule/{日付}_schedule.json`
-- レースID情報: `data/keibabook/race_ids/{日付}_info.json`
-- 出馬表データ: `data/keibabook/syutuba/syutuba_{レースID}.json`
-- 成績データ: `data/keibabook/seiseki/seiseki_{レースID}.json`
-- 調教データ: `data/keibabook/cyokyo/cyokyo_{レースID}.json`
-- デバッグHTML: `data/debug/seiseki_{レースID}_scraped.html`
+- レース日程: `nittei_YYYYMMDD.json`
+- レースID情報: `race_ids/YYYYMMDD_info.json`
+- 出馬表: `shutsuba_{race_id}.json`
+- 成績: `seiseki_{race_id}.json`
+- 調教: `cyokyo_{race_id}.json`
 
 ## 必要なライブラリ
 
@@ -192,18 +154,17 @@ pip install -r KeibaCICD.keibabook/src/requirements.txt
 ```
 KEIBABOOK_TK=your_token
 KEIBABOOK_XSRF_TOKEN=your_xsrf_token
-KEIBA_DATA_DIR=Y:\KEIBA-CICD\data
+KEIBA_DATA_DIR=Z:\KEIBA-CICD\data
 ```
 
-## 🧪 テスト & 動作確認
-
-### システムテスト
+## 🧪 テスト & 動作確認（互換エントリーポイント）
 ```bash
-# 基本動作テスト
-python main.py --test
+# 基本動作テスト（KeibaCICD.keibabook 配下）
+cd KeibaCICD.keibabook
+python src/keibabook/main.py --test
 
-# 特定レースでの動作確認（推奨）
-python main.py --race-id 202502041211 --mode scrape_and_parse --use-requests
+# 特定レースでの動作確認
+python src/keibabook/main.py --race-id 202502041211 --mode scrape_and_parse --use-requests
 ```
 
 ### 実行例と出力

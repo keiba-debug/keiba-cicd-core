@@ -9,8 +9,8 @@ import requests
 from typing import Dict, List, Optional
 from pathlib import Path
 
-from utils.config import Config
-from utils.logger import setup_logger
+from ..utils.config import Config
+from ..utils.logger import setup_logger
 
 
 class RequestsScraper:

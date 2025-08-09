@@ -9,8 +9,8 @@ from typing import Any, Dict, List
 
 from bs4 import BeautifulSoup
 
-from parsers.base_parser import BaseParser
-from utils.config import Config
+from .base_parser import BaseParser
+from ..utils.config import Config
 
 
 class SeisekiParser(BaseParser):

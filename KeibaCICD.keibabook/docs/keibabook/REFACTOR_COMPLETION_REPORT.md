@@ -77,18 +77,17 @@
 
 ## 🗂 最終システム構成
 
-### ディレクトリ構造
+### ディレクトリ構造（統一保存: `KEIBA_DATA_ROOT_DIR` 直下）
 ```
-keiba-cicd-core/
-├── data/
-│   └── keibabook/                  # 📊 すべてのJSONファイル
-│       ├── race_ids/               # レースID情報
-│       ├── nittei_YYYYMMDD.json    # 日程JSON
-│       ├── seiseki_{race_id}.json  # 成績JSON
-│       ├── shutsuba_{race_id}.json # 出馬表JSON
-│       ├── cyokyo_{race_id}.json   # 調教JSON
-│       └── danwa_{race_id}.json    # 厩舎の話JSON
-├── src/keibabook/
+$KEIBA_DATA_ROOT_DIR/
+├── race_ids/               # レースID情報
+├── nittei_YYYYMMDD.json    # 日程JSON
+├── seiseki_{race_id}.json  # 成績JSON
+├── shutsuba_{race_id}.json # 出馬表JSON
+├── cyokyo_{race_id}.json   # 調教JSON
+└── danwa_{race_id}.json    # 厩舎の話JSON
+
+src/keibabook/
 │   ├── batch/
 │   │   ├── batch_cli.py           # メインCLI
 │   │   ├── data_fetcher.py        # データ取得（簡素化）
@@ -124,9 +123,9 @@ python -m src.keibabook.batch_cli data --start-date 2025/1/7 --data-types seisek
 ./scripts/daily_scraping.sh 20250107
 ```
 
-### 出力ファイル例
+### 出力ファイル例（`KEIBA_DATA_ROOT_DIR` 直下）
 ```
-data/keibabook/
+$KEIBA_DATA_ROOT_DIR/
 ├── nittei_20250107.json
 ├── seiseki_202501070511.json
 ├── shutsuba_202501070511.json

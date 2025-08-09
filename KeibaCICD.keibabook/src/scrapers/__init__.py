@@ -4,10 +4,10 @@
 競馬ブックのデータを取得するスクレイパークラスを提供します。
 """
 
-from scrapers.base_scraper import BaseScraper
-from scrapers.keibabook_scraper import KeibabookScraper
-from scrapers.requests_scraper import RequestsScraper
-from scrapers.legacy_scrapers import (
+from .base_scraper import BaseScraper
+from .keibabook_scraper import KeibabookScraper
+from .requests_scraper import RequestsScraper
+from .legacy_scrapers import (
     DanwaScraper, SyutubaScraper, DanwaTableScraper, 
     CyokyoSemekaisetuScraper, RaceIdExtractor,
     DanwaData, SyutubaHorseData, DanwaTableHorseData, CyokyoSemekaisetuData

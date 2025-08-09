@@ -79,8 +79,8 @@ EOF
 # 競馬ブックサイトで開催日程を確認
 # https://p.keibabook.co.jp/cyuou/nittei/
 
-# 実際の開催日で再実行
-python src/keibabook/batch_process.py --start-date 2024/12/28  # 実際の開催日
+# 実際の開催日で再実行（統合CLI）
+python -m src.batch_cli full --start-date 2024/12/28
 ```
 
 ##### 2. ログファイルで詳細確認
@@ -93,13 +93,13 @@ grep "ERROR" logs/fetch_data_*.log
 tail -f logs/fetch_data_*.log
 ```
 
-##### 3. 段階的なテスト
+##### 3. 段階的なテスト（統合CLI）
 ```bash
-# 1日分のみでテスト
-python src/keibabook/batch_process.py --start-date 2024/12/28 --data-types seiseki
+# 1日分のみでテスト（成績のみ）
+python -m src.batch_cli data --start-date 2024/12/28 --data-types seiseki
 
 # 成功したら他のデータタイプも試行
-python src/keibabook/batch_process.py --start-date 2024/12/28 --data-types shutsuba,cyokyo
+python -m src.batch_cli data --start-date 2024/12/28 --data-types shutsuba,cyokyo
 ```
 
 #### 問題: タイムアウトエラー
@@ -114,13 +114,13 @@ python src/keibabook/batch_process.py --start-date 2024/12/28 --data-types shuts
 
 **解決方法**:
 
-##### リクエスト間隔を延長
+##### リクエスト間隔を延長（統合CLI）
 ```bash
 # 間隔を5秒に延長
-python src/keibabook/batch_process.py --start-date 2025/6/7 --delay 5
+python -m src.batch_cli full --start-date 2025/6/7 --delay 5
 
 # さらに長い間隔（10秒）
-python src/keibabook/batch_process.py --start-date 2025/6/7 --delay 10
+python -m src.batch_cli full --start-date 2025/6/7 --delay 10
 ```
 
 ##### ネットワーク接続確認
@@ -437,20 +437,37 @@ nslookup p.keibabook.co.jp
 curl -I https://p.keibabook.co.jp/
 ```
 
-### ファイル・ディレクトリ確認
+### ファイル・ディレクトリ確認（`KEIBA_DATA_ROOT_DIR` 直下）
 ```bash
 # プロジェクト構造確認
 tree -L 3  # Linux/Mac
 Get-ChildItem -Recurse -Depth 2  # Windows PowerShell
 
 # データディレクトリ確認
-ls -la data/keibabook/
+ls -la "$KEIBA_DATA_ROOT_DIR"/
 ls -la logs/
 
 # ファイルサイズ確認
 du -sh data/  # Linux/Mac
 Get-ChildItem data/ -Recurse | Measure-Object -Property Length -Sum  # Windows PowerShell
 ```
+
+### Windows PowerShell 例（診断）
+```powershell
+# 作業ディレクトリへ移動
+Set-Location KeibaCICD.keibabook
+
+# 環境変数確認
+echo $env:KEIBA_DATA_ROOT_DIR
+
+# JSON保存先の確認
+Get-ChildItem -Force $env:KEIBA_DATA_ROOT_DIR
+Get-ChildItem -Force (Join-Path $env:KEIBA_DATA_ROOT_DIR 'race_ids')
+```
+
+### WSL の注意
+- `.env` は必ず `KeibaCICD.keibabook/.env` に配置
+- `KEIBA_DATA_ROOT_DIR` は `/mnt/c/...` などのLinuxパスで指定
 
 ---
 

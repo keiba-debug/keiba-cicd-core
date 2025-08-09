@@ -22,12 +22,8 @@ load_dotenv()
 try:
     from ...utils.config import Config
 except ImportError:
-    # 相対インポートを試す
-    try:
-        from utils.config import Config
-    except ImportError:
-        # Configクラスが利用できない場合のダミー実装
-        class Config:
+    # フォールバックのダミー実装（実行時は使われない想定）
+    class Config:
             @classmethod
             def get_required_cookies(cls):
                 return [
@@ -90,13 +86,13 @@ def setup_batch_logger(name: str, log_level: str = "INFO", log_file: Optional[st
     Returns:
         logging.Logger: 設定されたロガー
     """
-    # 環境変数からログディレクトリを取得
-    log_dir = os.environ.get('KEIBA_LOG_DIR')
-    if log_dir:
-        logs_dir = Path(log_dir)
-    else:
-        # 環境変数が設定されていない場合はデフォルト
-        base_dir = Path(os.environ.get('KEIBA_DATA_DIR', '.'))
+    # ログディレクトリを取得（Config 経由で KEIBA_DATA_ROOT_DIR などに従う）
+    try:
+        logs_dir = Path(Config.get_log_dir())
+    except Exception:
+        # フォールバック（環境変数未設定時も含む）
+        base_dir = Path(os.environ.get('KEIBA_DATA_ROOT_DIR') or 
+                        os.environ.get('KEIBA_DATA_DIR') or '.')
         logs_dir = base_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     
@@ -142,20 +138,19 @@ def get_base_directories() -> Dict[str, str]:
     Returns:
         Dict[str, str]: ディレクトリパスの辞書
     """
-    # 環境変数からkeibabook用ディレクトリを取得
-    keibabook_dir = os.environ.get('KEIBA_KEIBABOOK_DIR')
-    if keibabook_dir:
-        base_dir = Path(keibabook_dir)
-    else:
-        # 環境変数が設定されていない場合はデフォルト
-        base_dir = Path("data/keibabook")
+    # 保存ルートは KEIBA_DATA_ROOT_DIR に統一（Config 経由）
+    try:
+        base_dir = Path(Config.get_data_root_dir())
+    except Exception:
+        # フォールバック
+        base_dir = Path(os.environ.get('KEIBA_DATA_ROOT_DIR') or 'data')
     
     return {
         # レースID保存用
         'race_ids': str(base_dir / "race_ids"),
         
         # JSON保存用（すべて同一フォルダ）
-        'json_base': str(base_dir),  # 環境変数で指定されたディレクトリ直下
+        'json_base': str(base_dir),  # ルート直下
     }
 
 

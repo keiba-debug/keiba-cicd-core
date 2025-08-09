@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential
 from pydantic import BaseModel
 
-from utils.logger import setup_logger
+from ..utils.logger import setup_logger
 
 logger = setup_logger("legacy_scrapers")
 

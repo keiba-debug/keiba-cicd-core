@@ -8,7 +8,7 @@
 **バージョン**: v2.3（高速版対応）  
 **対象ドメイン**: `p.keibabook.co.jp`  
 **出力形式**: JSON専用（HTMLファイルは保存しません）  
-**保存方式**: 同一フォルダ保存（data/keibabook/直下）  
+**保存方式**: 同一フォルダ保存（`KEIBA_DATA_ROOT_DIR` 直下）  
 **新機能**: 🚀 RequestsScraperによる高速化（10-20倍高速）
 
 ---
@@ -50,22 +50,17 @@
 ## 🗃 ディレクトリ構造（同一フォルダ保存）
 
 ```
-keiba-cicd-core/
-├── data/
-│   └── keibabook/                  # 📊 すべてのJSONファイル（同一フォルダ）
-│       ├── race_ids/               # レースID情報
-│       │   └── YYYYMMDD_info.json
-│       ├── nittei_YYYYMMDD.json    # 日程JSON
-│       ├── seiseki_{race_id}.json  # 成績JSON
-│       ├── shutsuba_{race_id}.json # 出馬表JSON
-│       ├── cyokyo_{race_id}.json   # 調教JSON
-│       └── danwa_{race_id}.json    # 厩舎の話JSON
-└── logs/                           # ログファイル
-    ├── batch_cli_*.log
-    └── data_fetcher_*.log
+$KEIBA_DATA_ROOT_DIR/
+├── race_ids/               # レースID情報
+│   └── YYYYMMDD_info.json
+├── nittei_YYYYMMDD.json    # 日程JSON
+├── seiseki_{race_id}.json  # 成績JSON
+├── shutsuba_{race_id}.json # 出馬表JSON
+├── cyokyo_{race_id}.json   # 調教JSON
+└── danwa_{race_id}.json    # 厩舎の話JSON
 ```
 
-**注意**: v2.2では全JSONファイルが `data/keibabook/` 直下に保存されます。サブディレクトリは使用しません。
+注記: 全JSONファイルは `KEIBA_DATA_ROOT_DIR` 直下に保存します（サブディレクトリ未使用）。
 
 ---
 
@@ -199,7 +194,7 @@ python -m src.keibabook.batch_cli full --start-date 2025/1/7 --debug
 - **形式**: JSON
 - **エンコーディング**: UTF-8
 - **命名規則**: `seiseki_YYYYMMDDHHMM.json`
-- **保存場所**: `data/keibabook/`
+- **保存場所**: `$KEIBA_DATA_ROOT_DIR/`
 
 #### データ構造
 ```json
@@ -268,7 +263,7 @@ python -m src.keibabook.batch_cli full --start-date 2025/1/7 --debug
 ### 2. 出馬表データ (shutsuba)
 
 #### ファイル形式
-- **保存場所**: `data/keibabook/`
+- **保存場所**: `$KEIBA_DATA_ROOT_DIR/`
 - **命名規則**: `shutsuba_YYYYMMDDHHMM.json`
 
 #### データ構造
@@ -301,7 +296,7 @@ python -m src.keibabook.batch_cli full --start-date 2025/1/7 --debug
 ### 3. 調教データ (cyokyo)
 
 #### ファイル形式
-- **保存場所**: `data/keibabook/`
+- **保存場所**: `$KEIBA_DATA_ROOT_DIR/`
 - **命名規則**: `cyokyo_YYYYMMDDHHMM.json`
 
 #### データ構造
@@ -328,7 +323,7 @@ python -m src.keibabook.batch_cli full --start-date 2025/1/7 --debug
 ### 4. 厩舎の話データ (danwa)
 
 #### ファイル形式
-- **保存場所**: `data/keibabook/`
+- **保存場所**: `$KEIBA_DATA_ROOT_DIR/`
 - **命名規則**: `danwa_YYYYMMDDHHMM.json`
 
 #### データ構造
@@ -551,8 +546,8 @@ for file_path in sorted(json_files):
 - **danwa（厩舎の話）**: `danwa_YYYYMMDDHHMM.json`
 
 ### 保存場所
-- **統一ディレクトリ**: `data/keibabook/` 直下
-- **環境変数対応**: `KEIBA_KEIBABOOK_DIR` で変更可能
+- **統一ディレクトリ**: `KEIBA_DATA_ROOT_DIR` 直下
+- **環境変数**: `.env` の `KEIBA_DATA_ROOT_DIR` で制御（`KEIBA_KEIBABOOK_DIR` は非推奨）
 
 ### 開催がない日の処理
 - **開催がない日はJSONファイルを出力しません**

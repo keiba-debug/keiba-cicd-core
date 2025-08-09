@@ -1,4 +1,4 @@
-# 競馬ブックスクレイピングシステム - セットアップ＆動作確認ガイド
+# 競馬ブックスクレイピングシステム - セットアップ＆動作確認ガイド（保存先は `KEIBA_DATA_ROOT_DIR`）
 
 ## 🚀 目次
 1. [システム要件](#1-システム要件)
@@ -141,25 +141,25 @@ MAX_RETRY_COUNT="3"
 ### 4.1 基本動作テスト
 ```bash
 # システムテストを実行
-python src/keibabook/main.py --test
+python -m src.main --test
 ```
 
 ### 4.2 パース機能のテスト (既存HTMLファイルがある場合)
 ```bash
 # 既存のHTMLファイルをパースしてテスト
-python src/keibabook/main.py --mode parse_only --html-file data/debug/sample.html --race-id 202502041211
+python -m src.main --mode parse_only --html-file data/debug/sample.html --race-id 202502041211
 ```
 
 ### 4.3 実際のスクレイピング＆パース (Cookie設定が完了している場合)
 ```bash
 # 実際のレースデータを取得してパース
-python src/keibabook/main.py --race-id 202502041211 --mode scrape_and_parse
+python -m src.main --race-id 202502041211 --mode scrape_and_parse
 ```
 
 ### 4.4 デバッグモードでの実行
 ```bash
 # デバッグモード（ブラウザが表示される）
-python src/keibabook/main.py --race-id 202502041211 --mode scrape_and_parse --debug
+python -m src.main --race-id 202502041211 --mode scrape_and_parse --debug
 ```
 
 ## 5. 動作確認の詳細手順
@@ -194,13 +194,13 @@ python src/keibabook/main.py --test
 ### 5.3 Step 3: HTMLパースのテスト
 ```bash
 # 既存のHTMLファイルがある場合
-python src/keibabook/main.py --mode parse_only --html-file seiseki_result.json --race-id test001
+python -m src.main --mode parse_only --html-file seiseki_result.json --race-id test001
 ```
 
 ### 5.4 Step 4: フルスクレイピングテスト
 ```bash
 # 実際のスクレイピングを実行
-python src/keibabook/main.py --race-id 202502041211 --mode scrape_and_parse
+python -m src.main --race-id 202502041211 --mode scrape_and_parse
 ```
 
 **期待される出力:**
@@ -338,3 +338,27 @@ tree . -I '__pycache__|*.pyc|venv'
 - [ ] 実際のスクレイピングが成功する
 - [ ] JSONファイルが正常に生成される
 - [ ] インタビュー・メモデータが取得できる 
+
+---
+
+## 9. Windows PowerShell / WSL 補足
+
+### 9.1 Windows PowerShell 例
+```powershell
+# 作業ディレクトリへ移動
+Set-Location KeibaCICD.keibabook
+
+# 保存先ディレクトリ（例）
+$env:KEIBA_DATA_ROOT_DIR = "C:\\keiba_data"
+
+# 従来版CLIの実行
+python -m src.batch_cli full --start-date 2025/06/14
+
+# 高速版CLI（実験）
+python -m src.fast_batch_cli data --start-date 2025/06/14 --data-types seiseki --delay 0.5 --max-workers 8
+```
+
+### 9.2 WSL の注意点
+- `.env` は必ず `KeibaCICD.keibabook/.env` に配置してください
+- `KEIBA_DATA_ROOT_DIR` は WSL 側のパス（例: `/mnt/c/keiba_data`）で指定してください
+- Windows 側で PowerShell 実行時は `C:\keiba_data` のように Windows パスで指定してください

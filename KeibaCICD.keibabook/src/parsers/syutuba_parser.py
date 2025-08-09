@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Optional
 from pathlib import Path
 from bs4 import BeautifulSoup
 
-from utils.logger import setup_logger
+from ..utils.logger import setup_logger
 
 
 class SyutubaParser:

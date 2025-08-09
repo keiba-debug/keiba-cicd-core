@@ -9,8 +9,8 @@ from typing import Dict, List
 
 from selenium.webdriver.common.by import By
 
-from scrapers.base_scraper import BaseScraper
-from utils.config import Config
+from .base_scraper import BaseScraper
+from ..utils.config import Config
 
 
 class KeibabookScraper(BaseScraper):

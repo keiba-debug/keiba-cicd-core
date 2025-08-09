@@ -12,9 +12,9 @@
 |-----------|------|-------------|
 | `KEIBA_DATA_ROOT_DIR` | データルートディレクトリ | `{プロジェクトルート}/data` |
 | `KEIBA_DATA_DIR` | メインデータディレクトリ | `{DATA_ROOT_DIR}` |
-| `KEIBA_KEIBABOOK_DIR` | 競馬ブックデータディレクトリ | `{DATA_DIR}/keibabook` |
-| `KEIBA_SEISEKI_DIR` | 成績データディレクトリ | `{KEIBABOOK_DIR}/seiseki` |
-| `KEIBA_SHUTSUBA_DIR` | 出馬表データディレクトリ | `{KEIBABOOK_DIR}/shutsuba` |
+| `KEIBA_KEIBABOOK_DIR` | 競馬ブックデータディレクトリ | 非推奨（`KEIBA_DATA_ROOT_DIR` を使用） |
+| `KEIBA_SEISEKI_DIR` | 成績データディレクトリ | 非推奨（統一保存） |
+| `KEIBA_SHUTSUBA_DIR` | 出馬表データディレクトリ | 非推奨（統一保存） |
 | `KEIBA_DEBUG_DIR` | デバッグデータディレクトリ | `{DATA_DIR}/debug` |
 | `KEIBA_LOG_DIR` | ログディレクトリ | `{プロジェクトルート}/logs` |
 | `LOG_LEVEL` | ログレベル | `INFO` |
@@ -105,7 +105,7 @@ python tools/config_manager.py --create-dirs
 python tools/config_manager.py --test-custom "/path/to/custom/data"
 ```
 
-### 🎯 実用的な設定例
+### 🎯 実用的な設定例（統一保存）
 
 #### 例1: 外部ストレージに全データを保存
 
@@ -116,14 +116,16 @@ KEIBA_DATA_ROOT_DIR=/mnt/external_storage/keiba_data
 
 この設定により、以下のディレクトリ構造になります：
 ```
-/mnt/external_storage/keiba_data/
-├── keibabook/
-│   ├── seiseki/
-│   └── shutsuba/
-└── debug/
+/mnt/external_storage/keiba_data/   # ← ここが KEIBA_DATA_ROOT_DIR
+├── race_ids/
+├── nittei_YYYYMMDD.json
+├── seiseki_{race_id}.json
+├── shutsuba_{race_id}.json
+├── cyokyo_{race_id}.json
+└── danwa_{race_id}.json
 ```
 
-#### 例2: データタイプ別に異なる場所に保存
+#### 例2:（非推奨）データタイプ別に異なる場所に保存
 
 ```bash
 # .env
@@ -132,7 +134,7 @@ KEIBA_DEBUG_DIR=/tmp/keiba_debug
 KEIBA_LOG_DIR=/var/log/keiba
 ```
 
-#### 例3: プロジェクト内の別フォルダに保存
+#### 例3: プロジェクト内の別フォルダに保存（統一保存）
 
 ```bash
 # .env
@@ -159,7 +161,7 @@ Config.save_config()
 3. **絶対パス推奨**: 本番環境では絶対パスの使用を推奨します
 4. **バックアップ**: 重要なデータは定期的にバックアップしてください
 
-### 🧪 設定のテスト
+### 🧪 設定のテスト（統一保存）
 
 設定変更後は必ずテストを実行してください：
 

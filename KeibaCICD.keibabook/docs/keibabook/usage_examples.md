@@ -11,48 +11,45 @@
 
 ## 🚀 基本的な使用例
 
-### 1. 自動データ取得（最も簡単）
+### 1. 自動データ取得（統合CLI）
 
-#### 1日分のデータを取得
+#### 1日分のデータを取得（従来版）
 ```bash
-# 2025年6月7日のデータを自動取得
-python src/keibabook/batch_process.py --start-date 2025/6/7
+# 2025年6月7日のデータを一括取得
+python -m src.batch_cli full --start-date 2025/06/07
 ```
 
-#### 期間指定でのデータ取得
+#### 期間指定でのデータ取得（従来版）
 ```bash
-# 2025年6月7日〜8日のデータを自動取得
-python src/keibabook/batch_process.py --start-date 2025/6/7 --end-date 2025/6/8
+# 2025年6月7日〜8日のデータを一括取得
+python -m src.batch_cli full --start-date 2025/06/07 --end-date 2025/06/08 --delay 5
 ```
 
-#### 特定データタイプのみ取得
+#### 特定データタイプのみ取得（従来版）
 ```bash
 # 成績データのみ取得
-python src/keibabook/batch_process.py --start-date 2025/6/7 --data-types seiseki
+python -m src.batch_cli data --start-date 2025/06/07 --data-types seiseki
 
 # 出馬表と調教データのみ取得
-python src/keibabook/batch_process.py --start-date 2025/6/7 --data-types shutsuba,cyokyo
+python -m src.batch_cli data --start-date 2025/06/07 --data-types shutsuba,cyokyo
 ```
 
 ---
 
 ## 🔧 詳細設定での使用例
 
-### 1. リクエスト間隔の調整
+### 1. リクエスト間隔の調整（従来版）
 
 #### サーバー負荷を考慮した設定
 ```bash
 # リクエスト間隔を5秒に設定
-python src/keibabook/batch_process.py --start-date 2025/6/7 --delay 5
-
-# 処理間の待機時間を10秒に設定
-python src/keibabook/batch_process.py --start-date 2025/6/7 --wait-time 10
+python -m src.batch_cli full --start-date 2025/06/07 --delay 5
 ```
 
 #### 高速取得設定（注意：サーバー負荷に配慮）
 ```bash
-# 最小間隔での取得（非推奨）
-python src/keibabook/batch_process.py --start-date 2025/6/7 --delay 1 --wait-time 2
+# 高速版CLI（requests）
+python -m src.fast_batch_cli full --start-date 2025/06/07 --delay 0.5 --max-workers 10
 ```
 
 ### 2. 環境変数を使用した設定
@@ -60,19 +57,20 @@ python src/keibabook/batch_process.py --start-date 2025/6/7 --delay 1 --wait-tim
 #### PowerShellでの環境変数設定
 ```powershell
 # データ保存先を指定
-$env:KEIBA_DATA_DIR = "D:\keiba_data"
+$env:KEIBA_DATA_ROOT_DIR = "D:\\keiba_data"
 
 # 実行
-python src/keibabook/batch_process.py --start-date 2025/6/7
+python -m src.batch_cli full --start-date 2025/06/07
 ```
 
 #### .envファイルでの設定
 ```bash
 # .envファイルを作成
-echo "KEIBA_DATA_DIR=./custom_data" > .env
+echo "KEIBA_DATA_ROOT_DIR=/path/to/data" > KeibaCICD.keibabook/.env
 
 # 実行（.envファイルが自動読み込みされる）
-python src/keibabook/batch_process.py --start-date 2025/6/7
+cd KeibaCICD.keibabook
+python -m src.keibabook.batch_cli full --start-date 2025/06/07
 ```
 
 ---
@@ -119,18 +117,17 @@ python src/keibabook/fetch_race_ids.py --start-date 2025/6/7 --data-types cyokyo
 #### JSONファイルの内容確認
 ```bash
 # Windows PowerShell
-Get-Content data/keibabook/race_ids/20250607_info.json | ConvertFrom-Json
+Get-Content $env:KEIBA_DATA_ROOT_DIR\race_ids\20250607_info.json | ConvertFrom-Json
 
 # Linux/Mac
-cat data/keibabook/race_ids/20250607_info.json | jq .
+cat "$KEIBA_DATA_ROOT_DIR"/race_ids/20250607_info.json | jq .
 ```
 
 #### HTMLファイルの確認
 ```bash
 # ファイル一覧表示
-ls data/keibabook/shutsuba/
-ls data/keibabook/seiseki/
-ls data/keibabook/cyokyo/
+ls "$KEIBA_DATA_ROOT_DIR"/  # 直下に JSON が保存されます
+ls "$KEIBA_DATA_ROOT_DIR"/race_ids/
 ```
 
 ### 2. Pythonでのデータ読み込み
@@ -141,7 +138,8 @@ import json
 from pathlib import Path
 
 # レースID情報を読み込み
-race_ids_file = Path("data/keibabook/race_ids/20250607_info.json")
+import os
+race_ids_file = Path(os.path.join(os.environ.get("KEIBA_DATA_ROOT_DIR", "data"), "race_ids", "20250607_info.json"))
 with open(race_ids_file, 'r', encoding='utf-8') as f:
     race_data = json.load(f)
 
@@ -157,8 +155,8 @@ for race_id in race_ids:
 from bs4 import BeautifulSoup
 from pathlib import Path
 
-# 出馬表HTMLファイルを読み込み
-html_file = Path("data/keibabook/shutsuba/202506071101.html")
+# 出馬表HTMLファイルを読み込み（必要時のみ。通常はHTMLを保存しません）
+html_file = Path(os.path.join(os.environ.get("KEIBA_DATA_ROOT_DIR", "data"), "shutsuba_202506071101.html"))
 if html_file.exists():
     with open(html_file, 'r', encoding='utf-8') as f:
         html_content = f.read()
@@ -176,7 +174,7 @@ else:
 
 ### 1. Windows タスクスケジューラー
 
-#### 毎日自動実行の設定
+#### 毎日自動実行の設定（PowerShell）
 ```powershell
 # タスクスケジューラーでの設定例
 # 1. タスクスケジューラーを開く
@@ -184,8 +182,8 @@ else:
 # 3. 以下のコマンドを設定
 
 # 実行プログラム: python
-# 引数: src/keibabook/batch_process.py --start-date $(Get-Date -Format "yyyy/M/d")
-# 開始場所: C:\path\to\keiba-cicd-core
+# 引数: -m src.keibabook.batch_cli full --start-date $(Get-Date -Format "yyyy/M/d")
+# 開始場所: C:\path\to\keiba-cicd-core\KeibaCICD.keibabook
 ```
 
 #### PowerShellスクリプトでの自動化
@@ -197,7 +195,7 @@ $logFile = "logs/daily_fetch_$(Get-Date -Format 'yyyyMMdd').log"
 Write-Host "競馬データ取得開始: $today"
 
 try {
-    python src/keibabook/batch_process.py --start-date $today 2>&1 | Tee-Object -FilePath $logFile
+python -m src.batch_cli full --start-date $today 2>&1 | Tee-Object -FilePath $logFile
     Write-Host "取得完了: $today"
 } catch {
     Write-Error "取得失敗: $_"

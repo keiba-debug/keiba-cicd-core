@@ -1,3 +1,0 @@
-"""
-KeibaCICD.keibabook.src - ソースコードパッケージ
-""" 
