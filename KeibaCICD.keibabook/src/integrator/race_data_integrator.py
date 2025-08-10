@@ -544,12 +544,22 @@ class RaceDataIntegrator:
         
         # 
         race_info = self._extract_race_info(race_id, syutuba_data)
+        # seiseki由来の詳細でrace_infoを補完
+        if seiseki_data:
+            # race_details
+            details = seiseki_data.get('race_details') or {}
+            for k in ['distance', 'track_type', 'track_condition', 'weather', 'start_time', 'grade']:
+                if details.get(k) and not race_info.get(k):
+                    race_info[k] = details.get(k)
         
         # 
         integrated_data = {
             'meta': asdict(metadata),
             'race_info': race_info,
-            'entries': []
+            'entries': [],
+            # 追加: 配当とラップ（存在すれば）
+            'payouts': seiseki_data.get('payouts') if seiseki_data else None,
+            'laps': seiseki_data.get('laps') if seiseki_data else None
         }
         
         # 

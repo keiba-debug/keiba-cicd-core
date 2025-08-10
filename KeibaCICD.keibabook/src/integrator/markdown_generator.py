@@ -62,6 +62,8 @@ class MarkdownGenerator:
             md_content.append(self._generate_results_table(race_data))
             md_content.append(self._generate_race_flow_mermaid(race_data))
             md_content.append(self._generate_results_summary(race_data))
+            md_content.append(self._generate_payouts_section(race_data))
+            md_content.append(self._generate_laps_section(race_data))
         
         # 調教・厩舎談話情報
         md_content.append(self._generate_training_comments(race_data))
@@ -487,6 +489,41 @@ class MarkdownGenerator:
             for highlight in highlights[:3]:
                 lines.append(f"  - {highlight}")
         
+        return '\n'.join(lines)
+
+    def _generate_payouts_section(self, race_data: Dict[str, Any]) -> str:
+        payouts = race_data.get('payouts') or {}
+        if not payouts or all(v in (None, [], {}) for v in payouts.values()):
+            return ""
+        lines = ["## 💴 配当情報", ""]
+        def fmt(v):
+            if v is None:
+                return '-'
+            if isinstance(v, list):
+                return ', '.join(str(x) for x in v) if v else '-'
+            return str(v)
+        lines.append(f"- 単勝: {fmt(payouts.get('win'))}")
+        lines.append(f"- 複勝: {fmt(payouts.get('place'))}")
+        lines.append(f"- 馬連: {fmt(payouts.get('quinella'))}")
+        lines.append(f"- 馬単: {fmt(payouts.get('exacta'))}")
+        lines.append(f"- ワイド: {fmt(payouts.get('wide'))}")
+        lines.append(f"- 3連複: {fmt(payouts.get('trio'))}")
+        lines.append(f"- 3連単: {fmt(payouts.get('trifecta'))}")
+        return '\n'.join(lines)
+
+    def _generate_laps_section(self, race_data: Dict[str, Any]) -> str:
+        laps = race_data.get('laps') or {}
+        if not laps:
+            return ""
+        lines = ["## ⏱ ラップ/ペース", ""]
+        if laps.get('lap_times'):
+            lap_text = ' - '.join(laps['lap_times'][:12])  # 長すぎ回避
+            lines.append(f"- ラップ: {lap_text}")
+        if laps.get('first_1000m'):
+            lines.append(f"- 1000m通過: {laps['first_1000m']}")
+        if laps.get('pace'):
+            pace_map = {'H': 'ハイ', 'M': 'ミドル', 'S': 'スロー'}
+            lines.append(f"- ぺース: {pace_map.get(laps['pace'], laps['pace'])}")
         return '\n'.join(lines)
     
     def _generate_links(self, race_data: Dict[str, Any]) -> str:

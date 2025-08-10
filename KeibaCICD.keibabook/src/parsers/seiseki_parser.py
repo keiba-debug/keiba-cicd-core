@@ -60,9 +60,17 @@ class SeisekiParser(BaseParser):
         # 結果をマージ
         results = self._merge_interview_memo_data(results, interviews_and_memos)
         
+        # 追加: 配当・レース詳細・ラップ
+        payouts = self._extract_payout_info(soup)
+        race_details = self._extract_race_details(soup)
+        laps = self._extract_laps(soup)
+        
         data = {
             "race_info": race_info,
-            "results": results
+            "results": results,
+            "payouts": payouts,
+            "race_details": race_details,
+            "laps": laps
         }
         
         # データ検証
@@ -353,3 +361,143 @@ class SeisekiParser(BaseParser):
                 self.logger.warning(f"成績データ{i}に騎手フィールドがありません")
         
         return True
+
+    def _extract_payout_info(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        """配当情報を抽出（寛容に複数パターンへ対応）"""
+        payout = {
+            "win": None,
+            "place": [],
+            "quinella": None,
+            "exacta": None,
+            "wide": [],
+            "trio": None,
+            "trifecta": None
+        }
+        try:
+            # 配当テーブル候補を総当り
+            tables = soup.find_all('table')
+            for table in tables:
+                text = table.get_text()
+                if any(k in text for k in ["単勝", "複勝", "馬連", "馬単", "ワイド", "3連複", "3連単", "三連複", "三連単"]):
+                    for row in table.find_all('tr'):
+                        cells = [self.extract_text_safely(td) for td in row.find_all(['th', 'td'])]
+                        if len(cells) < 2:
+                            continue
+                        label = cells[0]
+                        amount = cells[1]
+                        if "単勝" in label and payout["win"] is None:
+                            payout["win"] = self._parse_amount(amount)
+                        elif "複勝" in label:
+                            amt = self._parse_amount(amount)
+                            if amt is not None:
+                                payout["place"].append(amt)
+                        elif "馬連" in label and payout["quinella"] is None:
+                            payout["quinella"] = self._parse_amount(amount)
+                        elif "馬単" in label and payout["exacta"] is None:
+                            payout["exacta"] = self._parse_amount(amount)
+                        elif "ワイド" in label:
+                            amt = self._parse_amount(amount)
+                            if amt is not None:
+                                payout["wide"].append(amt)
+                        elif ("3連複" in label or "三連複" in label) and payout["trio"] is None:
+                            payout["trio"] = self._parse_amount(amount)
+                        elif ("3連単" in label or "三連単" in label) and payout["trifecta"] is None:
+                            payout["trifecta"] = self._parse_amount(amount)
+        except Exception:
+            pass
+        return payout
+
+    def _parse_amount(self, amount_str: str) -> int:
+        """金額文字列を数値に変換（"1,234円" -> 1234）"""
+        try:
+            s = (amount_str or "").replace(',', '').replace('円', '').strip()
+            # 数字抽出
+            import re
+            m = re.findall(r"\d+", s)
+            if not m:
+                return None
+            return int(m[0])
+        except Exception:
+            return None
+
+    def _extract_race_details(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        """距離/馬場/天候/発走時刻/グレード/賞金などを抽出（見つかった範囲で）"""
+        details: Dict[str, Any] = {
+            "distance": None,
+            "track_type": None,
+            "track_condition": None,
+            "weather": None,
+            "start_time": None,
+            "grade": None,
+            "prize_money": []
+        }
+        try:
+            # タイトル周辺や見出しを探索
+            header_candidates = soup.find_all(['div', 'section', 'p', 'span'])
+            import re
+            for h in header_candidates:
+                t = self.extract_text_safely(h)
+                if not t:
+                    continue
+                if ('芝' in t or 'ダート' in t) and 'm' in t:
+                    m = re.search(r'(芝|ダート)\s*(\d+)m', t)
+                    if m:
+                        details['track_type'] = m.group(1)
+                        details['distance'] = int(m.group(2))
+                if any(k in t for k in ['良', '稍重', '重', '不良']):
+                    # 例: 馬場: 良
+                    details['track_condition'] = details.get('track_condition') or next((k for k in ['良','稍重','重','不良'] if k in t), None)
+                if '天候' in t or '晴' in t or '雨' in t or '曇' in t:
+                    details['weather'] = details.get('weather') or next((k for k in ['晴','雨','曇','小雨','雪'] if k in t), None)
+                if '発走' in t or ':' in t:
+                    m = re.search(r'(\d{1,2}:\d{2})', t)
+                    if m:
+                        details['start_time'] = m.group(1)
+                if 'G1' in t or 'G2' in t or 'G3' in t or 'GI' in t or 'GII' in t or 'GIII' in t or 'OP' in t:
+                    details['grade'] = details.get('grade') or next((k for k in ['G1','G2','G3','OP','GI','GII','GIII'] if k in t), None)
+                if '賞金' in t or '本賞金' in t:
+                    money = re.findall(r"[\d,]+万?円", t)
+                    if money:
+                        details['prize_money'] = money
+        except Exception:
+            pass
+        return details
+
+    def _extract_laps(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        """ラップタイム/1000m/簡易ペース判定（取得できた範囲のみ）"""
+        laps: Dict[str, Any] = {
+            "lap_times": [],
+            "first_1000m": None,
+            "pace": None
+        }
+        try:
+            # ラップらしきテキストを探索
+            import re
+            text = soup.get_text(" ")
+            # 200m刻みなどのラップ配列を抽出（簡易）
+            candidates = re.findall(r"(\d{2}\.\d)", text)
+            if candidates and len(candidates) >= 4:
+                laps['lap_times'] = candidates[:20]
+            m1000 = re.search(r"1000m[:：]?\s*(\d{2}\.\d)", text)
+            if m1000:
+                laps['first_1000m'] = m1000.group(1)
+            # 簡易ペース判定（前半と後半の平均比較）
+            def to_float(v: str) -> float:
+                try:
+                    return float(v)
+                except Exception:
+                    return 0.0
+            if laps['lap_times']:
+                half = len(laps['lap_times']) // 2 or 1
+                first_avg = sum(to_float(x) for x in laps['lap_times'][:half]) / half
+                second_avg = sum(to_float(x) for x in laps['lap_times'][half:]) / max(len(laps['lap_times'][half:]), 1)
+                # 前半が速ければH、同等ならM、遅ければS（簡易）
+                if first_avg + 0.2 < second_avg:
+                    laps['pace'] = 'H'
+                elif abs(first_avg - second_avg) <= 0.2:
+                    laps['pace'] = 'M'
+                else:
+                    laps['pace'] = 'S'
+        except Exception:
+            pass
+        return laps
