@@ -188,6 +188,46 @@ class RequestsScraper:
         """
         return self.scrape_page('danwa', race_id, save_html_path)
     
+    def scrape_syoin_page(self, race_id: str) -> str:
+        """
+        前走インタビューページを取得する
+        
+        Args:
+            race_id: レースID
+            
+        Returns:
+            str: HTMLコンテンツ
+        """
+        url = f'https://p.keibabook.co.jp/cyuou/syoin/{race_id}'
+        html = self.scrape(url)
+        
+        if self.validate_page_content(html):
+            self.logger.info(f"前走インタビューページを取得しました: {race_id}")
+            return html
+        else:
+            self.logger.error(f"前走インタビューページの内容が無効です: {race_id}")
+            return ""
+    
+    def scrape_paddok_page(self, race_id: str) -> str:
+        """
+        パドック情報ページを取得する
+        
+        Args:
+            race_id: レースID
+            
+        Returns:
+            str: HTMLコンテンツ
+        """
+        url = f'https://p.keibabook.co.jp/cyuou/paddok/{race_id}'
+        html = self.scrape(url)
+        
+        if self.validate_page_content(html):
+            self.logger.info(f"パドック情報ページを取得しました: {race_id}")
+            return html
+        else:
+            self.logger.error(f"パドック情報ページの内容が無効です: {race_id}")
+            return ""
+    
     def save_html(self, html_content: str, file_path: str) -> None:
         """
         HTMLコンテンツをファイルに保存する

@@ -153,6 +153,9 @@ class SyutubaParser:
                 if horse_data and horse_data.get('馬番'):
                     horses.append(horse_data)
                     self.logger.debug(f"馬データ抽出: {horse_data.get('馬番')}番 {horse_data.get('馬名_clean', horse_data.get('馬名', 'N/A'))}")
+            
+            # 本誌見解の印ポイントを集計
+            self._calculate_mark_points(horses)
                     
         except Exception as e:
             self.logger.error(f"出走馬情報抽出エラー: {e}")
@@ -255,6 +258,118 @@ class SyutubaParser:
         except Exception as e:
             self.logger.error(f"データ検証エラー: {e}")
             return False
+    
+    def _calculate_mark_points(self, horses: List[Dict[str, Any]]) -> None:
+        """
+        本誌見解の印からポイントを計算して各馬に追加
+        
+        ◎: 5点
+        ○: 4点
+        ▲: 3点
+        △: 2点
+        穴: 1点
+        注: 1点
+        """
+        mark_values = {
+            '◎': 5,
+            '○': 4,
+            '▲': 3,
+            '△': 2,
+            '穴': 1,
+            '注': 1,
+            '×': 0
+        }
+        
+        # 印の集計
+        mark_summary = {
+            '◎': [],
+            '○': [],
+            '▲': [],
+            '△': [],
+            '穴': [],
+            '注': []
+        }
+        
+        for horse in horses:
+            # 本誌欄を探す（複数のキー名に対応）
+            honshi_mark = horse.get('本誌') or horse.get('本紙') or horse.get('本誌見解') or ''
+            
+            if honshi_mark:
+                # ポイント計算
+                mark_point = 0
+                for mark, point in mark_values.items():
+                    if mark in honshi_mark:
+                        mark_point = max(mark_point, point)
+                        # 集計に追加
+                        if mark in mark_summary:
+                            mark_summary[mark].append({
+                                '馬番': horse.get('馬番'),
+                                '馬名': horse.get('馬名_clean') or horse.get('馬名', '')
+                            })
+                
+                # 馬データにポイントを追加
+                horse['本誌印ポイント'] = mark_point
+                horse['本誌印'] = honshi_mark
+                
+                self.logger.debug(f"印ポイント計算: {horse.get('馬番')}番 {honshi_mark} = {mark_point}点")
+        
+        # 印ポイントでソート（降順）
+        horses.sort(key=lambda x: x.get('本誌印ポイント', 0), reverse=True)
+        
+        # サマリー情報をログ出力
+        for mark, horses_with_mark in mark_summary.items():
+            if horses_with_mark:
+                names = ', '.join([f"{h['馬番']}番{h['馬名']}" for h in horses_with_mark])
+                self.logger.info(f"本誌{mark}: {names}")
+        
+        # 追加: 複数者（CPU〜本誌まで）の総合印ポイントを算出（最大5者）
+        # 対象候補キー（表記ゆれを考慮）
+        candidate_sources = [
+            ('CPU', ['CPU', 'ＣＰＵ']),
+            ('本誌', ['本誌', '本紙', '本誌見解', '本紙見解']),
+            ('予想1', ['印', '印_2', '印_3', '印_4']),  # thead起因の複製カラムなどを包括
+        ]
+        # マーク→点
+        def to_point(mark_text: str) -> int:
+            if not mark_text:
+                return 0
+            for m, p in mark_values.items():
+                if m in mark_text:
+                    return p
+            return 0
+        
+        for horse in horses:
+            marks_by_person = {}
+            total_points = 0
+            picked = 0
+            # 既知キー優先で探索
+            for label, variants in candidate_sources:
+                for key in variants:
+                    if key in horse and horse.get(key):
+                        marks_by_person[label] = horse.get(key)
+                        total_points += to_point(str(horse.get(key)))
+                        picked += 1
+                        break
+                if picked >= 5:
+                    break
+            # まだ5未満なら、残りは馬データの全キーからマークらしき値を拾う（ノイズは最小限）
+            if picked < 5:
+                for k, v in horse.items():
+                    if k in ['馬番', '馬名', '馬名_clean', '単勝', '人気', '枠番']:
+                        continue
+                    if any(sym in str(v) for sym in mark_values.keys()):
+                        if k not in marks_by_person:
+                            marks_by_person[k] = v
+                            total_points += to_point(str(v))
+                            picked += 1
+                            if picked >= 5:
+                                break
+            # 設定
+            if marks_by_person:
+                horse['marks_by_person'] = marks_by_person
+                horse['総合印ポイント'] = total_points
+        
+        return horses
     
     def save_json(self, data: Dict[str, Any], output_path: str):
         """データをJSONファイルに保存"""

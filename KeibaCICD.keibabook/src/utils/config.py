@@ -156,12 +156,16 @@ class Config:
         """
         ログディレクトリを取得する
         
-        環境変数 KEIBA_LOG_DIR で変更可能
+        環境変数 LOG_DIR または KEIBA_LOG_DIR で変更可能
         
         Returns:
             Path: ログディレクトリのパス
         """
-        custom_path = cls.get_env("KEIBA_LOG_DIR")
+        # LOG_DIRを優先的にチェック
+        custom_path = cls.get_env("LOG_DIR")
+        if not custom_path:
+            # 後方互換性のためKEIBA_LOG_DIRもチェック
+            custom_path = cls.get_env("KEIBA_LOG_DIR")
         if custom_path:
             return Path(custom_path)
         return cls.PROJECT_ROOT / "logs"
@@ -236,11 +240,11 @@ class Config:
     def ensure_directories(cls) -> None:
         """
         必要なディレクトリが存在することを確認し、存在しない場合は作成する
-        v2.3対応: 同一フォルダ保存のため、seiseki/shutsubaサブフォルダは作成しない
+        v2.3対応: 同一フォルダ保存。未使用の keibabook サブフォルダは作成しない
         """
         directories = [
             cls.get_data_dir(),
-            cls.get_keibabook_dir(),  # JSONファイルはここに直接保存
+            # cls.get_keibabook_dir(),  # 未使用のため作成しない
             cls.get_debug_dir(),
             cls.get_log_dir()
         ]

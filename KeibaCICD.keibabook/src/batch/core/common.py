@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-バッチ処理共通ユーティリティ
 
-全てのバッチ処理で使用される共通機能を提供します。
+
+
 """
 
 import os
@@ -15,14 +15,14 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
-# .envファイルを読み込む
+# .env
 load_dotenv()
 
-# プロジェクト内のConfigクラスをインポート
+# Config
 try:
     from ...utils.config import Config
 except ImportError:
-    # フォールバックのダミー実装（実行時は使われない想定）
+    # 
     class Config:
             @classmethod
             def get_required_cookies(cls):
@@ -47,134 +47,145 @@ except ImportError:
 
 def parse_date(date_str: str) -> datetime.date:
     """
-    日付文字列をパースしてdatetime.dateオブジェクトを返す
+    datetime.date
     
     Args:
-        date_str: 日付文字列 (YYYY/MM/DD, YY/MM/DD, YYYYMMDD形式)
+        date_str:  (YYYY/MM/DD, YY/MM/DD, YYYYMMDD)
         
     Returns:
-        datetime.date: パースされた日付
+        datetime.date: 
         
     Raises:
-        ValueError: サポートされていない日付形式の場合
+        ValueError: 
     """
     try:
-        # 2025/5/31 または 25/5/31 の形式をサポート
-        if '/' in date_str:
+        # 2025-08-09 形式 (ハイフン区切り)
+        if '-' in date_str:
+            parts = date_str.split('-')
+            if len(parts) == 3:
+                if len(parts[0]) == 2:
+                    parts[0] = '20' + parts[0]
+                return datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+        # 2025/5/31  25/5/31 
+        elif '/' in date_str:
             parts = date_str.split('/')
             if len(parts[0]) == 2:
                 parts[0] = '20' + parts[0]
             return datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
-        # 20250531 の形式をサポート
+        # 20250531 
         elif len(date_str) == 8:
             return datetime.date(int(date_str[0:4]), int(date_str[4:6]), int(date_str[6:8]))
         else:
-            raise ValueError(f"サポートされていない日付形式です: {date_str}")
+            raise ValueError(f": {date_str}")
     except Exception as e:
-        raise ValueError(f"日付の解析に失敗しました: {date_str}, エラー: {e}")
+        raise ValueError(f": {date_str}, : {e}")
 
 
 def setup_batch_logger(name: str, log_level: str = "INFO", log_file: Optional[str] = None) -> logging.Logger:
     """
-    バッチ処理用のロガーを設定
+    
     
     Args:
-        name: ロガー名
-        log_level: ログレベル (DEBUG, INFO, WARNING, ERROR)
-        log_file: ログファイルパス（省略時は自動生成）
+        name: 
+        log_level:  (DEBUG, INFO, WARNING, ERROR)
+        log_file: 
         
     Returns:
-        logging.Logger: 設定されたロガー
+        logging.Logger: 
     """
-    # ログディレクトリを取得（Config 経由で KEIBA_DATA_ROOT_DIR などに従う）
+    # Config  KEIBA_DATA_ROOT_DIR 
     try:
         logs_dir = Path(Config.get_log_dir())
     except Exception:
-        # フォールバック（環境変数未設定時も含む）
+        # 
         base_dir = Path(os.environ.get('KEIBA_DATA_ROOT_DIR') or 
                         os.environ.get('KEIBA_DATA_DIR') or '.')
         logs_dir = base_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     
-    # ログファイル名を自動生成
+    # 
     if log_file is None:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = logs_dir / f'{name}_{timestamp}.log'
     
-    # ロガーを作成
+    # 
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, log_level.upper()))
     
-    # 既存のハンドラーをクリア
+    # 
     logger.handlers.clear()
     
-    # フォーマッターを設定
+    # 
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # コンソールハンドラー
+    # 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
     
-    # ファイルハンドラー
+    # 
     file_handler = logging.FileHandler(str(log_file), encoding='utf-8')
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     
-    # 初期ログ出力
-    logger.info(f"ロガー '{name}' を初期化しました")
-    logger.info(f"ログファイル: {log_file}")
-    logger.info(f"ログレベル: {log_level}")
+    # 
+    logger.info(f" '{name}' ")
+    logger.info(f": {log_file}")
+    logger.info(f": {log_level}")
     
     return logger
 
 
 def get_base_directories() -> Dict[str, str]:
     """
-    データ保存用のベースディレクトリパスを取得
+    
     
     Returns:
-        Dict[str, str]: ディレクトリパスの辞書
+        Dict[str, str]: 
     """
-    # 保存ルートは KEIBA_DATA_ROOT_DIR に統一（Config 経由）
+    #  KEIBA_DATA_ROOT_DIR Config 
     try:
         base_dir = Path(Config.get_data_root_dir())
     except Exception:
-        # フォールバック
+        # 
         base_dir = Path(os.environ.get('KEIBA_DATA_ROOT_DIR') or 'data')
     
     return {
-        # レースID保存用
+        # ID
         'race_ids': str(base_dir / "race_ids"),
         
-        # JSON保存用（すべて同一フォルダ）
-        'json_base': str(base_dir),  # ルート直下
+        # JSON (tempフォルダに保存)
+        'json_base': str(base_dir / "temp"),
+        
+        # ルートディレクトリ
+        'root': str(base_dir),
     }
 
 
 def ensure_batch_directories():
     """
-    バッチ処理に必要なディレクトリを作成
+    
     """
     dirs = get_base_directories()
     
-    # 必要なディレクトリを作成
-    for dir_path in dirs.values():
-        os.makedirs(dir_path, exist_ok=True)
-        print(f"✅ ディレクトリ確認/作成: {dir_path}")
+    # 
+    for key, dir_path in dirs.items():
+        if key != 'root':  # ルートは作成しない
+            os.makedirs(dir_path, exist_ok=True)
+            print(f"[OK] /: {dir_path}")
 
 
 def get_race_ids_file_path(date_str: str) -> str:
     """
-    レースIDファイルのパスを取得
+    ID
     
     Args:
-        date_str: 日付文字列 (YYYYMMDD)
+        date_str:  (YYYYMMDD)
         
     Returns:
-        str: レースIDファイルのフルパス
+        str: ID
     """
     dirs = get_base_directories()
     return os.path.join(dirs['race_ids'], f"{date_str}_info.json")
@@ -182,14 +193,14 @@ def get_race_ids_file_path(date_str: str) -> str:
 
 def get_json_file_path(data_type: str, identifier: str) -> str:
     """
-    JSONファイルの保存パスを取得
+    JSON
     
     Args:
-        data_type: データタイプ (seiseki, shutsuba, cyokyo, danwa, nittei)
-        identifier: ファイル識別子 (race_idまたは日付)
+        data_type:  (seiseki, shutsuba, cyokyo, danwa, nittei)
+        identifier:  (race_id)
         
     Returns:
-        str: JSONファイルのフルパス
+        str: JSON
     """
     dirs = get_base_directories()
     filename = f"{data_type}_{identifier}.json"
@@ -198,14 +209,14 @@ def get_json_file_path(data_type: str, identifier: str) -> str:
 
 def create_authenticated_session() -> requests.Session:
     """
-    Cookie認証付きのHTTPセッションを作成
+    CookieHTTP
     
     Returns:
-        requests.Session: 認証設定済みのセッション
+        requests.Session: 
     """
     session = requests.Session()
     
-    # ヘッダーを設定
+    # 
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -215,10 +226,10 @@ def create_authenticated_session() -> requests.Session:
         "Upgrade-Insecure-Requests": "1"
     })
     
-    # 必要なCookieを設定
+    # Cookie
     cookies_data = Config.get_required_cookies()
     for cookie in cookies_data:
-        if cookie['value']:  # 値が設定されている場合のみ
+        if cookie['value']:  # 
             session.cookies.set(
                 name=cookie['name'],
                 value=cookie['value'],
@@ -231,7 +242,7 @@ def create_authenticated_session() -> requests.Session:
 
 @dataclass
 class BatchStats:
-    """バッチ処理の統計情報を管理するクラス"""
+    """"""
     
     total_races: int = 0
     success_count: int = 0
@@ -243,43 +254,43 @@ class BatchStats:
     failed_races: List[str] = field(default_factory=list)
     
     def start(self):
-        """処理開始時刻を記録"""
+        """"""
         self.start_time = datetime.datetime.now()
     
     def finish(self):
-        """処理終了時刻を記録"""
+        """"""
         self.end_time = datetime.datetime.now()
     
     def add_success(self, race_id: str):
-        """成功したレースを記録"""
+        """"""
         self.success_count += 1
         self.processed_races.append(race_id)
     
     def add_error(self, race_id: str):
-        """失敗したレースを記録"""
+        """"""
         self.error_count += 1
         self.failed_races.append(race_id)
     
     def add_skip(self):
-        """スキップしたレースを記録"""
+        """"""
         self.skipped_count += 1
     
     @property
     def success_rate(self) -> float:
-        """成功率を計算"""
+        """"""
         if self.total_races == 0:
             return 0.0
         return (self.success_count / self.total_races) * 100
     
     @property
     def elapsed_time(self) -> Optional[datetime.timedelta]:
-        """経過時間を計算"""
+        """"""
         if self.start_time and self.end_time:
             return self.end_time - self.start_time
         return None
     
     def to_dict(self) -> Dict[str, Any]:
-        """統計情報を辞書形式で返す"""
+        """"""
         return {
             'total_races': self.total_races,
             'success_count': self.success_count,
@@ -294,44 +305,44 @@ class BatchStats:
         }
     
     def print_summary(self, logger: Optional[logging.Logger] = None):
-        """統計情報のサマリーを表示"""
+        """"""
         output_func = logger.info if logger else print
         
         output_func("=" * 50)
-        output_func("📊 バッチ処理統計サマリー")
+        output_func("[DATA] ")
         output_func("=" * 50)
-        output_func(f"📈 処理結果:")
-        output_func(f"  - 総レース数: {self.total_races}")
-        output_func(f"  - 成功: {self.success_count}")
-        output_func(f"  - 失敗: {self.error_count}")
-        output_func(f"  - スキップ: {self.skipped_count}")
-        output_func(f"  - 成功率: {self.success_rate:.1f}%")
+        output_func(f"[UP] :")
+        output_func(f"  - : {self.total_races}")
+        output_func(f"  - : {self.success_count}")
+        output_func(f"  - : {self.error_count}")
+        output_func(f"  - : {self.skipped_count}")
+        output_func(f"  - : {self.success_rate:.1f}%")
         
         if self.elapsed_time:
-            output_func(f"  - 処理時間: {self.elapsed_time}")
+            output_func(f"  - : {self.elapsed_time}")
         
         if self.failed_races:
-            output_func(f"❌ 失敗したレース:")
+            output_func(f"[ERROR] :")
             for race_id in self.failed_races:
                 output_func(f"  - {race_id}")
         
         output_func("=" * 50)
 
 
-# 開催場所のマッピング（共通定数）
+# 
 VENUE_MAPPING = {
-    "東京": "04",
-    "中山": "06", 
-    "阪神": "01",
-    "京都": "02",
-    "新潟": "03",
-    "福島": "05",
-    "小倉": "07",
-    "札幌": "08",
+    "": "04",
+    "": "06", 
+    "": "01",
+    "": "02",
+    "": "03",
+    "": "05",
+    "": "07",
+    "": "08",
 }
 
-# 逆引き用のマッピング
+# 
 VENUE_CODE_TO_NAME = {v: k for k, v in VENUE_MAPPING.items()}
 
-# データタイプの定義
+# 
 DATA_TYPES = ["seiseki", "shutsuba", "cyokyo", "danwa"] 

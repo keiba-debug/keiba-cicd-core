@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-競馬ブック バッチ処理 CLI
+  CLI
 
-統合されたバッチ処理システムのコマンドラインインターフェース
+
 """
 
 import argparse
@@ -13,48 +13,48 @@ from .batch import DataFetcher, parse_date, setup_batch_logger
 
 
 def main():
-    """メイン処理"""
-    parser = argparse.ArgumentParser(description='競馬ブック バッチ処理システム')
+    """"""
+    parser = argparse.ArgumentParser(description=' ')
     
-    # サブコマンドを設定
-    subparsers = parser.add_subparsers(dest='command', help='利用可能なコマンド')
+    # 
+    subparsers = parser.add_subparsers(dest='command', help='')
     
-    # レース日程取得コマンド
-    schedule_parser = subparsers.add_parser('schedule', help='レース日程を取得')
+    # 
+    schedule_parser = subparsers.add_parser('schedule', help='')
     schedule_parser.add_argument('--start-date', type=str, required=True, 
-                                help='取得開始日 (YYYY/MM/DD or YY/MM/DD)')
+                                help=' (YYYY/MM/DD or YY/MM/DD)')
     schedule_parser.add_argument('--end-date', type=str, 
-                                help='取得終了日 (YYYY/MM/DD or YY/MM/DD、省略時は開始日と同じ)')
+                                help=' (YYYY/MM/DD or YY/MM/DD)')
     schedule_parser.add_argument('--delay', type=int, default=3, 
-                                help='リクエスト間の待機時間(秒)')
+                                help='()')
     
-    # レースデータ取得コマンド
-    data_parser = subparsers.add_parser('data', help='レースデータを取得')
+    # 
+    data_parser = subparsers.add_parser('data', help='')
     data_parser.add_argument('--start-date', type=str, required=True, 
-                            help='取得開始日 (YYYY/MM/DD or YY/MM/DD)')
+                            help=' (YYYY/MM/DD or YY/MM/DD)')
     data_parser.add_argument('--end-date', type=str, 
-                            help='取得終了日 (YYYY/MM/DD or YY/MM/DD、省略時は開始日と同じ)')
+                            help=' (YYYY/MM/DD or YY/MM/DD)')
     data_parser.add_argument('--data-types', type=str, default='seiseki,shutsuba,cyokyo,danwa', 
-                            help='取得するデータタイプ (カンマ区切り) [seiseki,shutsuba,cyokyo,danwa]')
+                            help=' () [seiseki,shutsuba,cyokyo,danwa]')
     data_parser.add_argument('--delay', type=int, default=3, 
-                            help='リクエスト間の待機時間(秒)')
+                            help='()')
     
-    # 全処理コマンド（日程取得→データ取得）
-    full_parser = subparsers.add_parser('full', help='日程取得からデータ取得まで全て実行')
+    # →
+    full_parser = subparsers.add_parser('full', help='')
     full_parser.add_argument('--start-date', type=str, required=True, 
-                            help='取得開始日 (YYYY/MM/DD or YY/MM/DD)')
+                            help=' (YYYY/MM/DD or YY/MM/DD)')
     full_parser.add_argument('--end-date', type=str, 
-                            help='取得終了日 (YYYY/MM/DD or YY/MM/DD、省略時は開始日と同じ)')
+                            help=' (YYYY/MM/DD or YY/MM/DD)')
     full_parser.add_argument('--data-types', type=str, default='seiseki,shutsuba,cyokyo,danwa', 
-                            help='取得するデータタイプ (カンマ区切り) [seiseki,shutsuba,cyokyo,danwa]')
+                            help=' () [seiseki,shutsuba,cyokyo,danwa]')
     full_parser.add_argument('--delay', type=int, default=3, 
-                            help='リクエスト間の待機時間(秒)')
+                            help='()')
     full_parser.add_argument('--wait-between-phases', type=int, default=5, 
-                            help='日程取得とデータ取得の間の待機時間(秒)')
+                            help='()')
     
-    # 共通オプション
+    # 
     for p in [schedule_parser, data_parser, full_parser]:
-        p.add_argument('--debug', action='store_true', help='デバッグモードを有効化')
+        p.add_argument('--debug', action='store_true', help='')
     
     args = parser.parse_args()
     
@@ -63,7 +63,7 @@ def main():
         return 1
     
     try:
-        # 日付をパース
+        # 
         start_date = parse_date(args.start_date)
         
         if args.end_date:
@@ -71,112 +71,112 @@ def main():
         else:
             end_date = start_date
         
-        # データ取得クラスを初期化
+        # 
         fetcher = DataFetcher(delay=args.delay)
         logger = setup_batch_logger('batch_cli')
         
-        logger.info(f"バッチ処理を開始: {args.command}")
-        logger.info(f"期間: {start_date} ～ {end_date}")
+        logger.info(f": {args.command}")
+        logger.info(f": {start_date}  {end_date}")
         
         if args.command == 'schedule':
-            # レース日程取得
-            logger.info("レース日程取得を開始")
+            # 
+            logger.info("")
             current_date = start_date
             while current_date <= end_date:
                 date_str = current_date.strftime("%Y%m%d")
-                logger.info(f"日程取得: {date_str}")
+                logger.info(f": {date_str}")
                 success = fetcher.fetch_race_schedule(date_str)
                 if not success:
-                    logger.error(f"日程取得に失敗: {date_str}")
+                    logger.error(f": {date_str}")
                 
-                # 次の日へ
+                # 
                 from datetime import timedelta
                 current_date += timedelta(days=1)
                 
-                # 最後の日以外は待機
+                # 
                 if current_date <= end_date:
                     import time
                     time.sleep(args.delay)
             
         elif args.command == 'data':
-            # レースデータ取得
+            # 
             data_types = args.data_types.split(',')
-            logger.info(f"レースデータ取得を開始: {', '.join(data_types)}")
+            logger.info(f": {', '.join(data_types)}")
             current_date = start_date
             while current_date <= end_date:
                 date_str = current_date.strftime("%Y%m%d")
-                logger.info(f"データ取得: {date_str}")
+                logger.info(f": {date_str}")
                 summary = fetcher.fetch_all_race_data(date_str, data_types)
                 if not summary.get('success'):
-                    logger.error(f"データ取得に失敗: {date_str}")
+                    logger.error(f": {date_str}")
                 else:
-                    logger.info(f"データ取得完了: {summary.get('total_success', 0)}件成功, {summary.get('total_failed', 0)}件失敗")
+                    logger.info(f": {summary.get('total_success', 0)}, {summary.get('total_failed', 0)}")
                 
-                # 次の日へ
+                # 
                 from datetime import timedelta
                 current_date += timedelta(days=1)
                 
-                # 最後の日以外は待機
+                # 
                 if current_date <= end_date:
                     import time
                     time.sleep(args.delay)
             
         elif args.command == 'full':
-            # 全処理実行
+            # 
             data_types = args.data_types.split(',')
-            logger.info("全処理を開始（日程取得→データ取得）")
+            logger.info("→")
             
-            # Phase 1: レース日程取得
-            logger.info("Phase 1: レース日程取得")
+            # Phase 1: 
+            logger.info("Phase 1: ")
             current_date = start_date
             while current_date <= end_date:
                 date_str = current_date.strftime("%Y%m%d")
-                logger.info(f"日程取得: {date_str}")
+                logger.info(f": {date_str}")
                 success = fetcher.fetch_race_schedule(date_str)
                 if not success:
-                    logger.error(f"日程取得に失敗: {date_str}")
+                    logger.error(f": {date_str}")
                 
-                # 次の日へ
+                # 
                 from datetime import timedelta
                 current_date += timedelta(days=1)
                 
-                # 最後の日以外は待機
+                # 
                 if current_date <= end_date:
                     import time
                     time.sleep(args.delay)
             
-            # 待機
+            # 
             import time
-            logger.info(f"Phase間待機: {args.wait_between_phases}秒")
+            logger.info(f"Phase: {args.wait_between_phases}")
             time.sleep(args.wait_between_phases)
             
-            # Phase 2: レースデータ取得
-            logger.info(f"Phase 2: レースデータ取得 ({', '.join(data_types)})")
+            # Phase 2: 
+            logger.info(f"Phase 2:  ({', '.join(data_types)})")
             current_date = start_date
             while current_date <= end_date:
                 date_str = current_date.strftime("%Y%m%d")
-                logger.info(f"データ取得: {date_str}")
+                logger.info(f": {date_str}")
                 summary = fetcher.fetch_all_race_data(date_str, data_types)
                 if not summary.get('success'):
-                    logger.error(f"データ取得に失敗: {date_str}")
+                    logger.error(f": {date_str}")
                 else:
-                    logger.info(f"データ取得完了: {summary.get('total_success', 0)}件成功, {summary.get('total_failed', 0)}件失敗")
+                    logger.info(f": {summary.get('total_success', 0)}, {summary.get('total_failed', 0)}")
                 
-                # 次の日へ
+                # 
                 from datetime import timedelta
                 current_date += timedelta(days=1)
                 
-                # 最後の日以外は待機
+                # 
                 if current_date <= end_date:
                     import time
                     time.sleep(args.delay)
         
-        logger.info("バッチ処理が完了しました")
+        logger.info("")
         return 0
         
     except Exception as e:
         logger = setup_batch_logger('batch_cli')
-        logger.error(f"エラーが発生しました: {e}")
+        logger.error(f": {e}")
         return 1
 
 
