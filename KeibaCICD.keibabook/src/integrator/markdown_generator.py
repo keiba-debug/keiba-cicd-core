@@ -54,8 +54,18 @@ class MarkdownGenerator:
         # レース情報セクション
         md_content.append(self._generate_race_info(race_data))
         
+        # 本紙の見解セクション
+        race_comment_section = self._generate_race_comment_section(race_data)
+        if race_comment_section:
+            md_content.append(race_comment_section)
+        
         # 出走表テーブル
         md_content.append(self._generate_entry_table(race_data))
+        
+        # 展開予想（展開データがある場合）
+        tenkai_section = self._generate_tenkai_section(race_data)
+        if tenkai_section:
+            md_content.append(tenkai_section)
         
         # レース結果（成績データがある場合）
         if self._has_results(race_data):
@@ -147,6 +157,18 @@ class MarkdownGenerator:
         lines.extend(info_items)
         return '\n'.join(lines)
     
+    def _generate_race_comment_section(self, race_data: Dict[str, Any]) -> str:
+        """本紙の見解セクション生成"""
+        race_comment = race_data.get('race_comment', '')
+        if not race_comment or race_comment.strip() == '':
+            return ""
+        
+        lines = ["## 📰 本紙の見解"]
+        lines.append("")
+        lines.append(f"> {race_comment}")
+        
+        return '\n'.join(lines)
+    
     def _generate_entry_table(self, race_data: Dict[str, Any]) -> str:
         """出走表テーブル生成（詳細版）"""
         entries = race_data.get('entries', [])
@@ -157,10 +179,13 @@ class MarkdownGenerator:
         lines.append("")
         
         # テーブルヘッダー
-        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | 人気 | 本誌 | 総合P | 調教 |")
-        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:---:|:---:|:---:|:----:|")
+        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 調教 | 短評 |")
+        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|:----:|------|")
         
-        for entry in entries:
+        # 馬番順にソート
+        sorted_entries = sorted(entries, key=lambda x: x.get('horse_number', 999))
+        
+        for entry in sorted_entries:
             entry_data = entry.get('entry_data', {})
             training_data = entry.get('training_data', {})
             
@@ -171,17 +196,29 @@ class MarkdownGenerator:
             jockey = entry_data.get('jockey', '-')
             weight = entry_data.get('weight', '')
             odds = entry_data.get('odds', '-')
-            rank = entry_data.get('odds_rank', '-')
+            ai_index = entry_data.get('ai_index', '-')
+            rating = entry_data.get('rating', '-')  # レイティングを取得
             honshi_mark = entry_data.get('honshi_mark', '-')
             mark_point = entry_data.get('aggregate_mark_point', entry_data.get('mark_point', 0))
-            training_eval = training_data.get('evaluation', '-') if training_data else '-'
+            
+            # 調教評価（矢印付き）
+            training_eval = '-'
+            if training_data:
+                eval_mark = training_data.get('evaluation', '')
+                arrow_mark = training_data.get('training_arrow', '')  # 矢印を取得
+                if arrow_mark:
+                    training_eval = arrow_mark
+                elif eval_mark:
+                    training_eval = eval_mark
+            
+            short_comment = entry_data.get('short_comment', '')  # 短評を取得
             
             # 馬名にリンクを追加
             horse_id = entry.get('horse_id', '')
             if horse_id:
                 horse_name = f"[{horse_name}](https://p.keibabook.co.jp/db/uma/{horse_id})"
             
-            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {rank} | {honshi_mark} | {mark_point} | {training_eval} |")
+            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {training_eval} | {short_comment} |")
         
         # 参考: 人別印一覧（折りたたみイメージ、シンプル出力）
         lines.append("")
@@ -570,6 +607,85 @@ class MarkdownGenerator:
             for key, status in sources.items():
                 emoji = "✅" if status == "" else "❌"
                 lines.append(f"  - {emoji} {key}")
+        
+        return '\n'.join(lines)
+    
+    def _generate_tenkai_section(self, race_data: Dict[str, Any]) -> str:
+        """展開予想セクション生成"""
+        tenkai_data = race_data.get('tenkai_data', {})
+        if not tenkai_data:
+            return ""
+        
+        lines = ["## 🏃 展開予想"]
+        lines.append("")
+        
+        # ペース予想
+        pace = tenkai_data.get('pace', 'M')
+        pace_emoji = {
+            'H': '🔥',  # ハイペース
+            'M-H': '⚡',  # ややハイ
+            'M': '⚖️',  # 平均
+            'M-S': '🐢',  # ややスロー
+            'S': '🐌'  # スロー
+        }.get(pace, '⚖️')
+        
+        lines.append(f"### {pace_emoji} ペース予想: {pace}")
+        lines.append("")
+        
+        # 展開ポジション表
+        positions = tenkai_data.get('positions', {})
+        if positions:
+            lines.append("### 📊 予想展開")
+            lines.append("")
+            lines.append("| ポジション | 馬番 |")
+            lines.append("|:---------|:-----|")
+            
+            # ポジション順序を定義
+            position_order = ['逃げ', '好位', '中位', '後方']
+            
+            for pos_name in position_order:
+                if pos_name in positions:
+                    horses = positions[pos_name]
+                    if horses:
+                        horse_nums_str = ' '.join([f"**{num}**" for num in horses])
+                        lines.append(f"| {pos_name} | {horse_nums_str} |")
+            
+            lines.append("")
+        
+        # 展開解説
+        description = tenkai_data.get('description', '')
+        if description:
+            lines.append("### 💭 展開解説")
+            lines.append("")
+            lines.append(f"> {description}")
+            lines.append("")
+        
+        # 展開視覚化（Mermaidダイアグラム）
+        if positions:
+            lines.append("### 🎯 展開イメージ")
+            lines.append("")
+            lines.append("```mermaid")
+            lines.append("graph LR")
+            lines.append("    subgraph 展開")
+            
+            # 各ポジションをノードとして追加
+            position_mapping = {
+                '逃げ': 'A[逃げ]',
+                '好位': 'B[好位]',
+                '中位': 'C[中位]',
+                '後方': 'D[後方]'
+            }
+            
+            for pos_name in position_order:
+                if pos_name in positions:
+                    horses = positions[pos_name]
+                    if horses:
+                        node = position_mapping.get(pos_name, f"X[{pos_name}]")
+                        horse_list = ','.join(horses)
+                        lines.append(f"        {node} --> |{horse_list}|{node}")
+            
+            lines.append("    end")
+            lines.append("```")
         
         return '\n'.join(lines)
     

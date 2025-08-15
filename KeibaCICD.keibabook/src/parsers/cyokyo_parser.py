@@ -95,6 +95,10 @@ class CyokyoParser:
             tables = soup.find_all('table')
             self.logger.debug(f"全テーブル数: {len(tables)}")
             
+            # 矢印データを別途収集（各馬のテーブルから）
+            arrow_data = self._extract_arrow_data(soup)
+            self.logger.debug(f"矢印データ: {arrow_data}")
+            
             for table_idx, table in enumerate(tables):
                 table_text = table.get_text()
                 
@@ -110,6 +114,14 @@ class CyokyoParser:
                         # 攻め解説を含む行を処理
                         if '攻め解説' in row_text:
                             training_data = self._extract_training_with_explanation(row, table_idx, row_idx)
+                            
+                            # 馬番に対応する矢印を追加
+                            if training_data and training_data.get('horse_number'):
+                                horse_num = training_data.get('horse_number')
+                                if horse_num in arrow_data:
+                                    training_data['training_arrow'] = arrow_data[horse_num]
+                                    self.logger.debug(f"馬番{horse_num}に矢印{arrow_data[horse_num]}を追加")
+                            
                             # 馬番と攻め解説の両方が取得できたデータのみ追加
                             if training_data and training_data.get('horse_number') and training_data.get('attack_explanation'):
                                 training_list.append(training_data)
@@ -188,6 +200,20 @@ class CyokyoParser:
                 training_data['attack_explanation'] = attack_explanation
                 self.logger.debug(f"攻め解説抽出成功: {attack_explanation[:50]}...")
             
+            # 矢印を抽出（短評の横にある調教の変化を示す矢印）
+            arrow_cell = row.find('td', class_='yajirusi')
+            if arrow_cell:
+                # spanタグ内のテキストも含めて取得
+                arrow_span = arrow_cell.find('span', class_=['kakusuji2keta', 'kakusuji1keta'])
+                if arrow_span:
+                    arrow_text = arrow_span.get_text(strip=True)
+                else:
+                    arrow_text = arrow_cell.get_text(strip=True)
+                    
+                if arrow_text and arrow_text in ['→', '↗', '↘', '↑', '↓']:
+                    training_data['training_arrow'] = arrow_text
+                    self.logger.debug(f"調教矢印抽出成功: {arrow_text}")
+            
             # race_idを設定（ファイル名から推定）
             training_data['race_id'] = self._get_race_id_from_context()
             
@@ -232,6 +258,31 @@ class CyokyoParser:
         """コンテキストからrace_idを取得"""
         return getattr(self, 'current_race_id', '')
     
+    def _extract_arrow_data(self, soup: BeautifulSoup) -> Dict[int, str]:
+        """HTMLから矢印データを抽出"""
+        arrow_data = {}
+        
+        try:
+            # 矢印セルをすべて取得（class="yajirusi"）
+            arrow_cells = soup.find_all('td', class_='yajirusi')
+            self.logger.debug(f"矢印セル数: {len(arrow_cells)}")
+            
+            # 各矢印セルから矢印を抽出（馬番順に配置されていると仮定）
+            for i, arrow_cell in enumerate(arrow_cells, 1):
+                # spanタグ内の矢印テキストを取得
+                span = arrow_cell.find('span', class_=['kakusuji2keta', 'kakusuji1keta'])
+                if span:
+                    arrow_text = span.get_text(strip=True)
+                    # 矢印文字を確認（Unicode文字も含む）
+                    if arrow_text and len(arrow_text) > 0:
+                        arrow_data[i] = arrow_text
+                        self.logger.debug(f"馬番{i}の矢印: {arrow_text}")
+            
+        except Exception as e:
+            self.logger.debug(f"矢印データ抽出エラー: {e}")
+        
+        return arrow_data
+    
     def _extract_horse_info_from_context(self, table_idx: int, row_idx: int) -> tuple:
         """テーブル位置から馬番・馬名を推定"""
         try:
@@ -275,7 +326,8 @@ class CyokyoParser:
                 "race_id": race_id,
                 "horse_number": data.get('horse_number', ''),
                 "horse_name": data.get('horse_name', ''),
-                "attack_explanation": data.get('attack_explanation', '')
+                "attack_explanation": data.get('attack_explanation', ''),
+                "training_arrow": data.get('training_arrow', '')  # 矢印を追加
             }
             
             # 有効なデータのみ追加
@@ -335,6 +387,19 @@ class CyokyoParser:
                 if i < len(headers):
                     header = headers[i]
                     training_data[header] = cell_text
+            
+            # 矢印を抽出（td class="yajirusi"から）
+            arrow_cell = row.find('td', class_='yajirusi')
+            if arrow_cell:
+                # spanタグ内のテキストも含めて取得
+                arrow_span = arrow_cell.find('span', class_=['kakusuji2keta', 'kakusuji1keta'])
+                if arrow_span:
+                    arrow_text = arrow_span.get_text(strip=True)
+                else:
+                    arrow_text = arrow_cell.get_text(strip=True)
+                    
+                if arrow_text and arrow_text in ['→', '↗', '↘', '↑', '↓']:
+                    training_data['training_arrow'] = arrow_text
                 else:
                     # デフォルトのフィールド名
                     default_fields = ['馬番', '馬名', '調教日', 'コース', 'タイム', '追切', '評価', 'コメント']

@@ -66,10 +66,35 @@ class SyutubaParser:
             # 出走馬情報を抽出
             horses = self._extract_horses(soup)
             
+            # AI指数情報を抽出
+            ai_data = self._extract_ai_data(soup)
+            
+            # 展開情報を抽出
+            tenkai_data = self._extract_tenkai_data(soup)
+            
+            # 本紙の見解を抽出
+            race_comment = self._extract_race_comment(soup)
+            
+            # AI指数を各馬のデータにマージ
+            if ai_data and 'entries' in ai_data:
+                for ai_entry in ai_data['entries']:
+                    horse_num = ai_entry.get('horse_number')
+                    # 全角数字を半角に変換
+                    horse_num_normalized = horse_num.translate(str.maketrans('０１２３４５６７８９', '0123456789')) if horse_num else ''
+                    for horse in horses:
+                        if str(horse.get('馬番')) == str(horse_num_normalized):
+                            horse['AI指数'] = ai_entry.get('ai_index', '')
+                            horse['AI指数ランク'] = ai_entry.get('rank', '')
+                            horse['人気指数'] = ai_entry.get('popularity_index', '')
+                            break
+            
             result = {
                 "race_info": race_info,
                 "horses": horses,
-                "horse_count": len(horses)
+                "horse_count": len(horses),
+                "ai_data": ai_data,
+                "tenkai_data": tenkai_data,
+                "race_comment": race_comment  # 本紙の見解を追加
             }
             
             self.logger.info(f"出馬表パース完了: {len(horses)}頭")
@@ -190,8 +215,12 @@ class SyutubaParser:
                 # ヘッダー名を取得
                 header_name = headers[i] if i < len(headers) else f'field_{i}'
                 
-                # 基本的なセル値を設定
-                horse_data[header_name] = cell_text
+                # キー名の正規化: 特殊なスペース文字（U+2003など）を削除
+                # 「騎　手」→「騎手」、「短　評」→「短評」、「厩　舎」→「厩舎」
+                normalized_key = re.sub(r'[\s\u2003\u3000]+', '', header_name)
+                
+                # 基本的なセル値を設定（正規化されたキー名を使用）
+                horse_data[normalized_key] = cell_text
                 
                 # umacd属性を持つリンクを探す（馬名セル）
                 umacd_link = cell.find('a', attrs={'umacd': True})
@@ -204,6 +233,9 @@ class SyutubaParser:
                     horse_data['umacd'] = umacd
                     horse_data['馬名_clean'] = horse_name  # クリーンな馬名
                     horse_data['馬名_link'] = href
+                    # 元のキー名でも保存（互換性のため）
+                    if header_name != normalized_key:
+                        horse_data[header_name] = cell_text
                     
                     self.logger.debug(f"umacd抽出: {horse_name} (umacd: {umacd})")
                 
@@ -370,6 +402,126 @@ class SyutubaParser:
                 horse['総合印ポイント'] = total_points
         
         return horses
+    
+    def _extract_ai_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        """AI指数データを抽出"""
+        ai_data = {}
+        
+        try:
+            # AI指数テーブルを探す
+            ai_section = soup.find('p', class_='title', string='AI指数')
+            if ai_section:
+                ai_table = ai_section.find_next('table', class_='ai')
+                if ai_table:
+                    ai_entries = []
+                    tbody = ai_table.find('tbody')
+                    if tbody:
+                        for row in tbody.find_all('tr'):
+                            cells = row.find_all('td')
+                            if len(cells) >= 5:
+                                # 馬番を取得（枠番クラスから）
+                                waku_elem = cells[1].find('p', class_=re.compile(r'waku\d+'))
+                                horse_num = waku_elem.get_text(strip=True) if waku_elem else ''
+                                
+                                # 馬名を取得
+                                uma_link = cells[2].find('a')
+                                horse_name = uma_link.get_text(strip=True) if uma_link else cells[2].get_text(strip=True)
+                                
+                                entry = {
+                                    'rank': cells[0].get_text(strip=True),
+                                    'horse_number': horse_num,
+                                    'horse_name': horse_name,
+                                    'popularity_index': cells[3].get_text(strip=True),
+                                    'ai_index': cells[4].get_text(strip=True)
+                                }
+                                ai_entries.append(entry)
+                    
+                    ai_data['entries'] = ai_entries
+                    self.logger.info(f"AI指数データ取得: {len(ai_entries)}頭")
+                    
+        except Exception as e:
+            self.logger.debug(f"AI指数データ抽出エラー: {e}")
+        
+        return ai_data
+    
+    def _extract_tenkai_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        """展開データを抽出"""
+        tenkai_data = {}
+        
+        try:
+            # 展開セクションを探す
+            tenkai_section = soup.find('p', class_='title', string='展開')
+            if tenkai_section:
+                parent_div = tenkai_section.parent
+                if parent_div:
+                    # ペース情報を取得
+                    pace_elem = parent_div.find('p', string=re.compile(r'ペース'))
+                    if pace_elem:
+                        pace_text = pace_elem.get_text()
+                        # 「ペース　M」のような形式から「M」を抽出
+                        pace_match = re.search(r'ペース[　\s]*([A-Z\-]+)', pace_text)
+                        if pace_match:
+                            tenkai_data['pace'] = pace_match.group(1)
+                    
+                    # 展開テーブルを取得
+                    tenkai_table = parent_div.find('table')
+                    if tenkai_table:
+                        positions = {}
+                        for row in tenkai_table.find_all('tr'):
+                            cells = row.find_all(['th', 'td'])
+                            for i in range(0, len(cells), 2):
+                                if i + 1 < len(cells):
+                                    position_name = cells[i].get_text(strip=True)
+                                    horse_nums = []
+                                    for num_elem in cells[i + 1].find_all('span', class_='marusuji'):
+                                        num_text = num_elem.get_text(strip=True)
+                                        # ①②③などの丸数字から数字を抽出
+                                        num_text = num_text.replace('①', '1').replace('②', '2').replace('③', '3')
+                                        num_text = num_text.replace('④', '4').replace('⑤', '5').replace('⑥', '6')
+                                        num_text = num_text.replace('⑦', '7').replace('⑧', '8').replace('⑨', '9')
+                                        num_text = num_text.replace('⑩', '10').replace('⑪', '11').replace('⑫', '12')
+                                        num_text = num_text.replace('⑬', '13').replace('⑭', '14').replace('⑮', '15')
+                                        num_text = num_text.replace('⑯', '16').replace('⑰', '17').replace('⑱', '18')
+                                        horse_nums.append(num_text)
+                                    positions[position_name] = horse_nums
+                        
+                        tenkai_data['positions'] = positions
+                    
+                    # 展開解説を取得
+                    # テーブルの後のpタグ
+                    description_p = tenkai_table.find_next_sibling('p') if tenkai_table else None
+                    if description_p:
+                        desc_text = description_p.get_text(strip=True)
+                        if desc_text and not desc_text.startswith('title'):
+                            tenkai_data['description'] = desc_text
+                    
+                    self.logger.info(f"展開データ取得: ペース={tenkai_data.get('pace', 'N/A')}")
+                    
+        except Exception as e:
+            self.logger.debug(f"展開データ抽出エラー: {e}")
+        
+        return tenkai_data
+    
+    def _extract_race_comment(self, soup: BeautifulSoup) -> str:
+        """本紙の見解を抽出"""
+        race_comment = ""
+        
+        try:
+            # 本紙の見解セクションを探す
+            comment_title = soup.find('p', class_='title', string=re.compile(r'本[紙誌]の見解'))
+            if comment_title:
+                # 次のp要素が見解本文
+                comment_p = comment_title.find_next_sibling('p')
+                if comment_p:
+                    race_comment = comment_p.get_text(strip=True)
+                    self.logger.debug(f"本紙の見解を抽出: {race_comment[:50]}...")
+            else:
+                self.logger.debug("本紙の見解が見つかりません")
+                
+        except Exception as e:
+            self.logger.debug(f"本紙の見解抽出エラー: {e}")
+        
+        return race_comment
     
     def save_json(self, data: Dict[str, Any], output_path: str):
         """データをJSONファイルに保存"""

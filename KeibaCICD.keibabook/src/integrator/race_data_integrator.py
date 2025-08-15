@@ -274,16 +274,19 @@ class RaceDataIntegrator:
             'entry_data': {
                 'weight': syutuba_entry.get('重量') or syutuba_entry.get('weight', 0),
                 'weight_diff': syutuba_entry.get('増減') or syutuba_entry.get('weight_diff', ''),
-                'jockey': syutuba_entry.get('騎 手') or syutuba_entry.get('jockey', ''),
-                'trainer': syutuba_entry.get('厩 舎') or syutuba_entry.get('trainer', ''),
+                'jockey': syutuba_entry.get('騎手') or syutuba_entry.get('騎\u2003手') or syutuba_entry.get('騎 手') or syutuba_entry.get('jockey', ''),
+                'trainer': syutuba_entry.get('厩舎') or syutuba_entry.get('厩\u2003舎') or syutuba_entry.get('厩 舎') or syutuba_entry.get('trainer', ''),
                 'owner': syutuba_entry.get('owner', ''),
+                'short_comment': syutuba_entry.get('短評') or syutuba_entry.get('短\u2003評') or syutuba_entry.get('短 評') or syutuba_entry.get('short_comment', ''),
                 'odds': syutuba_entry.get('単勝') or syutuba_entry.get('odds', ''),
                 'odds_rank': syutuba_entry.get('人気') or syutuba_entry.get('odds_rank', 0),
+                'ai_index': syutuba_entry.get('AI指数', '-'),
+                'ai_rank': syutuba_entry.get('AI指数ランク', ''),
+                'popularity_index': syutuba_entry.get('人気指数', ''),
                 'age': syutuba_entry.get('性齢') or syutuba_entry.get('age', ''),
                 'sex': syutuba_entry.get('sex', ''),
                 'waku': syutuba_entry.get('枠番') or syutuba_entry.get('waku', ''),
                 'rating': syutuba_entry.get('レイティング') or syutuba_entry.get('rating', ''),
-                'short_comment': syutuba_entry.get('短 評') or syutuba_entry.get('short_comment', ''),
                 'horse_weight': syutuba_entry.get('馬体重(kg)') or syutuba_entry.get('horse_weight', ''),
                 'father': syutuba_entry.get('father', ''),
                 'mother': syutuba_entry.get('mother', ''),
@@ -312,7 +315,8 @@ class RaceDataIntegrator:
                             'trainer_comment': horse.get('comment', ''),
                             'short_review': horse.get('short_review', '') or horse.get('attack_explanation', ''),
                             'training_load': horse.get('training_load', ''),
-                            'training_rank': horse.get('rank', '')
+                            'training_rank': horse.get('rank', ''),
+                            'training_arrow': horse.get('training_arrow', '')  # 調教矢印を追加
                         }
                         break
                 else:
@@ -332,7 +336,8 @@ class RaceDataIntegrator:
                             'trainer_comment': item.get('trainer_comment') or item.get('comment') or item.get('attack_explanation', ''),
                             'short_review': item.get('short_review') or item.get('attack_explanation', ''),
                             'training_load': item.get('training_load') or item.get('負荷', ''),
-                            'training_rank': item.get('training_rank') or item.get('順位', '')
+                            'training_rank': item.get('training_rank') or item.get('順位', ''),
+                            'training_arrow': item.get('training_arrow', '')  # 調教矢印を追加
                         }
                         break
                 else:
@@ -366,7 +371,7 @@ class RaceDataIntegrator:
                     if num == horse_number:
                         horse_data['stable_comment'] = {
                             'date': row.get('date', ''),
-                            'comment': row.get('コメント', '') or row.get('談話', '') or row.get('展望', ''),
+                            'comment': row.get('厩舎の話', '') or row.get('コメント', '') or row.get('談話', '') or row.get('展望', ''),
                             'condition': row.get('状態', ''),
                             'target_race': row.get('target_race', ''),
                             'trainer': row.get('調教師', '')
@@ -588,6 +593,14 @@ class RaceDataIntegrator:
         
         # 
         integrated_data['analysis'] = self._analyze_race(integrated_data['entries'])
+        
+        # 展開データを追加
+        if syutuba_data and 'tenkai_data' in syutuba_data:
+            integrated_data['tenkai_data'] = syutuba_data['tenkai_data']
+        
+        # 本紙の見解を追加
+        if syutuba_data and 'race_comment' in syutuba_data:
+            integrated_data['race_comment'] = syutuba_data['race_comment']
         
         # 
         if save:
