@@ -202,10 +202,11 @@ class RaceDataIntegrator:
                 'race_name': info.get('race_name', ''),
                 'grade': self._extract_grade(info.get('race_name', '')),
                 'distance': info.get('distance', 0),
-                'track': info.get('track_type', ''),
+                'track': info.get('track', info.get('track_type', '')),
                 'direction': info.get('direction', ''),
                 'weather': info.get('weather', ''),
-                'track_condition': info.get('track_condition', '')
+                'track_condition': info.get('track_condition', ''),
+                'race_condition': info.get('race_condition', '')  # レース条件も追加
             })
         
         return race_info

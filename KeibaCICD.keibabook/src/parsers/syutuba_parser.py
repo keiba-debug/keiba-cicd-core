@@ -115,9 +115,32 @@ class SyutubaParser:
                 title_text = title.get_text()
                 race_info['title'] = title_text.strip()
             
-            # レース条件・距離情報
-            # 競馬ブックの出馬表ページから具体的な情報を抽出
-            # （実際のHTMLを見て詳細を実装）
+            # レース条件・距離情報を抽出
+            # レース番号のリストから現在のレースの情報を取得
+            race_list = soup.find('ul', class_='race')
+            if race_list:
+                active_race = race_list.find('li', class_='active')
+                if active_race:
+                    race_value = active_race.get('value', '')
+                    # 例: "2歳未勝利 <br>芝・1800m" から情報を抽出
+                    if race_value:
+                        # <br>タグで分割
+                        parts = race_value.split('<br>')
+                        if len(parts) >= 2:
+                            # レース条件
+                            race_info['race_condition'] = parts[0].strip()
+                            
+                            # コース情報（芝・ダート、距離）
+                            course_info = parts[1].strip()
+                            # "芝・1800m" を解析
+                            import re
+                            match = re.match(r'(芝|ダ|ダート)・?(\d+)m', course_info)
+                            if match:
+                                track = match.group(1)
+                                distance = match.group(2)
+                                race_info['track'] = '芝' if track == '芝' else 'ダ'
+                                race_info['distance'] = int(distance)
+                                self.logger.debug(f"コース情報抽出: {track} {distance}m")
                 
         except Exception as e:
             self.logger.debug(f"レース情報抽出エラー: {e}")

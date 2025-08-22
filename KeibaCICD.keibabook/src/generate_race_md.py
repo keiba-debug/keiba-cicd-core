@@ -74,17 +74,44 @@ class RaceMarkdownGenerator:
         kaisai = race_info.get('kaisai_name', '')
         race_no = race_info.get('race_no', '')
         race_name = race_info.get('race_name', '')
+        course = race_info.get('course', '')
+        
+        # レース番号をR形式に変換（例: 7R）
+        race_no_r = race_no.replace('レース', 'R')
+        
+        # 競馬場名を抽出（例: "1回新潟3日目" → "新潟"）
+        track_name = ''
+        for track in ['札幌', '新潟', '中京', '東京', '中山', '阪神', '京都', '福島', '小倉']:
+            if track in kaisai:
+                track_name = track
+                break
         
         # グレードレース判定
         grade = ""
         if 'Ｇ１' in race_name or 'G1' in race_name:
-            grade = "(G1)"
+            grade = "G1"
         elif 'Ｇ２' in race_name or 'G2' in race_name:
-            grade = "(G2)"
+            grade = "G2"
         elif 'Ｇ３' in race_name or 'G3' in race_name:
-            grade = "(G3)"
+            grade = "G3"
         
-        md_lines.append(f"# {kaisai} {race_no} {race_name} {grade}")
+        # コース情報の整形（例: "芝・左 1600m" → "芝1600m"）
+        if '・' in course:
+            course_parts = course.split('・')
+            if len(course_parts) >= 2:
+                surface = course_parts[0]  # 芝/ダート
+                distance = course_parts[-1].split()[-1] if ' ' in course_parts[-1] else course_parts[-1]
+                course_display = f"{surface}{distance}"
+            else:
+                course_display = course.replace('・', '')
+        else:
+            course_display = course
+        
+        # ヘッダーの構築
+        if grade:
+            md_lines.append(f"# {track_name}{race_no_r}　{grade}{race_name}　{course_display}")
+        else:
+            md_lines.append(f"# {track_name}{race_no_r}　{race_name}　{course_display}")
         md_lines.append(f"*生成日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
         md_lines.append("")
         
@@ -92,11 +119,11 @@ class RaceMarkdownGenerator:
         md_lines.append("## レース情報")
         md_lines.append(f"- **日付**: {date[:4]}-{date[4:6]}-{date[6:8]}")
         md_lines.append(f"- **開催**: {kaisai}")
-        md_lines.append(f"- **レース番号**: {race_no}")
+        md_lines.append(f"- **レース番号**: {race_no_r}")
         md_lines.append(f"- **レース名**: {race_name}")
         if grade:
-            md_lines.append(f"- **グレード**: {grade.strip('()')}")
-        md_lines.append(f"- **コース**: {race_info.get('course', 'N/A')}")
+            md_lines.append(f"- **グレード**: {grade}")
+        md_lines.append(f"- **コース**: {course_display}")
         md_lines.append("")
         
         # 出馬表セクション
@@ -150,6 +177,17 @@ class RaceMarkdownGenerator:
         # 外部コメントセクション（プレースホルダー）
         md_lines.append("## 外部コメント")
         md_lines.append("*（外部コメント統合機能は実装予定）*")
+        md_lines.append("")
+        
+        # 追記用セクション
+        md_lines.append("---")
+        md_lines.append("# 追記")
+        md_lines.append("")
+        md_lines.append("---")
+        md_lines.append("## 予想メモ")
+        md_lines.append("")
+        md_lines.append("---")
+        md_lines.append("## 買い目検討")
         md_lines.append("")
         
         return "\n".join(md_lines)

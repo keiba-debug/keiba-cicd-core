@@ -99,8 +99,16 @@ class MarkdownGenerator:
         
         markdown_text = '\n\n'.join(filter(None, md_content))
         
+        # 既存の追記エリアを保持、または新規追記セクションを追加
+        output_path = self._get_output_path(race_data)
+        additional_content = self._extract_additional_content(output_path)
+        if additional_content:
+            markdown_text += '\n\n' + additional_content
+        else:
+            # 既存の追記エリアがない場合は新規に追加
+            markdown_text += '\n\n' + self._generate_additional_section()
+        
         if save:
-            output_path = self._get_output_path(race_data)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(markdown_text)
         
@@ -141,10 +149,13 @@ class MarkdownGenerator:
         if venue:
             info_items.append(f"- **競馬場**: {venue}")
         
+        # コース情報（芝/ダート、距離）を分かりやすく表示
         distance = race_info.get('distance', 0)
         track = race_info.get('track', '')
         if distance:
-            info_items.append(f"- **距離**: {track}{distance}m")
+            # トラック種別を日本語に変換
+            track_jp = '芝' if track == '芝' else 'ダート' if track in ['ダ', 'ダート'] else track
+            info_items.append(f"- **コース**: {track_jp} {distance}m")
         
         weather = race_info.get('weather', '')
         if weather:
@@ -178,9 +189,9 @@ class MarkdownGenerator:
         lines = ["## 🐎 出走表"]
         lines.append("")
         
-        # テーブルヘッダー
-        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 調教 | 短評 |")
-        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|:----:|------|")
+        # テーブルヘッダー（パドック情報を追加）
+        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 調教 | 短評 | パ評価 | パコメント |")
+        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|:----:|------|:------:|----------|")
         
         # 馬番順にソート
         sorted_entries = sorted(entries, key=lambda x: x.get('horse_number', 999))
@@ -188,6 +199,8 @@ class MarkdownGenerator:
         for entry in sorted_entries:
             entry_data = entry.get('entry_data', {})
             training_data = entry.get('training_data', {})
+            # パドックデータをpaddock_infoかpaddock_dataから取得
+            paddock_data = entry.get('paddock_data', entry.get('paddock_info', {}))
             
             waku = entry_data.get('waku', '')
             horse_num = entry['horse_number']
@@ -211,6 +224,18 @@ class MarkdownGenerator:
                 elif eval_mark:
                     training_eval = eval_mark
             
+            # パドック評価とコメント
+            paddock_eval = '-'
+            paddock_comment = '-'
+            if paddock_data and paddock_data != {}:
+                # 評価はevaluationまたはmarkフィールドから取得
+                p_eval = paddock_data.get('evaluation', paddock_data.get('mark', ''))
+                p_comment = paddock_data.get('comment', '')
+                if p_eval and p_eval != '':
+                    paddock_eval = p_eval
+                if p_comment and p_comment != '':
+                    paddock_comment = p_comment
+            
             short_comment = entry_data.get('short_comment', '')  # 短評を取得
             
             # 馬名にリンクを追加
@@ -218,7 +243,7 @@ class MarkdownGenerator:
             if horse_id:
                 horse_name = f"[{horse_name}](https://p.keibabook.co.jp/db/uma/{horse_id})"
             
-            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {training_eval} | {short_comment} |")
+            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {training_eval} | {short_comment} | {paddock_eval} | {paddock_comment} |")
         
         # 参考: 人別印一覧（折りたたみイメージ、シンプル出力）
         lines.append("")
@@ -587,6 +612,48 @@ class MarkdownGenerator:
                     horse_name = entry['horse_name']
                     lines.append(f"- [{horse_name}](https://p.keibabook.co.jp/db/uma/{horse_id})")
         
+        return '\n'.join(lines)
+    
+    def _extract_additional_content(self, file_path) -> str:
+        """既存ファイルから追記エリアを抽出"""
+        if not Path(file_path).exists():
+            return ""
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # "# 追記"セクションを探す
+            lines = content.split('\n')
+            additional_start = -1
+            
+            for i, line in enumerate(lines):
+                if line.strip() == '# 追記' or line.strip() == '# 追記欄':
+                    additional_start = i
+                    break
+            
+            if additional_start >= 0:
+                # 追記セクションから最後まで取得
+                additional_lines = lines[additional_start:]
+                return '\n'.join(additional_lines)
+        except Exception as e:
+            print(f"追記エリア抽出エラー: {e}")
+        
+        return ""
+    
+    def _generate_additional_section(self) -> str:
+        """新規追記セクションを生成"""
+        lines = [
+            "---",
+            "# 追記",
+            "",
+            "---",
+            "## 予想メモ",
+            "",
+            "---",
+            "## 買い目検討",
+            ""
+        ]
         return '\n'.join(lines)
     
     def _generate_footer(self, race_data: Dict[str, Any]) -> str:
