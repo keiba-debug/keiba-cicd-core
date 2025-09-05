@@ -115,22 +115,97 @@ class MarkdownGenerator:
         return markdown_text
     
     def _generate_header(self, race_data: Dict[str, Any]) -> str:
-        """レースヘッダー生成"""
+        """レースヘッダー生成（拡張版）"""
         race_info = race_data.get('race_info', {})
         race_id = race_data.get('meta', {}).get('race_id', '')
         
-        # レース名を取得（デフォルト値を設定）
+        # 競馬場名を取得
+        venue = race_info.get('venue', '')
+        if not venue and race_id and len(race_id) >= 10:
+            venue_code = race_id[8:10]
+            venue_map = {
+                '01': '札幌', '02': '函館', '03': '福島', '04': '新潟',
+                '05': '東京', '06': '中山', '07': '中京', '08': '京都',
+                '09': '阪神', '10': '小倉'
+            }
+            venue = venue_map.get(venue_code, '')
+        
+        # レース番号を取得
+        race_num = race_info.get('race_number', 0)
+        if not race_num and race_id and len(race_id) >= 12:
+            race_num = int(race_id[10:12])
+        
+        # コース情報を取得
+        track = race_info.get('track', '')
+        distance = race_info.get('distance', 0)
+        
+        # レース名を取得
         race_name = race_info.get('race_name', '')
-        if not race_name and race_id:
-            # race_idから情報を推測
-            race_num = int(race_id[10:12]) if len(race_id) >= 12 else 0
+        if not race_name:
             race_name = f"{race_num}R"
         
+        # グレード・クラス情報
         grade = race_info.get('grade', '')
-        if grade and grade != 'OP':
-            race_name = f"{race_name} ({grade})"
+        race_class = race_info.get('race_class', '')
         
-        return f"# {race_name}"
+        # グレードまたはクラス情報を括弧内に表示
+        class_info = ''
+        if grade and grade != 'OP':
+            class_info = f"({grade})"
+        elif race_class:
+            class_info = f"({race_class})"
+        elif 'race_condition' in race_info:
+            # race_conditionから情報を抽出
+            condition = race_info['race_condition']
+            if '新馬' in condition:
+                class_info = '(新馬)'
+            elif '未勝利' in condition:
+                class_info = '(未勝利)'
+            elif '1勝クラス' in condition:
+                class_info = '(1勝クラス)'
+            elif '2勝クラス' in condition:
+                class_info = '(2勝クラス)'
+            elif '3勝クラス' in condition:
+                class_info = '(3勝クラス)'
+            elif 'オープン' in condition:
+                class_info = '(オープン)'
+        
+        # 発走時刻を取得（start_timeを優先、なければpost_time）
+        start_time = race_info.get('start_time', '')
+        if not start_time:
+            post_time = race_info.get('post_time', '')
+            start_time = post_time
+        
+        # ヘッダーを構築
+        header_parts = []
+        
+        # 競馬場とレース番号
+        if venue and race_num:
+            header_parts.append(f"{venue}{race_num}R")
+        elif race_num:
+            header_parts.append(f"{race_num}R")
+        
+        # コース情報
+        if track and distance:
+            # トラック種別を短縮形に変換
+            track_short = '芝' if track == '芝' else 'ダ' if track in ['ダ', 'ダート'] else track
+            header_parts.append(f"{track_short} {distance}m")
+        
+        # レース名とクラス
+        if race_name and race_name != f"{race_num}R":
+            if class_info:
+                header_parts.append(f"{race_name}{class_info}")
+            else:
+                header_parts.append(race_name)
+        elif class_info:
+            header_parts.append(class_info)
+        
+        # 発走時刻（存在する場合）
+        if start_time:
+            header_parts.append(f"発走予定 {start_time}")
+        
+        # スペース2つで区切って結合
+        return f"# {' '.join(header_parts)}"
     
     def _generate_race_info(self, race_data: Dict[str, Any]) -> str:
         """レース基本情報生成"""
@@ -156,6 +231,20 @@ class MarkdownGenerator:
             # トラック種別を日本語に変換
             track_jp = '芝' if track == '芝' else 'ダート' if track in ['ダ', 'ダート'] else track
             info_items.append(f"- **コース**: {track_jp} {distance}m")
+        
+        # 発走予定時刻（存在する場合）
+        # start_time（HH:MM形式）を優先、なければstart_at（ISO8601）から時刻部分を抽出
+        start_time = race_info.get('start_time', '')
+        if not start_time and race_info.get('start_at'):
+            # ISO8601形式から時刻部分を抽出（例: 2025-08-23T10:05:00+09:00 → 10:05）
+            start_at = race_info.get('start_at', '')
+            if 'T' in start_at:
+                time_part = start_at.split('T')[1]
+                if ':' in time_part:
+                    start_time = ':'.join(time_part.split(':')[:2])  # HH:MM部分のみ
+        
+        if start_time:
+            info_items.append(f"- **発走予定時刻**: {start_time}")
         
         weather = race_info.get('weather', '')
         if weather:
@@ -189,9 +278,9 @@ class MarkdownGenerator:
         lines = ["## 🐎 出走表"]
         lines.append("")
         
-        # テーブルヘッダー（パドック情報を追加）
-        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 調教 | 短評 | パ評価 | パコメント |")
-        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|:----:|------|:------:|----------|")
+        # テーブルヘッダー（パドック情報と適性/割安を追加）
+        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 調教 | 短評 | パ評価 | パコメント | 適性/割安 |")
+        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|:----:|------|:------:|----------|:---------:|")
         
         # 馬番順にソート
         sorted_entries = sorted(entries, key=lambda x: x.get('horse_number', 999))
@@ -238,12 +327,29 @@ class MarkdownGenerator:
             
             short_comment = entry_data.get('short_comment', '')  # 短評を取得
             
+            # 履歴特徴量から適性/割安情報を生成
+            suitability_value = '-'
+            history_features = entry.get('history_features', {})
+            if history_features:
+                passing_style = history_features.get('passing_style', '')
+                value_flag = history_features.get('value_flag', '')
+                if passing_style or value_flag:
+                    # 脚質と割安度を組み合わせて表示（短縮版）
+                    style_short = {'逃げ': '逃', '先行': '先', '差し': '差', '追込': '追', '中団': '中'}.get(passing_style, passing_style[:2] if passing_style else '')
+                    value_short = {'割安': '◎', 'やや割安': '○', '妥当': '△', '割高': '×'}.get(value_flag, value_flag[:2] if value_flag else '')
+                    if style_short and value_short:
+                        suitability_value = f"{style_short}/{value_short}"
+                    elif style_short:
+                        suitability_value = style_short
+                    elif value_short:
+                        suitability_value = value_short
+            
             # 馬名にリンクを追加
             horse_id = entry.get('horse_id', '')
             if horse_id:
                 horse_name = f"[{horse_name}](https://p.keibabook.co.jp/db/uma/{horse_id})"
             
-            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {training_eval} | {short_comment} | {paddock_eval} | {paddock_comment} |")
+            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {training_eval} | {short_comment} | {paddock_eval} | {paddock_comment} | {suitability_value} |")
         
         # 参考: 人別印一覧（折りたたみイメージ、シンプル出力）
         lines.append("")
@@ -279,14 +385,22 @@ class MarkdownGenerator:
         return '\n'.join(lines)
     
     def _generate_results_table(self, race_data: Dict[str, Any]) -> str:
-        """レース結果テーブル生成"""
+        """レース結果テーブル生成（拡張版）"""
         entries = race_data.get('entries', [])
+        race_info = race_data.get('race_info', {})
         
         # 結果データがある馬のみ抽出してソート
         results = []
         for entry in entries:
             result = entry.get('result', {})
             if result and result.get('finish_position'):
+                # 通過順位の処理
+                passing_orders = result.get('passing_orders', [])
+                if isinstance(passing_orders, list):
+                    passing_str = '-'.join(str(p) for p in passing_orders) if passing_orders else ''
+                else:
+                    passing_str = str(passing_orders) if passing_orders else ''
+                
                 results.append({
                     'position': result.get('finish_position', ''),
                     'horse_num': entry['horse_number'],
@@ -294,6 +408,8 @@ class MarkdownGenerator:
                     'time': result.get('time', ''),
                     'margin': result.get('margin', ''),
                     'last_3f': result.get('last_3f', ''),
+                    'passing': passing_str,
+                    'corner_4': result.get('last_corner_position', ''),
                     'jockey': entry.get('entry_data', {}).get('jockey', ''),
                     'odds': entry.get('entry_data', {}).get('odds', ''),
                     'comment': result.get('raw_data', {}).get('interview', '')
@@ -310,13 +426,42 @@ class MarkdownGenerator:
         
         lines = ["## 🏁 レース結果"]
         lines.append("")
-        lines.append("| 着順 | 馬番 | 馬名 | タイム | 着差 | 上り | 騎手 | オッズ |")
-        lines.append("|:---:|:---:|------|--------|------|------|------|-------:|")
+        
+        # レースラップ要約を追加
+        race_pace = race_info.get('race_pace', {})
+        if race_pace:
+            first_3f = race_pace.get('first3f', '')
+            last_3f = race_pace.get('last3f', '')
+            pace_label = race_pace.get('pace_label', '')
+            
+            if first_3f or last_3f or pace_label:
+                lines.append("### レースラップ要約")
+                pace_parts = []
+                if first_3f:
+                    pace_parts.append(f"前半3F: {first_3f}")
+                if last_3f:
+                    pace_parts.append(f"後半3F: {last_3f}")
+                if pace_label:
+                    pace_parts.append(f"ペース: {pace_label}")
+                if pace_parts:
+                    lines.append("- " + " / ".join(pace_parts))
+                lines.append("")
+        
+        # 結果テーブル（拡張版）
+        lines.append("| 着順 | 馬番 | 馬名 | タイム | 着差 | 上り3F | 通過 | 4角 | 騎手 | オッズ |")
+        lines.append("|:---:|:---:|------|--------|------:|------:|------|:---:|------|------:|")
         
         for result in results[:10]:  # 上位10頭のみ表示
             lines.append(f"| {result['position']} | {result['horse_num']} | {result['horse_name']} | "
                         f"{result['time']} | {result['margin']} | {result['last_3f']} | "
+                        f"{result['passing']} | {result['corner_4']} | "
                         f"{result['jockey']} | {result['odds']} |")
+        
+        # 払戻情報を追加
+        payouts_section = self._generate_payouts_table(race_data)
+        if payouts_section:
+            lines.append("")
+            lines.append(payouts_section)
         
         # 騎手コメントがあれば追加
         comments_with_text = [r for r in results if r.get('comment')]
@@ -328,6 +473,63 @@ class MarkdownGenerator:
                 lines.append(f"**{result['position']}着 {result['horse_name']}**")
                 lines.append(f"> {result['comment']}")
                 lines.append("")
+        
+        return '\n'.join(lines)
+    
+    def _generate_payouts_table(self, race_data: Dict[str, Any]) -> str:
+        """払戻情報テーブル生成"""
+        payouts = race_data.get('payouts', [])
+        
+        if not payouts:
+            return ""
+        
+        # 券種の日本語マッピング
+        payout_type_mapping = {
+            'tansho': '単勝',
+            'fukusho': '複勝',
+            'wakuren': '枠連',
+            'umaren': '馬連',
+            'wide': 'ワイド',
+            'umatan': '馬単',
+            'sanrenpuku': '3連複',
+            'sanrentan': '3連単'
+        }
+        
+        # 券種の順序
+        payout_order = ['tansho', 'fukusho', 'wakuren', 'umaren', 'wide', 'umatan', 'sanrenpuku', 'sanrentan']
+        
+        # 券種ごとに整理
+        organized_payouts = {}
+        for payout in payouts:
+            payout_type = payout.get('type', '')
+            if payout_type in payout_type_mapping:
+                if payout_type not in organized_payouts:
+                    organized_payouts[payout_type] = []
+                organized_payouts[payout_type].append(payout)
+        
+        if not organized_payouts:
+            return ""
+        
+        lines = ["### 払戻"]
+        lines.append("| 券種 | 組番 | 金額 | 人気 |")
+        lines.append("|------|------|-----:|----:|")
+        
+        # 順序通りに出力
+        for payout_type in payout_order:
+            if payout_type in organized_payouts:
+                type_name = payout_type_mapping[payout_type]
+                for payout in organized_payouts[payout_type]:
+                    combination = payout.get('combination', '')
+                    amount = payout.get('amount', 0)
+                    popularity = payout.get('popularity', '')
+                    
+                    # 金額のフォーマット（カンマ区切り）
+                    if isinstance(amount, (int, float)):
+                        amount_str = f"{amount:,}"
+                    else:
+                        amount_str = str(amount)
+                    
+                    lines.append(f"| {type_name} | {combination} | {amount_str} | {popularity} |")
         
         return '\n'.join(lines)
     
@@ -551,11 +753,46 @@ class MarkdownGenerator:
             for highlight in highlights[:3]:
                 lines.append(f"  - {highlight}")
         
+        # 履歴特徴量から注目馬を追加
+        entries = race_data.get('entries', [])
+        history_highlights = []
+        for entry in entries:
+            history_features = entry.get('history_features', {})
+            if history_features:
+                horse_name = entry.get('horse_name', '')
+                horse_num = entry.get('horse_number', '')
+                passing_style = history_features.get('passing_style', '')
+                last3f_mean = history_features.get('last3f_mean_3', 0)
+                value_flag = history_features.get('value_flag', '')
+                
+                # 割安馬をピックアップ
+                if value_flag in ['割安', 'やや割安']:
+                    summary = f"{horse_num}番 {horse_name}: "
+                    parts = []
+                    if passing_style:
+                        parts.append(f"脚質={passing_style}")
+                    if last3f_mean:
+                        parts.append(f"直近上り3F={last3f_mean}")
+                    parts.append(f"評価={value_flag}")
+                    summary += " | ".join(parts)
+                    history_highlights.append(summary)
+        
+        if history_highlights:
+            lines.append("- **履歴データ注目馬**:")
+            for highlight in history_highlights[:3]:
+                lines.append(f"  - {highlight}")
+        
         return '\n'.join(lines)
 
     def _generate_payouts_section(self, race_data: Dict[str, Any]) -> str:
-        payouts = race_data.get('payouts') or {}
-        if not payouts or all(v in (None, [], {}) for v in payouts.values()):
+        payouts = race_data.get('payouts')
+        
+        # 新形式（リスト）の場合は_generate_payouts_tableを使用
+        if isinstance(payouts, list):
+            return ""  # 新形式は_generate_results_tableで処理される
+        
+        # 旧形式（辞書）の処理
+        if not payouts or not isinstance(payouts, dict) or all(v in (None, [], {}) for v in payouts.values()):
             return ""
         lines = ["## 💴 配当情報", ""]
         def fmt(v):
@@ -699,24 +936,38 @@ class MarkdownGenerator:
         lines.append(f"### {pace_emoji} ペース予想: {pace}")
         lines.append("")
         
-        # 展開ポジション表
+        # 展開ポジション表（横持ち: ポジション=列, 馬番=セル）
         positions = tenkai_data.get('positions', {})
         if positions:
-            lines.append("### 📊 予想展開")
+            lines.append("### 📊 予想展開（ポジション横配置）")
             lines.append("")
-            lines.append("| ポジション | 馬番 |")
-            lines.append("|:---------|:-----|")
-            
             # ポジション順序を定義
             position_order = ['逃げ', '好位', '中位', '後方']
-            
+            # ヘッダー行
+            header = "| " + " | ".join(position_order) + " |"
+            align = "|" + "|".join([":---:"] * len(position_order)) + "|"
+            lines.append(header)
+            lines.append(align)
+            # 〇数字（①②…）への変換マップ（1〜20を想定、競走は最大18頭想定）
+            circled_map = {
+                0: '⓪', 1: '①', 2: '②', 3: '③', 4: '④', 5: '⑤', 6: '⑥', 7: '⑦', 8: '⑧', 9: '⑨',
+                10: '⑩', 11: '⑪', 12: '⑫', 13: '⑬', 14: '⑭', 15: '⑮', 16: '⑯', 17: '⑰', 18: '⑱', 19: '⑲', 20: '⑳'
+            }
+
+            def to_circled(num_str: Any) -> str:
+                try:
+                    n = int(str(num_str))
+                    return circled_map.get(n, str(num_str))
+                except Exception:
+                    return str(num_str)
+
+            # 単一行に各列の馬番を配置
+            row_cells = []
             for pos_name in position_order:
-                if pos_name in positions:
-                    horses = positions[pos_name]
-                    if horses:
-                        horse_nums_str = ' '.join([f"**{num}**" for num in horses])
-                        lines.append(f"| {pos_name} | {horse_nums_str} |")
-            
+                horses = positions.get(pos_name, []) or []
+                cell = ' '.join([to_circled(num) for num in horses]) if horses else "-"
+                row_cells.append(cell)
+            lines.append("| " + " | ".join(row_cells) + " |")
             lines.append("")
         
         # 展開解説
@@ -727,32 +978,7 @@ class MarkdownGenerator:
             lines.append(f"> {description}")
             lines.append("")
         
-        # 展開視覚化（Mermaidダイアグラム）
-        if positions:
-            lines.append("### 🎯 展開イメージ")
-            lines.append("")
-            lines.append("```mermaid")
-            lines.append("graph LR")
-            lines.append("    subgraph 展開")
-            
-            # 各ポジションをノードとして追加
-            position_mapping = {
-                '逃げ': 'A[逃げ]',
-                '好位': 'B[好位]',
-                '中位': 'C[中位]',
-                '後方': 'D[後方]'
-            }
-            
-            for pos_name in position_order:
-                if pos_name in positions:
-                    horses = positions[pos_name]
-                    if horses:
-                        node = position_mapping.get(pos_name, f"X[{pos_name}]")
-                        horse_list = ','.join(horses)
-                        lines.append(f"        {node} --> |{horse_list}|{node}")
-            
-            lines.append("    end")
-            lines.append("```")
+        # Mermaidによる視覚化は、表と情報重複のため省略（簡潔性を優先）
         
         return '\n'.join(lines)
     

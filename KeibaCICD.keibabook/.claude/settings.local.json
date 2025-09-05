@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\")",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\札幌/**)",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\札幌/**)",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\新潟/**)",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\新潟/**)",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\新潟/**)",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\中京/**)",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\中京/**)",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\中京/**)",
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\札幌/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

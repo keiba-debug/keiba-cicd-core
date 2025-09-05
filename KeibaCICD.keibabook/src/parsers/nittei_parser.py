@@ -65,8 +65,8 @@ class NitteiParser(BaseParser):
     def _parse_with_date_internal(self, soup: BeautifulSoup, date_str: str) -> Optional[Dict[str, Any]]:
         """内部的なパース処理"""
         try:
-            # 開催データを抽出
-            kaisai_data = self._extract_kaisai_data(soup)
+            # 開催データを抽出（日付も渡す）
+            kaisai_data = self._extract_kaisai_data(soup, date_str)
             if not kaisai_data:
                 self.logger.warning("開催データが見つかりませんでした")
                 return {
@@ -115,7 +115,7 @@ class NitteiParser(BaseParser):
             self.logger.error(f"日付抽出でエラー: {e}")
             return None
     
-    def _extract_kaisai_data(self, soup: BeautifulSoup) -> Dict[str, List[Dict[str, str]]]:
+    def _extract_kaisai_data(self, soup: BeautifulSoup, date_str: str = None) -> Dict[str, List[Dict[str, str]]]:
         """開催データを抽出"""
         kaisai_data = {}
         
@@ -170,12 +170,30 @@ class NitteiParser(BaseParser):
                     race_name = ps[0].get_text(strip=True) if len(ps) > 0 else ''
                     course = ps[1].get_text(strip=True) if len(ps) > 1 else ''
                     
-                    races.append({
+                    # 発走時刻を取得（3番目のtdから）
+                    start_time = None
+                    start_at = None
+                    if len(tds) >= 3:
+                        time_text = tds[2].get_text(strip=True)
+                        start_time = self._extract_start_time(time_text)
+                        if start_time:
+                            # ISO8601形式も生成
+                            start_at = self._create_iso8601_time(date_str, start_time)
+                    
+                    race_info = {
                         'race_no': race_no,
                         'race_name': race_name,
                         'course': course,
                         'race_id': race_id
-                    })
+                    }
+                    
+                    # 発走時刻が取得できた場合のみ追加
+                    if start_time:
+                        race_info['start_time'] = start_time
+                    if start_at:
+                        race_info['start_at'] = start_at
+                    
+                    races.append(race_info)
                 
                 if kaisai_name and races:
                     kaisai_data[kaisai_name] = races
@@ -211,6 +229,41 @@ class NitteiParser(BaseParser):
             
         except Exception as e:
             self.logger.error(f"レースID抽出でエラー: {e}")
+            return None
+    
+    def _extract_start_time(self, text: str) -> Optional[str]:
+        """テキストから発走時刻を抽出（HH:MM形式）"""
+        try:
+            # 時刻パターンを検索（例: 10:05, 15:30）
+            # 「調教」などの文字が前にあってもマッチするように修正
+            time_pattern = r'([01]?\d|2[0-3]):([0-5]\d)'
+            match = re.search(time_pattern, text)
+            if match:
+                hour = match.group(1).zfill(2)  # 1桁の場合は0埋め
+                minute = match.group(2)
+                return f"{hour}:{minute}"
+            return None
+        except Exception as e:
+            self.logger.debug(f"発走時刻抽出でエラー: {e}")
+            return None
+    
+    def _create_iso8601_time(self, date_str: str, time_str: str) -> Optional[str]:
+        """日付と時刻からISO8601形式の日時文字列を生成"""
+        try:
+            from datetime import datetime
+            # YYYYMMDD形式をYYYY-MM-DD形式に変換
+            year = date_str[:4]
+            month = date_str[4:6]
+            day = date_str[6:8]
+            
+            # HH:MM形式の時刻を分解
+            hour, minute = time_str.split(':')
+            
+            # ISO8601形式の文字列を生成（JST）
+            iso_time = f"{year}-{month}-{day}T{hour}:{minute}:00+09:00"
+            return iso_time
+        except Exception as e:
+            self.logger.debug(f"ISO8601時刻生成でエラー: {e}")
             return None
     
     def parse(self, html_file_path: str) -> Dict[str, Any]:

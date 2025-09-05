@@ -9,6 +9,8 @@
 import os
 import json
 import logging
+from pathlib import Path
+from typing import Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -149,13 +151,14 @@ class RaceDataIntegrator:
         file_path = get_json_file_path(data_type, race_id)
         return self._load_json_file(file_path)
     
-    def _extract_race_info(self, race_id: str, syutuba_data: Dict) -> Dict[str, Any]:
+    def _extract_race_info(self, race_id: str, syutuba_data: Dict, race_ids_data: Dict = None) -> Dict[str, Any]:
         """
         
         
         Args:
             race_id: ID
             syutuba_data: 
+            race_ids_data: race_ids JSONデータ（発走時刻含む）
             
         Returns:
             Dict[str, Any]: 
@@ -181,6 +184,10 @@ class RaceDataIntegrator:
             }
             venue = venue_map.get(venue_code, f'{venue_code}')
         
+        # 発走時刻を取得（簡易実装）
+        from ..utils.post_time_mapping import get_estimated_post_time
+        post_time = get_estimated_post_time(race_number)
+        
         # 
         race_info = {
             'date': f"{date_str[:4]}/{date_str[4:6]}/{date_str[6:8]}",
@@ -192,7 +199,8 @@ class RaceDataIntegrator:
             'track': '',
             'direction': '',
             'weather': '',
-            'track_condition': ''
+            'track_condition': '',
+            'post_time': post_time  # 発走時刻を追加
         }
         
         # 
@@ -208,6 +216,18 @@ class RaceDataIntegrator:
                 'track_condition': info.get('track_condition', ''),
                 'race_condition': info.get('race_condition', '')  # レース条件も追加
             })
+        
+        # race_ids JSONから発走時刻を取得
+        if race_ids_data:
+            for venue, races in race_ids_data.get('kaisai_data', {}).items():
+                for race in races:
+                    if isinstance(race, dict) and race.get('race_id') == race_id:
+                        # 発走時刻を追加（存在する場合のみ）
+                        if race.get('start_time'):
+                            race_info['start_time'] = race['start_time']
+                        if race.get('start_at'):
+                            race_info['start_at'] = race['start_at']
+                        break
         
         return race_info
     
@@ -450,7 +470,28 @@ class RaceDataIntegrator:
             'recent_form': []
         }
         
+        # 履歴特徴量を追加（Phase1）
+        horse_data['history_features'] = self._load_history_features(horse_data.get('horse_id'))
+        
         return horse_data
+    
+    def _load_history_features(self, horse_id: str) -> Optional[Dict]:
+        """馬の履歴特徴量を読み込む"""
+        if not horse_id:
+            return None
+        
+        # accumulated/horses/{horse_id}.json から読み込み
+        accumulated_path = Path(self.data_root).parent / "accumulated" / "horses" / f"{horse_id}.json"
+        
+        if accumulated_path.exists():
+            try:
+                with open(accumulated_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data.get('history_features', {})
+            except Exception as e:
+                self.logger.debug(f"Failed to load history features for horse {horse_id}: {e}")
+        
+        return None
     
     def _analyze_race(self, entries: List[Dict]) -> Dict[str, Any]:
         """
@@ -501,13 +542,14 @@ class RaceDataIntegrator:
         
         return analysis
     
-    def create_integrated_file(self, race_id: str, save: bool = True) -> Dict[str, Any]:
+    def create_integrated_file(self, race_id: str, save: bool = True, race_ids_data: Dict = None) -> Dict[str, Any]:
         """
         
         
         Args:
             race_id: ID
             save: 
+            race_ids_data: race_ids JSONデータ（発走時刻含む）
             
         Returns:
             Dict[str, Any]: 
@@ -549,7 +591,7 @@ class RaceDataIntegrator:
         )
         
         # 
-        race_info = self._extract_race_info(race_id, syutuba_data)
+        race_info = self._extract_race_info(race_id, syutuba_data, race_ids_data)
         # seiseki由来の詳細でrace_infoを補完
         if seiseki_data:
             # race_details
@@ -755,7 +797,7 @@ class RaceDataIntegrator:
         
         for race_id in race_ids:
             try:
-                result = self.create_integrated_file(race_id)
+                result = self.create_integrated_file(race_id, race_ids_data=race_ids_data)
                 if result:
                     success_count += 1
                     self.logger.info(f"[OK] : {race_id}")
