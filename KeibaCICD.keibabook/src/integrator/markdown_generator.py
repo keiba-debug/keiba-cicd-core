@@ -17,18 +17,19 @@ class MarkdownGenerator:
     def __init__(self, output_dir: str = None, use_organized_dir: bool = True):
         """
         初期化
-        
+
         Args:
             output_dir: 出力ディレクトリ（デフォルト: data/markdown）
             use_organized_dir: organizedディレクトリ以下に出力するか（デフォルト: True）
         """
         self.data_root = os.getenv('KEIBA_DATA_ROOT_DIR', './data')  # keibabookフォルダを使わない
+        self.use_new_structure = os.getenv('USE_NEW_DATA_STRUCTURE', 'false').lower() == 'true'
         self.use_organized_dir = use_organized_dir
         if use_organized_dir:
             self.output_dir = None  # 動的に決定
         else:
             self.output_dir = output_dir or self.data_root + '/markdown'
-            Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+            # フォルダは実際に保存する時に作成する（不要なフォルダ作成を避ける）
         
         # race_idと実際の開催日のマッピング
         self.actual_date_map = {}
@@ -64,10 +65,23 @@ class MarkdownGenerator:
         # 出走表テーブル
         md_content.append(self._generate_entry_table(race_data))
         
+        # 調教・厩舎談話情報
+        md_content.append(self._generate_training_comments(race_data))
+
+        # 前走インタビュー（あれば）
+        interview_section = self._generate_previous_interview_section(race_data)
+        if interview_section:
+            md_content.append(interview_section)
+
         # 展開予想（展開データがある場合）
         tenkai_section = self._generate_tenkai_section(race_data)
         if tenkai_section:
             md_content.append(tenkai_section)
+
+        # パドック情報（あれば）
+        paddock_section = self._generate_paddock_section(race_data)
+        if paddock_section:
+            md_content.append(paddock_section)
         
         # レース結果（成績データがある場合）
         if self._has_results(race_data):
@@ -76,22 +90,9 @@ class MarkdownGenerator:
             md_content.append(self._generate_results_summary(race_data))
             md_content.append(self._generate_payouts_section(race_data))
             md_content.append(self._generate_laps_section(race_data))
-        
-        # 調教・厩舎談話情報
-        md_content.append(self._generate_training_comments(race_data))
-        
-        # パドック情報（あれば）
-        paddock_section = self._generate_paddock_section(race_data)
-        if paddock_section:
-            md_content.append(paddock_section)
-        
-        # 前走インタビュー（あれば）
-        interview_section = self._generate_previous_interview_section(race_data)
-        if interview_section:
-            md_content.append(interview_section)
-        
+
         # 分析情報
-        md_content.append(self._generate_analysis(race_data))
+        ##md_content.append(self._generate_analysis(race_data))
         
         # 外部リンク
         md_content.append(self._generate_links(race_data))
@@ -121,9 +122,14 @@ class MarkdownGenerator:
         race_info = race_data.get('race_info', {})
         race_id = race_data.get('meta', {}).get('race_id', '')
         
-        # 競馬場名を取得
-        venue = race_info.get('venue', '')
-        if not venue and race_id and len(race_id) >= 10:
+        # 競馬場名を取得（venue_name_mapを最優先）
+        venue = ''
+        if race_id in self.venue_name_map:
+            venue = self.venue_name_map[race_id]
+        elif race_info.get('venue'):
+            venue = race_info.get('venue', '')
+        elif race_id and len(race_id) >= 10:
+            # フォールバック: race_idのコードから推測
             venue_code = race_id[8:10]
             venue_map = {
                 '01': '札幌', '02': '函館', '03': '福島', '04': '新潟',
@@ -303,8 +309,8 @@ class MarkdownGenerator:
         lines.append("")
         
         # テーブルヘッダー（パドック情報と適性/割安を追加）
-        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 短評 | 調教 | 調教短評 | 調教解説 | パ評価 | パコメント | 適性/割安 |")
-        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|------|:----:|:------:|------|:------:|----------|:---------:|")
+        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 短評 | 調教 | 調教短評 | パ評価 | パコメント | 適性/割安 |")
+        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|------|:----:|:------:|:------:|:----------:|:---------:|")
         
         # 馬番順にソート
         sorted_entries = sorted(entries, key=lambda x: x.get('horse_number', 999))
@@ -417,7 +423,7 @@ class MarkdownGenerator:
                 # file:///を付けない通常のパス形式
                 jockey = f"[{jockey}]({jockey_profile_path})"
 
-            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {short_comment} | {training_eval} | {training_short} | {training_explanation} | {paddock_eval} | {paddock_comment} | {suitability_value} |")
+            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {short_comment} | {training_eval} | {training_short} | {paddock_eval} | {paddock_comment} | {suitability_value} |")
         
         # 参考: 人別印一覧（折りたたみイメージ、シンプル出力）
         lines.append("")
@@ -431,24 +437,6 @@ class MarkdownGenerator:
             for k, v in list(mbp.items())[:5]:
                 lines.append(f"  - {k}: {v}")
         lines.append("</details>")
-        
-        # 短評セクションを追加
-        short_comments = []
-        for entry in entries:
-            short_comment = entry.get('entry_data', {}).get('short_comment', '')
-            if short_comment and short_comment != '-' and short_comment != '':
-                short_comments.append({
-                    'num': entry['horse_number'],
-                    'name': entry['horse_name'],
-                    'comment': short_comment
-                })
-        
-        if short_comments:
-            lines.append("")
-            lines.append("### 📝 短評")
-            lines.append("")
-            for item in short_comments[:10]:  # 最大10頭分
-                lines.append(f"**{item['num']}番 {item['name']}**: {item['comment']}")
         
         return '\n'.join(lines)
     
@@ -692,105 +680,138 @@ class MarkdownGenerator:
         return '\n'.join(lines)
     
     def _generate_training_comments(self, race_data: Dict[str, Any]) -> str:
-        """調教・厩舎談話情報生成"""
+        """調教・厩舎談話情報生成（統合テーブル形式）"""
+        import re
         entries = race_data.get('entries', [])
-        
-        training_info = []
-        stable_comments = []
-        
-        for entry in entries:
-            horse_name = entry['horse_name']
-            horse_num = entry['horse_number']
-            
-            # 調教情報（詳細版）
-            training = entry.get('training_data')
-            if training:
-                info = {
-                    'horse': f"{horse_num}番 {horse_name}",
-                    'eval': training.get('evaluation', ''),
-                    'last_training': training.get('last_training', ''),
-                    'course': training.get('training_course', ''),
-                    'load': training.get('training_load', ''),
-                    'rank': training.get('training_rank', ''),
-                    'comment': training.get('trainer_comment', ''),
-                    'times': training.get('training_times', []),
-                    'short_review': training.get('short_review', '')
-                }
-                if info['eval'] or info['comment'] or info['times'] or info['short_review']:
-                    training_info.append(info)
-            
-            # 厩舎談話（詳細版）
-            stable = entry.get('stable_comment')
-            if stable:
-                comment_text = stable.get('comment', '')
-                if comment_text:
-                    stable_comments.append({
-                        'horse': f"{horse_num}番 {horse_name}",
-                        'comment': comment_text,
-                        'trainer': stable.get('trainer', ''),
-                        'date': stable.get('date', '')
-                    })
-        
-        if not training_info and not stable_comments:
+
+        # 馬番順にソート
+        sorted_entries = sorted(entries, key=lambda x: x.get('horse_number', 999))
+
+        # データを持つエントリがあるか確認
+        has_data = False
+        for entry in sorted_entries:
+            training = entry.get('training_data', {})
+            stable = entry.get('stable_comment', {})
+            result = entry.get('result', {})
+
+            if (training.get('evaluation') or training.get('short_review') or
+                training.get('attack_explanation') or stable.get('comment') or
+                result.get('raw_data', {}).get('インタビュー') or
+                result.get('raw_data', {}).get('次走へのメモ')):
+                has_data = True
+                break
+
+        if not has_data:
             return ""
-        
+
         lines = ["## 📝 調教・厩舎情報"]
         lines.append("")
-        
-        if training_info:
-            lines.append("### 🏃 調教情報（評価・短評）")
-            lines.append("")
-            lines.append("| 馬番・馬名 | 評価 | 最終追切 | コース | 負荷 | 順位 | 短評 |")
-            lines.append("|-----------|:---:|---------|--------|:---:|:---:|------|")
-            
-            # 評価の高い順にソート
-            eval_order = {'S': 1, 'A': 2, 'B': 3, 'C': 4, 'D': 5, '': 99}
-            training_info.sort(key=lambda x: eval_order.get(x.get('eval', ''), 99))
-            
-            for info in training_info[:10]:  # 最大10頭
-                eval = info['eval'] or '-'
-                last = info['last_training'] or '-'
-                course = info['course'] or '-'
-                load = info['load'] or '-'
-                rank = info['rank'] or '-'
-                short_review = info.get('short_review', '')
-                if short_review and len(short_review) > 30:
-                    short_review = short_review[:30] + '...'
-                short_review = short_review or '-'
-                lines.append(f"| {info['horse']} | {eval} | {last} | {course} | {load} | {rank} | {short_review} |")
-            
-            # 調教タイムがある場合は追加
-            for info in training_info:
-                if info['times'] and len(info['times']) > 0:
-                    lines.append("")
-                    lines.append(f"**{info['horse']}の調教タイム**")
-                    for time_data in info['times'][:3]:  # 最新3本
-                        lines.append(f"- {time_data}")
-                    break  # 1頭分のみ表示
-            
-            # トレーナーコメントがある場合
-            comments_with_text = [i for i in training_info if i.get('comment')]
-            if comments_with_text:
-                lines.append("")
-                lines.append("**調教師コメント（抜粋）**")
-                for info in comments_with_text[:3]:
-                    lines.append(f"> {info['horse']}: {info['comment']}" )
-            
-            lines.append("")
-        
-        if stable_comments:
-            lines.append("### 💬 厩舎談話（厩舎コメント）")
-            lines.append("")
-            
-            for comment in stable_comments[:10]:  # 最大10件に増やす
-                lines.append(f"**{comment['horse']}**")
-                if comment.get('trainer'):
-                    lines.append(f"*{comment['trainer']}調教師*")
-                if comment.get('date'):
-                    lines.append(f"*({comment['date']})*")
-                lines.append(f"> {comment['comment']}")
-                lines.append("")
-        
+        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | 調教 | 調教短評 | 攻め馬解説 | 厩舎談話 | 前走 インタビュー | 前走 次走へのメモ |")
+        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:----:|:------:|----------|----------|-----------------|-----------------|")
+
+        for entry in sorted_entries:
+            entry_data = entry.get('entry_data', {})
+            training = entry.get('training_data', {})
+            stable = entry.get('stable_comment', {})
+            result = entry.get('result', {})
+
+            # 基本情報
+            frame = entry_data.get('waku', entry_data.get('frame_number', '-'))
+            horse_num = entry.get('horse_number', '-')
+            horse_name = entry.get('horse_name', '-')
+            horse_profile_id = entry.get('horse_profile_id', '')
+            sex_age = entry_data.get('age', entry_data.get('sex_age', '-'))
+            jockey = entry_data.get('jockey', '-')
+            weight = entry_data.get('weight', '-')
+            odds = entry_data.get('odds', '-')
+
+            # 馬名にプロフィールへのリンクを追加
+            if horse_profile_id:
+                profile_path = f"Z:/KEIBA-CICD/data2/horses/profiles/{horse_profile_id}_{horse_name}.md"
+                horse_name_link = f"[{horse_name}]({profile_path})"
+            else:
+                horse_name_link = horse_name
+
+            # 調教情報
+            training_eval = training.get('evaluation', training.get('training_arrow', '-'))
+            if training_eval == '':
+                training_eval = '-'
+
+            short_review = training.get('short_review', '-')
+            if short_review == '':
+                short_review = '-'
+            # 改行を除去
+            if short_review != '-':
+                short_review = short_review.replace('\n', ' ').replace('\r', ' ')
+                short_review = re.sub(r'\s+', ' ', short_review).strip()
+
+            attack_explanation = training.get('attack_explanation', '-')
+            if attack_explanation == '':
+                attack_explanation = '-'
+            # 改行を除去
+            if attack_explanation != '-':
+                attack_explanation = attack_explanation.replace('\n', ' ').replace('\r', ' ')
+                attack_explanation = re.sub(r'\s+', ' ', attack_explanation).strip()
+
+            # 厩舎談話（改行を除去）
+            stable_comment = stable.get('comment', '-')
+            if stable_comment == '':
+                stable_comment = '-'
+            # 改行を空白に置換
+            if stable_comment != '-':
+                stable_comment = stable_comment.replace('\n', ' ').replace('\r', ' ')
+                # 連続する空白を1つに
+                stable_comment = re.sub(r'\s+', ' ', stable_comment).strip()
+
+            # 前走情報（previous_race_interviewから優先的に取得）
+            interview = '-'
+            memo = '-'
+
+            # previous_race_interviewをチェック
+            previous_interview = entry.get('previous_race_interview', {})
+            if previous_interview:
+                # インタビューフィールドから取得
+                interview_text = previous_interview.get('interview', '')
+                if interview_text:
+                    # 改行を除去して短縮
+                    interview_text = interview_text.replace('\n', ' ').replace('\r', ' ')
+                    interview_text = re.sub(r'\s+', ' ', interview_text).strip()
+                    interview = interview_text
+
+                # 次走へのメモフィールドから取得
+                next_memo = previous_interview.get('next_race_memo', '')
+                if next_memo:
+                    # 改行を除去して短縮
+                    next_memo = next_memo.replace('\n', ' ').replace('\r', ' ')
+                    next_memo = re.sub(r'\s+', ' ', next_memo).strip()
+                    memo = next_memo
+
+            # previous_race_interviewがない場合はresult.raw_dataから取得
+            if interview == '-' and result:
+                raw_data = result.get('raw_data', {})
+                interview_text = raw_data.get('インタビュー', '')
+                if interview_text:
+                    # 改行を除去して短縮
+                    interview_text = interview_text.replace('\n', ' ').replace('\r', ' ')
+                    interview_text = re.sub(r'\s+', ' ', interview_text).strip()
+                    if len(interview_text) > 40:
+                        interview = interview_text[:40] + '...'
+                    else:
+                        interview = interview_text
+
+                memo_text = raw_data.get('次走へのメモ', '')
+                if memo_text:
+                    # 改行を除去して短縮
+                    memo_text = memo_text.replace('\n', ' ').replace('\r', ' ')
+                    memo_text = re.sub(r'\s+', ' ', memo_text).strip()
+                    if len(memo_text) > 30:
+                        memo = memo_text[:30] + '...'
+                    else:
+                        memo = memo_text
+
+            # テーブル行を追加
+            lines.append(f"| {frame} | {horse_num} | {horse_name_link} | {sex_age} | {jockey} | {weight} | {odds} | {training_eval} | {short_review} | {attack_explanation} | {stable_comment} | {interview} | {memo} |")
+
         return '\n'.join(lines)
     
     def _generate_analysis(self, race_data: Dict[str, Any]) -> str:
@@ -958,10 +979,6 @@ class MarkdownGenerator:
         lines = [
             "---",
             "# 追記",
-            "",
-            "## 予想メモ",
-            "",
-            "## 買い目検討",
             ""
         ]
         return '\n'.join(lines)
@@ -976,15 +993,7 @@ class MarkdownGenerator:
         lines.append(f"- **生成日時**: {meta.get('created_at', '')}")
         lines.append(f"- **更新日時**: {meta.get('updated_at', '')}")
         lines.append(f"- **データソース**: 競馬ブック")
-        
-        # データ取得状況
-        sources = meta.get('data_sources', {})
-        if sources:
-            lines.append("- **取得データ**:")
-            for key, status in sources.items():
-                emoji = "✅" if status == "" else "❌"
-                lines.append(f"  - {emoji} {key}")
-        
+       
         return '\n'.join(lines)
     
     def _generate_tenkai_section(self, race_data: Dict[str, Any]) -> str:
@@ -1125,15 +1134,16 @@ class MarkdownGenerator:
         """前走インタビューセクション生成（詳細版）"""
         entries = race_data.get('entries', [])
         interview_entries = []
-        
+
         for entry in entries:
             interview = entry.get('previous_race_interview')
-            if interview and (interview.get('comment') or interview.get('race_name')):
+            if interview and (interview.get('comment') or interview.get('interview') or interview.get('race_name')):
                 interview_entries.append({
                     'horse_number': entry['horse_number'],
                     'horse_name': entry['horse_name'],
                     'jockey': interview.get('jockey', ''),
-                    'comment': interview.get('comment', ''),
+                    'interview': interview.get('interview', interview.get('comment', '')),  # interviewを優先、なければcomment
+                    'next_race_memo': interview.get('next_race_memo', ''),
                     'race_name': interview.get('race_name', ''),
                     'finish_position': interview.get('finish_position', ''),
                     'date': interview.get('date', '')
@@ -1163,8 +1173,16 @@ class MarkdownGenerator:
             
             if entry['jockey']:
                 lines.append(f"**{entry['jockey']}騎手**")
-            
-            if entry['comment']:
+
+            # インタビュー内容を表示
+            if entry.get('interview'):
+                # コメントを見やすく整形
+                interview_lines = entry['interview'].split('。')
+                formatted_interview = '。\n> '.join(line.strip() for line in interview_lines if line.strip())
+                if not formatted_interview.endswith('。'):
+                    formatted_interview += '。'
+                lines.append(f"> {formatted_interview}")
+            elif entry.get('comment'):  # 後方互換性
                 # コメントを見やすく整形
                 comment_lines = entry['comment'].split('。')
                 formatted_comment = '。\n> '.join(line.strip() for line in comment_lines if line.strip())
@@ -1173,6 +1191,12 @@ class MarkdownGenerator:
                 lines.append(f"> {formatted_comment}")
             else:
                 lines.append("> *コメントなし*")
+
+            # 次走へのメモがあれば表示
+            if entry.get('next_race_memo'):
+                lines.append("")
+                lines.append("**📝 次走へのメモ**")
+                lines.append(f"> {entry['next_race_memo']}")
             
             lines.append("")
         
@@ -1182,43 +1206,67 @@ class MarkdownGenerator:
         """
         race_ids フォルダから実際の開催日マッピングを読み込む
         """
-        race_ids_dir = os.path.join(self.data_root, 'race_ids')
-        if not os.path.exists(race_ids_dir):
-            return
-        
-        for file_name in os.listdir(race_ids_dir):
-            if file_name.endswith('_info.json'):
-                date_str = file_name.replace('_info.json', '')
-                file_path = os.path.join(race_ids_dir, file_name)
-                
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    
-                    # 各開催のrace_idを実際の日付にマッピング
-                    for kaisai_name, races in data.get('kaisai_data', {}).items():
-                        # 開催名から競馬場名を取得（例：「2回新潟5日目」→「新潟」）
-                        import re
-                        # 長い名前を先にマッチさせる（中京を中より優先）
-                        venue_match = re.search(r'(札幌|函館|福島|新潟|東京|中山|中京|京都|阪神|小倉)', kaisai_name)
-                        venue_name = venue_match.group(1) if venue_match else ''
-                        
-                        for race in races:
-                            race_id = race.get('race_id', '')
-                            if race_id:
-                                self.actual_date_map[race_id] = date_str
-                                if venue_name:
-                                    self.venue_name_map[race_id] = venue_name
-                                # start_time も保存
-                                if race.get('start_time'):
-                                    self.start_time_map[race_id] = race['start_time']
-                                # レース名とコース情報を保存
-                                self.race_info_map[race_id] = {
-                                    'race_name': race.get('race_name', ''),
-                                    'course': race.get('course', '')
-                                }
-                except Exception as e:
-                    pass
+        if self.use_new_structure:
+            # 新構造: races/YYYY/MM/DD/race_info.json を検索
+            races_dir = os.path.join(self.data_root, 'races')
+            if os.path.exists(races_dir):
+                for year_dir in os.listdir(races_dir):
+                    year_path = os.path.join(races_dir, year_dir)
+                    if os.path.isdir(year_path):
+                        for month_dir in os.listdir(year_path):
+                            month_path = os.path.join(year_path, month_dir)
+                            if os.path.isdir(month_path):
+                                for day_dir in os.listdir(month_path):
+                                    day_path = os.path.join(month_path, day_dir)
+                                    if os.path.isdir(day_path):
+                                        race_info_file = os.path.join(day_path, 'race_info.json')
+                                        if os.path.exists(race_info_file):
+                                            date_str = f"{year_dir}{month_dir}{day_dir}"
+                                            self._load_race_info_file(race_info_file, date_str)
+        else:
+            # 旧構造: race_ids/YYYYMMDD_info.json
+            race_ids_dir = os.path.join(self.data_root, 'race_ids')
+            if not os.path.exists(race_ids_dir):
+                return
+
+            for file_name in os.listdir(race_ids_dir):
+                if file_name.endswith('_info.json'):
+                    date_str = file_name.replace('_info.json', '')
+                    file_path = os.path.join(race_ids_dir, file_name)
+                    self._load_race_info_file(file_path, date_str)
+
+    def _load_race_info_file(self, file_path: str, date_str: str):
+        """
+        レース情報ファイルを読み込み
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # 各開催のrace_idを実際の日付にマッピング
+            for kaisai_name, races in data.get('kaisai_data', {}).items():
+                # 開催名から競馬場名を取得（例：「2回新潟5日目」→「新潟」）
+                import re
+                # 長い名前を先にマッチさせる（中京を中より優先）
+                venue_match = re.search(r'(札幌|函館|福島|新潟|東京|中山|中京|京都|阪神|小倉)', kaisai_name)
+                venue_name = venue_match.group(1) if venue_match else ''
+
+                for race in races:
+                    race_id = race.get('race_id', '')
+                    if race_id:
+                        self.actual_date_map[race_id] = date_str
+                        if venue_name:
+                            self.venue_name_map[race_id] = venue_name
+                        # start_time も保存
+                        if race.get('start_time'):
+                            self.start_time_map[race_id] = race['start_time']
+                        # レース名とコース情報を保存
+                        self.race_info_map[race_id] = {
+                            'race_name': race.get('race_name', ''),
+                            'course': race.get('course', '')
+                        }
+        except Exception as e:
+            pass
     
     def _format_date(self, race_id: str) -> str:
         """race_idから日付を整形"""
@@ -1266,16 +1314,16 @@ class MarkdownGenerator:
         """出力パスを生成"""
         race_id = race_data.get('meta', {}).get('race_id', 'unknown')
         
-        # 常にorganizedディレクトリに出力
+        # 日付を取得
         if race_id in self.actual_date_map:
             date_str = self.actual_date_map[race_id]
         else:
             date_str = race_id[:8] if len(race_id) >= 8 else '00000000'
-        
+
         year = date_str[:4]
         month = date_str[4:6]
         day = date_str[6:8]
-        
+
         # 競馬場名を取得
         venue_name = self.venue_name_map.get(race_id, '')
         if not venue_name and len(race_id) >= 10:
@@ -1287,13 +1335,19 @@ class MarkdownGenerator:
                 '09': '阪神', '10': '小倉'
             }
             venue_name = venue_map.get(venue_code, '')
-        
-        if venue_name:
-            # 競馬場別フォルダ構造: organized/YYYY/MM/DD/競馬場名/
-            output_dir = os.path.join(self.data_root, 'organized', year, month, day, venue_name)
+
+        if self.use_new_structure:
+            # 新構造: races/YYYY/MM/DD/競馬場名/
+            if venue_name:
+                output_dir = os.path.join(self.data_root, 'races', year, month, day, venue_name)
+            else:
+                output_dir = os.path.join(self.data_root, 'races', year, month, day)
         else:
-            # 競馬場名が取得できない場合は日付フォルダ直下
-            output_dir = os.path.join(self.data_root, 'organized', year, month, day)
+            # 旧構造: organized/YYYY/MM/DD/競馬場名/
+            if venue_name:
+                output_dir = os.path.join(self.data_root, 'organized', year, month, day, venue_name)
+            else:
+                output_dir = os.path.join(self.data_root, 'organized', year, month, day)
         
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         return os.path.join(output_dir, f"{race_id}.md")

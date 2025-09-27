@@ -139,38 +139,41 @@ class OptimizedDataFetcher:
     
     def __init__(self, delay: int = 1, max_workers: int = 5, max_retries: int = 3):
         """
-        
-        
+
+
         Args:
             delay: - requests
-            max_workers: 
-            max_retries: 
+            max_workers:
+            max_retries:
         """
         self.delay = delay
         self.max_workers = max_workers
         self.max_retries = max_retries
-        
+
         # RequestsScraper
         self.scraper = RequestsScraper()
-        
-        # 
+
+        #
         self._setup_optimized_session()
-        
-        # 
+
+        #
         self.seiseki_parser = SeisekiParser()
         self.shutsuba_parser = SyutubaParser()
         self.cyokyo_parser = CyokyoParser()
         self.danwa_parser = DanwaParser()
         self.nittei_parser = NitteiParser()
-        
-        # 
+
+        #
         self.error_stats = ErrorStats()
         self.performance_stats = PerformanceStats()
-        
-        # 
+
+        #
         self._connection_lock = threading.Lock()
         self._active_connections = 0
-        self._max_connections = max_workers * 2  # 
+        self._max_connections = max_workers * 2  #
+
+        # race_idと実際の開催日のマッピング
+        self.race_id_to_date_map = {} 
         
         # 
         ensure_batch_directories()
@@ -448,8 +451,9 @@ class OptimizedDataFetcher:
                     self.logger.error(f"[ERROR] {data_type}: {race_id}")
                     return False
                 
-                # JSON
-                json_file_path = get_json_file_path(data_type, race_id)
+                # JSON（実際の開催日を使用）
+                actual_date = self.race_id_to_date_map.get(race_id)
+                json_file_path = get_json_file_path(data_type, race_id, actual_date)
                 with open(json_file_path, 'w', encoding='utf-8') as f:
                     json.dump(parsed_data, f, ensure_ascii=False, indent=2)
                 
@@ -709,32 +713,37 @@ class OptimizedDataFetcher:
     def get_race_ids_from_file(self, date_str: str) -> List[str]:
         """
         IDID
-        
+
         Args:
             date_str:  (YYYYMMDD)
-            
+
         Returns:
             List[str]: ID
         """
         try:
             race_ids_file = get_race_ids_file_path(date_str)
-            
+
             if not os.path.exists(race_ids_file):
                 self.logger.warning(f"[WARN] ID: {race_ids_file}")
                 return []
-            
+
             with open(race_ids_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
+
             race_ids = []
             kaisai_data = data.get('kaisai_data', {})
-            
+
+            # race_idと実際の日付のマッピングをクリアして再作成
+            self.race_id_to_date_map.clear()
+
             for venue, races in kaisai_data.items():
                 for race in races:
                     race_id = race.get('race_id')
                     if race_id:
                         race_ids.append(race_id)
-            
+                        # マッピングに追加（実際の開催日を保存）
+                        self.race_id_to_date_map[race_id] = date_str
+
             self.logger.info(f"[LIST] ID: {len(race_ids)}")
             return race_ids
             

@@ -80,8 +80,8 @@ def main():
                     logger.error(f"[ERROR] 統合ファイルが見つかりません: {json_path}")
                     return
             else:
-                # データを新規取得して生成
-                race_data = integrator.create_integrated_file(args.race_id, save=False)
+                # データを新規取得して生成（統合JSONも保存）
+                race_data = integrator.create_integrated_file(args.race_id, save=True)
                 if not race_data:
                     logger.error(f"[ERROR] データ取得失敗: {args.race_id}")
                     return
@@ -117,16 +117,23 @@ def main():
             
             for date_str in dates:
                 logger.info(f"[DATE]: {date_str}")
-                
+
                 # レースIDを取得
                 race_ids_file = get_race_ids_file_path(date_str)
                 if not os.path.exists(race_ids_file):
                     logger.warning(f"[SKIP] レースIDファイルなし: {date_str}")
                     continue
-                
+
                 with open(race_ids_file, 'r', encoding='utf-8') as f:
                     race_ids_data = json.load(f)
-                
+
+                # integratorのマッピングを更新
+                integrator.race_id_to_date_map.clear()
+                for venue, races in race_ids_data.get('kaisai_data', {}).items():
+                    for race in races:
+                        if isinstance(race, dict) and 'race_id' in race:
+                            integrator.race_id_to_date_map[race['race_id']] = date_str
+
                 # 各レースを処理
                 for venue, races in race_ids_data.get('kaisai_data', {}).items():
                     for race in races:
@@ -134,10 +141,17 @@ def main():
                         total_count += 1
                         
                         try:
-                            # 統合データを作成または取得
-                            # race_ids_dataを渡してstart_time情報を含める
-                            race_data = integrator.create_integrated_file(race_id, save=True, race_ids_data=race_ids_data)
-                            
+                            # 統合JSONファイルのパスを取得
+                            integrated_path = integrator._get_integrated_file_path(race_id)
+
+                            if os.path.exists(integrated_path):
+                                # 既存のintegrated JSONファイルを読み込む
+                                with open(integrated_path, 'r', encoding='utf-8') as f:
+                                    race_data = json.load(f)
+                            else:
+                                # 統合データを作成
+                                race_data = integrator.create_integrated_file(race_id, save=True, race_ids_data=race_ids_data)
+
                             if race_data:
                                 # Markdown生成
                                 generator.generate_race_markdown(race_data, save=True)

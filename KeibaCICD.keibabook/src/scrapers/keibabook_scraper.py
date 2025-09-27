@@ -171,20 +171,39 @@ class KeibabookScraper(BaseScraper):
     def get_danwa_page(self, race_id: str, save_html_path: str = None) -> str:
         """
         厩舎の話ページをスクレイピングする
-        
+
         Args:
             race_id: レースID
             save_html_path: HTMLを保存するパス（オプション）
-            
+
         Returns:
             str: 取得されたHTMLコンテンツ
         """
         url = f"{Config.KEIBABOOK_DANWA_URL}{race_id}"
-        
+
         if save_html_path is None:
             timestamp = time.strftime("%Y%m%d%H%M%S")
             save_html_path = Config.get_debug_dir() / f"danwa_{race_id}_{timestamp}.html"
-        
+
+        return self.scrape(url, save_html_path=save_html_path, wait_time=3)
+
+    def get_syoin_page(self, race_id: str, save_html_path: str = None) -> str:
+        """
+        前走インタビューページをスクレイピングする
+
+        Args:
+            race_id: レースID
+            save_html_path: HTMLを保存するパス（オプション）
+
+        Returns:
+            str: 取得されたHTMLコンテンツ
+        """
+        url = f"{Config.KEIBABOOK_SYOIN_URL}{race_id}"
+
+        if save_html_path is None:
+            # デバッグディレクトリに保存（race_idのみ、タイムスタンプなし）
+            save_html_path = Config.get_debug_dir() / f"syoin_{race_id}.html"
+
         return self.scrape(url, save_html_path=save_html_path, wait_time=3)
     
     def get_required_cookies(self) -> List[Dict[str, str]]:

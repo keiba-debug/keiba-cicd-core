@@ -188,21 +188,33 @@ class RequestsScraper:
         """
         return self.scrape_page('danwa', race_id, save_html_path)
     
-    def scrape_syoin_page(self, race_id: str) -> str:
+    def scrape_syoin_page(self, race_id: str, save_html_path: str = None) -> str:
         """
         前走インタビューページを取得する
-        
+
         Args:
             race_id: レースID
-            
+            save_html_path: HTMLを保存するパス（オプション）
+
         Returns:
             str: HTMLコンテンツ
         """
         url = f'https://p.keibabook.co.jp/cyuou/syoin/{race_id}'
         html = self.scrape(url)
-        
+
         if self.validate_page_content(html):
             self.logger.info(f"前走インタビューページを取得しました: {race_id}")
+
+            # HTMLを保存（デバッグ用）
+            if save_html_path is None:
+                save_html_path = Config.get_debug_dir() / f"syoin_{race_id}.html"
+
+            save_html_path = Path(save_html_path)
+            save_html_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(save_html_path, 'w', encoding='utf-8') as f:
+                f.write(html)
+            self.logger.debug(f"HTMLファイルを保存しました: {save_html_path}")
+
             return html
         else:
             self.logger.error(f"前走インタビューページの内容が無効です: {race_id}")

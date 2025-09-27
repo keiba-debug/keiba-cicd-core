@@ -36,6 +36,7 @@ class Config:
     KEIBABOOK_SHUTSUBA_URL = "https://p.keibabook.co.jp/cyuou/shutsuba/"
     KEIBABOOK_CYOKYO_URL = "https://p.keibabook.co.jp/cyuou/cyokyo/0/0/"
     KEIBABOOK_DANWA_URL = "https://p.keibabook.co.jp/cyuou/danwa/0/"
+    KEIBABOOK_SYOIN_URL = "https://p.keibabook.co.jp/cyuou/syoin/0/"
     KEIBABOOK_NITTEI_URL = "https://p.keibabook.co.jp/cyuou/nittei/"
     
     # スクレイピング設定

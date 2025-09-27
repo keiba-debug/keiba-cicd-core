@@ -140,28 +140,45 @@ def setup_batch_logger(name: str, log_level: str = "INFO", log_file: Optional[st
 
 def get_base_directories() -> Dict[str, str]:
     """
-    
-    
+
+
     Returns:
-        Dict[str, str]: 
+        Dict[str, str]:
     """
-    #  KEIBA_DATA_ROOT_DIR Config 
+    #  KEIBA_DATA_ROOT_DIR Config
     try:
         base_dir = Path(Config.get_data_root_dir())
     except Exception:
-        # 
+        #
         base_dir = Path(os.environ.get('KEIBA_DATA_ROOT_DIR') or 'data')
-    
-    return {
-        # ID
-        'race_ids': str(base_dir / "race_ids"),
-        
-        # JSON (tempフォルダに保存)
-        'json_base': str(base_dir / "temp"),
-        
-        # ルートディレクトリ
-        'root': str(base_dir),
-    }
+
+    # 新構造フラグを環境変数から取得（デフォルトは旧構造）
+    use_new_structure = os.environ.get('USE_NEW_DATA_STRUCTURE', 'false').lower() == 'true'
+
+    if use_new_structure:
+        # 新しいフォルダ構造
+        return {
+            # ID (新構造では日付別に保存)
+            'race_ids': str(base_dir / "races"),
+
+            # JSON (tempは日付別)
+            'json_base': str(base_dir / "races"),
+
+            # ルートディレクトリ
+            'root': str(base_dir),
+        }
+    else:
+        # 旧フォルダ構造（互換性のため）
+        return {
+            # ID
+            'race_ids': str(base_dir / "race_ids"),
+
+            # JSON (tempフォルダに保存)
+            'json_base': str(base_dir / "temp"),
+
+            # ルートディレクトリ
+            'root': str(base_dir),
+        }
 
 
 def ensure_batch_directories():
@@ -180,31 +197,65 @@ def ensure_batch_directories():
 def get_race_ids_file_path(date_str: str) -> str:
     """
     ID
-    
+
     Args:
         date_str:  (YYYYMMDD)
-        
+
     Returns:
         str: ID
     """
     dirs = get_base_directories()
-    return os.path.join(dirs['race_ids'], f"{date_str}_info.json")
+    use_new_structure = os.environ.get('USE_NEW_DATA_STRUCTURE', 'false').lower() == 'true'
+
+    if use_new_structure:
+        # 新構造: races/YYYY/MM/DD/race_info.json
+        year = date_str[:4]
+        month = date_str[4:6]
+        day = date_str[6:8]
+        race_dir = os.path.join(dirs['race_ids'], year, month, day)
+        os.makedirs(race_dir, exist_ok=True)
+        return os.path.join(race_dir, "race_info.json")
+    else:
+        # 旧構造: race_ids/YYYYMMDD_info.json
+        return os.path.join(dirs['race_ids'], f"{date_str}_info.json")
 
 
-def get_json_file_path(data_type: str, identifier: str) -> str:
+def get_json_file_path(data_type: str, identifier: str, actual_date: str = None) -> str:
     """
     JSON
-    
+
     Args:
         data_type:  (seiseki, shutsuba, cyokyo, danwa, nittei)
         identifier:  (race_id)
-        
+        actual_date: 実際の開催日 (YYYYMMDD形式、省略時はidentifierから抽出)
+
     Returns:
         str: JSON
     """
     dirs = get_base_directories()
+    use_new_structure = os.environ.get('USE_NEW_DATA_STRUCTURE', 'false').lower() == 'true'
     filename = f"{data_type}_{identifier}.json"
-    return os.path.join(dirs['json_base'], filename)
+
+    if use_new_structure:
+        # 新構造: races/YYYY/MM/DD/temp/
+        # actual_dateが指定されていればそれを使用、なければidentifierから抽出
+        if actual_date and len(actual_date) == 8:
+            date_str = actual_date
+        elif len(identifier) >= 8:
+            date_str = identifier[:8]
+        else:
+            # フォールバック: tempフォルダ直下
+            return os.path.join(dirs['json_base'], filename)
+
+        year = date_str[:4]
+        month = date_str[4:6]
+        day = date_str[6:8]
+        temp_dir = os.path.join(dirs['json_base'], year, month, day, "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        return os.path.join(temp_dir, filename)
+    else:
+        # 旧構造: temp/
+        return os.path.join(dirs['json_base'], filename)
 
 
 def create_authenticated_session() -> requests.Session:

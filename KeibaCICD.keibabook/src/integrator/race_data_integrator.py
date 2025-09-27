@@ -61,10 +61,11 @@ class RaceDataIntegrator:
         self.logger = logging.getLogger(__name__)
         self.data_root = os.getenv('KEIBA_DATA_ROOT_DIR', './data')  # keibabookフォルダを使わない
         self.use_organized_dir = use_organized_dir
-        
+
         # race_idと実際の開催日のマッピング
         self.actual_date_map = {}
         self.venue_name_map = {}
+        self.race_id_to_date_map = {}  # 処理中の日付マッピング
         self.load_actual_dates()
 
     # 内部ユーティリティ: 全角数字などを安全に数値化
@@ -139,16 +140,18 @@ class RaceDataIntegrator:
     
     def _load_race_data(self, race_id: str, data_type: str) -> Optional[Dict[str, Any]]:
         """
-        
-        
+
+
         Args:
             race_id: ID
             data_type: seiseki, syutuba, cyokyo, danwa, syoin, paddok
-            
+
         Returns:
             Optional[Dict[str, Any]]: None
         """
-        file_path = get_json_file_path(data_type, race_id)
+        # 実際の開催日を取得（処理中のマッピングまたは保存済みマッピング）
+        actual_date = self.race_id_to_date_map.get(race_id) or self.actual_date_map.get(race_id)
+        file_path = get_json_file_path(data_type, race_id, actual_date)
         return self._load_json_file(file_path)
     
     def _extract_race_info(self, race_id: str, syutuba_data: Dict, race_ids_data: Dict = None) -> Dict[str, Any]:
@@ -436,7 +439,10 @@ class RaceDataIntegrator:
                 if interview.get('horse_number') == horse_number:
                     horse_data['previous_race_interview'] = {
                         'jockey': interview.get('jockey', ''),
-                        'comment': interview.get('comment', ''),
+                        'comment': interview.get('comment', ''),  # 後方互換性
+                        'interview': interview.get('interview', ''),  # 前走インタビュー
+                        'next_race_memo': interview.get('next_race_memo', ''),  # 次走へのメモ
+                        'finish_position': interview.get('finish_position', ''),  # 着順
                         'previous_race_mention': interview.get('previous_race_mention', '')
                     }
                     break
@@ -661,26 +667,30 @@ class RaceDataIntegrator:
     
     def _get_integrated_file_path(self, race_id: str) -> str:
         """
-        
-        
+
+
         Args:
             race_id: ID
-            
+
         Returns:
-            str: 
+            str:
         """
         filename = f"integrated_{race_id}.json"
-        
-        # 常にorganizedディレクトリに保存（integratedフォルダは使わない）
-        if race_id in self.actual_date_map:
+
+        # 実際の開催日を取得（処理中のマッピングまたは保存済みマッピング）
+        actual_date = self.race_id_to_date_map.get(race_id) or self.actual_date_map.get(race_id)
+
+        if actual_date:
+            date_str = actual_date
+        elif race_id in self.actual_date_map:
             date_str = self.actual_date_map[race_id]
         else:
             date_str = race_id[:8] if len(race_id) >= 8 else '00000000'
-        
+
         year = date_str[:4]
         month = date_str[4:6]
         day = date_str[6:8]
-        
+
         # 競馬場名を取得
         venue_name = self.venue_name_map.get(race_id, '')
         if not venue_name and len(race_id) >= 10:
@@ -692,13 +702,22 @@ class RaceDataIntegrator:
                 '09': '阪神', '10': '小倉'
             }
             venue_name = venue_map.get(venue_code, '')
-        
-        if venue_name:
-            # 競馬場別フォルダ構造: organized/YYYY/MM/DD/競馬場名/
-            output_dir = os.path.join(self.data_root, 'organized', year, month, day, venue_name)
+
+        # 新構造フラグを確認
+        use_new_structure = os.getenv('USE_NEW_DATA_STRUCTURE', 'false').lower() == 'true'
+
+        if use_new_structure:
+            # 新構造: races/YYYY/MM/DD/競馬場名/
+            if venue_name:
+                output_dir = os.path.join(self.data_root, 'races', year, month, day, venue_name)
+            else:
+                output_dir = os.path.join(self.data_root, 'races', year, month, day)
         else:
-            # 競馬場名が取得できない場合は日付フォルダ直下
-            output_dir = os.path.join(self.data_root, 'organized', year, month, day)
+            # 旧構造: organized/YYYY/MM/DD/競馬場名/
+            if venue_name:
+                output_dir = os.path.join(self.data_root, 'organized', year, month, day, venue_name)
+            else:
+                output_dir = os.path.join(self.data_root, 'organized', year, month, day)
         
         return os.path.join(output_dir, filename)
     
@@ -784,14 +803,20 @@ class RaceDataIntegrator:
         with open(race_ids_file, 'r', encoding='utf-8') as f:
             race_ids_data = json.load(f)
         
-        # ID
+        # IDと日付マッピングをクリアして再作成
         race_ids = []
+        self.race_id_to_date_map.clear()
+
         for venue, races in race_ids_data.get('kaisai_data', {}).items():
             for race in races:
                 if isinstance(race, dict) and 'race_id' in race:
-                    race_ids.append(race['race_id'])
+                    race_id = race['race_id']
+                    race_ids.append(race_id)
+                    # マッピングに追加（実際の開催日を保存）
+                    self.race_id_to_date_map[race_id] = date_str
                 elif isinstance(race, str):
                     race_ids.append(race)
+                    self.race_id_to_date_map[race] = date_str
         
         # 
         success_count = 0
