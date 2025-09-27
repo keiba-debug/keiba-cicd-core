@@ -10,7 +10,16 @@
       "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\中京/**)",
       "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\中京/**)",
       "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\中京/**)",
-      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\札幌/**)"
+      "Read(C:\\KEIBA-CICD\\data\\organized\\2025\\08\\31\\札幌/**)",
+      "Bash(dir:*)",
+      "Bash(mkdir:*)",
+      "Bash(python:*)",
+      "Bash(tree:*)",
+      "Read(//z/KEIBA-CICD/data/organized/2025/09/27/阪神/**)",
+      "Read(//z/KEIBA-CICD/data/**)",
+      "Bash(cat:*)",
+      "Bash(copy:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

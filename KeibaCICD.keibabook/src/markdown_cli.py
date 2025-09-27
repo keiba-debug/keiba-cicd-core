@@ -135,7 +135,8 @@ def main():
                         
                         try:
                             # 統合データを作成または取得
-                            race_data = integrator.create_integrated_file(race_id, save=True)
+                            # race_ids_dataを渡してstart_time情報を含める
+                            race_data = integrator.create_integrated_file(race_id, save=True, race_ids_data=race_ids_data)
                             
                             if race_data:
                                 # Markdown生成

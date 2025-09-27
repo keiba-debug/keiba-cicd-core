@@ -89,51 +89,105 @@ class CyokyoParser:
     def _extract_training_data(self, soup: BeautifulSoup) -> List[Dict[str, str]]:
         """調教情報を抽出（攻め解説対応版）"""
         training_list = []
-        
+
         try:
-            # 全テーブルを検索し、攻め解説を含むテーブルを特定
-            tables = soup.find_all('table')
-            self.logger.debug(f"全テーブル数: {len(tables)}")
-            
-            # 矢印データを別途収集（各馬のテーブルから）
-            arrow_data = self._extract_arrow_data(soup)
-            self.logger.debug(f"矢印データ: {arrow_data}")
-            
-            for table_idx, table in enumerate(tables):
-                table_text = table.get_text()
-                
-                # 攻め解説を含むテーブルを探す
-                if '攻め解説' in table_text:
-                    self.logger.debug(f"テーブル{table_idx + 1}で攻め解説を発見")
-                    
-                    # このテーブルの行を解析
-                    rows = table.find_all('tr')
-                    for row_idx, row in enumerate(rows):
-                        row_text = row.get_text()
-                        
-                        # 攻め解説を含む行を処理
-                        if '攻め解説' in row_text:
-                            training_data = self._extract_training_with_explanation(row, table_idx, row_idx)
-                            
-                            # 馬番に対応する矢印を追加
-                            if training_data and training_data.get('horse_number'):
-                                horse_num = training_data.get('horse_number')
-                                if horse_num in arrow_data:
-                                    training_data['training_arrow'] = arrow_data[horse_num]
-                                    self.logger.debug(f"馬番{horse_num}に矢印{arrow_data[horse_num]}を追加")
-                            
-                            # 馬番と攻め解説の両方が取得できたデータのみ追加
-                            if training_data and training_data.get('horse_number') and training_data.get('attack_explanation'):
-                                training_list.append(training_data)
-                                self.logger.debug(f"有効な調教データを追加: 馬番{training_data.get('horse_number')}, 馬名{training_data.get('horse_name')}")
-                            elif training_data:
-                                self.logger.debug(f"無効な調教データをスキップ: 馬番{training_data.get('horse_number', '不明')}, 攻め解説{len(training_data.get('attack_explanation', ''))}")
-            
-            # 結果を確認
-            if training_list:
-                self.logger.info(f"攻め解説付き調教データを{len(training_list)}件抽出しました")
-            else:
-                self.logger.warning("攻め解説テーブルが見つからないか有効なデータがないため、従来方法で解析")
+            # class="cyokyo"のテーブルを全て取得（各馬のデータ）
+            cyokyo_tables = soup.find_all('table', class_='cyokyo')
+            self.logger.debug(f"調教テーブル数: {len(cyokyo_tables)}")
+
+            # 攻め解説divも全て取得
+            semekaisetu_divs = soup.find_all('div', class_='semekaisetu')
+            self.logger.debug(f"攻め解説div数: {len(semekaisetu_divs)}")
+
+            for table in cyokyo_tables:
+                training_data = {}
+
+                # 最初のtbodyの最初のtrから基本情報を取得
+                tbody = table.find('tbody')
+                if not tbody:
+                    continue
+
+                first_tr = tbody.find('tr')
+                if not first_tr:
+                    continue
+
+                # 馬番を取得（class="umaban"）
+                umaban_cell = first_tr.find('td', class_='umaban')
+                if umaban_cell:
+                    text = umaban_cell.get_text(strip=True)
+                    import re
+                    match = re.search(r'(\d+)', text)
+                    if match:
+                        training_data['horse_number'] = int(match.group(1))
+                        self.logger.debug(f"馬番抽出: {training_data['horse_number']}")
+
+                # 馬名を取得（class="kbamei"）
+                kbamei_cell = first_tr.find('td', class_='kbamei')
+                if kbamei_cell:
+                    # リンク内のテキストを取得
+                    horse_link = kbamei_cell.find('a')
+                    if horse_link:
+                        training_data['horse_name'] = horse_link.get_text(strip=True)
+                    else:
+                        training_data['horse_name'] = kbamei_cell.get_text(strip=True)
+                    self.logger.debug(f"馬名抽出: {training_data['horse_name']}")
+
+                # 短評を取得（class="tanpyo"）
+                tanpyo_cell = first_tr.find('td', class_='tanpyo')
+                if tanpyo_cell:
+                    short_review = tanpyo_cell.get_text(strip=True)
+                    if short_review:
+                        training_data['short_review'] = short_review
+                        self.logger.debug(f"短評抽出: {short_review}")
+
+                # 矢印を取得（class="yajirusi"）
+                yajirusi_cell = first_tr.find('td', class_='yajirusi')
+                if yajirusi_cell:
+                    arrow_span = yajirusi_cell.find('span')
+                    if arrow_span:
+                        arrow_text = arrow_span.get_text(strip=True)
+                    else:
+                        arrow_text = yajirusi_cell.get_text(strip=True)
+                    if arrow_text:
+                        training_data['training_arrow'] = arrow_text
+                        self.logger.debug(f"矢印抽出: {arrow_text}")
+
+                # 攻め解説を取得（テーブルの後にあるdiv.semekaisetu）
+                # テーブルの次の兄弟要素を探す
+                next_sibling = table.find_next_sibling('div', class_='semekaisetu')
+                if next_sibling:
+                    p_elem = next_sibling.find('p')
+                    if p_elem:
+                        attack_explanation = p_elem.get_text(strip=True)
+                        if attack_explanation:
+                            training_data['attack_explanation'] = attack_explanation
+                            self.logger.debug(f"攻め解説抽出: {attack_explanation[:30] if len(attack_explanation) > 30 else attack_explanation}")
+                else:
+                    # 別の方法：テーブルのIDを使って対応する攻め解説を探す
+                    table_id = table.get('id', '')
+                    if table_id:
+                        # 同じ馬番のsemekaisetsuを探す（インデックスベース）
+                        horse_idx = cyokyo_tables.index(table)
+                        if horse_idx < len(semekaisetu_divs):
+                            div = semekaisetu_divs[horse_idx]
+                            p_elem = div.find('p')
+                            if p_elem:
+                                attack_explanation = p_elem.get_text(strip=True)
+                                if attack_explanation:
+                                    training_data['attack_explanation'] = attack_explanation
+                                    self.logger.debug(f"攻め解説抽出（インデックス）: {attack_explanation[:30] if len(attack_explanation) > 30 else attack_explanation}")
+
+                # race_idを設定
+                training_data['race_id'] = self._get_race_id_from_context()
+
+                # 有効なデータのみ追加
+                if training_data.get('horse_number'):
+                    training_list.append(training_data)
+                    self.logger.debug(f"調教データ追加: 馬番{training_data['horse_number']} {training_data.get('horse_name', '')}")
+
+            # fallbackとして他の形式も試す
+            if not training_list:
+                self.logger.warning("cyokyoクラスのテーブルが見つかりません。フォールバック処理を実行")
                 training_list = self._extract_training_data_fallback(soup)
                     
         except Exception as e:
@@ -199,6 +253,20 @@ class CyokyoParser:
             if attack_explanation:
                 training_data['attack_explanation'] = attack_explanation
                 self.logger.debug(f"攻め解説抽出成功: {attack_explanation[:50]}...")
+
+            # 短評を抽出（class="tanpyo"のtd要素から直接取得）
+            tanpyo_cell = row.find('td', class_='tanpyo')
+            if tanpyo_cell:
+                short_review = tanpyo_cell.get_text(strip=True)
+                if short_review:
+                    training_data['short_review'] = short_review
+                    self.logger.debug(f"短評抽出成功(tanpyo): {short_review[:50]}...")
+            else:
+                # class="tanpyo"がない場合はテキストから抽出
+                short_review = self._extract_short_review(row_text)
+                if short_review:
+                    training_data['short_review'] = short_review
+                    self.logger.debug(f"短評抽出成功(テキスト): {short_review[:50]}...")
             
             # 矢印を抽出（短評の横にある調教の変化を示す矢印）
             arrow_cell = row.find('td', class_='yajirusi')
@@ -236,10 +304,38 @@ class CyokyoParser:
                 explanation = explanation.replace('\n', ' ').replace('\r', ' ')
                 explanation = explanation.strip()
                 return explanation
-            
+
             return ""
         except Exception as e:
             self.logger.debug(f"攻め解説抽出エラー: {e}")
+            return ""
+
+    def _extract_short_review(self, text: str) -> str:
+        """テキストから短評を抽出（追い切り短評も含む）"""
+        try:
+            # 「追い切り短評」または「短評」の後の文章を抽出
+            # 追い切り短評を優先的にマッチ
+            patterns = [
+                r'追い切り短評\s*　?([^攻短]+?)(?:攻め解説|騎乗者|助手|\d+\/\d+|$)',
+                r'追切短評\s*　?([^攻短]+?)(?:攻め解説|騎乗者|助手|\d+\/\d+|$)',
+                r'短評\s*　?([^攻短]+?)(?:攻め解説|騎乗者|助手|\d+\/\d+|$)'
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, text, re.DOTALL)
+                if match:
+                    review = match.group(1).strip()
+                    # 余分な文字を除去
+                    review = re.sub(r'\s+', ' ', review)  # 連続空白を単一スペースに
+                    review = review.replace('\n', ' ').replace('\r', ' ')
+                    review = review.strip()
+                    if review:  # 空でない場合のみ返す
+                        self.logger.debug(f"短評パターンマッチ成功: {pattern[:20]}...")
+                        return review
+
+            return ""
+        except Exception as e:
+            self.logger.debug(f"短評抽出エラー: {e}")
             return ""
     
     def _extract_race_id_from_filename(self, filename: str) -> str:
@@ -282,6 +378,83 @@ class CyokyoParser:
             self.logger.debug(f"矢印データ抽出エラー: {e}")
         
         return arrow_data
+
+    def _extract_tanpyo_data(self, soup: BeautifulSoup) -> Dict[int, str]:
+        """ページ全体からclass="tanpyo"のデータを抽出"""
+        tanpyo_data = {}
+
+        try:
+            # class="tanpyo"の全てのtd要素を取得
+            tanpyo_cells = soup.find_all('td', class_='tanpyo')
+            self.logger.debug(f"短評セル数: {len(tanpyo_cells)}")
+
+            # 各短評セルからテキストを抽出（馬番順に配置されていると仮定）
+            for i, tanpyo_cell in enumerate(tanpyo_cells, 1):
+                tanpyo_text = tanpyo_cell.get_text(strip=True)
+                if tanpyo_text:
+                    tanpyo_data[i] = tanpyo_text
+                    self.logger.debug(f"馬番{i}の短評: {tanpyo_text[:20]}..." if len(tanpyo_text) > 20 else f"馬番{i}の短評: {tanpyo_text}")
+
+        except Exception as e:
+            self.logger.debug(f"短評データ抽出エラー: {e}")
+
+        return tanpyo_data
+
+    def _extract_from_tanpyo_table(self, table, table_idx: int) -> Dict[str, str]:
+        """パtanpyo要素を含むテーブルから調教情報を抽出"""
+        training_data = {}
+
+        try:
+            # tanpyoセルを探す
+            tanpyo_cell = table.find('td', class_='tanpyo')
+            if tanpyo_cell:
+                training_data['short_review'] = tanpyo_cell.get_text(strip=True)
+                self.logger.debug(f"tanpyoセルから短評を抽出: {training_data['short_review'][:20]}..." if len(training_data['short_review']) > 20 else f"tanpyoセルから短評を抽出: {training_data['short_review']}")
+
+            # 馬番を探す（class="umaban"）
+            horse_num_cell = table.find('td', class_='umaban')
+            if horse_num_cell:
+                text = horse_num_cell.get_text(strip=True)
+                import re
+                match = re.search(r'(\d+)', text)
+                if match:
+                    training_data['horse_number'] = int(match.group(1))
+                    training_data['馬番'] = str(training_data['horse_number'])
+                    self.logger.debug(f"馬番抽出: {training_data['horse_number']}")
+
+            # 馬名を探す（class="kbamei"）
+            horse_name_cell = table.find('td', class_='kbamei')
+            if horse_name_cell:
+                # 馬名にはリンクが含まれている可能性がある
+                horse_name = horse_name_cell.get_text(strip=True)
+                if horse_name:
+                    training_data['horse_name'] = horse_name
+                    training_data['馬名'] = horse_name
+                    self.logger.debug(f"馬名抽出: {horse_name}")
+
+            # 矢印を探す（class="yajirusi"）
+            yajirusi_cell = table.find('td', class_='yajirusi')
+            if yajirusi_cell:
+                arrow_text = yajirusi_cell.get_text(strip=True)
+                if arrow_text:
+                    training_data['training_arrow'] = arrow_text
+                    self.logger.debug(f"矢印抽出: {arrow_text}")
+
+            # 攻め解説を探す（テーブル内のテキストから）
+            table_text = table.get_text()
+            if '攻め解説' in table_text:
+                attack_explanation = self._extract_attack_explanation(table_text)
+                if attack_explanation:
+                    training_data['attack_explanation'] = attack_explanation
+                    self.logger.debug(f"攻め解説抽出: {attack_explanation[:30]}..." if len(attack_explanation) > 30 else f"攻め解説抽出: {attack_explanation}")
+
+            # race_idを設定
+            training_data['race_id'] = self._get_race_id_from_context()
+
+        except Exception as e:
+            self.logger.debug(f"tanpyoテーブルからの抽出エラー: {e}")
+
+        return training_data if training_data.get('horse_number') else None
     
     def _extract_horse_info_from_context(self, table_idx: int, row_idx: int) -> tuple:
         """テーブル位置から馬番・馬名を推定"""
@@ -320,20 +493,21 @@ class CyokyoParser:
     def _format_training_data(self, training_data: List[Dict[str, str]], race_id: str) -> List[Dict[str, Any]]:
         """調教データを添付ファイルの形式に変換"""
         formatted_list = []
-        
+
         for data in training_data:
             formatted_item = {
                 "race_id": race_id,
                 "horse_number": data.get('horse_number', ''),
                 "horse_name": data.get('horse_name', ''),
                 "attack_explanation": data.get('attack_explanation', ''),
+                "short_review": data.get('short_review', ''),  # 短評を追加
                 "training_arrow": data.get('training_arrow', '')  # 矢印を追加
             }
-            
-            # 有効なデータのみ追加
-            if formatted_item.get('horse_number') and formatted_item.get('attack_explanation'):
+
+            # 有効なデータのみ追加（horse_numberがあれば追加）
+            if formatted_item.get('horse_number'):
                 formatted_list.append(formatted_item)
-                
+
         return formatted_list
     
     def _extract_training_data_fallback(self, soup: BeautifulSoup) -> List[Dict[str, str]]:

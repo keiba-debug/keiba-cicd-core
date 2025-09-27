@@ -334,7 +334,8 @@ class RaceDataIntegrator:
                             'training_course': horse.get('training_course', ''),
                             'evaluation': horse.get('evaluation', ''),
                             'trainer_comment': horse.get('comment', ''),
-                            'short_review': horse.get('short_review', '') or horse.get('attack_explanation', ''),
+                            'attack_explanation': horse.get('attack_explanation', ''),
+                            'short_review': horse.get('short_review', ''),
                             'training_load': horse.get('training_load', ''),
                             'training_rank': horse.get('rank', ''),
                             'training_arrow': horse.get('training_arrow', '')  # 調教矢印を追加
@@ -353,9 +354,10 @@ class RaceDataIntegrator:
                             'training_times': item.get('training_times', []),
                             'training_course': item.get('training_course') or item.get('コース', ''),
                             'evaluation': item.get('evaluation') or item.get('評価', ''),
-                            # 攻め解説やコメントのどちらかを優先採用
-                            'trainer_comment': item.get('trainer_comment') or item.get('comment') or item.get('attack_explanation', ''),
-                            'short_review': item.get('short_review') or item.get('attack_explanation', ''),
+                            # 攻め解説と短評を別々に保持
+                            'trainer_comment': item.get('trainer_comment') or item.get('comment', ''),
+                            'attack_explanation': item.get('attack_explanation', ''),
+                            'short_review': item.get('short_review', ''),
                             'training_load': item.get('training_load') or item.get('負荷', ''),
                             'training_rank': item.get('training_rank') or item.get('順位', ''),
                             'training_arrow': item.get('training_arrow', '')  # 調教矢印を追加

@@ -33,6 +33,8 @@ class MarkdownGenerator:
         # race_idと実際の開催日のマッピング
         self.actual_date_map = {}
         self.venue_name_map = {}  # 実際の競馬場名のマッピング
+        self.start_time_map = {}  # 発走時刻のマッピング
+        self.race_info_map = {}  # レース名とコース情報のマッピング
         self.load_actual_dates()
     
     def generate_race_markdown(self, race_data: Dict[str, Any], save: bool = True) -> str:
@@ -139,8 +141,26 @@ class MarkdownGenerator:
         track = race_info.get('track', '')
         distance = race_info.get('distance', 0)
         
-        # レース名を取得
-        race_name = race_info.get('race_name', '')
+        # レース名を取得（race_info_mapから優先的に取得）
+        race_name = ''
+        course_info = ''
+        if race_id in self.race_info_map:
+            race_name = self.race_info_map[race_id].get('race_name', '')
+            course_info = self.race_info_map[race_id].get('course', '')
+
+        # race_info_mapになければrace_infoから取得
+        if not race_name:
+            race_name = race_info.get('race_name', '')
+
+        # それでもなければrace_conditionから特別戦名を抽出
+        if not race_name and 'race_condition' in race_info:
+            condition = race_info['race_condition']
+            import re
+            # 特別戦名の抽出（例: "勝浦特別(3歳以上2勝クラス )" -> "勝浦特別"）
+            special_match = re.match(r'^([^(]+(?:特別|Ｓ|ステークス))', condition)
+            if special_match:
+                race_name = special_match.group(1).strip()
+
         if not race_name:
             race_name = f"{race_num}R"
         
@@ -170,81 +190,85 @@ class MarkdownGenerator:
             elif 'オープン' in condition:
                 class_info = '(オープン)'
         
-        # 発走時刻を取得（start_timeを優先、なければpost_time）
-        start_time = race_info.get('start_time', '')
+        # 発走時刻を取得（race_idsのstart_timeを最優先、次にrace_info、最後にpost_time）
+        race_id = race_data.get('race_id', '')
+        start_time = self.start_time_map.get(race_id, '')
+        if not start_time:
+            start_time = race_info.get('start_time', '')
         if not start_time:
             post_time = race_info.get('post_time', '')
             start_time = post_time
         
         # ヘッダーを構築
         header_parts = []
-        
+
         # 競馬場とレース番号
         if venue and race_num:
             header_parts.append(f"{venue}{race_num}R")
         elif race_num:
             header_parts.append(f"{race_num}R")
-        
-        # コース情報
-        if track and distance:
-            # トラック種別を短縮形に変換
-            track_short = '芝' if track == '芝' else 'ダ' if track in ['ダ', 'ダート'] else track
-            header_parts.append(f"{track_short} {distance}m")
-        
-        # レース名とクラス
-        if race_name and race_name != f"{race_num}R":
-            if class_info:
-                header_parts.append(f"{race_name}{class_info}")
-            else:
-                header_parts.append(race_name)
-        elif class_info:
+
+        # クラス情報
+        if class_info:
             header_parts.append(class_info)
-        
-        # 発走時刻（存在する場合）
-        if start_time:
-            header_parts.append(f"発走予定 {start_time}")
-        
-        # スペース2つで区切って結合
+
+        # レース名（特別戦名など）
+        if race_name and race_name != f"{race_num}R":
+            header_parts.append(race_name)
+
+        # スペース区切りで結合
         return f"# {' '.join(header_parts)}"
     
     def _generate_race_info(self, race_data: Dict[str, Any]) -> str:
         """レース基本情報生成"""
         race_info = race_data.get('race_info', {})
         race_id = race_data.get('meta', {}).get('race_id', '')
-        
+
         lines = ["## 📋 レース情報"]
-        
+
         # 日付を整形
         date_str = self._format_date(race_id)
         venue = self._get_venue_name(race_id)
-        
+
         info_items = []
         if date_str:
             info_items.append(f"- **日付**: {date_str}")
-        if venue:
-            info_items.append(f"- **競馬場**: {venue}")
-        
-        # コース情報（芝/ダート、距離）を分かりやすく表示
-        distance = race_info.get('distance', 0)
-        track = race_info.get('track', '')
-        if distance:
-            # トラック種別を日本語に変換
-            track_jp = '芝' if track == '芝' else 'ダート' if track in ['ダ', 'ダート'] else track
-            info_items.append(f"- **コース**: {track_jp} {distance}m")
-        
-        # 発走予定時刻（存在する場合）
-        # start_time（HH:MM形式）を優先、なければstart_at（ISO8601）から時刻部分を抽出
-        start_time = race_info.get('start_time', '')
+
+        # 発走予定時刻
+        start_time = self.start_time_map.get(race_id, '')
+        if not start_time:
+            start_time = race_info.get('start_time', '')
+        if not start_time:
+            start_time = race_info.get('post_time', '')
         if not start_time and race_info.get('start_at'):
-            # ISO8601形式から時刻部分を抽出（例: 2025-08-23T10:05:00+09:00 → 10:05）
+            # ISO8601形式から時刻部分を抽出
             start_at = race_info.get('start_at', '')
             if 'T' in start_at:
                 time_part = start_at.split('T')[1]
                 if ':' in time_part:
-                    start_time = ':'.join(time_part.split(':')[:2])  # HH:MM部分のみ
-        
+                    start_time = ':'.join(time_part.split(':')[:2])
+
         if start_time:
-            info_items.append(f"- **発走予定時刻**: {start_time}")
+            info_items.append(f"- **発走予定**: {start_time}")
+
+        # 競馬場とコース情報
+        if venue:
+            course_display = venue
+            # race_info_mapからコース情報を取得
+            if race_id in self.race_info_map:
+                course_info = self.race_info_map[race_id].get('course', '')
+                if course_info:
+                    course_display = f"{venue} {course_info}"
+            elif race_info.get('distance', 0):
+                # フォールバック：既存の方法でコース情報を構築
+                distance = race_info.get('distance', 0)
+                track = race_info.get('track', '')
+                track_jp = '芝' if track == '芝' else 'ダート' if track in ['ダ', 'ダート'] else track
+                if track_jp and distance:
+                    course_display = f"{venue} {track_jp}{distance}m"
+
+            info_items.append(f"- **競馬場**: {course_display}")
+        
         
         weather = race_info.get('weather', '')
         if weather:
@@ -279,8 +303,8 @@ class MarkdownGenerator:
         lines.append("")
         
         # テーブルヘッダー（パドック情報と適性/割安を追加）
-        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 調教 | 短評 | パ評価 | パコメント | 適性/割安 |")
-        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|:----:|------|:------:|----------|:---------:|")
+        lines.append("| 枠 | 馬番 | 馬名 | 性齢 | 騎手 | 斤量 | オッズ | AI指数 | レート | 本誌 | 総合P | 短評 | 調教 | 調教短評 | 調教解説 | パ評価 | パコメント | 適性/割安 |")
+        lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:------:|:-----:|:---:|:---:|------|:----:|:------:|------|:------:|----------|:---------:|")
         
         # 馬番順にソート
         sorted_entries = sorted(entries, key=lambda x: x.get('horse_number', 999))
@@ -327,6 +351,28 @@ class MarkdownGenerator:
                     paddock_comment = p_comment
             
             short_comment = entry_data.get('short_comment', '')  # 短評を取得
+
+            # 調教データから攻め解説と短評を取得
+            training_short = '-'
+            training_explanation = '-'
+            if training_data:
+                # 短評を取得
+                t_short = training_data.get('short_review', '')
+                if t_short:
+                    training_short = t_short[:20] + '...' if len(t_short) > 20 else t_short
+                else:
+                    training_short = '-'
+
+                # 攻め解説を取得
+                t_attack = training_data.get('attack_explanation', '')
+                if t_attack:
+                    # 攻め解説は50文字まで表示（表示を増やす）
+                    if len(t_attack) > 50:
+                        training_explanation = t_attack[:47] + '...'
+                    else:
+                        training_explanation = t_attack
+                else:
+                    training_explanation = '-'
             
             # 履歴特徴量から適性/割安情報を生成
             suitability_value = '-'
@@ -371,7 +417,7 @@ class MarkdownGenerator:
                 # file:///を付けない通常のパス形式
                 jockey = f"[{jockey}]({jockey_profile_path})"
 
-            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {training_eval} | {short_comment} | {paddock_eval} | {paddock_comment} | {suitability_value} |")
+            lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {short_comment} | {training_eval} | {training_short} | {training_explanation} | {paddock_eval} | {paddock_comment} | {suitability_value} |")
         
         # 参考: 人別印一覧（折りたたみイメージ、シンプル出力）
         lines.append("")
@@ -913,10 +959,8 @@ class MarkdownGenerator:
             "---",
             "# 追記",
             "",
-            "---",
             "## 予想メモ",
             "",
-            "---",
             "## 買い目検討",
             ""
         ]
@@ -1165,6 +1209,14 @@ class MarkdownGenerator:
                                 self.actual_date_map[race_id] = date_str
                                 if venue_name:
                                     self.venue_name_map[race_id] = venue_name
+                                # start_time も保存
+                                if race.get('start_time'):
+                                    self.start_time_map[race_id] = race['start_time']
+                                # レース名とコース情報を保存
+                                self.race_info_map[race_id] = {
+                                    'race_name': race.get('race_name', ''),
+                                    'course': race.get('course', '')
+                                }
                 except Exception as e:
                     pass
     

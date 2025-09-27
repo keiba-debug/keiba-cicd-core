@@ -326,13 +326,14 @@ class SyutubaParser:
         注: 1点
         """
         mark_values = {
-            '◎': 5,
-            '○': 4,
-            '▲': 3,
-            '△': 2,
-            '穴': 1,
-            '注': 1,
-            '×': 0
+            '◎': 8,  # 5→8に増加（最重要マーク）
+            '○': 5,  # 4→5に増加
+            '▲': 3,  # 据え置き
+            '△': 2,  # 据え置き
+            '穴': 1,  # 据え置き
+            '注': 1,  # 据え置き
+            '×': 0,  # 据え置き
+            '': -1   # 無印はマイナス1点
         }
         
         # 印の集計
@@ -377,38 +378,71 @@ class SyutubaParser:
                 names = ', '.join([f"{h['馬番']}番{h['馬名']}" for h in horses_with_mark])
                 self.logger.info(f"本誌{mark}: {names}")
         
-        # 追加: 複数者（CPU〜本誌まで）の総合印ポイントを算出（最大5者）
-        # 対象候補キー（表記ゆれを考慮）
+        # 追加: 複数者（CPU〜本誌まで）の総合印ポイントを算出
+        # 対象候補キー（表記ゆれを考慮し、優先順位を設定）
         candidate_sources = [
             ('CPU', ['CPU', 'ＣＰＵ']),
             ('本誌', ['本誌', '本紙', '本誌見解', '本紙見解']),
+            ('牟田雅', ['牟田雅', '牟田']),
+            ('西村敬', ['西村敬', '西村']),
+            ('広瀬健', ['広瀬健', '広瀬']),
             ('予想1', ['印', '印_2', '印_3', '印_4']),  # thead起因の複製カラムなどを包括
         ]
-        # マーク→点
-        def to_point(mark_text: str) -> int:
-            if not mark_text:
-                return 0
+        # マーク→点（重み付け対応版）
+        def to_point(mark_text: str, source_label: str = None) -> float:
+            # 無印または空文字列の場合はマイナス点
+            if not mark_text or mark_text.strip() == '':
+                # 重要な予想者が無印の場合はより大きなマイナス
+                if source_label == 'CPU':
+                    return -1.5  # CPUが無印 = -1.5点
+                elif source_label == '本誌':
+                    return -1.3  # 本誌が無印 = -1.3点
+                elif source_label in ['牟田雅', '西村敬', '広瀬健']:
+                    return -1.0  # 専門家が無印 = -1点
+                else:
+                    return -0.5  # その他が無印 = -0.5点
+
+            # 基本ポイント
+            base_point = 0
             for m, p in mark_values.items():
-                if m in mark_text:
-                    return p
-            return 0
+                if m != '' and m in mark_text:  # 空文字キーを除外
+                    base_point = p
+                    break
+
+            # ソース別の重み付け（CPU、本誌の重みを上げる）
+            weight = 1.0
+            if source_label == 'CPU':
+                weight = 1.5  # CPUの予想は1.5倍
+            elif source_label == '本誌':
+                weight = 1.3  # 本誌の予想は1.3倍
+            elif source_label in ['牟田雅', '西村敬', '広瀬健']:
+                weight = 1.0  # 専門家は標準
+            else:
+                weight = 0.8  # その他は0.8倍
+
+            return base_point * weight
         
         for horse in horses:
             marks_by_person = {}
             total_points = 0
             picked = 0
-            # 既知キー優先で探索
+            # 既知キー優先で探索（無印も含む）
             for label, variants in candidate_sources:
+                found = False
                 for key in variants:
-                    if key in horse and horse.get(key):
-                        marks_by_person[label] = horse.get(key)
-                        total_points += to_point(str(horse.get(key)))
+                    if key in horse:
+                        mark_value = horse.get(key, '')
+                        marks_by_person[label] = mark_value if mark_value else '無印'
+                        total_points += to_point(str(mark_value), label)
                         picked += 1
+                        found = True
                         break
-                if picked >= 5:
+                if found:  # foundフラグを確認
+                    pass  # すでに処理済み
+                if picked >= 7:  # 最大7者まで考慮
                     break
-            # まだ5未満なら、残りは馬データの全キーからマークらしき値を拾う（ノイズは最小限）
-            if picked < 5:
+            # まだ7未満なら、残りは馬データの全キーからマークらしき値を拾う（ノイズは最小限）
+            if picked < 7:
                 for k, v in horse.items():
                     if k in ['馬番', '馬名', '馬名_clean', '単勝', '人気', '枠番']:
                         continue
@@ -417,12 +451,19 @@ class SyutubaParser:
                             marks_by_person[k] = v
                             total_points += to_point(str(v))
                             picked += 1
-                            if picked >= 5:
+                            if picked >= 7:
                                 break
-            # 設定
-            if marks_by_person:
+            # 設定（ポイントを整数に丸める、マイナスも許容）
+            if marks_by_person or total_points != 0:
                 horse['marks_by_person'] = marks_by_person
-                horse['総合印ポイント'] = total_points
+                horse['総合印ポイント'] = int(round(total_points))
+            else:
+                # 印情報がない場合も0点
+                horse['総合印ポイント'] = 0
+
+                # デバッグ用：計算詳細をログ出力（必要に応じてコメントアウト）
+                # if total_points > 0:
+                #     self.logger.debug(f"馬番{horse.get('馬番')} {horse.get('馬名')}: 総合P={int(round(total_points))}, 詳細={marks_by_person}")
         
         return horses
     
