@@ -68,11 +68,6 @@ class MarkdownGenerator:
         # 調教・厩舎談話情報
         md_content.append(self._generate_training_comments(race_data))
 
-        # 前走インタビュー（あれば）
-        interview_section = self._generate_previous_interview_section(race_data)
-        if interview_section:
-            md_content.append(interview_section)
-
         # 展開予想（展開データがある場合）
         tenkai_section = self._generate_tenkai_section(race_data)
         if tenkai_section:
@@ -332,7 +327,9 @@ class MarkdownGenerator:
             ai_index = entry_data.get('ai_index', '-')
             rating = entry_data.get('rating', '-')  # レイティングを取得
             honshi_mark = entry_data.get('honshi_mark', '-')
-            mark_point = entry_data.get('aggregate_mark_point', entry_data.get('mark_point', 0))
+            # 総合ポイントを取得（マイナス値は0に修正）
+            raw_point = entry_data.get('aggregate_mark_point', entry_data.get('mark_point', 0))
+            mark_point = max(0, raw_point) if isinstance(raw_point, (int, float)) else 0
             
             # 調教評価（矢印付き）
             training_eval = '-'
@@ -424,20 +421,7 @@ class MarkdownGenerator:
                 jockey = f"[{jockey}]({jockey_profile_path})"
 
             lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {short_comment} | {training_eval} | {training_short} | {paddock_eval} | {paddock_comment} | {suitability_value} |")
-        
-        # 参考: 人別印一覧（折りたたみイメージ、シンプル出力）
-        lines.append("")
-        lines.append("<details><summary>人別印（参考）</summary>")
-        for entry in entries[:10]:
-            mbp = entry.get('entry_data', {}).get('marks_by_person') or {}
-            if not mbp:
-                continue
-            lines.append("")
-            lines.append(f"- {entry['horse_number']}番 {entry['horse_name']}")
-            for k, v in list(mbp.items())[:5]:
-                lines.append(f"  - {k}: {v}")
-        lines.append("</details>")
-        
+               
         return '\n'.join(lines)
     
     def _generate_results_table(self, race_data: Dict[str, Any]) -> str:

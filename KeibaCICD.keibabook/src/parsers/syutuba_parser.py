@@ -326,14 +326,14 @@ class SyutubaParser:
         注: 1点
         """
         mark_values = {
-            '◎': 8,  # 5→8に増加（最重要マーク）
-            '○': 5,  # 4→5に増加
-            '▲': 3,  # 据え置き
-            '△': 2,  # 据え置き
-            '穴': 1,  # 据え置き
-            '注': 1,  # 据え置き
-            '×': 0,  # 据え置き
-            '': -1   # 無印はマイナス1点
+            '◎': 8,  # 最重要マーク
+            '○': 5,  # 重要マーク
+            '▲': 3,  # 注目マーク
+            '△': 2,  # 要注意マーク
+            '穴': 1,  # 穴馬マーク
+            '注': 1,  # 注目マーク
+            '×': 0,  # 評価低
+            '': 0    # 無印は0点（マイナスなし）
         }
         
         # 印の集計
@@ -388,39 +388,21 @@ class SyutubaParser:
             ('広瀬健', ['広瀬健', '広瀬']),
             ('予想1', ['印', '印_2', '印_3', '印_4']),  # thead起因の複製カラムなどを包括
         ]
-        # マーク→点（重み付け対応版）
+        # マーク→点（シンプル版：マイナスなし、係数なし）
         def to_point(mark_text: str, source_label: str = None) -> float:
-            # 無印または空文字列の場合はマイナス点
+            # 無印または空文字列の場合は0点
             if not mark_text or mark_text.strip() == '':
-                # 重要な予想者が無印の場合はより大きなマイナス
-                if source_label == 'CPU':
-                    return -1.5  # CPUが無印 = -1.5点
-                elif source_label == '本誌':
-                    return -1.3  # 本誌が無印 = -1.3点
-                elif source_label in ['牟田雅', '西村敬', '広瀬健']:
-                    return -1.0  # 専門家が無印 = -1点
-                else:
-                    return -0.5  # その他が無印 = -0.5点
+                return 0  # マイナスポイントを廃止
 
-            # 基本ポイント
+            # 基本ポイント（シンプルな加算のみ）
             base_point = 0
             for m, p in mark_values.items():
                 if m != '' and m in mark_text:  # 空文字キーを除外
                     base_point = p
                     break
 
-            # ソース別の重み付け（CPU、本誌の重みを上げる）
-            weight = 1.0
-            if source_label == 'CPU':
-                weight = 1.5  # CPUの予想は1.5倍
-            elif source_label == '本誌':
-                weight = 1.3  # 本誌の予想は1.3倍
-            elif source_label in ['牟田雅', '西村敬', '広瀬健']:
-                weight = 1.0  # 専門家は標準
-            else:
-                weight = 0.8  # その他は0.8倍
-
-            return base_point * weight
+            # 係数を廃止し、全ての予想者を平等に扱う
+            return base_point
         
         for horse in horses:
             marks_by_person = {}
@@ -453,10 +435,11 @@ class SyutubaParser:
                             picked += 1
                             if picked >= 7:
                                 break
-            # 設定（ポイントを整数に丸める、マイナスも許容）
+            # 設定（ポイントを整数に丸める、マイナスなし）
             if marks_by_person or total_points != 0:
                 horse['marks_by_person'] = marks_by_person
-                horse['総合印ポイント'] = int(round(total_points))
+                # マイナスにならないよう、最小値を0に設定
+                horse['総合印ポイント'] = max(0, int(round(total_points)))
             else:
                 # 印情報がない場合も0点
                 horse['総合印ポイント'] = 0
