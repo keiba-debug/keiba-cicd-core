@@ -296,6 +296,7 @@ class MarkdownGenerator:
             horse_name = entry['horse_name']
             age = entry_data.get('age', '')
             jockey = entry_data.get('jockey', '-')
+            jockey_id = entry_data.get('jockey_id', '')  # 騎手IDを取得
             weight = entry_data.get('weight', '')
             odds = entry_data.get('odds', '-')
             ai_index = entry_data.get('ai_index', '-')
@@ -344,11 +345,32 @@ class MarkdownGenerator:
                     elif value_short:
                         suitability_value = value_short
             
-            # 馬名にリンクを追加
+            # 馬名にリンクを追加（馬プロファイルMDへのリンク）
             horse_id = entry.get('horse_id', '')
             if horse_id:
-                horse_name = f"[{horse_name}](https://p.keibabook.co.jp/db/uma/{horse_id})"
-            
+                # 環境変数からデータルートを取得（デフォルト値を設定）
+                data_root = os.getenv('KEIBA_DATA_ROOT_DIR', 'Z:/KEIBA-CICD/data')
+                # 絶対パスで馬プロファイルへリンク
+                profile_path = f"{data_root}/horses/profiles/{horse_id}_{horse_name}.md"
+                # Windowsパスを正規化（バックスラッシュをスラッシュに変換）
+                if os.name == 'nt':
+                    profile_path = profile_path.replace('\\', '/')
+                # file:///を付けない通常のパス形式
+                horse_name = f"[{horse_name}]({profile_path})"
+
+            # 騎手名にリンクを追加（騎手プロファイルMDへのリンク）
+            jockey_id = entry_data.get('jockey_id', '')
+            if jockey_id and jockey != '-':
+                # 環境変数からデータルートを取得（デフォルト値を設定）
+                data_root = os.getenv('KEIBA_DATA_ROOT_DIR', 'Z:/KEIBA-CICD/data')
+                # 絶対パスで騎手プロファイルへリンク
+                jockey_profile_path = f"{data_root}/jockeys/profiles/{jockey_id}_{jockey}.md"
+                # Windowsパスを正規化（バックスラッシュをスラッシュに変換）
+                if os.name == 'nt':
+                    jockey_profile_path = jockey_profile_path.replace('\\', '/')
+                # file:///を付けない通常のパス形式
+                jockey = f"[{jockey}]({jockey_profile_path})"
+
             lines.append(f"| {waku} | {horse_num} | {horse_name} | {age} | {jockey} | {weight} | {odds} | {ai_index} | {rating} | {honshi_mark} | {mark_point} | {training_eval} | {short_comment} | {paddock_eval} | {paddock_comment} | {suitability_value} |")
         
         # 参考: 人別印一覧（折りたたみイメージ、シンプル出力）
@@ -838,7 +860,7 @@ class MarkdownGenerator:
         date_part = race_id[:8]
         lines.append(f"- [競馬ブック レースページ](https://p.keibabook.co.jp/cyuou/race/{date_part}/{race_id})")
         
-        # 各馬の詳細ページ
+        # 各馬の詳細ページ（馬プロファイルMDへのリンク）
         entries = race_data.get('entries', [])
         if entries:
             lines.append("")
@@ -847,7 +869,14 @@ class MarkdownGenerator:
                 horse_id = entry.get('horse_id', '')
                 if horse_id:
                     horse_name = entry['horse_name']
-                    lines.append(f"- [{horse_name}](https://p.keibabook.co.jp/db/uma/{horse_id})")
+                    # 環境変数からデータルートを取得（デフォルト値を設定）
+                    data_root = os.getenv('KEIBA_DATA_ROOT_DIR', 'Z:/KEIBA-CICD/data')
+                    # 絶対パスで馬プロファイルへリンク
+                    profile_path = f"{data_root}/horses/profiles/{horse_id}_{horse_name}.md"
+                    # Windowsパスを正規化（バックスラッシュをスラッシュに変換）
+                    if os.name == 'nt':
+                        profile_path = profile_path.replace('\\', '/')
+                    lines.append(f"- [{horse_name}]({profile_path})")
         
         return '\n'.join(lines)
     

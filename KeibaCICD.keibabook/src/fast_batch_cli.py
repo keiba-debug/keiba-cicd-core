@@ -43,10 +43,10 @@ def main():
     
     subparsers = parser.add_subparsers(dest='command', help='')
     
-    # 
+    #
     def add_common_args(subparser):
-        subparser.add_argument('--start-date', required=True, help=' (YYYY/MM/DD)')
-        subparser.add_argument('--end-date', help=' (YYYY/MM/DD, )')
+        subparser.add_argument('--start-date', '--start', required=True, help=' (YYYY/MM/DD)')
+        subparser.add_argument('--end-date', '--end', help=' (YYYY/MM/DD, )')
         subparser.add_argument('--delay', type=float, default=1.0, help=', : 1.0')
         subparser.add_argument('--max-workers', type=int, default=5, help=': 5')
         subparser.add_argument('--debug', action='store_true', help='')
@@ -61,13 +61,17 @@ def main():
     data_parser.add_argument('--data-types', default='seiseki,shutsuba,cyokyo,danwa,syoin,paddok', 
                            help=', : seiseki,shutsuba,cyokyo,danwa,syoin,paddok')
     
-    # full 
+    # full
     full_parser = subparsers.add_parser('full', help='')
     add_common_args(full_parser)
     full_parser.add_argument('--data-types', default='seiseki,shutsuba,cyokyo,danwa,syoin,paddok',
                            help=', : seiseki,shutsuba,cyokyo,danwa,syoin,paddok')
     full_parser.add_argument('--wait-between-phases', type=float, default=2.0,
                            help='Phase, : 2.0')
+    full_parser.add_argument('--horse-profiles', action='store_true',
+                           help='馬プロファイルを生成する')
+    full_parser.add_argument('--win5-only', action='store_true',
+                           help='WIN5対象レースの馬のみプロファイル生成')
     
     args = parser.parse_args()
     
@@ -204,7 +208,41 @@ def main():
                 
                 current_date += timedelta(days=1)
             
-            # 
+            # Phase 3: 馬プロファイル生成（オプション）
+            if hasattr(args, 'horse_profiles') and args.horse_profiles:
+                logger.info("[FAST] Phase 3: 馬プロファイル生成")
+
+                try:
+                    from .scrapers.horse_profile_manager import HorseProfileManager
+                    manager = HorseProfileManager()
+
+                    current_date = start_date
+                    total_horses = 0
+
+                    while current_date <= end_date:
+                        date_str = current_date.strftime("%Y/%m/%d")
+
+                        if args.win5_only:
+                            logger.info(f"[HORSE] {date_str} WIN5対象馬のプロファイル生成")
+                            results = manager.update_win5_horses(date_str)
+                            horse_count = sum(len(v) for v in results.values())
+                            total_horses += horse_count
+                            logger.info(f"[OK] {date_str}: {horse_count}頭のプロファイル生成")
+                        else:
+                            logger.info(f"[HORSE] {date_str} 全出走馬のプロファイル生成")
+                            # 全レースの馬プロファイル生成（将来実装）
+                            logger.warning("[SKIP] 全レース馬プロファイル生成は未実装です")
+
+                        current_date += timedelta(days=1)
+
+                    logger.info(f"[OK] Phase 3: {total_horses}頭のプロファイル生成完了")
+
+                except ImportError as e:
+                    logger.error(f"[ERROR] 馬プロファイルマネージャーのインポート失敗: {e}")
+                except Exception as e:
+                    logger.error(f"[ERROR] 馬プロファイル生成エラー: {e}")
+
+            #
             logger.info("[DONE] ")
             logger.info("=" * 60)
             logger.info("[DATA] ")
@@ -214,6 +252,8 @@ def main():
             logger.info(f"[TIME] : {total_processing_time:.2f}")
             if total_processing_time > 0:
                 logger.info(f"[START] : {(total_success + total_failed) / total_processing_time:.2f}/")
+            if hasattr(args, 'horse_profiles') and args.horse_profiles:
+                logger.info(f"[HORSE] Phase 3: 馬プロファイル生成対象")
             logger.info("=" * 60)
         
         # 
