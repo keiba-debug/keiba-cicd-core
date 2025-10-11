@@ -399,8 +399,10 @@ class MarkdownGenerator:
             if horse_id:
                 # 環境変数からデータルートを取得（デフォルト値を設定）
                 data_root = os.getenv('KEIBA_DATA_ROOT_DIR', 'Z:/KEIBA-CICD/data')
+                # 馬名をファイル名向けに正規化
+                safe_name = self._sanitize_horse_name_for_filename(horse_name)
                 # 絶対パスで馬プロファイルへリンク
-                profile_path = f"{data_root}/horses/profiles/{horse_id}_{horse_name}.md"
+                profile_path = f"{data_root}/horses/profiles/{horse_id}_{safe_name}.md"
                 # Windowsパスを正規化（バックスラッシュをスラッシュに変換）
                 if os.name == 'nt':
                     profile_path = profile_path.replace('\\', '/')
@@ -674,14 +676,14 @@ class MarkdownGenerator:
         # データを持つエントリがあるか確認
         has_data = False
         for entry in sorted_entries:
-            training = entry.get('training_data', {})
-            stable = entry.get('stable_comment', {})
-            result = entry.get('result', {})
+            training = entry.get('training_data') or {}
+            stable = entry.get('stable_comment') or {}
+            result = entry.get('result') or {}
 
             if (training.get('evaluation') or training.get('short_review') or
                 training.get('attack_explanation') or stable.get('comment') or
-                result.get('raw_data', {}).get('インタビュー') or
-                result.get('raw_data', {}).get('次走へのメモ')):
+                (result.get('raw_data') or {}).get('インタビュー') or
+                (result.get('raw_data') or {}).get('次走へのメモ')):
                 has_data = True
                 break
 
@@ -694,10 +696,10 @@ class MarkdownGenerator:
         lines.append("|:---:|:---:|------|:---:|------|:---:|------:|:----:|:------:|----------|----------|-----------------|-----------------|")
 
         for entry in sorted_entries:
-            entry_data = entry.get('entry_data', {})
-            training = entry.get('training_data', {})
-            stable = entry.get('stable_comment', {})
-            result = entry.get('result', {})
+            entry_data = entry.get('entry_data') or {}
+            training = entry.get('training_data') or {}
+            stable = entry.get('stable_comment') or {}
+            result = entry.get('result') or {}
 
             # 基本情報
             frame = entry_data.get('waku', entry_data.get('frame_number', '-'))
@@ -752,7 +754,7 @@ class MarkdownGenerator:
             memo = '-'
 
             # previous_race_interviewをチェック
-            previous_interview = entry.get('previous_race_interview', {})
+            previous_interview = entry.get('previous_race_interview') or {}
             if previous_interview:
                 # インタビューフィールドから取得
                 interview_text = previous_interview.get('interview', '')
@@ -772,7 +774,7 @@ class MarkdownGenerator:
 
             # previous_race_interviewがない場合はresult.raw_dataから取得
             if interview == '-' and result:
-                raw_data = result.get('raw_data', {})
+                raw_data = result.get('raw_data') or {}
                 interview_text = raw_data.get('インタビュー', '')
                 if interview_text:
                     # 改行を除去して短縮
@@ -920,14 +922,31 @@ class MarkdownGenerator:
                 horse_id = entry.get('horse_id', '')
                 if horse_id:
                     horse_name = entry['horse_name']
+                    safe_name = self._sanitize_horse_name_for_filename(horse_name)
                     # 環境変数からデータルートを取得（デフォルト値を設定）
                     data_root = os.getenv('KEIBA_DATA_ROOT_DIR', 'Z:/KEIBA-CICD/data')
                     # 絶対パスで馬プロファイルへリンク
-                    profile_path = f"{data_root}/horses/profiles/{horse_id}_{horse_name}.md"
+                    profile_path = f"{data_root}/horses/profiles/{horse_id}_{safe_name}.md"
                     # Windowsパスを正規化（バックスラッシュをスラッシュに変換）
                     if os.name == 'nt':
                         profile_path = profile_path.replace('\\', '/')
                     lines.append(f"- [{horse_name}]({profile_path})")
+
+        return '\n'.join(lines)
+
+    def _sanitize_horse_name_for_filename(self, name: str) -> str:
+        """ファイル名用に馬名を正規化
+        - 先頭の(地)/(外)や全角バリエーション（（地）/（外））を除去
+        - ファイル名に不向きな文字をアンダースコアに置換
+        """
+        import re
+        if not name:
+            return name
+        # 先頭のマーカーを除去（半角・全角の括弧対応）
+        cleaned = re.sub(r'^[\(（]\s*[地外]\s*[\)）]\s*', '', name)
+        # パスに使えない文字を置換（Windows想定）
+        cleaned = re.sub(r'[\\/:*?"<>|]', '_', cleaned)
+        return cleaned
         
         return '\n'.join(lines)
     
@@ -1052,7 +1071,8 @@ class MarkdownGenerator:
         """結果データがあるか確認"""
         entries = race_data.get('entries', [])
         for entry in entries:
-            if entry.get('result', {}).get('finish_position'):
+            result = entry.get('result') or {}
+            if result.get('finish_position'):
                 return True
         return False
     

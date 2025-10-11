@@ -40,6 +40,9 @@ def main():
   # 過去成績を含む詳細プロファイルを生成
   python -m src.horse_profile_cli --date 2025/09/14 --win5 --with-history
 
+  # 完全成績テーブルも含めて生成
+  python -m src.horse_profile_cli --date 2025/09/14 --win5 --with-history --with-seiseki-table
+
   # 特定の馬IDのプロファイルを生成
   python -m src.horse_profile_cli --horse-id 0936453 --horse-name カムニャック
         """
@@ -68,6 +71,12 @@ def main():
         '--with-history',
         action='store_true',
         help='過去成績を含む詳細プロファイルを生成'
+    )
+
+    parser.add_argument(
+        '--with-seiseki-table',
+        action='store_true',
+        help='完全成績テーブルを含む（競馬ブックから直接取得）'
     )
 
     parser.add_argument(
@@ -123,7 +132,8 @@ def main():
                 args.horse_id,
                 args.horse_name,
                 include_history=args.with_history,
-                use_web_fetch=args.with_history
+                use_web_fetch=args.with_history,
+                include_seiseki_table=args.with_seiseki_table
             )
 
             logger.info(f"✓ 生成完了: {profile_path.name}")
@@ -145,7 +155,8 @@ def main():
                     horse_name,
                     horse_data,
                     include_history=args.with_history,
-                    use_web_fetch=args.with_history
+                    use_web_fetch=args.with_history,
+                    include_seiseki_table=args.with_seiseki_table
                 )
                 logger.info(f"✓ {horse_name}: {profile_path.name}")
                 total_processed += 1
@@ -168,7 +179,8 @@ def main():
                                 horse['horse_id'],
                                 horse['horse_name'],
                                 include_history=True,
-                                use_web_fetch=True
+                                use_web_fetch=True,
+                                include_seiseki_table=args.with_seiseki_table
                             )
                             logger.debug(f"    詳細プロファイル生成: {profile_path.name}")
 
@@ -182,30 +194,92 @@ def main():
             month = date_parts[1].zfill(2)
             day = date_parts[2].zfill(2)
 
-            organized_path = Path(f"Z:/KEIBA-CICD/data/organized/{year}/{month}/{day}")
+            # 新構造（data2/races）と旧構造（data/organized）の両方をチェック
+            import os
+            data_root = os.getenv('KEIBA_DATA_ROOT_DIR', 'Z:/KEIBA-CICD/data2')
 
-            if not organized_path.exists():
-                logger.error(f"データディレクトリが見つかりません: {organized_path}")
-                return 1
+            # 新構造を優先
+            races_path = Path(f"{data_root}/races/{year}/{month}/{day}")
+            organized_path = Path(f"{data_root}/organized/{year}/{month}/{day}")
 
-            # 全競馬場のMDファイルを処理
-            for track_dir in organized_path.iterdir():
+            if races_path.exists():
+                data_path = races_path
+                logger.info(f"新構造データを使用: {races_path}")
+            elif organized_path.exists():
+                data_path = organized_path
+                logger.info(f"旧構造データを使用: {organized_path}")
+            else:
+                # フォールバック: data/organized
+                old_path = Path(f"Z:/KEIBA-CICD/data/organized/{year}/{month}/{day}")
+                if old_path.exists():
+                    data_path = old_path
+                    logger.info(f"旧データを使用: {old_path}")
+                else:
+                    logger.error(f"データディレクトリが見つかりません:")
+                    logger.error(f"  新構造: {races_path}")
+                    logger.error(f"  旧構造: {organized_path}")
+                    logger.error(f"  旧データ: {old_path}")
+                    return 1
+
+            # 全競馬場のファイルを処理
+            for track_dir in data_path.iterdir():
                 if track_dir.is_dir():
                     logger.info(f"  競馬場: {track_dir.name}")
 
-                    for md_file in track_dir.glob("*.md"):
-                        horses = manager.extract_horses_from_race(md_file)
+                    # MDファイルを優先、なければJSONファイルを処理
+                    md_files = list(track_dir.glob("*.md"))
+                    json_files = list(track_dir.glob("integrated_*.json"))
 
-                        for horse_id, horse_name, horse_data in horses:
-                            profile_path = manager.create_horse_profile(
-                                horse_id,
+                    if md_files:
+                        # MDファイルから抽出
+                        for md_file in md_files:
+                            horses = manager.extract_horses_from_race(md_file)
+
+                            for horse_id, horse_name, horse_data in horses:
+                                profile_path = manager.create_horse_profile(
+                                    horse_id,
                                 horse_name,
                                 horse_data,
                                 include_history=args.with_history,
-                                use_web_fetch=args.with_history
+                                use_web_fetch=args.with_history,
+                                include_seiseki_table=args.with_seiseki_table
                             )
-                            logger.debug(f"    {horse_name}: {profile_path.name}")
-                            total_processed += 1
+                                logger.debug(f"    {horse_name}: {profile_path.name}")
+                                total_processed += 1
+
+                    elif json_files:
+                        # JSONファイルから抽出（新構造対応）
+                        for json_file in json_files:
+                            try:
+                                import json
+                                with open(json_file, 'r', encoding='utf-8') as f:
+                                    data = json.load(f)
+
+                                for entry in data.get('entries', []):
+                                    horse_id = entry.get('horse_profile_id', '')
+                                    horse_name = entry.get('horse_name', '')
+
+                                    if horse_id and horse_name:
+                                        horse_data = {
+                                            '性齢': entry.get('entry_data', {}).get('sex_age', ''),
+                                            '騎手': entry.get('entry_data', {}).get('jockey', ''),
+                                            '斤量': entry.get('entry_data', {}).get('weight', ''),
+                                            'オッズ': entry.get('entry_data', {}).get('odds', ''),
+                                        }
+
+                                        profile_path = manager.create_horse_profile(
+                                            horse_id,
+                                            horse_name,
+                                            horse_data,
+                                            include_history=args.with_history,
+                                            use_web_fetch=args.with_history,
+                                            include_seiseki_table=args.with_seiseki_table
+                                        )
+                                        logger.debug(f"    {horse_name}: {profile_path.name}")
+                                        total_processed += 1
+
+                            except Exception as e:
+                                logger.warning(f"JSONファイル処理エラー: {json_file.name} - {e}")
 
         # 結果サマリー
         logger.info("=" * 60)

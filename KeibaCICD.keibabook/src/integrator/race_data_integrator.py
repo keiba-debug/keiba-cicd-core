@@ -703,21 +703,8 @@ class RaceDataIntegrator:
             }
             venue_name = venue_map.get(venue_code, '')
 
-        # 新構造フラグを確認
-        use_new_structure = os.getenv('USE_NEW_DATA_STRUCTURE', 'false').lower() == 'true'
-
-        if use_new_structure:
-            # 新構造: races/YYYY/MM/DD/競馬場名/
-            if venue_name:
-                output_dir = os.path.join(self.data_root, 'races', year, month, day, venue_name)
-            else:
-                output_dir = os.path.join(self.data_root, 'races', year, month, day)
-        else:
-            # 旧構造: organized/YYYY/MM/DD/競馬場名/
-            if venue_name:
-                output_dir = os.path.join(self.data_root, 'organized', year, month, day, venue_name)
-            else:
-                output_dir = os.path.join(self.data_root, 'organized', year, month, day)
+        # 出力先を races/YYYY/MM/DD/temp に固定（競馬場名や構造フラグを使用しない）
+        output_dir = os.path.join(self.data_root, 'races', year, month, day, 'temp')
         
         return os.path.join(output_dir, filename)
     

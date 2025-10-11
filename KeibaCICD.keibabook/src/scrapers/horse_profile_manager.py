@@ -24,10 +24,18 @@ class HorseProfileManager:
         Args:
             base_path: KEIBA-CICDのベースパス
         """
+        import os
         self.base_path = Path(base_path)
-        self.profiles_dir = self.base_path / "data" / "horses" / "profiles"
-        self.organized_dir = self.base_path / "data" / "organized"
-        self.temp_dir = self.base_path / "data" / "temp"  # JSONデータ保存先
+
+        # 環境変数からデータルートを取得（data2構造対応）
+        data_root = os.getenv('KEIBA_DATA_ROOT_DIR', str(self.base_path / "data2"))
+        self.data_root = Path(data_root)
+
+        # 新構造対応
+        self.profiles_dir = self.data_root / "horses" / "profiles"
+        self.organized_dir = self.data_root / "organized"  # 旧構造との互換性
+        self.races_dir = self.data_root / "races"  # 新構造
+        self.temp_dir = self.data_root / "temp"  # JSONデータ保存先
 
         # プロファイルディレクトリを作成
         self.profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -117,7 +125,8 @@ class HorseProfileManager:
         return horses
 
     def create_horse_profile(self, horse_id: str, horse_name: str, horse_data: Dict = None,
-                           include_history: bool = False, use_web_fetch: bool = False) -> Path:
+                           include_history: bool = False, use_web_fetch: bool = False,
+                           include_seiseki_table: bool = False) -> Path:
         """
         馬のプロファイルファイルを作成または更新
 
@@ -126,12 +135,21 @@ class HorseProfileManager:
             horse_name: 馬名
             horse_data: 馬の追加情報
             include_history: 過去成績を含めるか
+            use_web_fetch: Webから取得するか
+            include_seiseki_table: 完全成績テーブルを含むか
 
         Returns:
             作成されたプロファイルファイルのパス
         """
         # ファイル名を生成
-        profile_file = self.profiles_dir / f"{horse_id}_{horse_name}.md"
+        import re
+        # 先頭マーカー(地)/(外)（半角・全角）を除去し、禁止文字はアンダースコアへ
+        def _sanitize(name: str) -> str:
+            cleaned = re.sub(r'^[\(（]\s*[地外]\s*[\)）]\s*', '', name or '')
+            cleaned = re.sub(r'[\\/:*?"<>|]', '_', cleaned)
+            return cleaned
+        safe_name = _sanitize(horse_name)
+        profile_file = self.profiles_dir / f"{horse_id}_{safe_name}.md"
 
         # 既存ファイルがある場合は読み込み
         existing_content = ""
@@ -255,8 +273,8 @@ class HorseProfileManager:
                 f"| ダート | {stats['dirt']['1着']} | {stats['dirt']['2着']} | {stats['dirt']['3着']} | {stats['dirt']['着外']} | {stats['dirt']['勝率']}% | {stats['dirt']['連対率']}% | {stats['dirt']['複勝率']}% |",
                 "",
                 "### 最近10走の基本成績",
-                "| 日付 | 競馬場 | レース | 着順 | 人気 | 騎手 | 距離 | 馬場 | タイム | 上がり | 馬体重 |",
-                "|:----:|:------:|:------|:----:|:----:|:----:|:----:|:----:|:------:|:------:|:------:|",
+                "| 日付 | 競馬場 | レース | 着順 | 人気 | 騎手 | 距離 | 馬場 | タイム | 上がり | 馬体重 | 短評 |",
+                "|:----:|:------:|:------|:----:|:----:|:----:|:----:|:----:|:------:|:------:|:------:|:-----|",
                 self.format_basic_races_table(past_races[:10]),
                 "",
                 "### 最近10走の詳細情報",
@@ -284,6 +302,28 @@ class HorseProfileManager:
                 "### 条件別成績",
                 self.format_condition_stats_table(past_races),
             ])
+
+            # 完全成績テーブルセクション
+            if include_seiseki_table:
+                content_parts.extend([
+                    "",
+                    "## 完全成績",
+                    ""
+                ])
+
+                # 成績テーブルを取得
+                from .horse_seiseki_fetcher import HorseSeisekiFetcher
+                seiseki_fetcher = HorseSeisekiFetcher()
+                logger.info(f"完全成績テーブル取得中: {horse_id}")
+
+                seiseki_table = seiseki_fetcher.fetch_seiseki_table(horse_id)
+
+                if seiseki_table:
+                    content_parts.append(seiseki_table)
+                    logger.info(f"完全成績テーブルを追加しました")
+                else:
+                    content_parts.append("*完全成績テーブルを取得できませんでした*")
+                    logger.warning(f"完全成績テーブル取得失敗: {horse_id}")
 
             # 騎手コメントセクション（最新3走）
             if past_races:
@@ -358,6 +398,66 @@ class HorseProfileManager:
 
         return profile_file
 
+    def get_tanpyo_from_md(self, race_id: str, horse_name: str) -> Optional[str]:
+        """
+        MD新聞またはJSONから短評を取得
+
+        Args:
+            race_id: レースID
+            horse_name: 馬名
+
+        Returns:
+            短評文字列
+        """
+        try:
+            # レースIDから日付と競馬場を抽出 (202504050911 形式)
+            # 2025(year)04(track)05(month)09(day)11(race)
+            if len(race_id) == 12:
+                year = race_id[:4]
+                track_code = race_id[4:6]
+                month = race_id[6:8]
+                day = race_id[8:10]
+
+                # 競馬場コードから競馬場名をマッピング
+                track_map = {
+                    '01': '札幌', '02': '函館', '03': '福島', '04': '新潟',
+                    '05': '中山', '06': '東京', '07': '中京', '08': '京都',
+                    '09': '阪神', '10': '小倉'
+                }
+                track_name = track_map.get(track_code, '')
+
+                if track_name:
+                    # 新構造でJSONを探す
+                    json_path = self.data_root / "races" / year / month / day / "temp" / f"{race_id}.json"
+
+                    # 旧構造でJSONを探す
+                    if not json_path.exists():
+                        json_path = self.data_root / "organized" / year / month / day / track_name / "temp" / f"{race_id}.json"
+
+                    # さらに旧構造
+                    if not json_path.exists():
+                        json_path = Path("Z:/KEIBA-CICD/data/organized") / year / month / day / track_name / "temp" / f"{race_id}.json"
+
+                    if json_path.exists():
+                        with open(json_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+
+                            # syutubaデータから短評を取得
+                            if 'syutuba' in data:
+                                for entry in data['syutuba']:
+                                    if entry.get('horse_name') == horse_name:
+                                        return entry.get('tanpyo', '')
+
+                            # entriesデータから短評を取得（統合JSONの場合）
+                            if 'entries' in data:
+                                for entry in data['entries']:
+                                    if entry.get('horse_name') == horse_name:
+                                        return entry.get('entry_data', {}).get('tanpyo', '')
+        except Exception as e:
+            logger.debug(f"短評取得エラー {race_id}: {e}")
+
+        return None
+
     def get_race_detail_from_json(self, race_id: str, horse_name: str) -> Optional[Dict]:
         """
         レースIDから既存JSONを検索して詳細データを取得
@@ -416,6 +516,7 @@ class HorseProfileManager:
                                     'memo': result.get('memo', ''),
                                     'interview': result.get('interview', ''),
                                     '本誌': result.get('本紙', ''),
+                                    '短評': self.get_tanpyo_from_md(race_id, horse_name) or '',  # MD新聞から短評を取得
                                     '厩舎コメント': '',  # JSONには含まれていない
                                     'レースID': race_id
                                 }
@@ -504,11 +605,19 @@ class HorseProfileManager:
                                     '通過順位': result.get('通過順位', ''),
                                     '着差': result.get('着差', ''),
                                     '単勝オッズ': result.get('単勝オッズ', ''),
-                                    '人気': result.get('単人気', ''),
+                                    '人沗': result.get('単人気', ''),
                                     '馬体重': result.get('馬体重', ''),
                                     '増減': result.get('増減', ''),
+                                    '短評': '',  # 後でMD新聞から取得
                                     'レースID': json_file.stem.replace('seiseki_', '')
                                 }
+                                # MD新聞から短評を取得
+                                tanpyo = self.get_tanpyo_from_md(
+                                    json_file.stem.replace('seiseki_', ''),
+                                    horse_name
+                                )
+                                if tanpyo:
+                                    race_info['短評'] = tanpyo
                                 past_races.append(race_info)
                                 break
 
@@ -532,7 +641,7 @@ class HorseProfileManager:
         """
         if not past_races:
             logger.warning("過去レースデータが空です")
-            return "| データ取得中... | - | - | - | - | - | - | - | - | - | - |"
+            return "| データ取得中... | - | - | - | - | - | - | - | - | - | - | - |"
 
         lines = []
         for race in past_races:
@@ -540,6 +649,11 @@ class HorseProfileManager:
             weight_info = race.get('馬体重', '-')
             if weight_info != '-' and race.get('増減'):
                 weight_info += f"({race.get('増減')})"
+
+            # 短評を取得（最大20文字）
+            tanpyo = race.get('短評', '')
+            if tanpyo and len(tanpyo) > 20:
+                tanpyo = tanpyo[:20] + '...'
 
             # レース名とレースクラスを組み合わせ
             race_name = race.get('レース名', '-')[:10]
@@ -572,7 +686,7 @@ class HorseProfileManager:
                    f"{race.get('人気', '-')}人 | {race.get('騎手', '-')} | " \
                    f"{race.get('距離', '-')} | {race.get('馬場', '-')} | " \
                    f"{race.get('タイム', '-')} | {race.get('上がり', '-')} | " \
-                   f"{weight_info} |"
+                   f"{weight_info} | {tanpyo if tanpyo else '-'} |"
             lines.append(line)
 
         return '\n'.join(lines)

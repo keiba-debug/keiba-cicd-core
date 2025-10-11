@@ -224,9 +224,11 @@ class HorsePastRacesFetcher:
                                 # タイム（1.23.4のような形式）
                                 elif re.match(r'\d+\.\d+\.\d+', text):
                                     race_info['タイム'] = text
-                                # 人気（9番目のセル付近）
-                                elif i == 9 and text.isdigit() and 1 <= int(text) <= 18:
-                                    if not race_info['人気']:  # まだ設定されていない場合のみ
+                                # 人気（単独の数字で、1-18の範囲）
+                                # セル位置をより幅広く探索
+                                elif text.isdigit() and 1 <= int(text) <= 18:
+                                    # 人気は着順の次、または9-11番目のセル付近にあることが多い
+                                    if 8 <= i <= 11 and not race_info['人気']:
                                         race_info['人気'] = text
                                 # 馬体重（400-600の範囲の数字）
                                 elif text.isdigit() and 400 <= int(text) <= 600:
@@ -243,6 +245,29 @@ class HorsePastRacesFetcher:
                                             race_info['上がり'] = text
                                     except:
                                         pass
+
+                            # デバッグ用：各セルの内容を確認
+                            if len(cells) >= 12:
+                                # 特定の位置に人気と上がりがある可能性
+                                # 通常、9番目に人気、11番目付近に上がり
+                                if not race_info['人気'] and len(cells) > 9:
+                                    pop_text = cells[9].text.strip()
+                                    if pop_text.isdigit() and 1 <= int(pop_text) <= 18:
+                                        race_info['人気'] = pop_text
+
+                                # 上がりタイムの再検索（11-13番目付近）
+                                if not race_info['上がり']:
+                                    for idx in [11, 12, 13]:
+                                        if len(cells) > idx:
+                                            agari_text = cells[idx].text.strip()
+                                            if re.match(r'\d{2}\.\d', agari_text):
+                                                try:
+                                                    val = float(agari_text)
+                                                    if 30 <= val <= 45:
+                                                        race_info['上がり'] = agari_text
+                                                        break
+                                                except:
+                                                    pass
 
                         # 前のレースに休養コメントがあるか確認
                         prev_row = row.find_previous_sibling('tr', class_='kanzendata_kyuyou')
