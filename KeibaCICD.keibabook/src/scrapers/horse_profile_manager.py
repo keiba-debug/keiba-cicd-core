@@ -297,6 +297,10 @@ class HorseProfileManager:
                                 'レースID': race_id
                             })
                 logger.info(f"成績データ数: {len(past_races)}")
+                
+                # Webから取得したpast_racesにもintegrated_*.jsonのデータを統合
+                past_races = self._enrich_past_races_with_integrated_data(past_races, horse_id)
+                logger.debug(f"Web取得データ統合完了: {len(past_races)}レース")
             else:
                 # 既存JSONから過去成績を取得
                 past_races = self.get_horse_past_races(horse_name, horse_id)
@@ -307,7 +311,16 @@ class HorseProfileManager:
             # 成績統計を計算
             stats = self.calculate_race_statistics(past_races)
 
-            # 完全成績テーブル（拡張版）を先に挿入
+            # 最近10走（統合）を先に挿入
+            content_parts.extend([
+                "",
+                "## 最近10走（統合）",
+                "| 日付 | 競馬場 | レース | 距離 | 馬場 | 馬体重 | 着順/人気 | 枠 | 頭数 | 調教短評 | 攻め馬解説 | 厩舎談話 | 前走 インタビュー | 前走 次走へのメモ | パ | パコメント | 結果メモ | 結果コメ |",
+                "|:----:|:------:|:------|:----:|:----:|:------:|:--------:|:--:|:----:|:--------:|:----------:|:--------:|:---------------:|:----------------:|:--:|:--------:|:------:|:------:|",
+                self.format_combined_last10_table(past_races),
+            ])
+
+            # 完全成績テーブル（拡張版）を挿入
             if include_seiseki_table and seiseki_table_raw:
                 try:
                     logger.debug(f"拡張前テーブル（先頭2行）: {seiseki_table_raw.splitlines()[:2]}")
@@ -332,11 +345,6 @@ class HorseProfileManager:
                 f"| 通算 | {stats['total']['1着']} | {stats['total']['2着']} | {stats['total']['3着']} | {stats['total']['着外']} | {stats['total']['勝率']}% | {stats['total']['連対率']}% | {stats['total']['複勝率']}% |",
                 f"| 芝 | {stats['turf']['1着']} | {stats['turf']['2着']} | {stats['turf']['3着']} | {stats['turf']['着外']} | {stats['turf']['勝率']}% | {stats['turf']['連対率']}% | {stats['turf']['複勝率']}% |",
                 f"| ダート | {stats['dirt']['1着']} | {stats['dirt']['2着']} | {stats['dirt']['3着']} | {stats['dirt']['着外']} | {stats['dirt']['勝率']}% | {stats['dirt']['連対率']}% | {stats['dirt']['複勝率']}% |",
-                "",
-                "### 最近10走（統合）",
-                "| 日付 | 競馬場 | レース | 着順/人気 | 騎手 | 距離 | 馬場 | タイム | 上がり | 上がり順 | 枠 | 頭数 | 本誌 | 通過 | 短評 |",
-                "|:----:|:------:|:------|:--------:|:----:|:----:|:----:|:------:|:------:|:------:|:--:|:----:|:----:|:----:|:-----|",
-                self.format_combined_last10_table(past_races),
                 "",
                 "### 距離別成績",
                 self.format_distance_stats_table(past_races),
@@ -698,6 +706,7 @@ class HorseProfileManager:
         Returns:
             過去レース成績のリスト
         """
+        logger.debug(f"get_horse_past_races開始: horse_name={horse_name}, horse_id={horse_id}")
         past_races = []
 
         # インデックスファイルが存在する場合は使用
@@ -710,6 +719,11 @@ class HorseProfileManager:
                 if horse_name in horse_index:
                     past_races = horse_index[horse_name][:10]  # 最新10レース
                     logger.debug(f"インデックスから{len(past_races)}レース取得: {horse_name}")
+                    
+                    # integrated_*.jsonから追加データを取得して統合
+                    past_races = self._enrich_past_races_with_integrated_data(past_races, horse_id)
+                    logger.debug(f"インデックス統合完了: {len(past_races)}レース")
+                    
                     return past_races
             except Exception as e:
                 logger.debug(f"インデックス読み込みエラー: {e}")
@@ -789,7 +803,195 @@ class HorseProfileManager:
 
         # 日付でソート（新しい順）
         past_races.sort(key=lambda x: x.get('レースID', ''), reverse=True)
+        logger.debug(f"get_horse_past_races: 基本データ取得完了, レース数={len(past_races)}")
 
+        # integrated_*.jsonから追加データを取得して統合
+        logger.debug(f"get_horse_past_races: 統合処理開始前, horse_id={horse_id}")
+        past_races = self._enrich_past_races_with_integrated_data(past_races, horse_id)
+        logger.debug(f"get_horse_past_races: 統合処理完了, レース数={len(past_races)}")
+
+        return past_races
+
+    def get_integrated_data(self, race_id: str, horse_id: str, race_date: str = None) -> Dict:
+        """integrated_XXXXX.jsonから対象馬のデータを取得"""
+        try:
+            if not race_id or not horse_id:
+                logger.debug(f"race_idまたはhorse_idが空: race_id={race_id}, horse_id={horse_id}")
+                return {}
+            
+            # レース開催日からパスを構築
+            if race_date:
+                # YYYY/MM/DD形式からパスを構築
+                date_parts = race_date.split('/')
+                if len(date_parts) == 3:
+                    year, month, day = date_parts[0], date_parts[1].zfill(2), date_parts[2].zfill(2)
+                else:
+                    logger.debug(f"日付形式が不正: {race_date}")
+                    return {}
+            else:
+                # レースIDから日付を抽出（フォールバック）
+                if len(race_id) == 12:
+                    year = race_id[:4]
+                    month = race_id[4:6]
+                    day = race_id[6:8]
+                else:
+                    logger.debug(f"race_idの長さが不正: {race_id} (長さ: {len(race_id)})")
+                    return {}
+            
+            # パス構築
+            json_path = self.data_root / "races" / year / month / day / "temp" / f"integrated_{race_id}.json"
+            logger.debug(f"JSONパス構築: {json_path}")
+            logger.debug(f"race_id: {race_id}, race_date: {race_date}, year: {year}, month: {month}, day: {day}")
+            
+            # ディレクトリの存在確認
+            day_dir = self.data_root / "races" / year / month / day
+            temp_dir = day_dir / "temp"
+            logger.debug(f"日付ディレクトリ存在確認: {day_dir} -> {day_dir.exists()}")
+            logger.debug(f"tempディレクトリ存在確認: {temp_dir} -> {temp_dir.exists()}")
+            
+            if temp_dir.exists():
+                # tempディレクトリ内のファイル一覧を確認
+                files_in_dir = list(temp_dir.glob("integrated_*.json"))
+                logger.debug(f"temp内integrated_*.jsonファイル一覧: {[f.name for f in files_in_dir]}")
+            
+            # ファイルが存在しない場合は、他の日付ディレクトリを検索
+            if not json_path.exists():
+                logger.debug(f"指定日付のファイルが存在しません。他の日付ディレクトリを検索中...")
+                races_dir = self.data_root / "races"
+                if races_dir.exists():
+                    # 年ディレクトリを検索
+                    for year_dir in races_dir.iterdir():
+                        if year_dir.is_dir() and year_dir.name.isdigit():
+                            # 月ディレクトリを検索
+                            for month_dir in year_dir.iterdir():
+                                if month_dir.is_dir() and month_dir.name.isdigit():
+                                    # 日ディレクトリを検索
+                                    for day_dir in month_dir.iterdir():
+                                        if day_dir.is_dir() and day_dir.name.isdigit():
+                                            temp_dir = day_dir / "temp"
+                                            if temp_dir.exists():
+                                                target_file = temp_dir / f"integrated_{race_id}.json"
+                                                if target_file.exists():
+                                                    logger.debug(f"ファイル発見: {target_file}")
+                                                    json_path = target_file
+                                                    break
+                                    if json_path.exists():
+                                        break
+                            if json_path.exists():
+                                break
+            
+            if json_path.exists():
+                logger.debug(f"JSONファイル発見: {json_path}")
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    
+                entries = data.get('entries', [])
+                logger.debug(f"entries数: {len(entries)}")
+                
+                for i, entry in enumerate(entries):
+                    entry_horse_id = str(entry.get('horse_id', ''))
+                    logger.debug(f"entry[{i}] horse_id: {entry_horse_id}, target: {horse_id}")
+                    if entry_horse_id == str(horse_id):
+                        entry_data = entry.get('entry_data', {})
+                        training_data = entry.get('training_data', {})
+                        stable_comment = entry.get('stable_comment', {})
+                        previous_race_interview = entry.get('previous_race_interview', {})
+                        paddock_info = entry.get('paddock_info', {})
+                        result_data = entry.get('result', {})
+                        raw_data = result_data.get('raw_data', {}) if result_data else {}
+                        
+                        result = {
+                            'short_comment': entry_data.get('short_comment', ''),
+                            'honshi_mark': entry_data.get('honshi_mark', ''),
+                            '通過順位': raw_data.get('通過順位', ''),
+                            '寸評': raw_data.get('寸評', ''),
+                            '4角位置': raw_data.get('4角位置', ''),
+                            '攻め馬解説': training_data.get('attack_explanation', ''),
+                            '厩舎談話': stable_comment.get('comment', ''),
+                            '前走インタビュー': previous_race_interview.get('comment', ''),
+                            '前走次走へのメモ': previous_race_interview.get('next_race_memo', ''),
+                            'パ': paddock_info.get('mark', ''),
+                            'パコメント': paddock_info.get('comment', ''),
+                            '結果メモ': raw_data.get('memo', ''),
+                            '結果コメ': raw_data.get('interview', '')
+                        }
+                        logger.debug(f"integrated_データ取得成功: {result}")
+                        return result
+                
+                logger.debug(f"対象馬ID {horse_id} が見つかりませんでした")
+            else:
+                logger.debug(f"JSONファイルが存在しません: {json_path}")
+                
+        except Exception as e:
+            logger.debug(f"integrated_データ取得エラー {race_id}: {e}")
+            import traceback
+            logger.debug(f"エラー詳細: {traceback.format_exc()}")
+        return {}
+
+    def _enrich_past_races_with_integrated_data(self, past_races: List[Dict], horse_id: str) -> List[Dict]:
+        """
+        integrated_*.jsonからデータを取得してpast_racesに統合
+        
+        Args:
+            past_races: 過去レース成績のリスト
+            horse_id: 馬ID
+            
+        Returns:
+            統合された過去レース成績のリスト
+        """
+        if not past_races or not horse_id:
+            logger.debug(f"統合スキップ: past_races={len(past_races or [])}, horse_id={horse_id}")
+            return past_races
+            
+        logger.debug(f"integrated_データ統合開始: {len(past_races)}レース, 馬ID: {horse_id}")
+        
+        for i, race in enumerate(past_races):
+            race_id = race.get('レースID', '')
+            race_date = race.get('日付', '')
+            
+            logger.debug(f"レース[{i}]統合処理: race_id={race_id}, race_date={race_date}")
+            
+            if not race_id:
+                logger.debug(f"レース[{i}]スキップ: race_idが空")
+                continue
+                
+            # integrated_*.jsonからデータを取得
+            integrated_data = self.get_integrated_data(race_id, horse_id, race_date)
+            logger.debug(f"レース[{i}] integrated_データ: {integrated_data}")
+            
+            if integrated_data:
+                # 指定されたフィールドを統合
+                race['training_data'] = {
+                    'short_review': integrated_data.get('short_comment', ''),
+                    'attack_explanation': integrated_data.get('攻め馬解説', '')
+                }
+                race['stable_comment'] = {
+                    'comment': integrated_data.get('厩舎談話', '')
+                }
+                race['previous_race_interview'] = {
+                    'comment': integrated_data.get('前走インタビュー', ''),
+                    'next_race_memo': integrated_data.get('前走次走へのメモ', '')
+                }
+                race['paddock_info'] = {
+                    'mark': integrated_data.get('パ', ''),
+                    'comment': integrated_data.get('パコメント', '')
+                }
+                
+                # 結果メモと結果コメを直接追加
+                race['結果メモ'] = integrated_data.get('結果メモ', '')
+                race['結果コメ'] = integrated_data.get('結果コメ', '')
+                
+                logger.debug(f"統合完了: {race_id} - 調教短評: {race['training_data']['short_review'][:20]}...")
+            else:
+                # デフォルト値を設定
+                race['training_data'] = {'short_review': '', 'attack_explanation': ''}
+                race['stable_comment'] = {'comment': ''}
+                race['previous_race_interview'] = {'comment': '', 'next_race_memo': ''}
+                race['paddock_info'] = {'mark': '', 'comment': ''}
+                race['結果メモ'] = ''
+                race['結果コメ'] = ''
+                logger.debug(f"デフォルト値設定: {race_id}")
+        
         return past_races
 
     def format_basic_races_table(self, past_races: List[Dict]) -> str:
@@ -1005,13 +1207,22 @@ class HorseProfileManager:
         """
         基本成績と詳細成績を統合した最近10走テーブルを返す（降順）。
         """
+        logger.debug(f"format_combined_last10_table開始: past_races数={len(past_races or [])}")
+        
         if not past_races:
-            return "| データ取得中... | - | - | - | - | - | - | - | - | - | - | - | - | - | - |"
+            logger.debug("past_racesが空です")
+            return "| データ取得中... | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |"
+
+        # 最初のレースのデータ構造をログ出力
+        if past_races:
+            logger.debug(f"最初のレースデータ構造: {past_races[0]}")
+            logger.debug(f"最初のレースのキー: {list(past_races[0].keys())}")
 
         sorted_races = sorted(past_races, key=lambda r: r.get('日付', ''), reverse=True)
         lines = []
         import re as _re5
-        for race in sorted_races[:10]:
+        for i, race in enumerate(sorted_races[:10]):
+            logger.debug(f"レース[{i}]処理開始: {race.get('日付', '')} - {race.get('レース名', '')}")
             # 着順正規化と人気の結合
             pos_raw = str(race.get('着順', '-'))
             pos_norm = pos_raw
@@ -1068,16 +1279,37 @@ class HorseProfileManager:
             else:
                 tousuu_class = tousuu if tousuu else '-'
 
-            agari = race.get('上がり', '-')
-            agari_rank = self._extract_agari_rank(agari, str(tousuu), str(race.get('上がり順位', '')))
-
+            # 指定されたJSONフィールドからデータを取得
+            training_data = race.get('training_data', {})
+            stable_comment = race.get('stable_comment', {})
+            previous_race_interview = race.get('previous_race_interview', {})
+            paddock_info = race.get('paddock_info', {})
+            
+            logger.debug(f"レース[{i}] データ取得: training_data={training_data}, stable_comment={stable_comment}")
+            logger.debug(f"レース[{i}] データ取得: previous_race_interview={previous_race_interview}, paddock_info={paddock_info}")
+            
+            # テキストを処理してテーブルフォーマットを保持
+            def process_text(text, max_length=0):
+                if not text or text == '-':
+                    return '-'
+                # 改行を除去して1行にする
+                text = str(text).replace('\n', ' ').replace('\r', ' ')
+                # max_lengthが0の場合は短縮しない
+                if max_length > 0 and len(text) > max_length:
+                    return text[:max_length-3] + '...'
+                return text
+            
+            # 新しい列構成に合わせてデータを取得（全文表示）
             line = f"| {race.get('日付', '-')} | {race.get('競馬場', '-')} | " \
-                   f"{race.get('レース名', '-')[:10]} | {position_pop} | " \
-                   f"{race.get('騎手', '-')} | {race.get('距離', '-')} | " \
-                   f"{race.get('馬場', '-')} | {race.get('タイム', '-')} | {agari} | {agari_rank} | " \
-                   f"{waku_class} | {tousuu_class} | {race.get('本誌', '-') or '-'} | " \
-                   f"{race.get('通過', '-') or '-'} | {race.get('短評', '-') or '-'} |"
+                   f"{race.get('レース名', '-')[:10]} | {race.get('距離', '-')} | " \
+                   f"{race.get('馬場', '-')} | {weight_info} | {position_pop} | " \
+                   f"{waku_class} | {tousuu_class} | {process_text(training_data.get('short_review', ''))} | " \
+                   f"{process_text(training_data.get('attack_explanation', ''))} | {process_text(stable_comment.get('comment', ''))} | " \
+                   f"{process_text(previous_race_interview.get('comment', ''))} | {process_text(previous_race_interview.get('next_race_memo', ''))} | " \
+                   f"{process_text(paddock_info.get('mark', ''))} | {process_text(paddock_info.get('comment', ''))} | " \
+                   f"{process_text(race.get('結果メモ', ''))} | {process_text(race.get('結果コメ', ''))} |"
             lines.append(line)
+            logger.debug(f"レース[{i}] テーブル行生成完了: {line[:100]}...")
 
         return "\n".join(lines)
 
@@ -1298,84 +1530,6 @@ class HorseProfileManager:
 
             logger.debug(f"列マッピング: {column_mapping}")
 
-            # integrated_XXXXX.jsonからデータを取得する関数
-            def get_integrated_data(race_id: str, horse_id: str, race_date: str = None) -> Dict:
-                """integrated_XXXXX.jsonから対象馬のデータを取得"""
-                try:
-                    if not race_id or not horse_id:
-                        logger.debug(f"race_idまたはhorse_idが空: race_id={race_id}, horse_id={horse_id}")
-                        return {}
-                    
-                    # レース開催日からパスを構築
-                    if race_date:
-                        # YYYY/MM/DD形式からパスを構築
-                        date_parts = race_date.split('/')
-                        if len(date_parts) == 3:
-                            year, month, day = date_parts[0], date_parts[1].zfill(2), date_parts[2].zfill(2)
-                        else:
-                            logger.debug(f"日付形式が不正: {race_date}")
-                            return {}
-                    else:
-                        # レースIDから日付を抽出（フォールバック）
-                        if len(race_id) == 12:
-                            year = race_id[:4]
-                            month = race_id[4:6]
-                            day = race_id[6:8]
-                        else:
-                            logger.debug(f"race_idの長さが不正: {race_id} (長さ: {len(race_id)})")
-                            return {}
-                    
-                    # パス構築
-                    json_path = self.data_root / "races" / year / month / day / "temp" / f"integrated_{race_id}.json"
-                    logger.debug(f"JSONパス構築: {json_path}")
-                    logger.debug(f"race_id: {race_id}, race_date: {race_date}, year: {year}, month: {month}, day: {day}")
-                    
-                    # ディレクトリの存在確認
-                    day_dir = self.data_root / "races" / year / month / day
-                    temp_dir = day_dir / "temp"
-                    logger.debug(f"日付ディレクトリ存在確認: {day_dir} -> {day_dir.exists()}")
-                    logger.debug(f"tempディレクトリ存在確認: {temp_dir} -> {temp_dir.exists()}")
-                    
-                    if temp_dir.exists():
-                        # tempディレクトリ内のファイル一覧を確認
-                        files_in_dir = list(temp_dir.glob("integrated_*.json"))
-                        logger.debug(f"temp内integrated_*.jsonファイル一覧: {[f.name for f in files_in_dir]}")
-                    
-                    if json_path.exists():
-                        logger.debug(f"JSONファイル発見: {json_path}")
-                        with open(json_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            
-                        entries = data.get('entries', [])
-                        logger.debug(f"entries数: {len(entries)}")
-                        
-                        for i, entry in enumerate(entries):
-                            entry_horse_id = str(entry.get('horse_id', ''))
-                            logger.debug(f"entry[{i}] horse_id: {entry_horse_id}, target: {horse_id}")
-                            if entry_horse_id == str(horse_id):
-                                entry_data = entry.get('entry_data', {})
-                                result_data = entry.get('result', {})
-                                raw_data = result_data.get('raw_data', {}) if result_data else {}
-                                
-                                result = {
-                                    'short_comment': entry_data.get('short_comment', ''),
-                                    'honshi_mark': entry_data.get('honshi_mark', ''),
-                                    '通過順位': raw_data.get('通過順位', ''),
-                                    '寸評': raw_data.get('寸評', ''),
-                                    '4角位置': raw_data.get('4角位置', '')
-                                }
-                                logger.debug(f"integrated_データ取得成功: {result}")
-                                return result
-                        
-                        logger.debug(f"対象馬ID {horse_id} が見つかりませんでした")
-                    else:
-                        logger.debug(f"JSONファイルが存在しません: {json_path}")
-                        
-                except Exception as e:
-                    logger.debug(f"integrated_データ取得エラー {race_id}: {e}")
-                    import traceback
-                    logger.debug(f"エラー詳細: {traceback.format_exc()}")
-                return {}
 
             # 過去成績のマップを作成
             match_map = {}
@@ -1388,7 +1542,7 @@ class HorseProfileManager:
                 race_id = r.get('レースID', '')
                 race_date = r.get('日付', '')
                 logger.debug(f"レースID: {race_id}, 日付: {race_date}")
-                integrated_data = get_integrated_data(race_id, horse_id, race_date) if race_id else {}
+                integrated_data = self.get_integrated_data(race_id, horse_id, race_date) if race_id else {}
                 
                 # 枠分類の計算
                 waku_raw = str(r.get('枠番', '') or '')
@@ -1447,7 +1601,8 @@ class HorseProfileManager:
             # セパレータ行
             new_lines.append('| ' + ' | '.join([':---:' for _ in new_headers]) + ' |')
             
-            # データ行
+            # データ行を収集して日付順にソート
+            data_rows = []
             for i in range(data_start_idx, len(lines)):
                 line = lines[i]
                 if not line.startswith('|') or line.count('|') < 3:
@@ -1456,6 +1611,27 @@ class HorseProfileManager:
                 original_cells = [cell.strip() for cell in line.strip('|').split('|')]
                 if len(original_cells) < 5:
                     continue
+                
+                # 日付を取得してソート用のキーを作成
+                date_str = original_cells[column_mapping.get('日付', 0)] if '日付' in column_mapping else ''
+                # 日付をYYYY/MM/DD形式に変換
+                import re
+                date_match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', date_str)
+                if date_match:
+                    year = date_match.group(1)
+                    month = date_match.group(2).zfill(2)
+                    day = date_match.group(3).zfill(2)
+                    sort_key = f"{year}/{month}/{day}"
+                else:
+                    sort_key = date_str
+                
+                data_rows.append((sort_key, line, original_cells))
+            
+            # 日付降順にソート
+            data_rows.sort(key=lambda x: x[0], reverse=True)
+            
+            # ソートされたデータ行を処理
+            for sort_key, line, original_cells in data_rows:
                 
                 # 日付とレース名でマッチング
                 date_str = original_cells[column_mapping.get('日付', 0)] if '日付' in column_mapping else ''
