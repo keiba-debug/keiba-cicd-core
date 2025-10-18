@@ -285,6 +285,7 @@ class HorseProfileManager:
                                 '距離': race.get('距離', ''),
                                 '馬場': race.get('馬場', ''),
                                 'タイム': race.get('タイム', ''),
+                                'タイム差': race.get('タイム差', ''),  # タイム差を追加
                                 '上がり': race.get('上がり', ''),
                                 '人気': race.get('人気', ''),
                                 '馬体重': race.get('馬体重', ''),
@@ -315,8 +316,8 @@ class HorseProfileManager:
             content_parts.extend([
                 "",
                 "## 最近10走（統合）",
-                "| 日付 | 競馬場 | レース | 距離 | 馬場 | 馬体重 | 着順/人気 | 枠 | 頭数 | 調教短評 | 攻め馬解説 | 厩舎談話 | 前走 インタビュー | 前走 次走へのメモ | パ | パコメント | 結果メモ | 結果コメ |",
-                "|:----:|:------:|:------|:----:|:----:|:------:|:--------:|:--:|:----:|:--------:|:----------:|:--------:|:---------------:|:----------------:|:--:|:--------:|:------:|:------:|",
+                "| 日付 | 競馬場 | レース | 距離 | 馬場 | 調教短評 | 攻め馬解説 | 厩舎談話 | 馬体重 | パ | パコメント | 着順/人気 | タイム差 | 通過順位 | 着順 | 4角位置 | 結果メモ | 結果コメ |",
+                "|:----:|:------:|:------|:----:|:----:|:--------|:----------|:--------|:------:|:--:|:--------|:--------:|:------:|:--------:|:----:|:------:|:------|:------|",
                 self.format_combined_last10_table(past_races),
             ])
 
@@ -666,6 +667,7 @@ class HorseProfileManager:
                                 agari_rank = pick_first(result, ['上がり順位', '上り順位', '上り3F順位', 'agari_rank'], '')
                                 sunpyou = pick_first(result, ['寸評', '寸評_短評', 'comment'], '')
                                 baba = race_info_base.get('turf_condition', '') or race_info_base.get('track_condition', '')
+                                
 
                                 return {
                                     '日付': race_date,
@@ -676,6 +678,7 @@ class HorseProfileManager:
                                     '距離': race_info_base.get('distance', ''),
                                     '馬場': baba,
                                     'タイム': result.get('タイム', ''),
+                                    'タイム差': result.get('着差', ''),  # タイム差を追加
                                     '上がり': agari,
                                     '上がり順位': agari_rank,
                                     '人気': result.get('単人気', ''),
@@ -906,6 +909,7 @@ class HorseProfileManager:
                             '通過順位': raw_data.get('通過順位', ''),
                             '寸評': raw_data.get('寸評', ''),
                             '4角位置': raw_data.get('4角位置', ''),
+                            'タイム差': raw_data.get('着差', ''),  # 着差をタイム差として使用
                             '攻め馬解説': training_data.get('attack_explanation', ''),
                             '厩舎談話': stable_comment.get('comment', ''),
                             '前走インタビュー': previous_race_interview.get('comment', ''),
@@ -913,7 +917,9 @@ class HorseProfileManager:
                             'パ': paddock_info.get('mark', ''),
                             'パコメント': paddock_info.get('comment', ''),
                             '結果メモ': raw_data.get('memo', ''),
-                            '結果コメ': raw_data.get('interview', '')
+                            '結果コメ': raw_data.get('interview', ''),
+                            '前半3F': raw_data.get('前半3F', ''),
+                            '上り3F': raw_data.get('上り3F', '')
                         }
                         logger.debug(f"integrated_データ取得成功: {result}")
                         return result
@@ -981,6 +987,18 @@ class HorseProfileManager:
                 race['結果メモ'] = integrated_data.get('結果メモ', '')
                 race['結果コメ'] = integrated_data.get('結果コメ', '')
                 
+                # 前半3Fと上り3Fを追加
+                race['前半3F'] = integrated_data.get('前半3F', '')
+                race['上り3F'] = integrated_data.get('上り3F', '')
+                
+                # タイム差、通過順位、4角位置を追加（空文字の場合は既存値を保持）
+                if integrated_data.get('タイム差', ''):
+                    race['タイム差'] = integrated_data.get('タイム差', '')
+                if integrated_data.get('通過順位', ''):
+                    race['通過順位'] = integrated_data.get('通過順位', '')
+                if integrated_data.get('4角位置', ''):
+                    race['4角位置'] = integrated_data.get('4角位置', '')
+                
                 logger.debug(f"統合完了: {race_id} - 調教短評: {race['training_data']['short_review'][:20]}...")
             else:
                 # デフォルト値を設定
@@ -990,9 +1008,90 @@ class HorseProfileManager:
                 race['paddock_info'] = {'mark': '', 'comment': ''}
                 race['結果メモ'] = ''
                 race['結果コメ'] = ''
+                race['タイム差'] = ''
+                race['通過順位'] = ''
+                race['4角位置'] = ''
                 logger.debug(f"デフォルト値設定: {race_id}")
         
         return past_races
+
+    def generate_rest_comment(self, current_race: Dict, previous_race: Dict) -> str:
+        """
+        休養期間のコメントを生成
+        
+        Args:
+            current_race: 現在のレース
+            previous_race: 前のレース
+            
+        Returns:
+            休養コメント文字列（空の場合は空文字）
+        """
+        if not current_race or not previous_race:
+            return ""
+            
+        try:
+            # 日付を解析
+            current_date = current_race.get('日付', '')
+            previous_date = previous_race.get('日付', '')
+            
+            if not current_date or not previous_date:
+                return ""
+                
+            # 日付をdatetimeオブジェクトに変換
+            from datetime import datetime
+            current_dt = datetime.strptime(current_date, '%Y/%m/%d')
+            previous_dt = datetime.strptime(previous_date, '%Y/%m/%d')
+            
+            # 日数差を計算
+            days_diff = (current_dt - previous_dt).days
+            
+            if days_diff < 30:  # 1ヶ月未満は休養コメントを生成しない
+                return ""
+                
+            # 休養期間を計算
+            months = days_diff // 30
+            days = days_diff % 30
+            
+            # 休養コメントを生成
+            rest_comment = f"{months}ヶ月"
+            if days > 0:
+                rest_comment += f"{days}日"
+            rest_comment += "休養"
+            
+            # 追加のコメント（例：リフレッシュ・放牧など）
+            additional_comments = []
+            
+            # 馬体重の変化を確認
+            current_weight = current_race.get('馬体重', '')
+            previous_weight = previous_race.get('馬体重', '')
+            
+            if current_weight and previous_weight and current_weight.isdigit() and previous_weight.isdigit():
+                weight_diff = int(current_weight) - int(previous_weight)
+                if weight_diff > 20:
+                    additional_comments.append("馬体増")
+                elif weight_diff < -20:
+                    additional_comments.append("馬体減")
+            
+            # 調教データから追加情報を取得
+            training_data = current_race.get('training_data', {})
+            short_review = training_data.get('short_review', '')
+            if short_review:
+                if '仕上がり' in short_review:
+                    additional_comments.append("仕上がり良好")
+                elif '力強く' in short_review:
+                    additional_comments.append("力強く")
+                elif '軽快' in short_review:
+                    additional_comments.append("軽快")
+            
+            # コメントを結合
+            if additional_comments:
+                rest_comment += " " + " ".join(additional_comments)
+            
+            return rest_comment
+            
+        except Exception as e:
+            logger.debug(f"休養コメント生成エラー: {e}")
+            return ""
 
     def format_basic_races_table(self, past_races: List[Dict]) -> str:
         """
@@ -1300,13 +1399,18 @@ class HorseProfileManager:
                 return text
             
             # 新しい列構成に合わせてデータを取得（全文表示）
+            # タイム差、通過順位、4角位置の取得
+            time_diff = race.get('タイム差', '-')
+            corner_positions = race.get('通過順位', '-')
+            four_corner_position = race.get('4角位置', '-')
+            
+            
             line = f"| {race.get('日付', '-')} | {race.get('競馬場', '-')} | " \
                    f"{race.get('レース名', '-')[:10]} | {race.get('距離', '-')} | " \
-                   f"{race.get('馬場', '-')} | {weight_info} | {position_pop} | " \
-                   f"{waku_class} | {tousuu_class} | {process_text(training_data.get('short_review', ''))} | " \
+                   f"{race.get('馬場', '-')} | {process_text(training_data.get('short_review', ''))} | " \
                    f"{process_text(training_data.get('attack_explanation', ''))} | {process_text(stable_comment.get('comment', ''))} | " \
-                   f"{process_text(previous_race_interview.get('comment', ''))} | {process_text(previous_race_interview.get('next_race_memo', ''))} | " \
-                   f"{process_text(paddock_info.get('mark', ''))} | {process_text(paddock_info.get('comment', ''))} | " \
+                   f"{weight_info} | {process_text(paddock_info.get('mark', ''))} | {process_text(paddock_info.get('comment', ''))} | " \
+                   f"{position_pop} | {time_diff} | {corner_positions} | {pos_norm} | {four_corner_position} | " \
                    f"{process_text(race.get('結果メモ', ''))} | {process_text(race.get('結果コメ', ''))} |"
             lines.append(line)
             logger.debug(f"レース[{i}] テーブル行生成完了: {line[:100]}...")
@@ -1468,8 +1572,8 @@ class HorseProfileManager:
         # 表示する列の順序
         DISPLAY_COLUMNS = [
             'コメント', '本誌', '日付', '競馬場', 'レース', 'クラス', '距離', '馬場', '重量', '騎手', 
-            '頭数', '馬番', '馬体重', '着順/人気', '枠', '頭数(区分)', 
-            'タイム', 'タイム差', 'ペース後3F', '通過順位', '4角位置', '寸評'
+            '頭数', '馬番', '馬体重', '人気', '着順/人気', '枠', '頭数(区分)', 
+            'タイム', 'タイム差', '通過順位', '着順', '4角位置', '前半3F', 'ペース後3F', '寸評'
         ]
         
         try:
@@ -1519,6 +1623,10 @@ class HorseProfileManager:
                     column_mapping['馬番'] = i
                 elif '馬体重' in header_clean:
                     column_mapping['馬体重'] = i
+                elif '着順' in header_clean and '人気' not in header_clean:
+                    column_mapping['着順'] = i
+                elif '人気' in header_clean and '着順' not in header_clean:
+                    column_mapping['人気'] = i
                 elif '着順' in header_clean and '人気' in header_clean:
                     column_mapping['着順/人気'] = i
                 elif 'タイム' in header_clean and '差' not in header_clean:
@@ -1578,6 +1686,8 @@ class HorseProfileManager:
                     '寸評': integrated_data.get('寸評', ''),
                     '通過順位': integrated_data.get('通過順位', ''),
                     '4角位置': integrated_data.get('4角位置', ''),
+                    '前半3F': integrated_data.get('前半3F', '') or r.get('前半3F', ''),
+                    '上り3F': integrated_data.get('上り3F', '') or r.get('上り3F', ''),
                 }
 
             # 新しいテーブルを構築
@@ -1631,13 +1741,29 @@ class HorseProfileManager:
             data_rows.sort(key=lambda x: x[0], reverse=True)
             
             # ソートされたデータ行を処理
+            previous_race_data = None
             for sort_key, line, original_cells in data_rows:
                 
                 # 日付とレース名でマッチング
                 date_str = original_cells[column_mapping.get('日付', 0)] if '日付' in column_mapping else ''
                 race_name = original_cells[column_mapping.get('レース', 4)] if 'レース' in column_mapping else ''
                 key = (date_str, race_name[:10])
-                info = match_map.get(key, {'honshi': '-', 'waku': '-', 'tousuu': '-', 'short_comment': '', '寸評': '', '通過順位': '', '4角位置': ''})
+                info = match_map.get(key, {'honshi': '-', 'waku': '-', 'tousuu': '-', 'short_comment': '', '寸評': '', '通過順位': '', '4角位置': '', '前半3F': '', '上り3F': ''})
+                
+                # 休養コメントを生成（前のレースがある場合）
+                if previous_race_data:
+                    rest_comment = self.generate_rest_comment(
+                        {
+                            '日付': date_str,
+                            '馬体重': original_cells[column_mapping.get('馬体重', 0)] if '馬体重' in column_mapping and column_mapping['馬体重'] < len(original_cells) else '',
+                            'training_data': {'short_review': info.get('short_comment', '')}
+                        },
+                        previous_race_data
+                    )
+                    if rest_comment:
+                        # 休養コメント行を挿入（全列にまたがるコメント行）
+                        comment_line = f"| **{rest_comment}** |" + " |".join([''] * (len(new_headers) - 1)) + " |"
+                        new_lines.append(comment_line)
                 
                 # 新しい行を構築
                 new_cells = []
@@ -1689,6 +1815,30 @@ class HorseProfileManager:
                             combined = '-'
                         
                         new_cells.append(combined)
+                    elif col == '着順':
+                        # 着順のみ
+                        chaku_idx = column_mapping.get('着順')
+                        if chaku_idx is not None and chaku_idx < len(original_cells):
+                            chaku_val = original_cells[chaku_idx]
+                            # 着順の正規化（数字部分を抽出）
+                            import re
+                            chaku_match = re.search(r'\d+', chaku_val) if chaku_val else None
+                            chaku_num = chaku_match.group(0) if chaku_match else chaku_val
+                            new_cells.append(f"**{chaku_num}**" if chaku_num else chaku_val or '-')
+                        else:
+                            new_cells.append('-')
+                    elif col == '人気':
+                        # 人気のみ
+                        ninki_idx = column_mapping.get('人気')
+                        if ninki_idx is not None and ninki_idx < len(original_cells):
+                            ninki_val = original_cells[ninki_idx]
+                            # 人気の正規化（数字部分を抽出）
+                            import re
+                            ninki_match = re.search(r'\d+', ninki_val) if ninki_val else None
+                            ninki_num = ninki_match.group(0) if ninki_match else ninki_val
+                            new_cells.append(f"{ninki_num}人" if ninki_num else ninki_val or '-')
+                        else:
+                            new_cells.append('-')
                     else:
                         # 追加列
                         if col == 'コメント':
@@ -1705,10 +1855,21 @@ class HorseProfileManager:
                             new_cells.append(info.get('通過順位', ''))
                         elif col == '4角位置':
                             new_cells.append(info.get('4角位置', ''))
+                        elif col == '前半3F':
+                            new_cells.append(info.get('前半3F', ''))
+                        elif col == '上り3F':
+                            new_cells.append(info.get('上り3F', ''))
                         else:
                             new_cells.append('-')
                 
                 new_lines.append('| ' + ' | '.join(new_cells) + ' |')
+                
+                # 現在のレースデータを保存（次のレースとの比較用）
+                previous_race_data = {
+                    '日付': date_str,
+                    '馬体重': original_cells[column_mapping.get('馬体重', 0)] if '馬体重' in column_mapping and column_mapping['馬体重'] < len(original_cells) else '',
+                    'training_data': {'short_review': info.get('short_comment', '')}
+                }
 
             result = '\n'.join(new_lines)
             logger.debug(f"augment_seiseki_table完了: 出力テーブル行数={len(result.splitlines())}")
