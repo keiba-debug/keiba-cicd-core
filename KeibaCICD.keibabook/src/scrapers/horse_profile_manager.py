@@ -45,6 +45,15 @@ class HorseProfileManager:
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
+        # 追加: 環境変数 HPM_DEBUG が有効なら DEBUG に引き上げ
+        try:
+            import os as _os
+            if str(_os.getenv('HPM_DEBUG', '')).lower() in ('1', 'true', 'yes', 'on'):
+                logging.getLogger().setLevel(logging.DEBUG)
+                logger.setLevel(logging.DEBUG)
+                logger.debug("HPM_DEBUG=on -> log level DEBUG")
+        except Exception:
+            pass
 
     def extract_horses_from_race(self, race_file: Path) -> List[Tuple[str, str, Dict]]:
         """
@@ -203,6 +212,45 @@ class HorseProfileManager:
                 content_parts.append(f"- **短評**: {horse_data['短評']}")
 
         # 過去成績セクション（オプション）
+        # 完全成績テーブル（要求順序: 基本情報/最近の出走情報の直後）
+        seiseki_header_idx = None
+        seiseki_table_raw = None
+        if include_seiseki_table:
+            content_parts.extend([
+                "",
+                "## 完全成績",
+                ""
+            ])
+
+            # 成績テーブルを取得
+            from .horse_seiseki_fetcher import HorseSeisekiFetcher
+            seiseki_fetcher = HorseSeisekiFetcher()
+            logger.info(f"完全成績テーブル取得中: {horse_id}")
+
+            # 1. seisekiから基本テーブルを取得
+            seiseki_table_raw = seiseki_fetcher.fetch_seiseki_table(horse_id)
+            
+            # 2. kanzenから本誌データを取得（フォールバック用）
+            kanzen_data = None
+            if seiseki_table_raw and horse_id:
+                try:
+                    import requests
+                    from bs4 import BeautifulSoup
+                    kanzen_url = f"https://p.keibabook.co.jp/db/uma/{horse_id}/kanzen"
+                    logger.debug(f"kanzenページ取得開始: {kanzen_url}")
+                    resp = requests.get(kanzen_url, timeout=8)
+                    if resp.ok and len(resp.text) > 1000:
+                        kanzen_data = resp.text
+                        logger.debug(f"kanzenページ取得成功: {len(kanzen_data)}文字")
+                    else:
+                        logger.debug(f"kanzenページ取得失敗: status={resp.status_code}")
+                except Exception as e:
+                    logger.debug(f"kanzenページ取得エラー: {e}")
+            seiseki_header_idx = len(content_parts) - 1  # 直前に空行を追加しているため、見出し直後の空行位置
+            if not seiseki_table_raw:
+                content_parts.append("*完全成績テーブルを取得できませんでした*")
+                logger.warning(f"完全成績テーブル取得失敗: {horse_id}")
+
         if include_history:
             # Web取得オプション
             if use_web_fetch and horse_id:
@@ -253,13 +301,26 @@ class HorseProfileManager:
                 # 既存JSONから過去成績を取得
                 past_races = self.get_horse_past_races(horse_name, horse_id)
 
-            past_races_table = self.format_past_races_table(past_races)
-
             # 過去レースからの特徴分析
             features = self.analyze_horse_features(past_races)
 
             # 成績統計を計算
             stats = self.calculate_race_statistics(past_races)
+
+            # 完全成績テーブル（拡張版）を先に挿入
+            if include_seiseki_table and seiseki_table_raw:
+                try:
+                    logger.debug(f"拡張前テーブル（先頭2行）: {seiseki_table_raw.splitlines()[:2]}")
+                    augmented = self.augment_seiseki_table(seiseki_table_raw, past_races, horse_id, kanzen_data)
+                    logger.debug(f"拡張後テーブル（先頭2行）: {augmented.splitlines()[:2]}")
+                    insert_at = seiseki_header_idx + 1
+                    content_parts.insert(insert_at, augmented)
+                    logger.debug("完全成績テーブルを拡張して挿入しました")
+                except Exception as e:
+                    # フォールバックとして生テーブルを挿入
+                    logger.error(f"拡張エラー: {e}")
+                    content_parts.insert(seiseki_header_idx + 1, seiseki_table_raw)
+                    logger.debug("拡張失敗のため生テーブルを挿入しました")
 
             content_parts.extend([
                 "",
@@ -272,58 +333,22 @@ class HorseProfileManager:
                 f"| 芝 | {stats['turf']['1着']} | {stats['turf']['2着']} | {stats['turf']['3着']} | {stats['turf']['着外']} | {stats['turf']['勝率']}% | {stats['turf']['連対率']}% | {stats['turf']['複勝率']}% |",
                 f"| ダート | {stats['dirt']['1着']} | {stats['dirt']['2着']} | {stats['dirt']['3着']} | {stats['dirt']['着外']} | {stats['dirt']['勝率']}% | {stats['dirt']['連対率']}% | {stats['dirt']['複勝率']}% |",
                 "",
-                "### 最近10走の基本成績",
-                "| 日付 | 競馬場 | レース | 着順 | 人気 | 騎手 | 距離 | 馬場 | タイム | 上がり | 馬体重 | 短評 |",
-                "|:----:|:------:|:------|:----:|:----:|:----:|:----:|:----:|:------:|:------:|:------:|:-----|",
-                self.format_basic_races_table(past_races[:10]),
-                "",
-                "### 最近10走の詳細情報",
-                "| 日付 | 着順 | 枠 | 頭数 | 本誌 | 通過 | 寸評 |",
-                "|:----:|:----:|:----:|:----:|:----:|:----:|:-----|",
-                self.format_detail_races_table(past_races[:10]),
+                "### 最近10走（統合）",
+                "| 日付 | 競馬場 | レース | 着順/人気 | 騎手 | 距離 | 馬場 | タイム | 上がり | 上がり順 | 枠 | 頭数 | 本誌 | 通過 | 短評 |",
+                "|:----:|:------:|:------|:--------:|:----:|:----:|:----:|:------:|:------:|:------:|:--:|:----:|:----:|:----:|:-----|",
+                self.format_combined_last10_table(past_races),
                 "",
                 "### 距離別成績",
-                "| 距離 | 出走数 | 勝利 | 連対 | 複勝 | 勝率 | 特記事項 |",
-                "|:----:|:------:|:----:|:----:|:----:|:----:|:---------|",
-                "| 1200m | - | - | - | - | -% | - |",
-                "| 1400m | - | - | - | - | -% | - |",
-                "| 1600m | - | - | - | - | -% | - |",
-                "| 1800m | - | - | - | - | -% | - |",
-                "| 2000m+ | - | - | - | - | -% | - |",
+                self.format_distance_stats_table(past_races),
                 "",
                 "### 馬場状態別成績",
-                "| 馬場 | 出走数 | 勝利 | 連対 | 複勝 | 勝率 | 特記事項 |",
-                "|:----:|:------:|:----:|:----:|:----:|:----:|:---------|",
-                "| 良 | - | - | - | - | -% | - |",
-                "| 稍重 | - | - | - | - | -% | - |",
-                "| 重 | - | - | - | - | -% | - |",
-                "| 不良 | - | - | - | - | -% | - |",
+                self.format_surface_stats_table(past_races),
                 "",
                 "### 条件別成績",
                 self.format_condition_stats_table(past_races),
             ])
 
-            # 完全成績テーブルセクション
-            if include_seiseki_table:
-                content_parts.extend([
-                    "",
-                    "## 完全成績",
-                    ""
-                ])
-
-                # 成績テーブルを取得
-                from .horse_seiseki_fetcher import HorseSeisekiFetcher
-                seiseki_fetcher = HorseSeisekiFetcher()
-                logger.info(f"完全成績テーブル取得中: {horse_id}")
-
-                seiseki_table = seiseki_fetcher.fetch_seiseki_table(horse_id)
-
-                if seiseki_table:
-                    content_parts.append(seiseki_table)
-                    logger.info(f"完全成績テーブルを追加しました")
-                else:
-                    content_parts.append("*完全成績テーブルを取得できませんでした*")
-                    logger.warning(f"完全成績テーブル取得失敗: {horse_id}")
+            # すでに挿入済みの完全成績テーブルが未拡張の場合は、保存直前に最終チェックで差し替え
 
             # 騎手コメントセクション（最新3走）
             if past_races:
@@ -390,6 +415,18 @@ class HorseProfileManager:
 
         # ファイルに書き込み
         content = '\n'.join(content_parts)
+        
+        # デバッグ: 完全成績セクションの内容を確認
+        if include_seiseki_table:
+            lines = content.splitlines()
+            seiseki_start = -1
+            for i, line in enumerate(lines):
+                if line.strip() == "## 完全成績":
+                    seiseki_start = i
+                    break
+            if seiseki_start != -1:
+                seiseki_lines = lines[seiseki_start:seiseki_start+10]  # 最初の10行
+                logger.debug(f"最終出力の完全成績セクション（先頭10行）: {seiseki_lines}")
 
         with open(profile_file, 'w', encoding='utf-8') as f:
             f.write(content)
@@ -458,6 +495,116 @@ class HorseProfileManager:
 
         return None
 
+    def get_honshi_from_md(self, race_id: str, horse_name: str) -> Optional[str]:
+        """
+        MD新聞/統合JSONから本誌印を取得
+
+        Args:
+            race_id: レースID
+            horse_name: 馬名
+
+        Returns:
+            本誌印（例: "◎", "○", "▲", "△" など）
+        """
+        try:
+            if len(race_id) == 12:
+                year = race_id[:4]
+                track_code = race_id[4:6]
+                month = race_id[6:8]
+                day = race_id[8:10]
+
+                track_map = {
+                    '01': '札幌', '02': '函館', '03': '福島', '04': '新潟',
+                    '05': '中山', '06': '東京', '07': '中京', '08': '京都',
+                    '09': '阪神', '10': '小倉'
+                }
+                track_name = track_map.get(track_code, '')
+                if track_name:
+                    json_path = self.data_root / "races" / year / month / day / "temp" / f"{race_id}.json"
+                    if not json_path.exists():
+                        json_path = self.data_root / "organized" / year / month / day / track_name / "temp" / f"{race_id}.json"
+                    if not json_path.exists():
+                        json_path = Path("Z:/KEIBA-CICD/data/organized") / year / month / day / track_name / "temp" / f"{race_id}.json"
+
+                    if json_path.exists():
+                        with open(json_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+
+                        def pick_honshi(obj: Dict) -> Optional[str]:
+                            for k in ['本誌', '本紙', '本誌印', '本紙印', 'honshi', 'honshi_mark']:
+                                v = obj.get(k)
+                                if v not in (None, ''):
+                                    return v
+                            return None
+
+                        if 'syutuba' in data:
+                            for entry in data['syutuba']:
+                                if entry.get('horse_name') == horse_name:
+                                    v = pick_honshi(entry)
+                                    if v:
+                                        return v
+
+                        if 'entries' in data:
+                            for entry in data['entries']:
+                                if entry.get('horse_name') == horse_name:
+                                    v = pick_honshi(entry) or pick_honshi(entry.get('entry_data', {}))
+                                    if v:
+                                        return v
+        except Exception as e:
+            logger.debug(f"本誌取得エラー {race_id}: {e}")
+        return None
+
+    def _find_honshi_in_races_dir(self, date_str: str, race_name_prefix: str, horse_name: str) -> Optional[str]:
+        """
+        races ディレクトリ配下（data2/races/YYYY/MM/DD）から本誌印を探索して返す。
+
+        Args:
+            date_str: YYYY/MM/DD 形式
+            race_name_prefix: レース名の先頭10文字
+            horse_name: 馬名
+        """
+        try:
+            if not date_str or len(date_str.split('/')) != 3:
+                return None
+            year, month, day = date_str.split('/')
+            day_dir = self.data_root / 'races' / year / month / day
+            if not day_dir.exists():
+                # 旧 organized 構造には integrated_*.json が無いことが多いのでスキップ
+                return None
+
+            import json as _json
+            # integrated_*.json を優先
+            for jf in day_dir.glob('integrated_*.json'):
+                try:
+                    with open(jf, 'r', encoding='utf-8') as f:
+                        data = _json.load(f)
+                    # entries 形式
+                    for entry in data.get('entries', []):
+                        if entry.get('horse_name') == horse_name:
+                            ed = entry.get('entry_data', {})
+                            for k in ['本誌', '本紙', 'honshi', 'honshi_mark', '本誌印', '本紙印']:
+                                v = entry.get(k) or ed.get(k)
+                                if v not in (None, ''):
+                                    return v
+                except Exception:
+                    continue
+            # syutuba JSON
+            for jf in (day_dir / 'temp').glob('*.json') if (day_dir / 'temp').exists() else []:
+                try:
+                    with open(jf, 'r', encoding='utf-8') as f:
+                        data = _json.load(f)
+                    for entry in data.get('syutuba', []):
+                        if entry.get('horse_name') == horse_name:
+                            for k in ['本誌', '本紙', 'honshi', 'honshi_mark', '本誌印', '本紙印']:
+                                v = entry.get(k)
+                                if v not in (None, ''):
+                                    return v
+                except Exception:
+                    continue
+        except Exception:
+            return None
+        return None
+
     def get_race_detail_from_json(self, race_id: str, horse_name: str) -> Optional[Dict]:
         """
         レースIDから既存JSONを検索して詳細データを取得
@@ -498,6 +645,20 @@ class HorseProfileManager:
                     if 'results' in data:
                         for result in data['results']:
                             if result.get('馬名') == horse_name:
+                                # 同義語補完
+                                def pick_first(d, keys, default=''):
+                                    for k in keys:
+                                        v = d.get(k)
+                                        if v not in (None, ''):
+                                            return v
+                                    return default
+
+                                honshi = pick_first(result, ['本誌', '本紙', '本誌印', '本紙印', 'honshi', 'honshi_mark'], '')
+                                agari = pick_first(result, ['上がり', '上り3F', '上り', 'last_3f', '後3F'], '')
+                                agari_rank = pick_first(result, ['上がり順位', '上り順位', '上り3F順位', 'agari_rank'], '')
+                                sunpyou = pick_first(result, ['寸評', '寸評_短評', 'comment'], '')
+                                baba = race_info_base.get('turf_condition', '') or race_info_base.get('track_condition', '')
+
                                 return {
                                     '日付': race_date,
                                     '競馬場': race_info_base.get('venue', ''),
@@ -505,17 +666,18 @@ class HorseProfileManager:
                                     '着順': result.get('着順', ''),
                                     '騎手': result.get('騎手_2', '') or result.get('騎手', ''),
                                     '距離': race_info_base.get('distance', ''),
-                                    '馬場': race_info_base.get('turf_condition', ''),
+                                    '馬場': baba,
                                     'タイム': result.get('タイム', ''),
-                                    '上がり': result.get('上り3F', '') or result.get('上がり', ''),
+                                    '上がり': agari,
+                                    '上がり順位': agari_rank,
                                     '人気': result.get('単人気', ''),
                                     '馬体重': result.get('馬体重', ''),
                                     '増減': result.get('増減', ''),
                                     '通過': result.get('通過順位', ''),
-                                    '寸評': result.get('寸評', ''),
+                                    '寸評': sunpyou,
                                     'memo': result.get('memo', ''),
                                     'interview': result.get('interview', ''),
-                                    '本誌': result.get('本紙', ''),
+                                    '本誌': honshi,
                                     '短評': self.get_tanpyo_from_md(race_id, horse_name) or '',  # MD新聞から短評を取得
                                     '厩舎コメント': '',  # JSONには含まれていない
                                     'レースID': race_id
@@ -596,16 +758,17 @@ class HorseProfileManager:
                                     '着順': result.get('着順', ''),
                                     '騎手': result.get('騎手_2', '') or result.get('騎手', ''),
                                     '距離': race_info_base.get('distance', ''),
-                                    '馬場': race_info_base.get('track_condition', ''),
+                                    '馬場': race_info_base.get('track_condition', '') or race_info_base.get('turf_condition', ''),
                                     'タイム': result.get('タイム', ''),
-                                    '上がり': result.get('上り3F', '') or result.get('上がり', ''),
-                                    '寸評': result.get('寸評', ''),
+                                    '上がり': result.get('上り3F', '') or result.get('上がり', '') or result.get('last_3f', ''),
+                                    '上がり順位': result.get('上がり順位', '') or result.get('上り順位', '') or result.get('上り3F順位', '') or result.get('agari_rank', ''),
+                                    '寸評': result.get('寸評', '') or result.get('comment', ''),
                                     'メモ': result.get('memo', ''),
                                     'インタビュー': result.get('interview', ''),
                                     '通過順位': result.get('通過順位', ''),
                                     '着差': result.get('着差', ''),
                                     '単勝オッズ': result.get('単勝オッズ', ''),
-                                    '人沗': result.get('単人気', ''),
+                                    '人気': result.get('単人気', ''),
                                     '馬体重': result.get('馬体重', ''),
                                     '増減': result.get('増減', ''),
                                     '短評': '',  # 後でMD新聞から取得
@@ -619,7 +782,7 @@ class HorseProfileManager:
                                 if tanpyo:
                                     race_info['短評'] = tanpyo
                                 past_races.append(race_info)
-                                break
+                                # テーブル処理完了
 
             except Exception as e:
                 logger.debug(f"JSONファイル読み込みスキップ {json_file}: {e}")
@@ -643,8 +806,11 @@ class HorseProfileManager:
             logger.warning("過去レースデータが空です")
             return "| データ取得中... | - | - | - | - | - | - | - | - | - | - | - |"
 
+        # 日付降順にソート（YYYY/MM/DD想定のため文字列比較でOK）
+        sorted_races = sorted(past_races, key=lambda r: r.get('日付', ''), reverse=True)
+
         lines = []
-        for race in past_races:
+        for race in sorted_races[:10]:
             # 馬体重と増減を組み合わせ
             weight_info = race.get('馬体重', '-')
             if weight_info != '-' and race.get('増減'):
@@ -704,11 +870,14 @@ class HorseProfileManager:
         if not past_races:
             return "| データ取得中... | - | - | - | - | - | - |"
 
+        # 日付降順に並べ替え
+        sorted_races = sorted(past_races, key=lambda r: r.get('日付', ''), reverse=True)
         lines = []
-        for race in past_races:
-            # 枠番から枠分類を判定
+        for race in sorted_races[:10]:
+            # 枠分類を判定（枠番が無ければ 馬番×頭数 で三分割）
             waku = race.get('枠番', '')
-            if waku and waku != '-' and waku.isdigit():
+            waku_class = '-'
+            if waku and str(waku).isdigit():
                 waku_num = int(waku)
                 if waku_num <= 3:
                     waku_class = f"{waku}(内)"
@@ -717,7 +886,23 @@ class HorseProfileManager:
                 else:
                     waku_class = f"{waku}(外)"
             else:
-                waku_class = waku if waku else '-'
+                # フォールバック: 馬番×頭数
+                bano = race.get('馬番', '')
+                tousuu_fb = race.get('頭数', '')
+                if str(bano).isdigit() and str(tousuu_fb).isdigit():
+                    bn = int(bano)
+                    tn = int(tousuu_fb)
+                    if tn > 0:
+                        import math as _math
+                        seg = _math.ceil(tn / 3)
+                        if bn <= seg:
+                            waku_class = f"{bano}(内)"
+                        elif bn <= seg * 2:
+                            waku_class = f"{bano}(中)"
+                        else:
+                            waku_class = f"{bano}(外)"
+                else:
+                    waku_class = waku if waku else '-'
 
             # 頭数から頭数分類を判定
             tousuu = race.get('頭数', '')
@@ -744,7 +929,15 @@ class HorseProfileManager:
             else:
                 comment = '-'
 
-            line = f"| {race.get('日付', '-')} | **{race.get('着順', '-')}** | " \
+            # 着順の表記を正規化（数字以外を含む場合は数字部分を優先）
+            import re as _re
+            pos_raw = str(race.get('着順', '-'))
+            pos_norm = pos_raw
+            if pos_raw and pos_raw != '-':
+                m = _re.search(r"\d+", pos_raw)
+                pos_norm = m.group(0) if m else pos_raw
+
+            line = f"| {race.get('日付', '-')} | **{pos_norm}** | " \
                    f"{waku_class} | {tousuu_class} | " \
                    f"{race.get('本誌', '-') or '-'} | {race.get('通過', '-') or '-'} | " \
                    f"{comment} |"
@@ -766,10 +959,19 @@ class HorseProfileManager:
             logger.warning("過去レースデータが空です")
             return "| データ取得中... | - | - | - | - | - | - | - | - | - |"
 
+        # 日付降順にソート
+        sorted_races = sorted(past_races, key=lambda r: r.get('日付', ''), reverse=True)
         lines = []
-        for race in past_races[:10]:  # 最新10走まで
-            # 着順と人気を組み合わせ
-            position_pop = f"**{race.get('着順', '-')}**"
+        # 最新10走（ソート済み）
+        for race in sorted_races[:10]:
+            # 着順と人気を組み合わせ（着順の表記を正規化）
+            import re as _re2
+            pos_raw = str(race.get('着順', '-'))
+            pos_norm = pos_raw
+            if pos_raw and pos_raw != '-':
+                m = _re2.search(r"\d+", pos_raw)
+                pos_norm = m.group(0) if m else pos_raw
+            position_pop = f"**{pos_norm}**"
             if race.get('人気'):
                 position_pop += f"/{race.get('人気')}人"
 
@@ -786,6 +988,562 @@ class HorseProfileManager:
             lines.append(line)
 
         return '\n'.join(lines)
+
+    def _extract_agari_rank(self, agari: str, tousuu: str, provided_rank: str = "") -> str:
+        """
+        上がり表記から上がり順位を推定して返す。
+        入力例: "S 33.5", "M 35.7", "H 36.1" など。順位情報がJSONにないため、
+        現状は "-" を返し、将来JSONに rank が入ればここで解釈する。
+        """
+        # 1) JSON側に順位があればそれを優先
+        if provided_rank:
+            return str(provided_rank)
+        # 2) まだ無い場合は推定不可のため"-"
+        return "-"
+
+    def format_combined_last10_table(self, past_races: List[Dict]) -> str:
+        """
+        基本成績と詳細成績を統合した最近10走テーブルを返す（降順）。
+        """
+        if not past_races:
+            return "| データ取得中... | - | - | - | - | - | - | - | - | - | - | - | - | - | - |"
+
+        sorted_races = sorted(past_races, key=lambda r: r.get('日付', ''), reverse=True)
+        lines = []
+        import re as _re5
+        for race in sorted_races[:10]:
+            # 着順正規化と人気の結合
+            pos_raw = str(race.get('着順', '-'))
+            pos_norm = pos_raw
+            if pos_raw and pos_raw != '-':
+                m = _re5.search(r"\d+", pos_raw)
+                pos_norm = m.group(0) if m else pos_raw
+            position_pop = f"**{pos_norm}**"
+            if race.get('人気'):
+                position_pop += f"/{race.get('人気')}人"
+
+            # 馬体重と増減
+            weight_info = race.get('馬体重', '-')
+            if weight_info != '-' and race.get('増減'):
+                weight_info += f"({race.get('増減')})"
+
+            # 枠分類（枠番→無ければ 馬番×頭数 の三分割）
+            waku = race.get('枠番', '')
+            if waku and str(waku).isdigit():
+                w = int(waku)
+                if w <= 3:
+                    waku_class = f"{waku}(内)"
+                elif w <= 6:
+                    waku_class = f"{waku}(中)"
+                else:
+                    waku_class = f"{waku}(外)"
+            else:
+                bano_fb = race.get('馬番', '')
+                tousuu_fb = race.get('頭数', '')
+                if str(bano_fb).isdigit() and str(tousuu_fb).isdigit():
+                    bn = int(bano_fb)
+                    tn = int(tousuu_fb)
+                    if tn > 0:
+                        import math as _math
+                        seg = _math.ceil(tn / 3)
+                        if bn <= seg:
+                            waku_class = f"{bano_fb}(内)"
+                        elif bn <= seg * 2:
+                            waku_class = f"{bano_fb}(中)"
+                        else:
+                            waku_class = f"{bano_fb}(外)"
+                else:
+                    waku_class = waku if waku else '-'
+
+            # 頭数分類
+            tousuu = race.get('頭数', '')
+            if tousuu and str(tousuu).isdigit():
+                t = int(tousuu)
+                if t <= 12:
+                    tousuu_class = f"{tousuu}(少)"
+                elif t <= 15:
+                    tousuu_class = f"{tousuu}(中)"
+                else:
+                    tousuu_class = f"{tousuu}(多)"
+            else:
+                tousuu_class = tousuu if tousuu else '-'
+
+            agari = race.get('上がり', '-')
+            agari_rank = self._extract_agari_rank(agari, str(tousuu), str(race.get('上がり順位', '')))
+
+            line = f"| {race.get('日付', '-')} | {race.get('競馬場', '-')} | " \
+                   f"{race.get('レース名', '-')[:10]} | {position_pop} | " \
+                   f"{race.get('騎手', '-')} | {race.get('距離', '-')} | " \
+                   f"{race.get('馬場', '-')} | {race.get('タイム', '-')} | {agari} | {agari_rank} | " \
+                   f"{waku_class} | {tousuu_class} | {race.get('本誌', '-') or '-'} | " \
+                   f"{race.get('通過', '-') or '-'} | {race.get('短評', '-') or '-'} |"
+            lines.append(line)
+
+        return "\n".join(lines)
+
+    def _extract_distance_meter(self, distance_field: str) -> Optional[int]:
+        """
+        距離表記からメートル数を抽出（例: "芝1600", "1800m", "ダ1200m" → 1600/1800/1200）
+
+        Args:
+            distance_field: 距離の文字列表現
+
+        Returns:
+            整数のメートル数（抽出できなければNone）
+        """
+        if not distance_field:
+            return None
+        try:
+            import re
+            m = re.search(r"(\d{3,4})", str(distance_field))
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+        return None
+
+    def format_distance_stats_table(self, past_races: List[Dict]) -> str:
+        """
+        距離別の出走数/勝利/連対/複勝/勝率を集計してMarkdownテーブルを返す
+        """
+        headers = "| 距離 | 出走数 | 勝利 | 連対 | 複勝 | 勝率 | 特記事項 |\n|:----:|:------:|:----:|:----:|:----:|:----:|:---------|"
+        if not past_races:
+            return headers + "\n| 1200m | - | - | - | - | -% | - |\n| 1400m | - | - | - | - | -% | - |\n| 1600m | - | - | - | - | -% | - |\n| 1800m | - | - | - | - | -% | - |\n| 2000m+ | - | - | - | - | -% | - |"
+
+        # バケット: 1200, 1400, 1600, 1800, 2000+
+        buckets = [1200, 1400, 1600, 1800]
+        stats = {1200: {'t': 0, 'w': 0, 'p': 0, 's': 0},
+                 1400: {'t': 0, 'w': 0, 'p': 0, 's': 0},
+                 1600: {'t': 0, 'w': 0, 'p': 0, 's': 0},
+                 1800: {'t': 0, 'w': 0, 'p': 0, 's': 0},
+                 2000: {'t': 0, 'w': 0, 'p': 0, 's': 0}}  # 2000+ は2000キーに集約
+
+        import re as _re3
+        for race in past_races:
+            dist_val = self._extract_distance_meter(race.get('距離', ''))
+            pos = str(race.get('着順', ''))
+            # 着順数値化
+            pos_num = None
+            if pos:
+                m = _re3.search(r"\d+", pos)
+                if m:
+                    try:
+                        pos_num = int(m.group(0))
+                    except Exception:
+                        pos_num = None
+            if dist_val is None:
+                continue
+            bucket_key = 2000 if dist_val >= 2000 else max([b for b in buckets if dist_val >= b], default=1200)
+            s = stats[bucket_key]
+            s['t'] += 1
+            if pos_num == 1:
+                s['w'] += 1
+            if pos_num is not None and pos_num <= 2:
+                s['p'] += 1
+            if pos_num is not None and pos_num <= 3:
+                s['s'] += 1
+
+        def line_for(label: str, key: int) -> str:
+            d = stats[key]
+            if d['t'] == 0:
+                return f"| {label} | - | - | - | - | -% | - |"
+            win_rate = f"{d['w']*100/d['t']:.1f}%"
+            return f"| {label} | {d['t']} | {d['w']} | {d['p']} | {d['s']} | {win_rate} | - |"
+
+        lines = [headers,
+                 line_for('1200m', 1200),
+                 line_for('1400m', 1400),
+                 line_for('1600m', 1600),
+                 line_for('1800m', 1800),
+                 line_for('2000m+', 2000)]
+        return "\n".join(lines)
+
+    def format_surface_stats_table(self, past_races: List[Dict]) -> str:
+        """
+        馬場状態別の出走数/勝利/連対/複勝/勝率を集計してMarkdownテーブルを返す
+        """
+        headers = "| 馬場 | 出走数 | 勝利 | 連対 | 複勝 | 勝率 | 特記事項 |\n|:----:|:------:|:----:|:----:|:----:|:----:|:---------|"
+        if not past_races:
+            return headers + "\n| 良 | - | - | - | - | -% | - |\n| 稍重 | - | - | - | - | -% | - |\n| 重 | - | - | - | - | -% | - |\n| 不良 | - | - | - | - | -% | - |"
+
+        def normalize_baba(value: str) -> str:
+            if not value:
+                return ''
+            v = str(value)
+            if '良' in v:
+                return '良'
+            if '稍' in v or '稍重' in v:
+                return '稍重'
+            if '不良' in v:
+                return '不良'
+            if '重' in v:
+                return '重'
+            return ''
+
+        cats = ['良', '稍重', '重', '不良']
+        stats = {c: {'t': 0, 'w': 0, 'p': 0, 's': 0} for c in cats}
+
+        import re as _re4
+        for race in past_races:
+            baba = normalize_baba(race.get('馬場', ''))
+            if not baba:
+                continue
+            pos = str(race.get('着順', ''))
+            pos_num = None
+            if pos:
+                m = _re4.search(r"\d+", pos)
+                if m:
+                    try:
+                        pos_num = int(m.group(0))
+                    except Exception:
+                        pos_num = None
+            s = stats[baba]
+            s['t'] += 1
+            if pos_num == 1:
+                s['w'] += 1
+            if pos_num is not None and pos_num <= 2:
+                s['p'] += 1
+            if pos_num is not None and pos_num <= 3:
+                s['s'] += 1
+
+        def line_for(b: str) -> str:
+            d = stats[b]
+            if d['t'] == 0:
+                return f"| {b} | - | - | - | - | -% | - |"
+            win_rate = f"{d['w']*100/d['t']:.1f}%"
+            return f"| {b} | {d['t']} | {d['w']} | {d['p']} | {d['s']} | {win_rate} | - |"
+
+        lines = [headers] + [line_for(c) for c in cats]
+        return "\n".join(lines)
+
+    def augment_seiseki_table(self, seiseki_table_md: str, past_races: List[Dict], horse_id: str = "", kanzen_data: str = None) -> str:
+        """
+        シンプルな完全成績テーブルを生成
+        
+        Args:
+            seiseki_table_md: 元のテーブル（Markdown）
+            past_races: 過去成績データ
+            horse_id: 馬ID
+            
+        Returns:
+            新しいテーブル（Markdown）
+        """
+        logger.debug(f"augment_seiseki_table開始")
+        logger.debug(f"horse_id: {horse_id}")
+        logger.debug(f"data_root: {self.data_root}")
+        logger.debug(f"data_root存在確認: {self.data_root.exists()}")
+        
+        # 表示する列の順序
+        DISPLAY_COLUMNS = [
+            'コメント', '本誌', '日付', '競馬場', 'レース', 'クラス', '距離', '馬場', '重量', '騎手', 
+            '頭数', '馬番', '馬体重', '着順/人気', '枠', '頭数(区分)', 
+            'タイム', 'タイム差', 'ペース後3F', '通過順位', '4角位置', '寸評'
+        ]
+        
+        try:
+            lines = seiseki_table_md.splitlines()
+            if not lines:
+                return seiseki_table_md
+
+            # ヘッダー行を探す
+            header_line = None
+            data_start_idx = 0
+            for i, line in enumerate(lines):
+                if line.startswith('|') and ('年月日' in line or '日付' in line):
+                    header_line = line
+                    data_start_idx = i + 2  # セパレータ行をスキップ
+                    break
+            
+            if not header_line:
+                return seiseki_table_md
+
+            # 元のヘッダーを解析
+            original_headers = [cell.strip() for cell in header_line.strip('|').split('|')]
+            logger.debug(f"元のヘッダー: {original_headers}")
+            
+            # 列マッピングを作成
+            column_mapping = {}
+            for i, header in enumerate(original_headers):
+                header_clean = header.strip()
+                if '年月日' in header_clean or '日付' in header_clean:
+                    column_mapping['日付'] = i
+                elif '競馬場' in header_clean:
+                    column_mapping['競馬場'] = i
+                elif 'レース' in header_clean and 'クラス' not in header_clean:
+                    column_mapping['レース'] = i
+                elif 'クラス' in header_clean:
+                    column_mapping['クラス'] = i
+                elif '距離' in header_clean:
+                    column_mapping['距離'] = i
+                elif '馬場' in header_clean and '競馬場' not in header_clean:
+                    column_mapping['馬場'] = i
+                elif '重量' in header_clean:
+                    column_mapping['重量'] = i
+                elif '騎手' in header_clean:
+                    column_mapping['騎手'] = i
+                elif '頭数' in header_clean and '区分' not in header_clean:
+                    column_mapping['頭数'] = i
+                elif '馬番' in header_clean or 'ゲート' in header_clean or 'ゲ｜ト' in header_clean:
+                    column_mapping['馬番'] = i
+                elif '馬体重' in header_clean:
+                    column_mapping['馬体重'] = i
+                elif '着順' in header_clean and '人気' in header_clean:
+                    column_mapping['着順/人気'] = i
+                elif 'タイム' in header_clean and '差' not in header_clean:
+                    column_mapping['タイム'] = i
+                elif 'タイム差' in header_clean:
+                    column_mapping['タイム差'] = i
+                elif 'ペース' in header_clean:
+                    column_mapping['ペース後3F'] = i
+
+            logger.debug(f"列マッピング: {column_mapping}")
+
+            # integrated_XXXXX.jsonからデータを取得する関数
+            def get_integrated_data(race_id: str, horse_id: str, race_date: str = None) -> Dict:
+                """integrated_XXXXX.jsonから対象馬のデータを取得"""
+                try:
+                    if not race_id or not horse_id:
+                        logger.debug(f"race_idまたはhorse_idが空: race_id={race_id}, horse_id={horse_id}")
+                        return {}
+                    
+                    # レース開催日からパスを構築
+                    if race_date:
+                        # YYYY/MM/DD形式からパスを構築
+                        date_parts = race_date.split('/')
+                        if len(date_parts) == 3:
+                            year, month, day = date_parts[0], date_parts[1].zfill(2), date_parts[2].zfill(2)
+                        else:
+                            logger.debug(f"日付形式が不正: {race_date}")
+                            return {}
+                    else:
+                        # レースIDから日付を抽出（フォールバック）
+                        if len(race_id) == 12:
+                            year = race_id[:4]
+                            month = race_id[4:6]
+                            day = race_id[6:8]
+                        else:
+                            logger.debug(f"race_idの長さが不正: {race_id} (長さ: {len(race_id)})")
+                            return {}
+                    
+                    # パス構築
+                    json_path = self.data_root / "races" / year / month / day / "temp" / f"integrated_{race_id}.json"
+                    logger.debug(f"JSONパス構築: {json_path}")
+                    logger.debug(f"race_id: {race_id}, race_date: {race_date}, year: {year}, month: {month}, day: {day}")
+                    
+                    # ディレクトリの存在確認
+                    day_dir = self.data_root / "races" / year / month / day
+                    temp_dir = day_dir / "temp"
+                    logger.debug(f"日付ディレクトリ存在確認: {day_dir} -> {day_dir.exists()}")
+                    logger.debug(f"tempディレクトリ存在確認: {temp_dir} -> {temp_dir.exists()}")
+                    
+                    if temp_dir.exists():
+                        # tempディレクトリ内のファイル一覧を確認
+                        files_in_dir = list(temp_dir.glob("integrated_*.json"))
+                        logger.debug(f"temp内integrated_*.jsonファイル一覧: {[f.name for f in files_in_dir]}")
+                    
+                    if json_path.exists():
+                        logger.debug(f"JSONファイル発見: {json_path}")
+                        with open(json_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            
+                        entries = data.get('entries', [])
+                        logger.debug(f"entries数: {len(entries)}")
+                        
+                        for i, entry in enumerate(entries):
+                            entry_horse_id = str(entry.get('horse_id', ''))
+                            logger.debug(f"entry[{i}] horse_id: {entry_horse_id}, target: {horse_id}")
+                            if entry_horse_id == str(horse_id):
+                                entry_data = entry.get('entry_data', {})
+                                result_data = entry.get('result', {})
+                                raw_data = result_data.get('raw_data', {}) if result_data else {}
+                                
+                                result = {
+                                    'short_comment': entry_data.get('short_comment', ''),
+                                    'honshi_mark': entry_data.get('honshi_mark', ''),
+                                    '通過順位': raw_data.get('通過順位', ''),
+                                    '寸評': raw_data.get('寸評', ''),
+                                    '4角位置': raw_data.get('4角位置', '')
+                                }
+                                logger.debug(f"integrated_データ取得成功: {result}")
+                                return result
+                        
+                        logger.debug(f"対象馬ID {horse_id} が見つかりませんでした")
+                    else:
+                        logger.debug(f"JSONファイルが存在しません: {json_path}")
+                        
+                except Exception as e:
+                    logger.debug(f"integrated_データ取得エラー {race_id}: {e}")
+                    import traceback
+                    logger.debug(f"エラー詳細: {traceback.format_exc()}")
+                return {}
+
+            # 過去成績のマップを作成
+            match_map = {}
+            logger.debug(f"past_races数: {len(past_races or [])}")
+            for i, r in enumerate(past_races or []):
+                logger.debug(f"past_races[{i}]: {r}")
+                key = (str(r.get('日付', '')), str(r.get('レース名', ''))[:10])
+                logger.debug(f"マッチキー: {key}")
+                
+                race_id = r.get('レースID', '')
+                race_date = r.get('日付', '')
+                logger.debug(f"レースID: {race_id}, 日付: {race_date}")
+                integrated_data = get_integrated_data(race_id, horse_id, race_date) if race_id else {}
+                
+                # 枠分類の計算
+                waku_raw = str(r.get('枠番', '') or '')
+                if waku_raw.isdigit():
+                    wn = int(waku_raw)
+                    if wn <= 3:
+                        waku_class = f"{wn}(内)"
+                    elif wn <= 6:
+                        waku_class = f"{wn}(中)"
+                    else:
+                        waku_class = f"{wn}(外)"
+                else:
+                    waku_class = '-'
+
+                # 頭数分類の計算
+                tousuu_raw = str(r.get('頭数', '') or '')
+                if tousuu_raw.isdigit():
+                    tn = int(tousuu_raw)
+                    if tn <= 12:
+                        tousuu_class = f"{tn}(少)"
+                    elif tn <= 15:
+                        tousuu_class = f"{tn}(中)"
+                    else:
+                        tousuu_class = f"{tn}(多)"
+                else:
+                    tousuu_class = '-'
+
+                match_map[key] = {
+                    'honshi': integrated_data.get('honshi_mark', '') or r.get('本誌', '-') or '-',
+                    'waku': waku_class,
+                    'tousuu': tousuu_class,
+                    'short_comment': integrated_data.get('short_comment', ''),
+                    '寸評': integrated_data.get('寸評', ''),
+                    '通過順位': integrated_data.get('通過順位', ''),
+                    '4角位置': integrated_data.get('4角位置', ''),
+                }
+
+            # 新しいテーブルを構築
+            new_lines = []
+            
+            # ヘッダー行
+            new_headers = []
+            for col in DISPLAY_COLUMNS:
+                if col in column_mapping:
+                    # 年月日を日付に変更、ゲ｜トを馬番に変更
+                    header_text = original_headers[column_mapping[col]]
+                    if '年月日' in header_text:
+                        header_text = header_text.replace('年月日', '日付')
+                    if 'ゲ｜ト' in header_text:
+                        header_text = header_text.replace('ゲ｜ト', '馬番')
+                    new_headers.append(header_text)
+                else:
+                    new_headers.append(col)
+            new_lines.append('| ' + ' | '.join(new_headers) + ' |')
+            
+            # セパレータ行
+            new_lines.append('| ' + ' | '.join([':---:' for _ in new_headers]) + ' |')
+            
+            # データ行
+            for i in range(data_start_idx, len(lines)):
+                line = lines[i]
+                if not line.startswith('|') or line.count('|') < 3:
+                    continue
+                    
+                original_cells = [cell.strip() for cell in line.strip('|').split('|')]
+                if len(original_cells) < 5:
+                    continue
+                
+                # 日付とレース名でマッチング
+                date_str = original_cells[column_mapping.get('日付', 0)] if '日付' in column_mapping else ''
+                race_name = original_cells[column_mapping.get('レース', 4)] if 'レース' in column_mapping else ''
+                key = (date_str, race_name[:10])
+                info = match_map.get(key, {'honshi': '-', 'waku': '-', 'tousuu': '-', 'short_comment': '', '寸評': '', '通過順位': '', '4角位置': ''})
+                
+                # 新しい行を構築
+                new_cells = []
+                for col in DISPLAY_COLUMNS:
+                    if col in column_mapping:
+                        idx = column_mapping[col]
+                        if idx < len(original_cells):
+                            value = original_cells[idx]
+                            # 日付の変換
+                            if col == '日付' and value:
+                                import re
+                                date_match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', value)
+                                if date_match:
+                                    year = date_match.group(1)
+                                    month = date_match.group(2).zfill(2)
+                                    day = date_match.group(3).zfill(2)
+                                    value = f"{year}/{month}/{day}"
+                            new_cells.append(value)
+                        else:
+                            new_cells.append('-')
+                    elif col == '着順/人気':
+                        # 着順と人気を結合
+                        chaku_idx = None
+                        ninki_idx = None
+                        for i, header in enumerate(original_headers):
+                            if '着順' in header and '人気' not in header:
+                                chaku_idx = i
+                            elif '人気' in header and '着順' not in header:
+                                ninki_idx = i
+                        
+                        chaku_val = original_cells[chaku_idx] if chaku_idx is not None and chaku_idx < len(original_cells) else ''
+                        ninki_val = original_cells[ninki_idx] if ninki_idx is not None and ninki_idx < len(original_cells) else ''
+                        
+                        # 着順の正規化（数字部分を抽出）
+                        import re
+                        chaku_match = re.search(r'\d+', chaku_val) if chaku_val else None
+                        chaku_num = chaku_match.group(0) if chaku_match else chaku_val
+                        
+                        # 人気の正規化（数字部分を抽出）
+                        ninki_match = re.search(r'\d+', ninki_val) if ninki_val else None
+                        ninki_num = ninki_match.group(0) if ninki_match else ninki_val
+                        
+                        # 結合
+                        if chaku_num and ninki_num:
+                            combined = f"**{chaku_num}**/{ninki_num}人"
+                        elif chaku_num:
+                            combined = f"**{chaku_num}**"
+                        else:
+                            combined = '-'
+                        
+                        new_cells.append(combined)
+                    else:
+                        # 追加列
+                        if col == 'コメント':
+                            new_cells.append(info.get('short_comment', ''))
+                        elif col == '本誌':
+                            new_cells.append(info.get('honshi', ''))
+                        elif col == '枠':
+                            new_cells.append(info.get('waku', ''))
+                        elif col == '頭数(区分)':
+                            new_cells.append(info.get('tousuu', ''))
+                        elif col == '寸評':
+                            new_cells.append(info.get('寸評', ''))
+                        elif col == '通過順位':
+                            new_cells.append(info.get('通過順位', ''))
+                        elif col == '4角位置':
+                            new_cells.append(info.get('4角位置', ''))
+                        else:
+                            new_cells.append('-')
+                
+                new_lines.append('| ' + ' | '.join(new_cells) + ' |')
+
+            result = '\n'.join(new_lines)
+            logger.debug(f"augment_seiseki_table完了: 出力テーブル行数={len(result.splitlines())}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"augment_seiseki_tableエラー: {e}")
+            logger.debug(f"エラー詳細: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.debug(f"トレースバック: {traceback.format_exc()}")
+            return seiseki_table_md
 
     def format_condition_stats_table(self, past_races: List[Dict]) -> str:
         """
