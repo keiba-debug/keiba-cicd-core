@@ -19,7 +19,16 @@
       "Read(//z/KEIBA-CICD/data/**)",
       "Bash(cat:*)",
       "Bash(copy:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(cmd /c \"dir Z:\\KEIBA-CICD\\data2\\race_ids\\*20250928* 2>NUL\")",
+      "Bash(cmd /c:*)",
+      "Read(//z/KEIBA-CICD/data2/races/2025/09/28/**)",
+      "Bash(set KEIBA_DATA_ROOT_DIR=Z:/KEIBA-CICD/data2)",
+      "Bash(set USE_NEW_DATA_STRUCTURE=true)",
+      "Read(//z/KEIBA-CICD/data2/horses/profiles/**)",
+      "Read(//z/KEIBA-CICD/data2/debug/**)",
+      "Read(//c/source/git-h.fukuda1207/_keiba/ai-team/knowledge/**)",
+      "Read(//c/source/git-h.fukuda1207/_keiba/**)"
     ],
     "deny": [],
     "ask": []

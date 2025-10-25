@@ -316,8 +316,8 @@ class HorseProfileManager:
             content_parts.extend([
                 "",
                 "## 最近10走（統合）",
-                "| 日付 | 競馬場 | レース | 距離 | 馬場 | 調教短評 | 攻め馬解説 | 厩舎談話 | 馬体重 | パ | パコメント | 着順/人気 | タイム差 | 通過順位 | 着順 | 4角位置 | 結果メモ | 結果コメ |",
-                "|:----:|:------:|:------|:----:|:----:|:--------|:----------|:--------|:------:|:--:|:--------|:--------:|:------:|:--------:|:----:|:------:|:------|:------|",
+                "| 日付 | 競馬場 | レース | 距離 | 馬場 | 調教短評 | 攻め馬解説 | 厩舎談話 | 馬体重 | パ | パコメント | 着順/人気 | 通過順位 | 着順 | 4角位置 | 結果メモ | 結果コメ |",
+                "|:----:|:------:|:------|:----:|:----:|:--------|:----------|:--------|:------:|:--:|:--------|:--------:|:------:|:----:|:------:|:------|:------|",
                 self.format_combined_last10_table(past_races),
             ])
 
@@ -1399,8 +1399,7 @@ class HorseProfileManager:
                 return text
             
             # 新しい列構成に合わせてデータを取得（全文表示）
-            # タイム差、通過順位、4角位置の取得
-            time_diff = race.get('タイム差', '-')
+            # 通過順位、4角位置の取得
             corner_positions = race.get('通過順位', '-')
             four_corner_position = race.get('4角位置', '-')
             
@@ -1410,7 +1409,7 @@ class HorseProfileManager:
                    f"{race.get('馬場', '-')} | {process_text(training_data.get('short_review', ''))} | " \
                    f"{process_text(training_data.get('attack_explanation', ''))} | {process_text(stable_comment.get('comment', ''))} | " \
                    f"{weight_info} | {process_text(paddock_info.get('mark', ''))} | {process_text(paddock_info.get('comment', ''))} | " \
-                   f"{position_pop} | {time_diff} | {corner_positions} | {pos_norm} | {four_corner_position} | " \
+                   f"{position_pop} | {corner_positions} | {pos_norm} | {four_corner_position} | " \
                    f"{process_text(race.get('結果メモ', ''))} | {process_text(race.get('結果コメ', ''))} |"
             lines.append(line)
             logger.debug(f"レース[{i}] テーブル行生成完了: {line[:100]}...")
