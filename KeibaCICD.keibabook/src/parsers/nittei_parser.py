@@ -148,11 +148,13 @@ class NitteiParser(BaseParser):
                     if len(tds) < 2:
                         continue
                     
-                    race_no = tds[0].get_text(strip=True)
-                    
-                    # レース番号が数字+Rの形式でない場合はスキップ
-                    if not race_no.endswith('R') or not race_no[:-1].isdigit():
+                    # td[0]から「数字+R」形式のレース番号を抽出
+                    # HTML構造変更で「1RMy馬」のように「My馬」が含まれるようになった
+                    td0_text = tds[0].get_text(strip=True)
+                    race_no_match = re.match(r'^(\d+R)', td0_text)
+                    if not race_no_match:
                         continue
+                    race_no = race_no_match.group(1)
                     
                     # レース名・コース・IDを取得
                     a = tds[1].find('a', href=True)
