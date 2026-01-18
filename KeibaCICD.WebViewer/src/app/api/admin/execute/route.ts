@@ -1,0 +1,168 @@
+/**
+ * 管理画面用API: コマンド実行
+ * POST /api/admin/execute
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { spawn } from 'child_process';
+import { ActionType, getCommandArgs, getAction } from '@/lib/admin/commands';
+import { ADMIN_CONFIG } from '@/lib/admin/config';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+interface ExecuteRequest {
+  action: ActionType;
+  date: string; // YYYY-MM-DD形式
+}
+
+/**
+ * SSE形式でログをストリーミング
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body: ExecuteRequest = await request.json();
+    const { action, date } = body;
+
+    // バリデーション
+    if (!action || !date) {
+      return NextResponse.json(
+        { error: 'action と date は必須です' },
+        { status: 400 }
+      );
+    }
+
+    const actionConfig = getAction(action);
+    if (!actionConfig) {
+      return NextResponse.json(
+        { error: `不明なアクション: ${action}` },
+        { status: 400 }
+      );
+    }
+
+    // SSEストリームを作成
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const sendEvent = (type: string, data: object) => {
+          const event = `data: ${JSON.stringify({ type, ...data })}\n\n`;
+          controller.enqueue(encoder.encode(event));
+        };
+
+        const commandsList = getCommandArgs(action, date);
+        const startTime = Date.now();
+
+        sendEvent('start', {
+          action,
+          label: actionConfig.label,
+          icon: actionConfig.icon,
+          totalCommands: commandsList.length,
+          timestamp: new Date().toISOString(),
+        });
+
+        try {
+          for (let i = 0; i < commandsList.length; i++) {
+            const args = commandsList[i];
+
+            sendEvent('progress', {
+              current: i + 1,
+              total: commandsList.length,
+              command: `python ${args.join(' ')}`,
+            });
+
+            await executeCommand(
+              args,
+              (message, level) => {
+                sendEvent('log', {
+                  message,
+                  level,
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            );
+          }
+
+          const duration = Date.now() - startTime;
+          sendEvent('complete', {
+            success: true,
+            duration,
+            message: `${actionConfig.icon} ${actionConfig.label} 完了 (${(duration / 1000).toFixed(1)}秒)`,
+          });
+        } catch (error) {
+          const duration = Date.now() - startTime;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
+          sendEvent('error', {
+            success: false,
+            duration,
+            message: `❌ ${actionConfig.label} エラー: ${errorMessage}`,
+          });
+        }
+
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
+  } catch (error) {
+    console.error('API Error:', error);
+    return NextResponse.json(
+      { error: 'Internal Server Error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * 単一のコマンドを実行
+ */
+function executeCommand(
+  args: string[],
+  onLog: (message: string, level: 'info' | 'warning' | 'error') => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cwd = ADMIN_CONFIG.keibabookPath;
+    const pythonPath = ADMIN_CONFIG.pythonPath;
+
+    onLog(`実行: python ${args.join(' ')}`, 'info');
+
+    const child = spawn(pythonPath, args, {
+      cwd,
+      shell: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    });
+
+    child.stdout?.on('data', (data: Buffer) => {
+      const lines = data.toString('utf-8').split('\n').filter(Boolean);
+      for (const line of lines) {
+        onLog(line.trim(), 'info');
+      }
+    });
+
+    child.stderr?.on('data', (data: Buffer) => {
+      const lines = data.toString('utf-8').split('\n').filter(Boolean);
+      for (const line of lines) {
+        // 進捗表示などはwarningとして扱う
+        onLog(line.trim(), 'warning');
+      }
+    });
+
+    child.on('close', (code: number | null) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`プロセス終了コード: ${code}`));
+      }
+    });
+
+    child.on('error', (error: Error) => {
+      reject(error);
+    });
+  });
+}
