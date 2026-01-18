@@ -1,0 +1,15 @@
+=== stdout ===
+��H�f�[�^�Ǎ�: 2055��
+�R�[�X�f�[�^�Ǎ�: 735��
+
+��������:
+  ��H�f�[�^�Ǎ�: 2055��
+  �R�[�X�f�[�^�Ǎ�: 735��
+  �o�͔n��: 349��
+  �o�̓t�@�C��: keiba-cicd-core\tools\output_test.txt
+
+
+=== stderr ===
+(empty)
+
+Exit code: 0

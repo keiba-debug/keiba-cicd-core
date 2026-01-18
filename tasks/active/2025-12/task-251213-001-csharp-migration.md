@@ -127,6 +127,7 @@ Python製の競馬ブックスクレイピングシステム（KeibaCICD.keibabo
 - `docs/design/parser_output_schemas.md`
 - `docs/design/handover_notes.md` ← NEW（引継ぎ資料）
 - `docs/design/dotnet10_migration_guide.md` ← NEW（.NET 10移行ガイド）
+- `docs/design/ml_training_pattern_analysis.md` ← NEW（機械学習設計書）
 - `docs/csharp_migration_analysis.md`
 - `docs/architecture_considerations.md`
 
