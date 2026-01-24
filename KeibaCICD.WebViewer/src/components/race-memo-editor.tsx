@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Pencil, Save, Loader2, X } from 'lucide-react';
 
 interface RaceMemoEditorProps {
   date: string;
@@ -87,70 +87,78 @@ export function RaceMemoEditor({ date, raceId }: RaceMemoEditorProps) {
   };
 
   return (
-    <Card className="mb-6">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            📝 予想メモ
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            {lastSaved && !isEditing && (
-              <span className="text-xs text-muted-foreground">
-                保存: {formatDate(lastSaved)}
-              </span>
-            )}
-            {!isEditing ? (
+    <div className="mb-6 p-4 bg-card rounded-lg border">
+      {/* セクションヘッダー - 左ボーダースタイル */}
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-bold border-l-4 border-primary pl-3">
+          予想メモ
+        </h2>
+        <div className="flex items-center gap-2">
+          {lastSaved && !isEditing && (
+            <span className="text-xs text-muted-foreground">
+              保存: {formatDate(lastSaved)}
+            </span>
+          )}
+          {!isEditing ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditing(true)}
+              className="rounded-lg"
+            >
+              <Pencil className="w-4 h-4 mr-1" />
+              編集
+            </Button>
+          ) : (
+            <div className="flex gap-2">
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => setIsEditing(true)}
+                onClick={handleCancel}
+                disabled={isSaving}
+                className="rounded-lg"
               >
-                編集
+                <X className="w-4 h-4 mr-1" />
+                キャンセル
               </Button>
-            ) : (
-              <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancel}
-                  disabled={isSaving}
-                >
-                  キャンセル
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={isSaving || !hasChanges}
-                  className="bg-lime-400 hover:bg-lime-300 text-black font-bold px-5 shadow-md border-2 border-lime-500"
-                >
-                  {isSaving ? '⏳ 保存中...' : '💾 保存'}
-                </Button>
-              </div>
-            )}
-          </div>
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={isSaving || !hasChanges}
+                className="rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4 mr-1" />
+                )}
+                保存
+              </Button>
+            </div>
+          )}
         </div>
-      </CardHeader>
-      <CardContent>
-        {isEditing ? (
-          <textarea
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-            placeholder="予想メモを入力..."
-            className="w-full min-h-[120px] p-3 border rounded-md text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-            autoFocus
-          />
-        ) : (
-          <div className="min-h-[60px] text-sm">
-            {memo ? (
-              <p className="whitespace-pre-wrap">{memo}</p>
-            ) : (
-              <p className="text-muted-foreground italic">
-                メモはありません。「編集」をクリックして追加できます。
-              </p>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {/* コンテンツ */}
+      {isEditing ? (
+        <textarea
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+          placeholder="予想メモを入力..."
+          className="w-full min-h-[120px] p-3 border rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+          autoFocus
+        />
+      ) : (
+        <div className="min-h-[40px] text-sm">
+          {memo ? (
+            <p className="whitespace-pre-wrap">{memo}</p>
+          ) : (
+            <p className="text-muted-foreground italic">
+              メモはありません。「編集」をクリックして追加できます。
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

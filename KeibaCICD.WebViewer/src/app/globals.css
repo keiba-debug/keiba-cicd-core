@@ -4,39 +4,39 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --font-sans: var(--font-noto-sans-jp), 'Noto Sans JP', system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', monospace;
+  
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -44,75 +44,148 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  
+  /* Venue Colors */
+  --color-venue-nakayama: var(--venue-nakayama);
+  --color-venue-kyoto: var(--venue-kyoto);
+  --color-venue-kokura: var(--venue-kokura);
+  --color-venue-tokyo: var(--venue-tokyo);
+  --color-venue-hanshin: var(--venue-hanshin);
+  
+  /* Surface Colors (Added by Assistant) */
+  --color-surface-turf: var(--surface-turf);
+  --color-surface-dirt: var(--surface-dirt);
+  --color-surface-steeplechase: var(--surface-steeplechase);
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Modern Pop Theme - Clean & Vibrant */
+  --background: oklch(0.995 0 0);
+  --foreground: oklch(0.2 0.02 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.2 0.02 260);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.2 0.02 260);
+  
+  /* Primary - Vibrant Blue */
+  --primary: oklch(0.6 0.2 255);
+  --primary-foreground: oklch(0.99 0 0);
+  
+  /* Secondary - Soft Gray with slight warmth */
+  --secondary: oklch(0.96 0.005 260);
+  --secondary-foreground: oklch(0.35 0.02 260);
+  
+  /* Muted - Light backgrounds */
+  --muted: oklch(0.97 0.003 260);
+  --muted-foreground: oklch(0.5 0.01 260);
+  
+  /* Accent - Vivid Coral/Orange for pop */
+  --accent: oklch(0.7 0.18 35);
+  --accent-foreground: oklch(0.99 0 0);
+  
+  /* Status Colors - Bright and Clear */
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.65 0.2 155);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.8 0.16 75);
+  --warning-foreground: oklch(0.25 0 0);
+  
+  --border: oklch(0.92 0.005 260);
+  --input: oklch(0.94 0.005 260);
+  --ring: oklch(0.6 0.2 255);
+  
+  /* Chart Colors - Vibrant palette */
+  --chart-1: oklch(0.6 0.2 255);
+  --chart-2: oklch(0.65 0.2 155);
+  --chart-3: oklch(0.7 0.18 35);
+  --chart-4: oklch(0.75 0.15 85);
+  --chart-5: oklch(0.6 0.18 330);
+  
+  --radius: 0.5rem;
+  
+  /* Venue Colors - Distinct and Vibrant */
+  --venue-nakayama: oklch(0.55 0.22 25);
+  --venue-kyoto: oklch(0.55 0.2 155);
+  --venue-kokura: oklch(0.55 0.2 255);
+  --venue-tokyo: oklch(0.55 0.18 290);
+  --venue-hanshin: oklch(0.65 0.18 75);
+  
+  /* Surface Colors (Added for Keiba context) */
+  --surface-turf: oklch(0.6 0.18 145);        /* Greenish */
+  --surface-dirt: oklch(0.65 0.15 75);        /* Brownish/Orange */
+  --surface-steeplechase: oklch(0.6 0.15 280); /* Violet/Blue */
+  
+  --sidebar: oklch(0.995 0 0);
+  --sidebar-foreground: oklch(0.2 0.02 260);
+  --sidebar-primary: oklch(0.6 0.2 255);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.96 0.005 260);
+  --sidebar-accent-foreground: oklch(0.35 0.02 260);
+  --sidebar-border: oklch(0.92 0.005 260);
+  --sidebar-ring: oklch(0.6 0.2 255);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.12 0.01 250);
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.16 0.01 250);
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.16 0.01 250);
+  --popover-foreground: oklch(0.95 0 0);
+  --primary: oklch(0.95 0 0);
+  --primary-foreground: oklch(0.15 0.01 250);
+  --secondary: oklch(0.22 0.01 250);
+  --secondary-foreground: oklch(0.9 0 0);
+  --muted: oklch(0.2 0.01 250);
+  --muted-foreground: oklch(0.6 0 0);
+  --accent: oklch(0.65 0.12 185);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.55 0.15 145);
+  --success-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.7 0.15 65);
+  --warning-foreground: oklch(0.2 0 0);
+  --border: oklch(0.25 0.01 250);
+  --input: oklch(0.22 0.01 250);
+  --ring: oklch(0.65 0.12 185);
+  --chart-1: oklch(0.6 0.15 250);
+  --chart-2: oklch(0.65 0.12 185);
+  --chart-3: oklch(0.65 0.18 25);
+  --chart-4: oklch(0.7 0.15 65);
+  --chart-5: oklch(0.6 0.15 145);
+  
+  --sidebar: oklch(0.14 0.01 250);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.65 0.12 185);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.22 0.01 250);
+  --sidebar-accent-foreground: oklch(0.9 0 0);
+  --sidebar-border: oklch(0.25 0.01 250);
+  --sidebar-ring: oklch(0.65 0.12 185);
+  
+  /* Venue Colors (Dark mode adjustments if needed, keeping same for vibrancy) */
+  /* Slightly lighter/adjusted for dark background visibility if necessary */
+  --venue-nakayama: oklch(0.65 0.22 25);
+  --venue-kyoto: oklch(0.65 0.2 155);
+  --venue-kokura: oklch(0.65 0.2 255);
+  --venue-tokyo: oklch(0.65 0.18 290);
+  --venue-hanshin: oklch(0.75 0.18 75);
+  
+  /* Surface Colors (Dark mode) */
+  --surface-turf: oklch(0.7 0.18 145);
+  --surface-dirt: oklch(0.75 0.15 75);
+  --surface-steeplechase: oklch(0.7 0.15 280);
 }
 
 @layer base {
@@ -158,6 +231,7 @@ body:not(.newspaper-mode) footer {
 
 /* ========================================
    新聞風スタイル（newspaper-mode）- モノクロ版
+   ※ 出走表ページ (.race-detail-page) 専用に限定
    ======================================== */
 .newspaper-mode {
   --background: #f8f8f6;
@@ -216,88 +290,93 @@ body:not(.newspaper-mode) footer {
     #f8f8f6;
 }
 
-/* カード */
-.newspaper-mode [class*="card"] {
+/* ========================================
+   出走表ページ専用スタイル (.race-detail-page)
+   ※ 以下のセレクタはレース一覧には影響しない
+   ======================================== */
+
+/* カード - 出走表ページ専用 */
+.newspaper-mode .race-detail-page [class*="card"] {
   background: #fefefe !important;
   border: 1px solid #ccc !important;
   box-shadow: 1px 1px 3px rgba(0,0,0,0.08) !important;
 }
 
-.newspaper-mode [class*="card-header"] {
+.newspaper-mode .race-detail-page [class*="card-header"] {
   background: linear-gradient(180deg, #4a4a4a 0%, #3a3a3a 100%) !important;
   color: #fff !important;
   font-weight: bold !important;
 }
 
-.newspaper-mode [class*="card-header"] * {
+.newspaper-mode .race-detail-page [class*="card-header"] * {
   color: #fff !important;
 }
 
-/* リンク */
-.newspaper-mode a {
+/* リンク - 出走表ページ専用 */
+.newspaper-mode .race-detail-page a {
   color: #444;
 }
 
-.newspaper-mode a:hover {
+.newspaper-mode .race-detail-page a:hover {
   color: #000;
   text-decoration: underline;
 }
 
-/* バッジ */
-.newspaper-mode [class*="badge"] {
+/* バッジ - 出走表ページ専用 */
+.newspaper-mode .race-detail-page [class*="badge"] {
   background: #444 !important;
   color: #fff !important;
   border: 1px solid #555 !important;
   font-weight: bold !important;
 }
 
-.newspaper-mode [data-variant="secondary"] {
+.newspaper-mode .race-detail-page [data-variant="secondary"] {
   background: #e0e0e0 !important;
   color: #333 !important;
   border: 1px solid #bbb !important;
 }
 
-/* タブ */
-.newspaper-mode [role="tablist"] {
+/* タブ - 出走表ページ専用 */
+.newspaper-mode .race-detail-page [role="tablist"] {
   background: #e0e0e0 !important;
   padding: 0.25rem !important;
   border-radius: 0.5rem !important;
   border: 1px solid #ccc !important;
 }
 
-.newspaper-mode [role="tab"] {
+.newspaper-mode .race-detail-page [role="tab"] {
   background: transparent !important;
   color: #555 !important;
   font-weight: 600 !important;
   font-size: 0.9rem !important;
 }
 
-.newspaper-mode [role="tab"]:hover {
+.newspaper-mode .race-detail-page [role="tab"]:hover {
   background: #d0d0d0 !important;
   color: #333 !important;
 }
 
-.newspaper-mode [role="tab"][data-state="active"] {
+.newspaper-mode .race-detail-page [role="tab"][data-state="active"] {
   background: #444 !important;
   color: #fff !important;
   font-weight: bold !important;
 }
 
-/* レースリスト */
-.newspaper-mode .race-link,
-.newspaper-mode main a[href*="/races/"] {
+/* レースリンク - 出走表ページ専用 */
+.newspaper-mode .race-detail-page .race-link,
+.newspaper-mode .race-detail-page a[href*="/races/"] {
   border-left: 3px solid #555 !important;
   padding-left: 0.75rem !important;
 }
 
-/* 記事スタイル */
-.newspaper-mode .prose {
+/* 記事スタイル - 出走表ページ専用 */
+.newspaper-mode .race-detail-page .prose {
   font-family: "游明朝", "Yu Mincho", "ヒラギノ明朝 Pro", serif;
   line-height: 2;
   letter-spacing: 0.02em;
 }
 
-.newspaper-mode .prose h1 {
+.newspaper-mode .race-detail-page .prose h1 {
   font-size: 1.75rem;
   font-weight: 900;
   border-bottom: 3px double #333;
@@ -305,7 +384,7 @@ body:not(.newspaper-mode) footer {
   margin-bottom: 1.5rem;
 }
 
-.newspaper-mode .prose h2 {
+.newspaper-mode .race-detail-page .prose h2 {
   font-size: 1.25rem;
   font-weight: 900;
   background: linear-gradient(90deg, #4a4a4a 0%, #3a3a3a 100%);
@@ -314,7 +393,7 @@ body:not(.newspaper-mode) footer {
   margin-top: 2rem;
 }
 
-.newspaper-mode .prose h3 {
+.newspaper-mode .race-detail-page .prose h3 {
   font-size: 1.1rem;
   font-weight: bold;
   border-left: 4px solid #555;
@@ -322,20 +401,20 @@ body:not(.newspaper-mode) footer {
   margin-top: 1.5rem;
 }
 
-/* テーブル */
-.newspaper-mode .prose table {
+/* テーブル - 出走表ページ専用 */
+.newspaper-mode .race-detail-page .prose table {
   font-size: 0.85rem;
   border-collapse: collapse;
   width: 100%;
   margin: 1rem 0;
 }
 
-.newspaper-mode .prose thead {
+.newspaper-mode .race-detail-page .prose thead {
   background: #444;
   color: #fff;
 }
 
-.newspaper-mode .prose th {
+.newspaper-mode .race-detail-page .prose th {
   background: #444 !important;
   color: #fff !important;
   font-weight: bold;
@@ -344,17 +423,17 @@ body:not(.newspaper-mode) footer {
   border: 1px solid #555;
 }
 
-.newspaper-mode .prose td {
+.newspaper-mode .race-detail-page .prose td {
   border: 1px solid #ccc;
   padding: 0.375rem 0.5rem;
   background: #fefefe;
 }
 
-.newspaper-mode .prose tr:nth-child(even) td {
+.newspaper-mode .race-detail-page .prose tr:nth-child(even) td {
   background: #f5f5f5;
 }
 
-.newspaper-mode .prose tr:hover td {
+.newspaper-mode .race-detail-page .prose tr:hover td {
   background: #eaeaea;
 }
 
@@ -365,13 +444,13 @@ body:not(.newspaper-mode) footer {
   border-top: 2px solid #555 !important;
 }
 
-/* ボタン */
-.newspaper-mode button[class*="outline"] {
+/* ボタン - 出走表ページ専用 */
+.newspaper-mode .race-detail-page button[class*="outline"] {
   border-color: #555 !important;
   color: #444 !important;
 }
 
-.newspaper-mode button[class*="outline"]:hover {
+.newspaper-mode .race-detail-page button[class*="outline"]:hover {
   background: #444 !important;
   color: #fff !important;
 }
@@ -413,29 +492,29 @@ body:not(.newspaper-mode) footer {
   color: #333 !important;
 }
 
-/* 新聞風 - レースナビゲーション */
-.newspaper-mode .race-navigation {
+/* 新聞風 - レースナビゲーション（出走表ページ専用） */
+.newspaper-mode .race-detail-page .race-navigation {
   background: #f0f0ee !important;
   border-color: #bbb !important;
 }
 
-.newspaper-mode .track-nav-active {
+.newspaper-mode .race-detail-page .track-nav-active {
   background: #333 !important;
   color: #fff !important;
 }
 
-.newspaper-mode .track-nav-inactive {
+.newspaper-mode .race-detail-page .track-nav-inactive {
   background: #fefefe !important;
   color: #555 !important;
   border-color: #aaa !important;
 }
 
-.newspaper-mode .race-nav-active {
+.newspaper-mode .race-detail-page .race-nav-active {
   background: #555 !important;
   color: #fff !important;
 }
 
-.newspaper-mode .race-nav-inactive {
+.newspaper-mode .race-detail-page .race-nav-inactive {
   background: #fefefe !important;
   color: #666 !important;
   border-color: #bbb !important;
@@ -460,24 +539,24 @@ body:not(.newspaper-mode) footer {
   color: #333 !important;
 }
 
-/* 新聞風 - 年月選択 */
-.newspaper-mode .year-month-selector {
+/* 新聞風 - 年月選択（出走表ページ専用） */
+.newspaper-mode .race-detail-page .year-month-selector {
   background: #f0f0ee !important;
   border-color: #ccc !important;
 }
 
-.newspaper-mode .year-month-active {
+.newspaper-mode .race-detail-page .year-month-active {
   background: #444 !important;
   color: #fff !important;
 }
 
-.newspaper-mode .year-month-inactive {
+.newspaper-mode .race-detail-page .year-month-inactive {
   background: #fefefe !important;
   color: #555 !important;
   border-color: #bbb !important;
 }
 
-.newspaper-mode .year-month-inactive:hover {
+.newspaper-mode .race-detail-page .year-month-inactive:hover {
   background: #e8e8e8 !important;
 }
 

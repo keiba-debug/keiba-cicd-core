@@ -32,7 +32,7 @@ interface PastRace {
   raceNumber?: number;
   result: string;     // 着順
   distance: string;   // 芝2000
-  umaban: string;     // 馬番（出走番号）
+  umaban?: string;    // 馬番（出走番号）- オプショナル
 }
 
 interface HorseRaceSelectorProps {

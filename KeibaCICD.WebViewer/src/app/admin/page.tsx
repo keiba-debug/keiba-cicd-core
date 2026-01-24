@@ -200,7 +200,7 @@ export default function AdminPage() {
     <div className="container py-6 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2">
-          📊 管理画面
+          📊 データ登録
         </h1>
         <StatusBadge status={status} />
       </div>

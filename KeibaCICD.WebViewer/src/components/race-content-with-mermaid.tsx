@@ -44,7 +44,6 @@ export function RaceContentWithMermaid({ htmlContent }: RaceContentWithMermaidPr
           useMaxWidth: true,
           htmlLabels: true,
         },
-        suppressErrors: true, // エラーを抑制
       });
       mermaidInitialized = true;
     }

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { Play, Video, Binoculars } from 'lucide-react';
 
 type VideoType = 'paddock' | 'race' | 'patrol';
 type MultiViewPayload = {
@@ -69,27 +70,27 @@ export function JraViewerMiniLinks({
   };
 
   return (
-    <div className="flex gap-0.5 items-center flex-nowrap" onClick={(e) => e.stopPropagation()}>
+    <div className="flex gap-1 items-center flex-nowrap" onClick={(e) => e.stopPropagation()}>
       <button
         onClick={(e) => openMultiView(e, 'paddock')}
-        className="w-5 h-5 text-[10px] font-bold rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center justify-center"
+        className="w-5 h-5 rounded bg-orange-500 hover:bg-orange-600 hover:scale-110 hover:shadow-md text-white transition-all flex items-center justify-center"
         title="パドック映像をマルチビューに追加"
       >
-        パ
+        <Binoculars className="w-3 h-3" />
       </button>
       <button
         onClick={(e) => openMultiView(e, 'race')}
-        className="w-5 h-5 text-[10px] font-bold rounded bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center justify-center"
+        className="w-5 h-5 rounded bg-green-600 hover:bg-green-700 hover:scale-110 hover:shadow-md text-white transition-all flex items-center justify-center"
         title="レース映像をマルチビューに追加"
       >
-        ギ
+        <Play className="w-3 h-3" />
       </button>
       <button
         onClick={(e) => openMultiView(e, 'patrol')}
-        className="w-5 h-5 text-[10px] font-bold rounded bg-amber-600 hover:bg-amber-500 text-white transition-colors flex items-center justify-center"
+        className="w-5 h-5 rounded bg-red-500 hover:bg-red-600 hover:scale-110 hover:shadow-md text-white transition-all flex items-center justify-center"
         title="パトロール映像をマルチビューに追加"
       >
-        T
+        <Video className="w-3 h-3" />
       </button>
     </div>
   );
