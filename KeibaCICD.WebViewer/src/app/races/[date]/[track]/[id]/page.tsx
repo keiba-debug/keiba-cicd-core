@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { RaceMemoEditor } from '@/components/race-memo-editor';
 import { RaceContentWithMermaid } from '@/components/race-content-with-mermaid';
 import { JraViewerLinks } from '@/components/jra-viewer-links';
+import { RaceFetchActions } from '@/components/race-fetch-actions';
 import { generatePaddockUrl, generateRaceUrl, generatePatrolUrl, getKaisaiInfoFromRaceInfo } from '@/lib/jra-viewer-url';
 
 interface PageProps {
@@ -193,6 +194,10 @@ export default async function RaceDetailPage({ params }: PageProps) {
         </div>
         {/* JRAレーシングビュアーリンク */}
         <JraViewerLinks paddockUrl={paddockUrl} raceUrl={raceUrl} patrolUrl={patrolUrl} />
+        <div className="mt-3">
+          <div className="text-xs text-muted-foreground mb-1">このレースのデータ取得</div>
+          <RaceFetchActions date={date} raceNumber={currentRaceNumber} />
+        </div>
       </div>
 
       <Separator className="my-6" />

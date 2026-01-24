@@ -575,7 +575,14 @@ class OptimizedDataFetcher:
             self.performance_stats.add_execution_time(execution_time)
             self.logger.debug(f"[TIME] : {execution_time:.2f}")
     
-    def fetch_all_race_data_parallel_fast(self, date_str: str, data_types: List[str]) -> Dict[str, Any]:
+    def fetch_all_race_data_parallel_fast(
+        self,
+        date_str: str,
+        data_types: List[str],
+        from_race: Optional[int] = None,
+        to_race: Optional[int] = None,
+        track: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         
         
@@ -594,7 +601,12 @@ class OptimizedDataFetcher:
         self.logger.info(f"[HOT] RequestsScraperSelenium")
         
         # ID
-        race_ids = self.get_race_ids_from_file(date_str)
+        race_ids = self.get_race_ids_from_file(
+            date_str,
+            from_race=from_race,
+            to_race=to_race,
+            track=track,
+        )
         if not race_ids:
             self.logger.error(f"[ERROR] ID: {date_str}")
             return {'success': False, 'error': 'No race IDs found'}
@@ -710,7 +722,13 @@ class OptimizedDataFetcher:
         with open(alert_file, 'w', encoding='utf-8') as f:
             json.dump(alert, f, ensure_ascii=False, indent=2)
     
-    def get_race_ids_from_file(self, date_str: str) -> List[str]:
+    def get_race_ids_from_file(
+        self,
+        date_str: str,
+        from_race: Optional[int] = None,
+        to_race: Optional[int] = None,
+        track: Optional[str] = None,
+    ) -> List[str]:
         """
         IDID
 
@@ -736,9 +754,22 @@ class OptimizedDataFetcher:
             # race_idと実際の日付のマッピングをクリアして再作成
             self.race_id_to_date_map.clear()
 
+            def parse_race_number(value: Optional[str]) -> Optional[int]:
+                if not value:
+                    return None
+                digits = ''.join([c for c in str(value) if c.isdigit()])
+                return int(digits) if digits else None
+
             for venue, races in kaisai_data.items():
+                if track and venue != track:
+                    continue
                 for race in races:
                     race_id = race.get('race_id')
+                    race_no = parse_race_number(race.get('race_no'))
+                    if from_race and race_no is not None and race_no < from_race:
+                        continue
+                    if to_race and race_no is not None and race_no > to_race:
+                        continue
                     if race_id:
                         race_ids.append(race_id)
                         # マッピングに追加（実際の開催日を保存）

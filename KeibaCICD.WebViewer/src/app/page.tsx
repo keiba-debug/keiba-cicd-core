@@ -1,10 +1,9 @@
 import Link from 'next/link';
-import { getAvailableDates, getRacesByDate, getRaceInfo } from '@/lib/data';
+import { getAvailableDates, getRacesByDate } from '@/lib/data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
-import { generatePaddockUrl, generateRaceUrl, generatePatrolUrl, parseKaisaiKey } from '@/lib/jra-viewer-url';
 
 // 日付を年月でグループ化
 function groupDatesByYearMonth(dates: string[]): Map<string, string[]> {
@@ -193,121 +192,161 @@ export default async function HomePage({
 }
 
 async function DateRaces({ date }: { date: string }) {
-  const [data, raceInfo] = await Promise.all([
-    getRacesByDate(date),
-    getRaceInfo(date),
-  ]);
+  const data = await getRacesByDate(date);
 
   if (!data) {
     return <p className="text-muted-foreground">データが見つかりません</p>;
   }
 
-  // 開催情報から回次・日次を取得するヘルパー
-  const getKaisaiInfo = (track: string) => {
-    if (!raceInfo?.kaisai_data) return null;
-    for (const kaisaiKey of Object.keys(raceInfo.kaisai_data)) {
-      const parsed = parseKaisaiKey(kaisaiKey);
-      if (parsed && parsed.track === track) {
-        return parsed;
-      }
-    }
-    return null;
+
+  const netkeibaRaceId = (race: { track: string; raceNumber: number; kai?: number; nichi?: number; date: string }) => {
+    if (!race.kai || !race.nichi) return null;
+    const trackCodes: Record<string, string> = {
+      '札幌': '01',
+      '函館': '02',
+      '福島': '03',
+      '新潟': '04',
+      '東京': '05',
+      '中山': '06',
+      '中京': '07',
+      '京都': '08',
+      '阪神': '09',
+      '小倉': '10',
+    };
+    const code = trackCodes[race.track];
+    if (!code) return null;
+    const [year] = race.date.split('-');
+    const raceNo = String(race.raceNumber).padStart(2, '0');
+    const kai = String(race.kai).padStart(2, '0');
+    const nichi = String(race.nichi).padStart(2, '0');
+    return `${year}${code}${kai}${nichi}${raceNo}`;
   };
 
-  // JRAビュアーURL生成ヘルパー
-  const generateUrls = (track: string, raceNumber: number) => {
-    const kaisaiInfo = getKaisaiInfo(track);
-    if (!kaisaiInfo) return { paddockUrl: null, raceUrl: null, patrolUrl: null };
+  const formatCondition = (distance?: string) => {
+    if (!distance) return '';
+    const normalized = distance.replace('：', ':').replace('・', ' ').trim();
+    const withSpace = normalized.replace(':', ' ');
+    return withSpace.replace(/m/gi, 'M').replace(/\s+/g, ' ');
+  };
 
-    const [year, month, day] = date.split('-').map(Number);
-    const params = {
-      year,
-      month,
-      day,
-      track: kaisaiInfo.track,
-      kai: kaisaiInfo.kai,
-      nichi: kaisaiInfo.nichi,
-      raceNumber,
-    };
+  const courseBadgeClass = (distance?: string) => {
+    if (!distance) return 'border-muted-foreground/30 text-muted-foreground';
+    if (distance.startsWith('芝')) return 'border-emerald-200 text-emerald-700 bg-emerald-50';
+    if (distance.startsWith('ダ')) return 'border-amber-200 text-amber-700 bg-amber-50';
+    if (distance.startsWith('障')) return 'border-violet-200 text-violet-700 bg-violet-50';
+    return 'border-muted-foreground/30 text-muted-foreground';
+  };
 
-    return {
-      paddockUrl: generatePaddockUrl(params),
-      raceUrl: generateRaceUrl(params),
-      patrolUrl: generatePatrolUrl(params),
-    };
+  // 開催情報を取得（例: "1回中山9日目"）
+  const getKaisaiLabel = (track: string, races: typeof data.tracks[0]['races']) => {
+    const firstRace = races[0];
+    if (firstRace?.kai && firstRace?.nichi) {
+      return `${firstRace.kai}回${track}${firstRace.nichi}日目`;
+    }
+    return `${track}`;
   };
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-semibold border-b-2 border-foreground/20 pb-2">
-        📅 {data.displayDate}
+    <div className="space-y-4">
+      {/* 日付ヘッダー */}
+      <h2 className="text-lg font-bold text-center py-2 bg-muted/50 rounded">
+        {data.displayDate}
       </h2>
 
-      {/* 競馬場ごとのグリッド */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      {/* 競馬場ごとのグリッド（競馬ブック風テーブル形式） */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {data.tracks.map((trackGroup) => (
           <Card key={trackGroup.track} className="overflow-hidden shadow-sm">
-            <CardHeader className="py-3 bg-muted/70 border-b">
-              <CardTitle className="text-base flex items-center gap-2">
-                <span className="text-lg">🏟️</span>
-                <span className="font-bold">{trackGroup.track}競馬場</span>
-                <Badge variant="outline" className="ml-auto text-xs">
-                  {trackGroup.races.length}レース
-                </Badge>
+            {/* 開催ヘッダー（競馬ブック風：青背景） */}
+            <CardHeader className="py-2 px-3 bg-blue-700 text-white border-b-0">
+              <CardTitle className="text-sm font-bold text-center">
+                {getKaisaiLabel(trackGroup.track, trackGroup.races)}
               </CardTitle>
             </CardHeader>
+            
             <CardContent className="p-0">
-              <div className="divide-y">
+              <div className="divide-y divide-muted/30">
                 {trackGroup.races.map((race) => {
-                  const urls = generateUrls(trackGroup.track, race.raceNumber);
                   return (
                     <div
                       key={race.id}
-                      className="flex flex-col gap-2 px-4 py-3 hover:bg-muted/40 transition-colors group"
+                      className="grid grid-cols-[50px_1fr_auto] gap-2 px-2 py-2 hover:bg-amber-50 transition-colors group items-center text-sm"
                     >
+                      {/* レース番号 + 発走時刻（JRAビュアー風） */}
                       <Link
                         href={`/races/${date}/${trackGroup.track}/${race.id}`}
-                        className="flex items-center gap-3"
+                        className="flex flex-col items-center"
                       >
-                        {/* レース番号 */}
-                        <span className="w-10 h-10 flex items-center justify-center rounded bg-muted font-bold text-sm group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                        <span className="font-bold text-blue-700 hover:text-blue-900 text-base">
                           {race.raceNumber}R
                         </span>
-
-                        {/* レース情報 */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium truncate">
-                              {race.raceName}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-                            {race.className && (
-                              <Badge
-                                variant="secondary"
-                                className="text-xs px-1.5 py-0"
-                              >
-                                {race.className}
-                              </Badge>
-                            )}
-                            <span>{race.distance}</span>
-                          </div>
-                        </div>
-
-                        {/* 発走時刻 */}
-                        {race.startTime && (
-                          <span className="text-sm text-muted-foreground whitespace-nowrap">
-                            {race.startTime}
-                          </span>
-                        )}
+                        <span className="text-[11px] text-muted-foreground">
+                          {race.startTime || '--:--'}
+                        </span>
                       </Link>
 
-                      {/* JRAビュアーリンク */}
-                      <JraViewerMiniLinks
-                        paddockUrl={urls.paddockUrl}
-                        raceUrl={urls.raceUrl}
-                        patrolUrl={urls.patrolUrl}
-                      />
+                      {/* レース名 + コース + クラス */}
+                      <Link
+                        href={`/races/${date}/${trackGroup.track}/${race.id}`}
+                        className="flex flex-col min-w-0"
+                      >
+                        <span className="font-medium truncate text-sm" title={race.raceName}>
+                          {race.raceName}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-medium ${race.distance?.startsWith('芝') ? 'text-emerald-600' : race.distance?.startsWith('ダ') ? 'text-amber-700' : race.distance?.startsWith('障') ? 'text-violet-600' : 'text-muted-foreground'}`}>
+                            {formatCondition(race.distance)}
+                          </span>
+                          {race.className && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {race.className}
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+
+                      {/* 外部リンク + JRAビュアーリンク */}
+                      <div className="flex items-center gap-1">
+                        <a
+                          href={`https://p.keibabook.co.jp/cyuou/syutuba/${race.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
+                          title="競馬ブック"
+                        >
+                          <img src="/keibabook.ico" alt="競馬ブック" className="w-4 h-4 object-contain" />
+                        </a>
+                        {netkeibaRaceId(race) && (
+                          <>
+                            <a
+                              href={`https://race.netkeiba.com/race/shutuba.html?race_id=${netkeibaRaceId(race)}&rf=race_submenu`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
+                              title="netkeiba"
+                            >
+                              <img src="/netkeiba.png" alt="netkeiba" className="w-4 h-4 object-contain" />
+                            </a>
+                            <a
+                              href={`https://race.netkeiba.com/race/bbs.html?race_id=${netkeibaRaceId(race)}&rf=race_submenu`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-5 h-5 text-sm rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                              title="netkeiba BBS"
+                            >
+                              💬
+                            </a>
+                          </>
+                        )}
+                        <JraViewerMiniLinks
+                          date={date}
+                          track={trackGroup.track}
+                          raceNumber={race.raceNumber}
+                          raceName={race.raceName}
+                          kai={race.kai}
+                          nichi={race.nichi}
+                        />
+                      </div>
                     </div>
                   );
                 })}

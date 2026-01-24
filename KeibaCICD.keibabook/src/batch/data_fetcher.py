@@ -215,7 +215,13 @@ class DataFetcher:
         
         return results
 
-    def get_race_ids_from_file(self, date_str: str) -> List[str]:
+    def get_race_ids_from_file(
+        self,
+        date_str: str,
+        from_race: Optional[int] = None,
+        to_race: Optional[int] = None,
+        track: Optional[str] = None,
+    ) -> List[str]:
         """
         保存されたレースID情報から、レースIDリストを取得
 
@@ -241,9 +247,22 @@ class DataFetcher:
             # race_idと実際の日付のマッピングをクリアして再作成
             self.race_id_to_date_map.clear()
 
+            def parse_race_number(value: Optional[str]) -> Optional[int]:
+                if not value:
+                    return None
+                digits = ''.join([c for c in str(value) if c.isdigit()])
+                return int(digits) if digits else None
+
             for venue, races in kaisai_data.items():
+                if track and venue != track:
+                    continue
                 for race in races:
                     race_id = race.get('race_id')
+                    race_no = parse_race_number(race.get('race_no'))
+                    if from_race and race_no is not None and race_no < from_race:
+                        continue
+                    if to_race and race_no is not None and race_no > to_race:
+                        continue
                     if race_id:
                         race_ids.append(race_id)
                         # マッピングに追加（実際の開催日を保存）
@@ -256,7 +275,14 @@ class DataFetcher:
             self.logger.error(f"❌ レースID取得でエラー: {e}")
             return []
 
-    def fetch_all_race_data(self, date_str: str, data_types: List[str]) -> Dict[str, Any]:
+    def fetch_all_race_data(
+        self,
+        date_str: str,
+        data_types: List[str],
+        from_race: Optional[int] = None,
+        to_race: Optional[int] = None,
+        track: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         指定日の全レースデータを取得
         
@@ -271,7 +297,12 @@ class DataFetcher:
         self.logger.info(f"📊 対象データタイプ: {', '.join(data_types)}")
         
         # レースIDを取得
-        race_ids = self.get_race_ids_from_file(date_str)
+        race_ids = self.get_race_ids_from_file(
+            date_str,
+            from_race=from_race,
+            to_race=to_race,
+            track=track,
+        )
         if not race_ids:
             self.logger.error(f"❌ レースIDが取得できませんでした: {date_str}")
             return {'success': False, 'error': 'No race IDs found'}

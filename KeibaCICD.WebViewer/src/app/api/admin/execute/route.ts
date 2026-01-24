@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
-import { ActionType, getCommandArgs, getCommandArgsRange, getAction } from '@/lib/admin/commands';
+import { ActionType, getCommandArgs, getCommandArgsRange, getAction, type CommandOptions } from '@/lib/admin/commands';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
 
 export const runtime = 'nodejs';
@@ -17,6 +17,9 @@ interface ExecuteRequest {
   startDate?: string; // YYYY-MM-DD形式（日付範囲用）
   endDate?: string; // YYYY-MM-DD形式（日付範囲用）
   isRangeAction?: boolean; // 日付範囲アクションかどうか
+  raceFrom?: number; // 開始レース番号
+  raceTo?: number; // 終了レース番号
+  track?: string; // 競馬場フィルタ
 }
 
 /**
@@ -25,7 +28,7 @@ interface ExecuteRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: ExecuteRequest = await request.json();
-    const { action, date, startDate, endDate, isRangeAction } = body;
+    const { action, date, startDate, endDate, isRangeAction, raceFrom, raceTo, track } = body;
 
     // バリデーション
     if (!action) {
@@ -70,9 +73,15 @@ export async function POST(request: NextRequest) {
         };
 
         // 日付範囲アクションかどうかでコマンドリストを切り替え
+        const options: CommandOptions = {
+          raceFrom,
+          raceTo,
+          track,
+        };
+
         const commandsList = isRangeAction && startDate && endDate
-          ? getCommandArgsRange(action, startDate, endDate)
-          : getCommandArgs(action, date || '');
+          ? getCommandArgsRange(action, startDate, endDate, options)
+          : getCommandArgs(action, date || '', options);
         const startTime = Date.now();
 
         sendEvent('start', {

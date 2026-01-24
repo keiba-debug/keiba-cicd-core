@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
   const track = searchParams.get('track');
   const raceName = searchParams.get('raceName');
   const raceNumber = searchParams.get('raceNumber');
+  const distance = searchParams.get('distance');
   
   if (!date) {
     return NextResponse.json({ error: '日付が必要です' }, { status: 400 });
@@ -38,11 +39,31 @@ export async function GET(request: NextRequest) {
   if (raceNumber) {
     query.raceNumber = parseInt(raceNumber, 10);
   }
+  if (distance) {
+    query.distance = distance;
+  }
   
   const result = await lookupRace(query);
   
   if (!result) {
-    return NextResponse.json({ error: 'レースが見つかりません', query }, { status: 404 });
+    const allRaces = await getAllRacesForDate(date);
+    if (allRaces.length === 0) {
+      return NextResponse.json(
+        { error: '当日のレースデータが見つかりません', query },
+        { status: 404 }
+      );
+    }
+    const trackExists = allRaces.some((race) => race.track === track);
+    if (!trackExists) {
+      return NextResponse.json(
+        { error: '指定の競馬場が見つかりません', query },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json(
+      { error: 'レース名/番号に一致するレースが見つかりません', query },
+      { status: 404 }
+    );
   }
   
   return NextResponse.json({ race: result });

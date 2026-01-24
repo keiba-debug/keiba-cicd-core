@@ -50,6 +50,9 @@ def main():
         subparser.add_argument('--delay', type=float, default=1.0, help=', : 1.0')
         subparser.add_argument('--max-workers', type=int, default=5, help=': 5')
         subparser.add_argument('--debug', action='store_true', help='')
+        subparser.add_argument('--from-race', type=int, help='取得開始レース番号（例: 5 → 5R以降）')
+        subparser.add_argument('--to-race', type=int, help='取得終了レース番号（例: 8 → 8Rまで）')
+        subparser.add_argument('--track', help='競馬場フィルタ（例: 中山）')
     
     # schedule 
     schedule_parser = subparsers.add_parser('schedule', help='')
@@ -77,6 +80,11 @@ def main():
     
     if not args.command:
         parser.print_help()
+        return
+
+    if args.from_race and args.to_race and args.from_race > args.to_race:
+        logger = setup_batch_logger('fast_batch_cli')
+        logger.error(f"[ERROR] --from-race は --to-race 以下にしてください: {args.from_race} > {args.to_race}")
         return
     
     # 
@@ -133,7 +141,13 @@ def main():
                 date_str = current_date.strftime("%Y%m%d")
                 logger.info(f"[FAST] : {date_str}")
                 
-                summary = fetcher.fetch_all_race_data_parallel_fast(date_str, data_types)
+                summary = fetcher.fetch_all_race_data_parallel_fast(
+                    date_str,
+                    data_types,
+                    from_race=args.from_race,
+                    to_race=args.to_race,
+                    track=args.track,
+                )
                 if summary.get('success'):
                     total_success += summary.get('total_success', 0)
                     total_failed += summary.get('total_failed', 0)
@@ -195,7 +209,13 @@ def main():
                 date_str = current_date.strftime("%Y%m%d")
                 logger.info(f"[RACE] : {date_str}")
                 
-                summary = fetcher.fetch_all_race_data_parallel_fast(date_str, data_types)
+                summary = fetcher.fetch_all_race_data_parallel_fast(
+                    date_str,
+                    data_types,
+                    from_race=args.from_race,
+                    to_race=args.to_race,
+                    track=args.track,
+                )
                 if summary.get('success'):
                     total_success += summary.get('total_success', 0)
                     total_failed += summary.get('total_failed', 0)

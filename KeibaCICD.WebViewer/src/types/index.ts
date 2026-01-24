@@ -9,6 +9,8 @@ export interface RaceSummary {
   className: string;
   distance: string;
   startTime: string;
+  kai?: number;
+  nichi?: number;
   filePath: string;
 }
 

@@ -3,6 +3,7 @@
 import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   ActionButton,
   DateSelector,
@@ -13,6 +14,7 @@ import {
   type ExecutionStatus,
 } from '@/components/admin';
 import { ACTIONS, type ActionType } from '@/lib/admin/commands';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 // 日付モード
 type DateMode = 'single' | 'range';
@@ -28,6 +30,9 @@ export default function AdminPage() {
   const [status, setStatus] = useState<ExecutionStatus>('idle');
   const [currentAction, setCurrentAction] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [raceFromInput, setRaceFromInput] = useState('');
+  const [raceToInput, setRaceToInput] = useState('');
+  const [trackInput, setTrackInput] = useState('');
 
   // 日付範囲
   const getDefaultDateRange = () => {
@@ -61,11 +66,21 @@ export default function AdminPage() {
     const dateInfo = dateMode === 'single' 
       ? `対象: ${selectedDate}` 
       : `対象: ${rangeStartDate} 〜 ${rangeEndDate}`;
+    const raceFromRaw = dateMode === 'single' && raceFromInput ? Number(raceFromInput) : undefined;
+    const raceToRaw = dateMode === 'single' && raceToInput ? Number(raceToInput) : undefined;
+    const raceFrom = raceFromRaw && raceToRaw && raceFromRaw > raceToRaw ? raceToRaw : raceFromRaw;
+    const raceTo = raceFromRaw && raceToRaw && raceFromRaw > raceToRaw ? raceFromRaw : raceToRaw;
+    const track = dateMode === 'single' && trackInput ? trackInput : undefined;
+    const shouldApplyRaceFilter = ['paddok', 'seiseki', 'batch_after_race'].includes(action);
+    const raceInfo = shouldApplyRaceFilter && (raceFrom || raceTo)
+      ? `, ${raceFrom ?? 1}R〜${raceTo ?? 12}R`
+      : '';
+    const trackInfo = shouldApplyRaceFilter && track ? ` (${track})` : '';
     
     addLog({
       timestamp: new Date().toISOString(),
       level: 'info',
-      message: `${actionConfig.icon} ${actionConfig.label} 開始... (${dateInfo})`,
+      message: `${actionConfig.icon} ${actionConfig.label} 開始... (${dateInfo}${raceInfo}${trackInfo})`,
     });
 
     try {
@@ -73,6 +88,10 @@ export default function AdminPage() {
       const requestBody = dateMode === 'single'
         ? { action, date: selectedDate }
         : { action, startDate: rangeStartDate, endDate: rangeEndDate, isRangeAction: true };
+
+      if ((raceFrom || raceTo || track) && shouldApplyRaceFilter) {
+        Object.assign(requestBody, { raceFrom, raceTo, track });
+      }
 
       const response = await fetch('/api/admin/execute', {
         method: 'POST',
@@ -173,6 +192,10 @@ export default function AdminPage() {
   const generateActions = ACTIONS.filter((a) => a.category === 'generate');
   const batchActions = ACTIONS.filter((a) => a.category === 'batch');
 
+  // 折りたたみ状態
+  const [isFetchOpen, setIsFetchOpen] = useState(false);
+  const [isGenerateOpen, setIsGenerateOpen] = useState(false);
+
   return (
     <div className="container py-6 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
@@ -242,67 +265,90 @@ export default function AdminPage() {
                 : `対象期間: ${rangeStartDate} 〜 ${rangeEndDate}`}
             </span>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* データ取得 */}
-      <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            📥 データ取得
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {fetchActions.map((action) => (
-              <ActionButton
-                key={action.id}
-                icon={action.icon}
-                label={action.label}
-                description={action.description}
-                onClick={() => executeAction(action.id)}
-                disabled={isRunning}
-                loading={isRunning && currentAction === action.label}
-                variant={action.id === 'paddok' || action.id === 'seiseki' ? 'primary' : 'default'}
+          {/* 当日取得オプション */}
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+            <div className="text-sm font-medium flex items-center gap-2">
+              ⏱ 当日取得オプション
+              <span className="text-xs font-normal text-muted-foreground">（パドック/成績/レース後更新）</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-sm text-muted-foreground">開始レース</label>
+              <input
+                type="number"
+                min={1}
+                max={12}
+                placeholder="例: 5"
+                value={raceFromInput}
+                onChange={(event) => setRaceFromInput(event.target.value)}
+                disabled={isRunning || dateMode === 'range'}
+                className="h-8 w-24 rounded-md border bg-background px-2 text-sm"
               />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* データ統合・生成 */}
-      <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            📝 データ統合・生成
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {generateActions.map((action) => (
-              <ActionButton
-                key={action.id}
-                icon={action.icon}
-                label={action.label}
-                description={action.description}
-                onClick={() => executeAction(action.id)}
-                disabled={isRunning}
-                loading={isRunning && currentAction === action.label}
+              <span className="text-sm text-muted-foreground">R 〜</span>
+              <input
+                type="number"
+                min={1}
+                max={12}
+                placeholder="例: 12"
+                value={raceToInput}
+                onChange={(event) => setRaceToInput(event.target.value)}
+                disabled={isRunning || dateMode === 'range'}
+                className="h-8 w-24 rounded-md border bg-background px-2 text-sm"
               />
-            ))}
+              <span className="text-sm text-muted-foreground">R まで</span>
+              <label className="text-sm text-muted-foreground ml-2">競馬場</label>
+              <input
+                type="text"
+                placeholder="例: 中山"
+                value={trackInput}
+                onChange={(event) => setTrackInput(event.target.value)}
+                disabled={isRunning || dateMode === 'range'}
+                list="track-options"
+                className="h-8 w-32 rounded-md border bg-background px-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setRaceFromInput('');
+                  setRaceToInput('');
+                  setTrackInput('');
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                disabled={isRunning || dateMode === 'range'}
+              >
+                クリア
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              単一日付のみ有効。空欄の場合は全レースを取得します。
+            </p>
           </div>
+          <datalist id="track-options">
+            <option value="札幌" />
+            <option value="函館" />
+            <option value="福島" />
+            <option value="新潟" />
+            <option value="東京" />
+            <option value="中山" />
+            <option value="中京" />
+            <option value="京都" />
+            <option value="阪神" />
+            <option value="小倉" />
+          </datalist>
         </CardContent>
       </Card>
 
-      {/* 一括実行 */}
-      <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            🚀 一括実行
+      {/* 一括実行 - 上部に移動、強調表示 */}
+      <Card className="mb-6 border-2 border-indigo-200 dark:border-indigo-800 shadow-lg">
+        <CardHeader className="pb-3 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
+          <CardTitle className="text-xl flex items-center gap-2">
+            <span className="text-2xl">🚀</span>
+            <span>一括実行</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">よく使う機能</span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {batchActions.map((action) => (
               <ActionButton
                 key={action.id}
@@ -318,6 +364,88 @@ export default function AdminPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Separator className="my-6" />
+
+      {/* 詳細オプション - 折りたたみ可能 */}
+      <div className="space-y-4">
+        {/* データ取得 */}
+        <Collapsible open={isFetchOpen} onOpenChange={setIsFetchOpen}>
+          <Card className="border-muted">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    📥 データ取得
+                    <span className="text-xs font-normal text-muted-foreground">（個別実行）</span>
+                  </span>
+                  {isFetchOpen ? (
+                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </CardTitle>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {fetchActions.map((action) => (
+                    <ActionButton
+                      key={action.id}
+                      icon={action.icon}
+                      label={action.label}
+                      description={action.description}
+                      onClick={() => executeAction(action.id)}
+                      disabled={isRunning}
+                      loading={isRunning && currentAction === action.label}
+                      variant={action.id === 'paddok' || action.id === 'seiseki' ? 'primary' : 'default'}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+
+        {/* データ統合・生成 */}
+        <Collapsible open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
+          <Card className="border-muted">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors">
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    📝 データ統合・生成
+                    <span className="text-xs font-normal text-muted-foreground">（個別実行）</span>
+                  </span>
+                  {isGenerateOpen ? (
+                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </CardTitle>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {generateActions.map((action) => (
+                    <ActionButton
+                      key={action.id}
+                      icon={action.icon}
+                      label={action.label}
+                      description={action.description}
+                      onClick={() => executeAction(action.id)}
+                      disabled={isRunning}
+                      loading={isRunning && currentAction === action.label}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      </div>
 
       <Separator className="my-6" />
 

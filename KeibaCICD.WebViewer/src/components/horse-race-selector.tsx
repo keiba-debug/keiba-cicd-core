@@ -4,10 +4,32 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
+type VideoType = 'paddock' | 'race' | 'patrol';
+
+const VIDEO_OPTIONS: { type: VideoType; label: string; color: string }[] = [
+  { type: 'paddock', label: 'パドック', color: 'text-blue-700' },
+  { type: 'race', label: 'レース', color: 'text-red-700' },
+  { type: 'patrol', label: 'パトロール', color: 'text-amber-700' },
+];
+
+const MAX_SELECTIONS = Number.POSITIVE_INFINITY;
+
+const multiViewWindows = new Map<string, Window | null>();
+
+const formatDistance = (raw: string) => {
+  const value = raw.replace(/\s+/g, '');
+  if (!value) return '';
+  if (value.startsWith('ダート')) return value;
+  if (value.startsWith('ダ')) return `ダート${value.slice(1)}`;
+  if (value.startsWith('障')) return `障害${value.slice(1)}`;
+  return value;
+};
+
 interface PastRace {
   date: string;       // 2025/11/02
   track: string;      // 4東京11
   raceName: string;   // 天皇賞（秋）
+  raceNumber?: number;
   result: string;     // 着順
   distance: string;   // 芝2000
   umaban: string;     // 馬番（出走番号）
@@ -20,48 +42,75 @@ interface HorseRaceSelectorProps {
 }
 
 export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSelectorProps) {
-  const [selectedRaces, setSelectedRaces] = useState<Set<number>>(new Set());
+  const [selectedVideos, setSelectedVideos] = useState<Map<number, Set<VideoType>>>(new Map());
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Map<number, { found: boolean; raceNumber?: number; error?: string }>>(new Map());
 
-  const toggleRace = (index: number) => {
-    setSelectedRaces(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(index)) {
-        newSet.delete(index);
-      } else if (newSet.size < 4) { // 最大4つまで
-        newSet.add(index);
+  const getSelectedCount = (map: Map<number, Set<VideoType>>) => {
+    let count = 0;
+    map.forEach((types) => {
+      count += types.size;
+    });
+    return count;
+  };
+
+  const toggleVideo = (index: number, videoType: VideoType) => {
+    setSelectedVideos((prev) => {
+      const next = new Map(prev);
+      const current = new Set(next.get(index) ?? []);
+      const isChecked = current.has(videoType);
+
+      if (isChecked) {
+        current.delete(videoType);
+      } else {
+        if (getSelectedCount(prev) >= MAX_SELECTIONS) return prev;
+        current.add(videoType);
       }
-      return newSet;
+
+      if (current.size > 0) {
+        next.set(index, current);
+      } else {
+        next.delete(index);
+      }
+      return next;
     });
   };
 
-  const searchRaceInfo = async () => {
-    if (selectedRaces.size === 0) return;
+  const clearSelection = () => {
+    setSelectedVideos(new Map());
+    setSearchResults(new Map());
+  };
+
+  const fetchRaceResults = async () => {
+    if (selectedVideos.size === 0) return new Map<number, { found: boolean; raceNumber?: number; error?: string }>();
     
     setIsSearching(true);
     const results = new Map<number, { found: boolean; raceNumber?: number; error?: string }>();
     
-    for (const index of selectedRaces) {
+    for (const index of selectedVideos.keys()) {
       const race = pastRaces[index];
       try {
         // 競馬場名を抽出（4東京11 → 東京）
         const trackMatch = race.track.match(/\d*([^\d]+)\d*/);
         const trackName = trackMatch ? trackMatch[1] : race.track;
         
-        const response = await fetch(
-          `/api/race-lookup?date=${encodeURIComponent(race.date)}&track=${encodeURIComponent(trackName)}&raceName=${encodeURIComponent(race.raceName)}`
-        );
+        const distanceParam = race.distance
+          ? `&distance=${encodeURIComponent(race.distance)}`
+          : '';
+        const url = race.raceNumber
+          ? `/api/race-lookup?date=${encodeURIComponent(race.date)}&track=${encodeURIComponent(trackName)}&raceNumber=${race.raceNumber}${distanceParam}`
+          : `/api/race-lookup?date=${encodeURIComponent(race.date)}&track=${encodeURIComponent(trackName)}&raceName=${encodeURIComponent(race.raceName)}${distanceParam}`;
+        const response = await fetch(url);
         
+        const data = await response.json();
         if (response.ok) {
-          const data = await response.json();
           if (data.race) {
             results.set(index, { found: true, raceNumber: data.race.raceNumber });
           } else {
             results.set(index, { found: false, error: 'レースが見つかりません' });
           }
         } else {
-          results.set(index, { found: false, error: 'レース情報の取得に失敗' });
+          results.set(index, { found: false, error: data?.error || 'レース情報の取得に失敗' });
         }
       } catch {
         results.set(index, { found: false, error: 'エラーが発生しました' });
@@ -70,83 +119,162 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
     
     setSearchResults(results);
     setIsSearching(false);
+    return results;
   };
 
-  const openMultiView = () => {
-    // 選択されたレースでマルチビューを開く
-    const selectedRaceData = Array.from(selectedRaces).map(index => {
+  const openMultiView = async () => {
+    // 選択された映像でマルチビューを開く（レース単位で複数映像可）
+    const effectiveResults =
+      searchResults.size > 0 ? searchResults : await fetchRaceResults();
+    const selectedVideoData: Array<{
+      date: string;
+      track: string;
+      raceNumber: number;
+      raceName: string;
+      umaban?: string;
+      videoType: VideoType;
+    }> = [];
+
+    selectedVideos.forEach((types, index) => {
       const race = pastRaces[index];
-      const result = searchResults.get(index);
+      const result = effectiveResults.get(index);
       const trackMatch = race.track.match(/\d*([^\d]+)\d*/);
       const trackName = trackMatch ? trackMatch[1] : race.track;
-      
-      return {
-        date: race.date,
-        track: trackName,
-        raceNumber: result?.raceNumber || 0,
-        raceName: race.raceName,
-        umaban: race.umaban,
-      };
-    }).filter(r => r.raceNumber > 0);
+      const raceNumber = result?.raceNumber || 0;
+
+      if (raceNumber <= 0) return;
+
+      types.forEach((videoType) => {
+        selectedVideoData.push({
+          date: race.date,
+          track: trackName,
+          raceNumber,
+          raceName: race.raceName,
+          umaban: race.umaban,
+          videoType,
+        });
+      });
+    });
     
-    if (selectedRaceData.length === 0) {
-      alert('レース番号が取得できたレースがありません。先に「レース情報を検索」を実行してください。');
+    if (selectedVideoData.length === 0) {
+      alert('レース番号が取得できた映像がありません。先に「レース情報を検索」を実行してください。');
       return;
     }
     
-    // クエリパラメータとしてレース情報を渡す
+    const windowKey = horseId ? `horse:${horseId}` : 'default';
+    const windowName = horseId ? `keiba-multi-view-${horseId}` : 'keiba-multi-view';
+    const currentWindow = multiViewWindows.get(windowKey);
+    const targetWindow = currentWindow && !currentWindow.closed ? currentWindow : null;
+    if (targetWindow) {
+      selectedVideoData.forEach((race, idx) => {
+        const add = `${Date.now()}-${idx}`;
+        targetWindow.postMessage(
+          {
+            type: 'keiba:multi-view:add',
+            payload: {
+              add,
+              date: race.date,
+              track: race.track,
+              raceNumber: String(race.raceNumber),
+              videoType: race.videoType,
+              raceName: race.raceName,
+              umaban: race.umaban,
+            },
+          },
+          window.location.origin
+        );
+      });
+      targetWindow.focus();
+      return;
+    }
+
+    // クエリパラメータとしてレース情報を渡す（初回起動）
     const params = new URLSearchParams();
     params.set('horseId', horseId);
     params.set('horse', horseName);
-    params.set('races', JSON.stringify(selectedRaceData));
-    
-    window.open(`/multi-view?${params.toString()}`, '_blank');
+    params.set('races', JSON.stringify(selectedVideoData));
+    const opened = window.open(`/multi-view?${params.toString()}`, windowName);
+    if (opened) {
+      multiViewWindows.set(windowKey, opened);
+    }
   };
 
   if (pastRaces.length === 0) {
     return null;
   }
 
+  const selectedCount = getSelectedCount(selectedVideos);
+
   return (
     <div className="border rounded-lg p-4 my-6 bg-card">
-      <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-        📺 過去レース映像比較
-        <Badge variant="secondary">{selectedRaces.size}/4 選択中</Badge>
-      </h3>
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          📺 過去レース映像比較
+          <Badge variant="secondary">{selectedCount} 選択中</Badge>
+        </h3>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={clearSelection}
+          disabled={selectedCount === 0 || isSearching}
+          className="h-7 px-2 text-xs"
+        >
+          解除
+        </Button>
+      </div>
       
       <p className="text-sm text-muted-foreground mb-4">
-        過去レースを選択して、パドック・レース映像を比較できます（最大4レース）
+        過去レースの映像を選択して、マルチビューに一括追加できます
       </p>
 
       <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
         {pastRaces.slice(0, 20).map((race, index) => {
           const result = searchResults.get(index);
-          const isSelected = selectedRaces.has(index);
+          const selectedTypes = selectedVideos.get(index) ?? new Set<VideoType>();
           
           return (
-            <label
+            <div
               key={index}
-              className={`flex items-center gap-3 p-2 rounded cursor-pointer transition-colors
-                ${isSelected ? 'bg-primary/10' : 'hover:bg-muted'}`}
+              className={`flex items-center gap-3 p-2 rounded transition-colors
+                ${selectedTypes.size > 0 ? 'bg-primary/10' : 'hover:bg-muted'}`}
             >
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => toggleRace(index)}
-                disabled={!isSelected && selectedRaces.size >= 4}
-                className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-              />
+              <div className="flex items-center gap-2">
+                {VIDEO_OPTIONS.map((option) => {
+                  const isChecked = selectedTypes.has(option.type);
+                  return (
+                    <label key={option.type} className="flex items-center gap-1 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleVideo(index, option.type)}
+                        disabled={false}
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-primary focus:ring-primary"
+                      />
+                      <span className={option.color}>{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
               <span className="flex-1 text-sm">
                 <span className="font-mono">{race.date}</span>
-                <span className="mx-2">{race.track}</span>
+                <span className="mx-2">/</span>
+                <span>{race.track}</span>
+                <span className="mx-2">/</span>
                 <span className="font-medium">{race.raceName}</span>
-                <span className="ml-2 text-muted-foreground">{race.distance}</span>
+                {race.distance && (
+                  <>
+                    <span className="mx-2">/</span>
+                    <span className="text-muted-foreground">
+                      {formatDistance(race.distance)}
+                    </span>
+                  </>
+                )}
                 {race.umaban && (
                   <span className="ml-2 px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-xs font-bold">
-                    {race.umaban}番
+                    馬番{race.umaban}
                   </span>
                 )}
-                <span className="ml-2">{race.result}着</span>
+                {race.result && <span className="ml-2">着順{race.result}</span>}
               </span>
               {result && (
                 result.found ? (
@@ -159,7 +287,7 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
                   </Badge>
                 )
               )}
-            </label>
+            </div>
           );
         })}
       </div>
@@ -168,18 +296,18 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
         <Button
           variant="outline"
           size="sm"
-          onClick={searchRaceInfo}
-          disabled={selectedRaces.size === 0 || isSearching}
+          onClick={fetchRaceResults}
+          disabled={selectedCount === 0 || isSearching}
         >
           {isSearching ? '検索中...' : '🔍 レース情報を検索'}
         </Button>
         <Button
           size="sm"
           onClick={openMultiView}
-          disabled={selectedRaces.size === 0 || searchResults.size === 0}
+          disabled={selectedCount === 0 || isSearching}
           className="bg-blue-600 hover:bg-blue-700"
         >
-          📺 マルチビューで開く
+          📺 マルチビューに追加
         </Button>
       </div>
 
