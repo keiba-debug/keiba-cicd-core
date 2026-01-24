@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
-import { ActionType, getCommandArgs, getAction } from '@/lib/admin/commands';
+import { ActionType, getCommandArgs, getCommandArgsRange, getAction } from '@/lib/admin/commands';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
 
 export const runtime = 'nodejs';
@@ -13,7 +13,10 @@ export const dynamic = 'force-dynamic';
 
 interface ExecuteRequest {
   action: ActionType;
-  date: string; // YYYY-MM-DD形式
+  date?: string; // YYYY-MM-DD形式（単一日付用）
+  startDate?: string; // YYYY-MM-DD形式（日付範囲用）
+  endDate?: string; // YYYY-MM-DD形式（日付範囲用）
+  isRangeAction?: boolean; // 日付範囲アクションかどうか
 }
 
 /**
@@ -22,14 +25,31 @@ interface ExecuteRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: ExecuteRequest = await request.json();
-    const { action, date } = body;
+    const { action, date, startDate, endDate, isRangeAction } = body;
 
     // バリデーション
-    if (!action || !date) {
+    if (!action) {
       return NextResponse.json(
-        { error: 'action と date は必須です' },
+        { error: 'action は必須です' },
         { status: 400 }
       );
+    }
+
+    // 日付範囲アクションの場合
+    if (isRangeAction) {
+      if (!startDate || !endDate) {
+        return NextResponse.json(
+          { error: 'startDate と endDate は必須です（日付範囲アクション）' },
+          { status: 400 }
+        );
+      }
+    } else {
+      if (!date) {
+        return NextResponse.json(
+          { error: 'date は必須です' },
+          { status: 400 }
+        );
+      }
     }
 
     const actionConfig = getAction(action);
@@ -49,7 +69,10 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(event));
         };
 
-        const commandsList = getCommandArgs(action, date);
+        // 日付範囲アクションかどうかでコマンドリストを切り替え
+        const commandsList = isRangeAction && startDate && endDate
+          ? getCommandArgsRange(action, startDate, endDate)
+          : getCommandArgs(action, date || '');
         const startTime = Date.now();
 
         sendEvent('start', {

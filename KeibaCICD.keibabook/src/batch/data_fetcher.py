@@ -90,16 +90,16 @@ class DataFetcher:
                 self.logger.info(f"⏭️ JSONファイルは出力しません")
                 return True  # 開催がない日も正常処理として扱う
             
-            # JSONファイルとして保存
-            json_file_path = get_json_file_path('nittei', date_str)
+            # JSONファイルとして保存（開催がある場合のみ）
+            json_file_path = get_json_file_path('nittei', date_str, create_dir=True)
             with open(json_file_path, 'w', encoding='utf-8') as f:
                 json.dump(parsed_data, f, ensure_ascii=False, indent=2)
             
             self.logger.info(f"✅ 日程JSON保存完了: {json_file_path}")
             self.logger.info(f"🏇 開催情報: {kaisai_count}開催, {total_races}レース")
             
-            # レースID情報も保存
-            race_ids_file = get_race_ids_file_path(date_str)
+            # レースID情報も保存（開催がある場合のみ - フォルダ作成を有効化）
+            race_ids_file = get_race_ids_file_path(date_str, create_dir=True)
             with open(race_ids_file, 'w', encoding='utf-8') as f:
                 json.dump(parsed_data, f, ensure_ascii=False, indent=2)
             

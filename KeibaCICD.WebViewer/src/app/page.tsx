@@ -32,15 +32,32 @@ export default async function HomePage({
   const groupedDates = groupDatesByYearMonth(dates);
   const yearMonths = Array.from(groupedDates.keys()).sort().reverse();
 
-  // 利用可能な年を取得
-  const years = [...new Set(yearMonths.map((ym) => ym.split('-')[0]))];
+  // 現在の年月を取得
+  const now = new Date();
+  const currentYear = now.getFullYear().toString();
+  const currentMonth = (now.getMonth() + 1).toString().padStart(2, '0');
 
-  // 選択された年月を取得（デフォルトは最新）
-  const selectedYear = params.year || years[0];
-  const availableMonths = yearMonths
+  // データがある年を取得
+  const dataYears = [...new Set(yearMonths.map((ym) => ym.split('-')[0]))];
+
+  // 選択された年月を取得（デフォルトは最新データがある年月、またはクエリパラメータ）
+  const selectedYear = params.year || dataYears[0] || currentYear;
+
+  // 表示する年のリスト（データがある年 + 選択された年の前後 + 現在年を含む）
+  const yearNum = parseInt(selectedYear);
+  const adjacentYears = [
+    (yearNum - 1).toString(),
+    selectedYear,
+    (yearNum + 1).toString()
+  ];
+  const years = [...new Set([...dataYears, ...adjacentYears, currentYear])].sort().reverse();
+  const availableMonthsInYear = yearMonths
     .filter((ym) => ym.startsWith(selectedYear))
     .map((ym) => ym.split('-')[1]);
-  const selectedMonth = params.month || availableMonths[0];
+  
+  // 月は1-12月全て表示（データの有無に関わらず）
+  const allMonths = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+  const selectedMonth = params.month || availableMonthsInYear[0] || currentMonth;
   const selectedYearMonth = `${selectedYear}-${selectedMonth}`;
 
   // 選択された年月の日付を取得
@@ -48,6 +65,21 @@ export default async function HomePage({
 
   // 最新日付のデータを取得
   const latestDate = datesInMonth[0];
+
+  // 前月・次月の計算
+  const selectedMonthNum = parseInt(selectedMonth);
+  const selectedYearNum = parseInt(selectedYear);
+  const prevMonth = selectedMonthNum === 1 
+    ? { year: (selectedYearNum - 1).toString(), month: '12' }
+    : { year: selectedYear, month: (selectedMonthNum - 1).toString().padStart(2, '0') };
+  const nextMonth = selectedMonthNum === 12
+    ? { year: (selectedYearNum + 1).toString(), month: '01' }
+    : { year: selectedYear, month: (selectedMonthNum + 1).toString().padStart(2, '0') };
+
+  // データがある月かどうかをチェック
+  const hasDataInMonth = (year: string, month: string) => {
+    return groupedDates.has(`${year}-${month}`);
+  };
 
   return (
     <div className="container py-6">
@@ -75,24 +107,48 @@ export default async function HomePage({
           </div>
         </div>
 
-        {/* 月選択 */}
+        {/* 月選択（前月・次月ナビゲーション付き） */}
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-muted-foreground">月:</span>
+          
+          {/* 前月ボタン */}
+          <Link
+            href={`/?year=${prevMonth.year}&month=${prevMonth.month}`}
+            className="px-2 py-1 text-sm rounded-md transition-colors border hover:bg-muted"
+            title={`${prevMonth.year}年${parseInt(prevMonth.month)}月へ`}
+          >
+            ◀
+          </Link>
+          
           <div className="flex flex-wrap gap-1">
-            {availableMonths.map((month) => (
-              <Link
-                key={month}
-                href={`/?year=${selectedYear}&month=${month}`}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors border ${
-                  month === selectedMonth
-                    ? 'year-month-active'
-                    : 'year-month-inactive'
-                }`}
-              >
-                {parseInt(month)}月
-              </Link>
-            ))}
+            {allMonths.map((month) => {
+              const hasData = hasDataInMonth(selectedYear, month);
+              return (
+                <Link
+                  key={month}
+                  href={`/?year=${selectedYear}&month=${month}`}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors border ${
+                    month === selectedMonth
+                      ? 'year-month-active'
+                      : hasData
+                        ? 'year-month-inactive'
+                        : 'year-month-inactive opacity-40'
+                  }`}
+                >
+                  {parseInt(month)}月
+                </Link>
+              );
+            })}
           </div>
+          
+          {/* 次月ボタン */}
+          <Link
+            href={`/?year=${nextMonth.year}&month=${nextMonth.month}`}
+            className="px-2 py-1 text-sm rounded-md transition-colors border hover:bg-muted"
+            title={`${nextMonth.year}年${parseInt(nextMonth.month)}月へ`}
+          >
+            ▶
+          </Link>
         </div>
       </div>
 

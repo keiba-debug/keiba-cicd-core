@@ -530,17 +530,17 @@ class OptimizedDataFetcher:
             kaisai_count = parsed_data.get('kaisai_count', 0)
             
             if total_races == 0 or kaisai_count == 0:
-                self.logger.info(f" : {date_str} - : {total_races}, : {kaisai_count}")
-                self.logger.info(f"⏭ JSON")
-                return True  # 
+                self.logger.info(f"📅 開催なし: {date_str} - レース数: {total_races}, 開催場数: {kaisai_count}")
+                self.logger.info(f"⏭ フォルダ・JSONファイルの作成をスキップ")
+                return True  # 開催なしでも成功として扱う
             
-            # JSON
-            json_file_path = get_json_file_path('nittei', date_str)
+            # JSON保存（開催がある場合のみ）
+            json_file_path = get_json_file_path('nittei', date_str, create_dir=True)
             with open(json_file_path, 'w', encoding='utf-8') as f:
                 json.dump(parsed_data, f, ensure_ascii=False, indent=2)
             
-            # ID
-            race_ids_file = get_race_ids_file_path(date_str)
+            # レースID保存（開催がある場合のみ - フォルダ作成を有効化）
+            race_ids_file = get_race_ids_file_path(date_str, create_dir=True)
             race_ids_data = {
                 'date': date_str,
                 'kaisai_data': {}

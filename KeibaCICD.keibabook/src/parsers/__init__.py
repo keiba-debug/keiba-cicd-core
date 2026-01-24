@@ -6,5 +6,6 @@
 
 from .base_parser import BaseParser
 from .seiseki_parser import SeisekiParser
+from .babakeikou_parser import BabaKeikouParser
 
-__all__ = ["BaseParser", "SeisekiParser"]
+__all__ = ["BaseParser", "SeisekiParser", "BabaKeikouParser"]

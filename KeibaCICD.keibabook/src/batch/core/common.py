@@ -194,12 +194,13 @@ def ensure_batch_directories():
             print(f"[OK] /: {dir_path}")
 
 
-def get_race_ids_file_path(date_str: str) -> str:
+def get_race_ids_file_path(date_str: str, create_dir: bool = False) -> str:
     """
     ID
 
     Args:
         date_str:  (YYYYMMDD)
+        create_dir: Trueの場合、ディレクトリを作成する（デフォルト: False）
 
     Returns:
         str: ID
@@ -213,14 +214,15 @@ def get_race_ids_file_path(date_str: str) -> str:
         month = date_str[4:6]
         day = date_str[6:8]
         race_dir = os.path.join(dirs['race_ids'], year, month, day)
-        os.makedirs(race_dir, exist_ok=True)
+        if create_dir:
+            os.makedirs(race_dir, exist_ok=True)
         return os.path.join(race_dir, "race_info.json")
     else:
         # 旧構造: race_ids/YYYYMMDD_info.json
         return os.path.join(dirs['race_ids'], f"{date_str}_info.json")
 
 
-def get_json_file_path(data_type: str, identifier: str, actual_date: str = None) -> str:
+def get_json_file_path(data_type: str, identifier: str, actual_date: str = None, create_dir: bool = True) -> str:
     """
     JSON
 
@@ -228,6 +230,7 @@ def get_json_file_path(data_type: str, identifier: str, actual_date: str = None)
         data_type:  (seiseki, shutsuba, cyokyo, danwa, nittei)
         identifier:  (race_id)
         actual_date: 実際の開催日 (YYYYMMDD形式、省略時はidentifierから抽出)
+        create_dir: Trueの場合、ディレクトリを作成する（デフォルト: True）
 
     Returns:
         str: JSON
@@ -251,7 +254,8 @@ def get_json_file_path(data_type: str, identifier: str, actual_date: str = None)
         month = date_str[4:6]
         day = date_str[6:8]
         temp_dir = os.path.join(dirs['json_base'], year, month, day, "temp")
-        os.makedirs(temp_dir, exist_ok=True)
+        if create_dir:
+            os.makedirs(temp_dir, exist_ok=True)
         return os.path.join(temp_dir, filename)
     else:
         # 旧構造: temp/

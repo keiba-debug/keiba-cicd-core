@@ -240,6 +240,80 @@ class RequestsScraper:
             self.logger.error(f"パドック情報ページの内容が無効です: {race_id}")
             return ""
     
+    def scrape_babakeikou_page(self, date: str, place_code: str, save_html_path: str = None) -> str:
+        """
+        馬場情報ページを取得する
+        
+        Args:
+            date: 日付（YYYYMMDD形式）
+            place_code: 場コード（01=阪神, 05=中山, 06=中京, 08=京都, 09=東京, 10=小倉 など）
+            save_html_path: HTMLを保存するパス（オプション）
+            
+        Returns:
+            str: HTMLコンテンツ
+            
+        URL形式: https://p.keibabook.co.jp/cyuou/babakeikou/{YYYYMMDD}{場コード}
+        例: https://p.keibabook.co.jp/cyuou/babakeikou/2025092701
+        """
+        # 場コードを2桁に正規化
+        place_code_padded = str(place_code).zfill(2)
+        url = f'https://p.keibabook.co.jp/cyuou/babakeikou/{date}{place_code_padded}'
+        
+        try:
+            html = self.scrape(url)
+            
+            if self.validate_page_content(html):
+                self.logger.info(f"馬場情報ページを取得しました: {date} 場コード={place_code_padded}")
+                
+                # HTMLを保存（オプション）
+                if save_html_path is None:
+                    save_html_path = Config.get_debug_dir() / f"babakeikou_{date}{place_code_padded}.html"
+                
+                save_html_path = Path(save_html_path)
+                save_html_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(save_html_path, 'w', encoding='utf-8') as f:
+                    f.write(html)
+                self.logger.debug(f"馬場情報HTMLファイルを保存しました: {save_html_path}")
+                
+                return html
+            else:
+                self.logger.error(f"馬場情報ページの内容が無効です: {date} 場コード={place_code_padded}")
+                return ""
+        except Exception as e:
+            self.logger.error(f"馬場情報ページ取得中にエラー: {e}")
+            return ""
+    
+    def scrape_babakeikou_from_race_id(self, race_id: str, save_html_path: str = None) -> str:
+        """
+        レースIDから馬場情報ページを取得する
+        
+        Args:
+            race_id: レースID（12桁: YYYYKKPPDDNN）
+                     YYYY=年, KK=回次, PP=場コード, DD=日次, NN=レース番号
+            save_html_path: HTMLを保存するパス（オプション）
+            
+        Returns:
+            str: HTMLコンテンツ
+        """
+        if len(race_id) != 12:
+            self.logger.error(f"無効なレースID: {race_id} (12桁である必要があります)")
+            return ""
+        
+        # レースIDから日付と場コードを抽出
+        # race_id: YYYYKKPPDDNN
+        # 例: 202504010812 -> 2025年, 04回, 01場(阪神), 08日目, 12R
+        year = race_id[0:4]
+        kai = race_id[4:6]  # 回次（使用しない）
+        place_code = race_id[6:8]
+        nichi = race_id[8:10]  # 日次（日付計算に必要）
+        
+        # 注意: レースIDから正確な日付を得るには別途race_info.jsonなどを参照する必要がある
+        # ここでは直接URLのパターンを使用するため、日付が必要な場合は別途取得が必要
+        
+        self.logger.warning(f"scrape_babakeikou_from_race_idは日付情報が不足しています。"
+                           f"scrape_babakeikou_pageを使用してください。")
+        return ""
+    
     def save_html(self, html_content: str, file_path: str) -> None:
         """
         HTMLコンテンツをファイルに保存する

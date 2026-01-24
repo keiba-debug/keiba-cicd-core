@@ -449,12 +449,14 @@ class MarkdownGenerator:
                     'horse_name': entry['horse_name'],
                     'time': result.get('time', ''),
                     'margin': result.get('margin', ''),
+                    'first_3f': result.get('first_3f', ''),  # 前半3F追加
                     'last_3f': result.get('last_3f', ''),
                     'passing': passing_str,
                     'corner_4': result.get('last_corner_position', ''),
                     'jockey': entry.get('entry_data', {}).get('jockey', ''),
                     'odds': entry.get('entry_data', {}).get('odds', ''),
-                    'comment': result.get('raw_data', {}).get('interview', '')
+                    'comment': result.get('raw_data', {}).get('interview', ''),
+                    'sunpyo': result.get('sunpyo', '') or result.get('raw_data', {}).get('寸評', '')
                 })
         
         if not results:
@@ -489,15 +491,18 @@ class MarkdownGenerator:
                     lines.append("- " + " / ".join(pace_parts))
                 lines.append("")
         
-        # 結果テーブル（拡張版）
-        lines.append("| 着順 | 馬番 | 馬名 | タイム | 着差 | 上り3F | 通過 | 4角 | 騎手 | オッズ |")
-        lines.append("|:---:|:---:|------|--------|------:|------:|------|:---:|------|------:|")
+        # 結果テーブル（拡張版：前半3F・寸評カラム追加）
+        lines.append("| 着順 | 馬番 | 馬名 | タイム | 着差 | 前3F | 上3F | 通過 | 4角 | 騎手 | オッズ | 寸評 |")
+        lines.append("|:---:|:---:|------|--------|------:|------:|------:|------|:---:|------|------:|------|")
         
         for result in results[:10]:  # 上位10頭のみ表示
+            sunpyo = result.get('sunpyo', '') or '-'
+            first_3f = result.get('first_3f', '') or '-'
+            last_3f = result.get('last_3f', '') or '-'
             lines.append(f"| {result['position']} | {result['horse_num']} | {result['horse_name']} | "
-                        f"{result['time']} | {result['margin']} | {result['last_3f']} | "
+                        f"{result['time']} | {result['margin']} | {first_3f} | {last_3f} | "
                         f"{result['passing']} | {result['corner_4']} | "
-                        f"{result['jockey']} | {result['odds']} |")
+                        f"{result['jockey']} | {result['odds']} | {sunpyo} |")
         
         # 払戻情報を追加
         payouts_section = self._generate_payouts_table(race_data)
@@ -576,48 +581,309 @@ class MarkdownGenerator:
         return '\n'.join(lines)
     
     def _generate_race_flow_mermaid(self, race_data: Dict[str, Any]) -> str:
-        """レース展開のMermaidグラフ生成"""
+        """レース展開図（残600M→ゴール推移）生成"""
         entries = race_data.get('entries', [])
         
-        # 上位5頭の結果を取得
-        top_horses = []
+        # 全馬の結果データを収集
+        all_horses = []
         for entry in entries:
             result = entry.get('result', {})
             if result and result.get('finish_position'):
                 try:
                     position = int(result['finish_position'])
-                    if position <= 5:
-                        top_horses.append({
-                            'position': position,
-                            'name': entry['horse_name'],
-                            'passing': result.get('raw_data', {}).get('通過順位', '')
-                        })
+                    goal_time_str = result.get('time', '')
+                    last_3f_str = result.get('last_3f', '') or result.get('raw_data', {}).get('上り3F', '')
+                    first_3f_str = result.get('first_3f', '') or result.get('raw_data', {}).get('前半3F', '')
+                    corner_4 = result.get('last_corner_position', '') or result.get('raw_data', {}).get('4角位置', '')
+                    sunpyo = result.get('sunpyo', '') or result.get('raw_data', {}).get('寸評', '')
+                    margin = result.get('margin', '') or result.get('raw_data', {}).get('着差', '')
+                    
+                    # タイムをfloatに変換（1:12.8 → 72.8）
+                    goal_time = self._time_to_seconds(goal_time_str)
+                    last_3f = self._parse_float(last_3f_str)
+                    first_3f = self._parse_float(first_3f_str)
+                    
+                    # 残600M通過タイム = ゴールタイム - 上り3F
+                    pass_600m = None
+                    if goal_time and last_3f:
+                        pass_600m = round(goal_time - last_3f, 1)
+                    
+                    all_horses.append({
+                        'position': position,
+                        'horse_num': entry['horse_number'],
+                        'name': entry['horse_name'],
+                        'goal_time': goal_time,
+                        'goal_time_str': goal_time_str,
+                        'last_3f': last_3f,
+                        'last_3f_str': last_3f_str,
+                        'first_3f': first_3f,
+                        'first_3f_str': first_3f_str,
+                        'pass_600m': pass_600m,
+                        'corner_4': corner_4,
+                        'sunpyo': sunpyo,
+                        'margin': margin
+                    })
                 except:
                     pass
         
-        if not top_horses:
+        if not all_horses:
             return ""
         
-        top_horses.sort(key=lambda x: x['position'])
+        # 着順でソート
+        all_horses.sort(key=lambda x: x['position'])
         
-        lines = ["## 📊 レース展開"]
+        # 残600M通過順位を計算
+        horses_with_pass = [h for h in all_horses if h['pass_600m'] is not None]
+        horses_with_pass_sorted = sorted(horses_with_pass, key=lambda x: x['pass_600m'])
+        for rank, h in enumerate(horses_with_pass_sorted, 1):
+            h['pass_600m_rank'] = rank
+        
+        # 上り最速を特定
+        horses_with_last = [h for h in all_horses if h['last_3f'] is not None]
+        if horses_with_last:
+            fastest_last = min(horses_with_last, key=lambda x: x['last_3f'])
+            fastest_last_3f = fastest_last['last_3f']
+        else:
+            fastest_last_3f = None
+        
+        lines = ["## 📊 展開推移（残600M → ゴール）"]
         lines.append("")
-        lines.append("```mermaid")
-        lines.append("graph LR")
-        lines.append("    subgraph ゴール")
         
-        for i, horse in enumerate(top_horses):
-            if i == 0:
-                lines.append(f"        A[1着: {horse['name']}]")
+        # 残600M通過順位テーブル
+        # 着順上位6頭は必ず表示 + 残600M通過順位上位8頭（重複除去）
+        lines.append("### 📍 残600M通過順位")
+        lines.append("| 通過順 | 馬番 | 馬名 | 通過タイム | 上り3F | 着順 | 変化 |")
+        lines.append("|:---:|:---:|------|--------:|------:|:---:|:---:|")
+        
+        # 着順上位6頭 + 残600M通過順上位8頭を合わせて、通過順でソート
+        top_finish_horses = set(h['horse_num'] for h in all_horses[:6])  # 着順上位6頭
+        top_pass_horses = set(h['horse_num'] for h in horses_with_pass_sorted[:8])  # 通過順上位8頭
+        display_horse_nums = top_finish_horses | top_pass_horses
+        
+        # 表示対象馬を通過順でソート
+        display_horses = [h for h in horses_with_pass_sorted if h['horse_num'] in display_horse_nums]
+        
+        for h in display_horses:
+            pass_rank = h.get('pass_600m_rank', '-')
+            position = h['position']
+            horse_num = h['horse_num']
+            
+            # 順位変化を計算
+            if pass_rank and isinstance(pass_rank, int):
+                diff = pass_rank - position
+                if diff > 0:
+                    change = f"↗+{diff}"
+                elif diff < 0:
+                    change = f"↘{diff}"
+                else:
+                    change = "→"
             else:
-                prev_label = chr(ord('A') + i - 1)
-                curr_label = chr(ord('A') + i)
-                lines.append(f"        {prev_label} --> {curr_label}[{horse['position']}着: {horse['name']}]")
+                change = "-"
+            
+            # 上り最速マーク
+            last_3f_display = h['last_3f_str'] or '-'
+            if h['last_3f'] == fastest_last_3f:
+                last_3f_display = f"**{last_3f_display}**◎"
+            
+            # 馬番を丸数字に
+            num_circle = self._to_circle_number(horse_num)
+            pass_600m_str = f"{h['pass_600m']:.1f}" if h['pass_600m'] else '-'
+            
+            lines.append(f"| {pass_rank} | {num_circle} | {h['name']} | {pass_600m_str} | {last_3f_display} | {position}着 | {change} |")
         
-        lines.append("    end")
+        lines.append("")
+        
+        # 展開図（2D）- 残600MとゴールのPosition + 内外を視覚化
+        lines.append("### 🏇 展開図（残600M → ゴール）")
+        lines.append("")
         lines.append("```")
+        lines.append("                              ← 進行方向（右回り）")
+        lines.append("")
+        
+        # 上位10頭を取得
+        top_10 = all_horses[:10]
+        
+        # 4角位置を数値化（5段階: 最内=0, 内=1, 中=2, 外=3, 大外=4）
+        def corner_to_row(corner_pos):
+            if not corner_pos:
+                return 2  # 不明な場合は中
+            pos = str(corner_pos)
+            if '最内' in pos:
+                return 0
+            elif '大外' in pos:
+                return 4
+            elif '内' in pos:
+                return 1
+            elif '外' in pos:
+                return 3
+            elif '中' in pos:
+                return 2
+            return 2
+        
+        # 変化記号を生成するヘルパー
+        def get_change_str(pass_rank, position):
+            if not isinstance(pass_rank, int):
+                return ""
+            diff = pass_rank - position
+            if diff > 0:
+                return f"↗+{diff}"
+            elif diff < 0:
+                return f"↘{diff}"
+            else:
+                return "→"
+        
+        # 各馬のデータを整理
+        horse_data = []
+        for h in top_10:
+            pass_rank = h.get('pass_600m_rank', 99)
+            position = h['position']
+            num = h['horse_num']
+            last_3f = h['last_3f'] or 0
+            corner_4 = h['corner_4']
+            row = corner_to_row(corner_4)
+            
+            horse_data.append({
+                'num': num,
+                'position': position,
+                'pass_rank': pass_rank,
+                'last_3f': last_3f,
+                'row': row,
+                'corner_4': corner_4
+            })
+        
+        # 5行（最内/内/中/外/大外）× 2列（ゴール/残600M）のグリッドを作成
+        grid_labels = ['最内', '内 ', '中 ', '外 ', '大外']
+        
+        # ゴール側の配置（着順で）
+        goal_rows = {0: [], 1: [], 2: [], 3: [], 4: []}
+        for h in sorted(horse_data, key=lambda x: x['position']):
+            goal_rows[h['row']].append(h)
+        
+        # 残600M側の配置（通過順位で）
+        pass_rows = {0: [], 1: [], 2: [], 3: [], 4: []}
+        for h in sorted(horse_data, key=lambda x: x['pass_rank'] if isinstance(x['pass_rank'], int) else 99):
+            pass_rows[h['row']].append(h)
+        
+        # ヘッダー（横幅を広げる）
+        lines.append("    ゴール地点                                                     残600M地点")
+        lines.append("    ──────────────────────────────────────                         ─────────────────")
+        
+        # 各行を描画
+        for row_idx in range(5):
+            row_label = grid_labels[row_idx]
+            
+            # ゴール側（左）- 着順でソート、馬番+変化記号
+            goal_horses = sorted(goal_rows[row_idx], key=lambda x: x['position'])
+            goal_parts = []
+            for gh in goal_horses:
+                num_circle = self._to_circle_number(gh['num'])
+                change = get_change_str(gh['pass_rank'], gh['position'])
+                goal_parts.append(f"{gh['position']}着{num_circle}{change}")
+            goal_str = " ".join(goal_parts)
+            goal_str = goal_str.ljust(40)
+            
+            # 残600M側（右）- 通過順位順でソート
+            pass_horses = sorted(pass_rows[row_idx], key=lambda x: x['pass_rank'] if isinstance(x['pass_rank'], int) else 99)
+            pass_parts = []
+            for ph in pass_horses:
+                num_circle = self._to_circle_number(ph['num'])
+                pass_parts.append(num_circle)
+            pass_str = " ".join(pass_parts)
+            
+            # 行を出力（馬がいる行のみ）
+            if goal_parts or pass_parts:
+                lines.append(f"{row_label}│{goal_str}◀━━━━━  {pass_str}")
+        
+        lines.append("    ──────────────────────────────────────                         ─────────────────")
+        lines.append("         着差↓                                                        先頭←")
+        lines.append("```")
+        lines.append("")
+        
+        # 詳細データを追加（10着まで）
+        lines.append("### 📊 展開詳細")
+        lines.append("")
+        lines.append("| 着順 | 馬番 | 残600M | 4角 | 上り3F | 変化 |")
+        lines.append("|:---:|:---:|:------:|:---:|:-----:|:----:|")
+        
+        for h in horse_data:
+            num_circle = self._to_circle_number(h['num'])
+            pass_rank = h['pass_rank'] if isinstance(h['pass_rank'], int) else '-'
+            corner = h['corner_4'] or '-'
+            change = get_change_str(h['pass_rank'], h['position'])
+            if not change:
+                change = "-"
+            last_3f_val = h['last_3f'] if h['last_3f'] else 0
+            last_3f_str = f"{last_3f_val:.1f}" if last_3f_val else '-'
+            
+            lines.append(f"| {h['position']}着 | {num_circle} | {pass_rank}位 | {corner} | {last_3f_str} | {change} |")
+        
+        lines.append("")
+        
+        # ゴール着差表示（テーブル形式）
+        lines.append("### 🏁 ゴール着差")
+        lines.append("")
+        lines.append("| 着 | 馬番 | 馬名 | タイム | 前3F | 上3F | 着差 | 寸評 |")
+        lines.append("|:---:|:---:|------|:------:|:----:|:----:|:----:|------|")
+        
+        for i, h in enumerate(all_horses[:5]):
+            num_circle = self._to_circle_number(h['horse_num'])
+            margin_display = h['margin'] if h['margin'] else '-'
+            sunpyo_display = h['sunpyo'] if h['sunpyo'] else ''
+            first_3f_display = h['first_3f_str'] or '-'
+            last_3f_display = h['last_3f_str'] or '-'
+            
+            # 上り最速マーク
+            if h['last_3f'] == fastest_last_3f:
+                last_3f_display = f"**{last_3f_display}**"
+            
+            lines.append(f"| {h['position']} | {num_circle} | {h['name']} | {h['goal_time_str']} | {first_3f_display} | {last_3f_display} | {margin_display} | {sunpyo_display} |")
         
         return '\n'.join(lines)
+    
+    def _time_to_seconds(self, time_str: str) -> float:
+        """タイム文字列を秒に変換（1:12.8 or 1.12.8 → 72.8）"""
+        if not time_str:
+            return None
+        try:
+            time_str = str(time_str).strip()
+            # 1:12.8 形式（コロン区切り）
+            if ':' in time_str:
+                parts = time_str.split(':')
+                minutes = int(parts[0])
+                seconds = float(parts[1])
+                return minutes * 60 + seconds
+            # 1.12.8 形式（ピリオド2つ：分.秒.コンマ）
+            elif time_str.count('.') == 2:
+                parts = time_str.split('.')
+                minutes = int(parts[0])
+                seconds = int(parts[1])
+                hundredths = int(parts[2]) if len(parts) > 2 else 0
+                return minutes * 60 + seconds + hundredths / 10
+            # 72.8 形式（秒のみ）
+            else:
+                return float(time_str)
+        except:
+            return None
+    
+    def _parse_float(self, value: str) -> float:
+        """文字列をfloatに変換"""
+        if not value:
+            return None
+        try:
+            return float(str(value).strip())
+        except:
+            return None
+    
+    def _to_circle_number(self, num) -> str:
+        """数字を丸数字に変換"""
+        try:
+            n = int(num)
+            if 1 <= n <= 20:
+                circles = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+                return circles[n - 1]
+            return str(n)
+        except:
+            return str(num)
 
     def _generate_results_summary(self, race_data: Dict[str, Any]) -> str:
         """成績サマリー（上位・上がり最速など）"""

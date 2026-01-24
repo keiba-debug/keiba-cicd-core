@@ -421,8 +421,11 @@ class RaceDataIntegrator:
                         'finish_position': result.get('着順') or result.get('finish_position', 0),
                         'time': result.get('タイム') or result.get('time', ''),
                         'margin': result.get('着差') or result.get('margin', ''),
-                        'last_3f': result.get('上り') or result.get('last_3f', ''),
-                        'corner_positions': result.get('コーナー通過順') or result.get('corner_positions', ''),
+                        'last_3f': result.get('上り3F') or result.get('上り') or result.get('last_3f', ''),
+                        'passing_orders': result.get('通過順位') or result.get('コーナー通過順') or result.get('corner_positions', ''),
+                        'last_corner_position': result.get('4角位置') or result.get('last_corner_position', ''),
+                        'first_3f': result.get('前半3F') or result.get('first_3f', ''),
+                        'sunpyo': result.get('寸評') or result.get('sunpyo', ''),  # 寸評を追加
                         'prize_money': result.get('prize_money', 0),
                         'horse_weight': result.get('馬体重') or result.get('horse_weight', ''),
                         'horse_weight_diff': result.get('増減') or result.get('horse_weight_diff', ''),
