@@ -494,6 +494,8 @@ export default async function RaceDetailPage({ params }: PageProps) {
                       <td className="px-3 py-2">
                         <Link 
                           href={`/horses/${horse.name}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="font-bold text-gray-900 hover:text-blue-600 hover:underline transition-colors"
                         >
                           {horse.name}

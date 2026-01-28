@@ -1,8 +1,8 @@
 import React from "react"
 import type { Metadata } from 'next'
 
-import Link from 'next/link'
 import './globals.css'
+import { Header } from '@/components/header'
 
 import { Noto_Sans_JP, JetBrains_Mono, Libre_Baskerville as V0_Font_Libre_Baskerville, IBM_Plex_Mono as V0_Font_IBM_Plex_Mono, Lora as V0_Font_Lora } from 'next/font/google'
 
@@ -55,35 +55,7 @@ export default function RootLayout({
       <body className={`${notoSansJP.variable} ${jetBrainsMono.variable} font-sans antialiased bg-background text-foreground`}>
         <div className="min-h-screen flex flex-col">
           {/* Header */}
-          <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex h-14 items-center gap-4">
-              <Link href="/" className="flex items-center gap-2 font-bold text-lg">
-                <span className="text-primary">K</span>
-                <span>KEIBA CICD</span>
-              </Link>
-              <nav className="flex items-center gap-4 text-sm">
-                <Link href="/" className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md font-medium">
-                  レース一覧
-                </Link>
-                <Link href="/horses" className="text-muted-foreground hover:text-foreground transition-colors">
-                  馬検索
-                </Link>
-                <Link href="/multi-view" className="text-muted-foreground hover:text-foreground transition-colors">
-                  ツール
-                </Link>
-                <Link href="/demo/course" className="text-muted-foreground hover:text-foreground transition-colors">
-                  コースDemo
-                </Link>
-                <Link href="/admin" className="text-muted-foreground hover:text-foreground transition-colors">
-                  データ登録
-                </Link>
-              </nav>
-              <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="w-2 h-2 rounded-full bg-green-500" />
-                システム稼働中
-              </div>
-            </div>
-          </header>
+          <Header />
 
           {/* Main */}
           <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

@@ -19,8 +19,32 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# JRA-VAN データパス（Yドライブ）
-JV_DATA_ROOT = Path("Y:/")
+def _load_dotenv_if_available() -> None:
+    try:
+        from dotenv import load_dotenv
+        env_candidates = [
+            Path(__file__).resolve().parents[2] / "KeibaCICD.keibabook" / ".env",
+            Path(__file__).resolve().parents[1] / ".env",
+        ]
+        for env_path in env_candidates:
+            if env_path.exists():
+                load_dotenv(env_path)
+                break
+    except ImportError:
+        pass
+
+
+def _get_env_path(key: str, default: str) -> Path:
+    value = os.getenv(key)
+    if value:
+        return Path(value)
+    return Path(default)
+
+
+_load_dotenv_if_available()
+
+# JRA-VAN データパス（環境変数で上書き可能）
+JV_DATA_ROOT = _get_env_path("JV_DATA_ROOT_DIR", "Y:/")
 DE_DATA_PATH = JV_DATA_ROOT / "DE_DATA"
 
 # 競馬場コード対応表
@@ -245,8 +269,9 @@ def update_race_info_json(date_str: str, race_times: Dict[str, List[dict]], dry_
     Returns:
         更新したレース数
     """
-    # KEIBA-CICD データパス
-    keiba_cicd_data = Path("Z:/KEIBA-CICD/data2/races")
+    # KEIBA-CICD データパス（環境変数で上書き可能）
+    keiba_data_root = _get_env_path("KEIBA_DATA_ROOT_DIR", "Z:/KEIBA-CICD/data2")
+    keiba_cicd_data = keiba_data_root / "races"
     
     parts = date_str.split("-")
     year, month, day = parts[0], parts[1], parts[2]

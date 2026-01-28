@@ -15,14 +15,23 @@ import {
 } from '@/types/race-data';
 import { Badge } from '@/components/ui/badge';
 
+// 調教サマリー型
+interface TrainingSummaryData {
+  lapRank?: string;
+  timeRank?: string;
+  detail?: string;
+}
+
 interface HorseEntryTableProps {
   entries: HorseEntry[];
   showResult?: boolean;
+  trainingSummaryMap?: Record<string, TrainingSummaryData>;
 }
 
 export default function HorseEntryTable({ 
   entries, 
-  showResult = false 
+  showResult = false,
+  trainingSummaryMap = {},
 }: HorseEntryTableProps) {
   // 馬番順にソート
   const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);
@@ -44,6 +53,8 @@ export default function HorseEntryTable({
             <th className="px-2 py-2 text-center border w-10">印</th>
             <th className="px-2 py-2 text-center border w-10">P</th>
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
+            <th className="px-2 py-2 text-center border w-10" title="調教タイム分類">ﾀｲﾑ</th>
+            <th className="px-2 py-2 text-center border w-10" title="調教ラップ分類">ﾗｯﾌﾟ</th>
             <th className="px-2 py-2 text-center border w-10">調教</th>
             <th className="px-2 py-2 text-left border min-w-28">調教短評</th>
             <th className="px-2 py-2 text-center border w-12">パ評価</th>
@@ -63,6 +74,7 @@ export default function HorseEntryTable({
               key={entry.horse_number} 
               entry={entry} 
               showResult={showResult}
+              trainingSummary={trainingSummaryMap[entry.horse_name]}
             />
           ))}
         </tbody>
@@ -74,9 +86,10 @@ export default function HorseEntryTable({
 interface HorseEntryRowProps {
   entry: HorseEntry;
   showResult: boolean;
+  trainingSummary?: TrainingSummaryData;
 }
 
-function HorseEntryRow({ entry, showResult }: HorseEntryRowProps) {
+function HorseEntryRow({ entry, showResult, trainingSummary }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
   
@@ -122,6 +135,28 @@ function HorseEntryRow({ entry, showResult }: HorseEntryRowProps) {
     }
   };
 
+  // 調教タイム分類の背景色（坂, コ, 両）
+  const getTimeRankBgColor = (rank?: string) => {
+    if (!rank || rank === '-') return '';
+    switch (rank) {
+      case '両': return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+      case '坂': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
+      case 'コ': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+      default: return '';
+    }
+  };
+
+  // 調教ラップ分類の背景色（SS, S+, A-, B=, etc.）
+  const getLapRankBgColor = (rank?: string) => {
+    if (!rank) return '';
+    if (rank.startsWith('SS')) return 'bg-red-200 dark:bg-red-800/50 text-red-800 dark:text-red-200';
+    if (rank.startsWith('S')) return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
+    if (rank.startsWith('A')) return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
+    if (rank.startsWith('B')) return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
+    if (rank.startsWith('C')) return 'bg-gray-100 dark:bg-gray-800/30 text-gray-600 dark:text-gray-400';
+    return '';
+  };
+
   // AI指数ランクのセル背景色
   const getAiRankBgColor = (rank?: string) => {
     if (!rank) return '';
@@ -165,7 +200,9 @@ function HorseEntryRow({ entry, showResult }: HorseEntryRowProps) {
       {/* 馬名 */}
       <td className="px-2 py-1.5 border">
         <Link 
-          href={`/horses/${entry.horse_id}`}
+          href={`/horses-v2/${entry.horse_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
           className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
         >
           {entry.horse_name}
@@ -236,6 +273,16 @@ function HorseEntryRow({ entry, showResult }: HorseEntryRowProps) {
       {/* 短評 */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
         {entry_data.short_comment || '-'}
+      </td>
+      
+      {/* 調教タイム分類（TARGET） */}
+      <td className={`px-2 py-1.5 text-center border font-bold ${getTimeRankBgColor(trainingSummary?.timeRank)}`}>
+        {trainingSummary?.timeRank || '-'}
+      </td>
+      
+      {/* 調教ラップ分類（TARGET） */}
+      <td className={`px-2 py-1.5 text-center border font-bold ${getLapRankBgColor(trainingSummary?.lapRank)}`}>
+        {trainingSummary?.lapRank || '-'}
       </td>
       
       {/* 調教 */}

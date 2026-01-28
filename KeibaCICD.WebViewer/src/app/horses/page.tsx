@@ -65,7 +65,7 @@ export default function HorseSearchPage() {
           {results.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {results.map((horse) => (
-                <Link key={horse.id} href={`/horses/${horse.id}`}>
+                <Link key={horse.id} href={`/horses-v2/${horse.id}`}>
                   <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-lg flex items-center gap-2">

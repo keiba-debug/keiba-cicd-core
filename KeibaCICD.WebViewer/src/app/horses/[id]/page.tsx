@@ -37,7 +37,7 @@ export default async function HorseProfilePage({ params }: PageProps) {
       </nav>
 
       {/* ヘッダー */}
-      <div className="mb-6">
+      <div className="mb-4">
         <div className="flex items-center gap-3 mb-2">
           <span className="text-3xl">🐴</span>
           <h1 className="text-2xl font-bold">{horse.name}</h1>
@@ -50,6 +50,31 @@ export default async function HorseProfilePage({ params }: PageProps) {
         <p className="text-sm text-muted-foreground">
           馬ID: {horse.id}
         </p>
+      </div>
+
+      {/* 外部リンク（上部） */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <span className="text-sm text-muted-foreground">外部リンク:</span>
+        <div className="flex flex-wrap items-center gap-1">
+          <a
+            href={`https://p.keibabook.co.jp/db/uma/${id}/kanzen`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
+          >
+            <img src="/keibabook.ico" alt="" className="w-4 h-4" />
+            完全成績
+          </a>
+          <a
+            href={`https://p.keibabook.co.jp/db/uma/${id}/crireki`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
+          >
+            <img src="/keibabook.ico" alt="" className="w-4 h-4" />
+            調教履歴
+          </a>
+        </div>
       </div>
 
       <Separator className="my-6" />

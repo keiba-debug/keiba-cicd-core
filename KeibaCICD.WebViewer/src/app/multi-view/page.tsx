@@ -12,6 +12,18 @@ const TRACK_CODES: Record<string, number> = {
   '札幌': 1, '函館': 2, '福島': 3, '新潟': 4, '東京': 5,
   '中山': 6, '中京': 7, '京都': 8, '阪神': 9, '小倉': 10,
 };
+const TRACK_NAMES: Record<string, string> = {
+  '01': '札幌',
+  '02': '函館',
+  '03': '福島',
+  '04': '新潟',
+  '05': '東京',
+  '06': '中山',
+  '07': '中京',
+  '08': '京都',
+  '09': '阪神',
+  '10': '小倉',
+};
 
 // レース番号を16進数に変換（1-9→数字, 10→a, 11→b, 12→c）
 function raceNumberToHex(raceNumber: number): string {
@@ -26,6 +38,25 @@ type SlotDate = {
   day: number;
 };
 
+function formatDistanceShort(raw?: string): string | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/\s+/g, '');
+  if (!cleaned) return null;
+
+  const surface = cleaned.includes('障')
+    ? '障'
+    : cleaned.includes('ダ')
+    ? 'ダ'
+    : cleaned.includes('芝')
+    ? '芝'
+    : null;
+
+  const distanceMatch = cleaned.match(/(\d{3,4})/);
+  if (!surface || !distanceMatch) return null;
+
+  return `${surface}${distanceMatch[1]}`;
+}
+
 interface ViewSlot {
   id: number;
   track: string;
@@ -37,6 +68,8 @@ interface ViewSlot {
   nichi?: number;
   label?: string; // 追加: レース名など
   umaban?: string; // 馬番（出走番号）
+  result?: string; // 着順
+  distance?: string; // 距離（例: 芝2000 / ダ・1200m など）
 }
 
 // クエリパラメータから渡されるレース情報
@@ -49,6 +82,8 @@ interface RaceParam {
   kai?: number;
   nichi?: number;
   umaban?: string;  // 馬番（出走番号）
+  result?: string;  // 着順
+  distance?: string; // 距離
 }
 
 type MultiViewMessage = {
@@ -63,6 +98,8 @@ type MultiViewMessage = {
     kai?: string;
     nichi?: string;
     umaban?: string;
+    result?: string;
+    distance?: string;
   };
 };
 
@@ -127,6 +164,40 @@ function buildSlotUrl(slot: ViewSlot): string | null {
   );
 }
 
+function parseTargetRaceId(raw: string): {
+  date: SlotDate;
+  track: string;
+  raceNumber: number;
+  kai: number;
+  nichi: number;
+  umaban?: string;
+} | null {
+  const cleaned = raw.replace(/[^0-9]/g, '');
+  if (cleaned.length !== 16 && cleaned.length !== 18) return null;
+
+  const year = parseInt(cleaned.slice(0, 4), 10);
+  const month = parseInt(cleaned.slice(4, 6), 10);
+  const day = parseInt(cleaned.slice(6, 8), 10);
+  const placeCode = cleaned.slice(8, 10);
+  const kai = parseInt(cleaned.slice(10, 12), 10);
+  const nichi = parseInt(cleaned.slice(12, 14), 10);
+  const raceNumber = parseInt(cleaned.slice(14, 16), 10);
+  const umaban = cleaned.length === 18 ? cleaned.slice(16, 18) : undefined;
+
+  if (!year || !month || !day || !kai || !nichi || !raceNumber) return null;
+  const track = TRACK_NAMES[placeCode];
+  if (!track) return null;
+
+  return {
+    date: { year, month, day },
+    track,
+    raceNumber,
+    kai,
+    nichi,
+    umaban,
+  };
+}
+
 function loadStoredSlots(): ViewSlot[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -148,6 +219,10 @@ function MultiViewPage() {
   
   // ビュースロット
   const [slots, setSlots] = useState<ViewSlot[]>(() => loadStoredSlots());
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkInput, setBulkInput] = useState('');
+  const [bulkVideoType, setBulkVideoType] = useState<VideoType>('race');
+  const [bulkError, setBulkError] = useState<string | null>(null);
   
   // 初期化フラグ
   const [initialized, setInitialized] = useState(false);
@@ -200,6 +275,8 @@ function MultiViewPage() {
             url: null,
             label: race.raceName,
             umaban: race.umaban,
+            result: race.result,
+            distance: race.distance,
           };
           slot.url = buildSlotUrl(slot);
           newSlots.push(slot);
@@ -299,6 +376,8 @@ function MultiViewPage() {
         kai: addKai,
         nichi: addNichi,
         umaban: addUmaban,
+        result: addResult,
+        distance: addDistance,
       } = data.payload;
 
       if (!add || lastAddTokenRef.current === add) return;
@@ -342,7 +421,9 @@ function MultiViewPage() {
             nichi: raceNichi,
             url: null,
             label: addRaceName || undefined,
-          umaban: addUmaban,
+            umaban: addUmaban,
+            result: addResult,
+            distance: addDistance,
           };
           slot.url = buildSlotUrl(slot);
           return [...prev, slot];
@@ -380,6 +461,62 @@ function MultiViewPage() {
     setSlots([]);
   };
 
+  const applyBulkInput = () => {
+    const lines = bulkInput
+      .split(/\r?\n|,|\s+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      setBulkError('レースIDを入力してください');
+      return;
+    }
+
+    const parsed = lines
+      .map((line) => parseTargetRaceId(line))
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+
+    if (parsed.length === 0) {
+      setBulkError('有効なTARGETレースIDが見つかりません');
+      return;
+    }
+
+    setSlots((prev) => {
+      const existingKeys = new Set(
+        prev.map((slot) => `${slot.track}-${slot.raceNumber}-${slot.videoType}-${slot.date?.year}-${slot.date?.month}-${slot.date?.day}`)
+      );
+      const nextIdStart = prev.length > 0 ? Math.max(...prev.map((s) => s.id)) + 1 : 1;
+      let nextId = nextIdStart;
+      const additions: ViewSlot[] = [];
+
+      parsed.forEach((item) => {
+        const key = `${item.track}-${item.raceNumber}-${bulkVideoType}-${item.date.year}-${item.date.month}-${item.date.day}`;
+        if (existingKeys.has(key)) return;
+        existingKeys.add(key);
+        const slot: ViewSlot = {
+          id: nextId++,
+          track: item.track,
+          raceNumber: item.raceNumber,
+          videoType: bulkVideoType,
+          date: item.date,
+          kai: item.kai,
+          nichi: item.nichi,
+          url: null,
+          label: undefined,
+          umaban: item.umaban,
+        };
+        slot.url = buildSlotUrl(slot);
+        additions.push(slot);
+      });
+
+      return [...prev, ...additions];
+    });
+
+    setBulkError(null);
+    setBulkInput('');
+    setIsBulkModalOpen(false);
+  };
+
   // スロット追加
   const addSlot = () => {
     const last = slots[slots.length - 1];
@@ -414,16 +551,17 @@ function MultiViewPage() {
     setSlots((prev) => prev.filter((s) => s.id !== id));
   };
 
+  const isSingleView = slots.length <= 1;
   // レイアウトに応じたグリッドクラス
-  const gridClass = 'grid-cols-1 md:grid-cols-2 auto-rows-fr';
+  const gridClass = isSingleView ? 'grid-cols-1 auto-rows-fr' : 'grid-cols-1 md:grid-cols-2 auto-rows-fr';
 
   return (
-    <div className="container py-6">
+    <div className={isSingleView ? 'w-full px-4 py-6' : 'container py-6'}>
       {/* ヘッダー */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2 flex-wrap">
-            📺 マルチビュー
+            📺 レーシングビュアー
             {horseName && (
               <Badge className="bg-emerald-600 text-white text-sm">
                 🐴 {horseName}の過去レース
@@ -434,12 +572,11 @@ function MultiViewPage() {
                 馬番号: {horseId}
               </Badge>
             )}
-            <Badge variant="outline" className="text-xs">実験的機能</Badge>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {horseName 
-              ? `${horseName}の過去レース映像を比較表示`
-              : '複数の映像を同時に表示（iframeが許可されている場合のみ動作）'
+              ? `レーシングビュアーで${horseName}の過去レース映像を比較表示`
+              : 'レーシングビュアーで複数の映像を同時に表示（iframeが許可されている場合のみ動作）'
             }
           </p>
         </div>
@@ -451,6 +588,9 @@ function MultiViewPage() {
             className="bg-emerald-600 text-white hover:bg-emerald-500"
           >
             + 追加
+          </Button>
+          <Button variant="outline" onClick={() => setIsBulkModalOpen(true)}>
+            一括入力
           </Button>
           <Button
             variant="outline"
@@ -483,7 +623,12 @@ function MultiViewPage() {
             <div className="absolute top-2 left-2 z-10 flex flex-col gap-2">
               <div className="flex flex-wrap gap-2">
                 <Badge className="bg-black/70 text-white">
-                  {slot.track} {slot.raceNumber}R
+                  {slot.track}
+                  {(() => {
+                    const d = formatDistanceShort(slot.distance);
+                    return d ? `${d} ` : ' ';
+                  })()}
+                  {slot.raceNumber}R
                 </Badge>
                 <Badge
                   className={
@@ -508,6 +653,11 @@ function MultiViewPage() {
                 {slot.umaban && (
                   <Badge className="bg-amber-500 text-white font-bold">
                     🔍 {slot.umaban}番
+                  </Badge>
+                )}
+                {slot.result && (
+                  <Badge className="bg-slate-700/90 text-white font-bold">
+                    着順 {slot.result}
                   </Badge>
                 )}
               </div>
@@ -577,6 +727,66 @@ function MultiViewPage() {
           </div>
         ))}
       </div>
+
+      {isBulkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-2xl rounded-lg bg-background p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">TARGETレースID一括入力</h2>
+              <Button variant="ghost" size="sm" onClick={() => setIsBulkModalOpen(false)}>
+                ✕
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">レースID一覧</label>
+                <textarea
+                  value={bulkInput}
+                  onChange={(event) => setBulkInput(event.target.value)}
+                  rows={6}
+                  className="w-full rounded-md border bg-background p-3 text-sm"
+                  placeholder="レースIDを改行またはスペース区切りで貼り付け"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  例: 202502231001101210
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">映像タイプ</label>
+                <div className="flex gap-2">
+                  <Button
+                    variant={bulkVideoType === 'paddock' ? 'default' : 'outline'}
+                    onClick={() => setBulkVideoType('paddock')}
+                  >
+                    パドック
+                  </Button>
+                  <Button
+                    variant={bulkVideoType === 'race' ? 'default' : 'outline'}
+                    onClick={() => setBulkVideoType('race')}
+                  >
+                    レース
+                  </Button>
+                  <Button
+                    variant={bulkVideoType === 'patrol' ? 'default' : 'outline'}
+                    onClick={() => setBulkVideoType('patrol')}
+                  >
+                    パトロール
+                  </Button>
+                </div>
+              </div>
+              {bulkError && <p className="text-sm text-red-600">{bulkError}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setIsBulkModalOpen(false)}>
+                  キャンセル
+                </Button>
+                <Button variant="default" onClick={applyBulkInput}>
+                  開始
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 注意事項 */}
       <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">

@@ -66,7 +66,8 @@ export function JraViewerMiniLinks({
 
     const params = new URLSearchParams(payload.payload);
     const targetUrl = `/multi-view?${params.toString()}`;
-    multiViewWindow = window.open(targetUrl, 'keiba-multi-view');
+    // レーシングビュアーは別タブで開く
+    multiViewWindow = window.open(targetUrl, '_blank');
   };
 
   return (

@@ -3,56 +3,166 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Calendar, Search, Wrench, ShieldCheck, MapPin } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 export function Header() {
   const pathname = usePathname();
+  const toolsMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const devMenuRef = useRef<HTMLDetailsElement | null>(null);
+
+  const closeMenus = () => {
+    if (toolsMenuRef.current) {
+      toolsMenuRef.current.open = false;
+    }
+    if (devMenuRef.current) {
+      devMenuRef.current.open = false;
+    }
+  };
+
+  useEffect(() => {
+    closeMenus();
+  }, [pathname]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (toolsMenuRef.current?.contains(target)) return;
+      if (devMenuRef.current?.contains(target)) return;
+      closeMenus();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenus();
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const navItems = [
+    { href: '/admin', label: 'データ登録', icon: ShieldCheck },
     { href: '/', label: 'レース一覧', icon: Calendar },
     { href: '/horses', label: '馬検索', icon: Search },
-    { href: '/multi-view', label: 'ツール', icon: Wrench },
-    { href: '/demo/course', label: 'コースDemo', icon: MapPin },
-    { href: '/admin', label: 'データ登録', icon: ShieldCheck },
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex h-16 items-center">
-        <Link href="/" className="flex items-center gap-2 mr-8">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">
-            K
-          </div>
-          <span className="text-xl font-bold tracking-tight">KEIBA CICD</span>
-        </Link>
-        
-        <nav className="flex items-center gap-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-            
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                  isActive 
-                    ? 'bg-muted text-foreground' 
-                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+    <header className="sticky top-0 z-50 w-full border-b bg-gradient-to-b from-background/95 to-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center gap-3">
+          {/* Brand */}
+          <Link href="/" className="flex items-center gap-3">
+            <img
+              src="/keibacicd-mark.svg"
+              alt="KeibaCICD"
+              width={34}
+              height={34}
+              className="h-[34px] w-[34px] rounded-xl shadow-sm"
+            />
+            <div className="leading-tight">
+              <div className="flex items-center gap-2">
+                <span className="text-lg sm:text-xl font-bold tracking-tight">KeibaCICD</span>
+                <span className="hidden sm:inline-flex text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                  競馬を楽しむ新聞
+                </span>
+              </div>
+              <div className="hidden md:block text-xs text-muted-foreground">
+                データ登録・分析・レーシングビュアーをひとつの導線で
+              </div>
+            </div>
+          </Link>
 
-        <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-          </span>
-          システム稼働中
+          {/* Nav */}
+          <nav className="ml-2 flex items-center gap-1 rounded-full bg-muted/40 p-1 border">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors ${
+                    isActive
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="hidden sm:inline">{item.label}</span>
+                </Link>
+              );
+            })}
+
+            <details className="relative group" ref={toolsMenuRef}>
+              <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
+                <Wrench className="h-4 w-4" />
+                <span className="hidden sm:inline">ツール</span>
+              </summary>
+              <div className="absolute left-0 mt-2 w-48 rounded-xl border bg-background shadow-lg overflow-hidden">
+                <Link
+                  href="/multi-view"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    if (toolsMenuRef.current) {
+                      toolsMenuRef.current.open = false;
+                    }
+                  }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  レーシングビュアー
+                  <span className="ml-2 text-xs text-muted-foreground/70">（別タブ）</span>
+                </Link>
+              </div>
+            </details>
+
+            <details className="relative group" ref={devMenuRef}>
+              <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
+                <MapPin className="h-4 w-4" />
+                <span className="hidden sm:inline">データ分析</span>
+              </summary>
+              <div className="absolute left-0 mt-2 w-48 rounded-xl border bg-background shadow-lg overflow-hidden">
+                <Link
+                  href="/analysis/obstacle"
+                  onClick={() => {
+                    if (devMenuRef.current) {
+                      devMenuRef.current.open = false;
+                    }
+                  }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  障害レース分析
+                </Link>
+                <Link
+                  href="/demo/course"
+                  onClick={() => {
+                    if (devMenuRef.current) {
+                      devMenuRef.current.open = false;
+                    }
+                  }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  コースデータ
+                </Link>
+              </div>
+            </details>
+          </nav>
+
+          {/* Status */}
+          <div className="ml-auto hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+            </span>
+            システム稼働中
+          </div>
         </div>
       </div>
     </header>

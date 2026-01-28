@@ -12,14 +12,22 @@ import {
 } from '@/components/race-v2';
 import type { IntegratedRaceData } from '@/lib/data/integrated-race-reader';
 
+// 調教サマリー型
+interface TrainingSummaryData {
+  lapRank?: string;
+  timeRank?: string;
+  detail?: string;
+}
+
 interface RaceDetailContentProps {
   raceData: IntegratedRaceData;
   showResults: boolean;
+  trainingSummaryMap?: Record<string, TrainingSummaryData>;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = {} }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('tabs');
 
   return (
@@ -66,13 +74,17 @@ export function RaceDetailContent({ raceData, showResults }: RaceDetailContentPr
               <HorseEntryTable 
                 entries={raceData.entries}
                 showResult={showResults}
+                trainingSummaryMap={trainingSummaryMap}
               />
             </div>
           </TabsContent>
 
           {/* 調教・談話タブ */}
           <TabsContent value="training" className="mt-4">
-            <TrainingInfoSection entries={raceData.entries} />
+            <TrainingInfoSection 
+              entries={raceData.entries} 
+              trainingSummaryMap={trainingSummaryMap}
+            />
           </TabsContent>
 
           {/* 展開予想タブ */}
@@ -104,6 +116,7 @@ export function RaceDetailContent({ raceData, showResults }: RaceDetailContentPr
             <HorseEntryTable 
               entries={raceData.entries}
               showResult={showResults}
+              trainingSummaryMap={trainingSummaryMap}
             />
           </div>
 
@@ -116,7 +129,10 @@ export function RaceDetailContent({ raceData, showResults }: RaceDetailContentPr
           )}
 
           {/* 調教・厩舎情報 */}
-          <TrainingInfoSection entries={raceData.entries} />
+          <TrainingInfoSection 
+            entries={raceData.entries} 
+            trainingSummaryMap={trainingSummaryMap}
+          />
 
           {/* レース結果 */}
           {showResults && (

@@ -15,11 +15,19 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 
-interface TrainingInfoSectionProps {
-  entries: HorseEntry[];
+// 調教サマリー型
+interface TrainingSummaryData {
+  lapRank?: string;
+  timeRank?: string;
+  detail?: string;
 }
 
-export default function TrainingInfoSection({ entries }: TrainingInfoSectionProps) {
+interface TrainingInfoSectionProps {
+  entries: HorseEntry[];
+  trainingSummaryMap?: Record<string, TrainingSummaryData>;
+}
+
+export default function TrainingInfoSection({ entries, trainingSummaryMap = {} }: TrainingInfoSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
   
   // 馬番順にソート
@@ -63,6 +71,9 @@ export default function TrainingInfoSection({ entries }: TrainingInfoSectionProp
                   <th className="px-2 py-2 text-center border w-10">枠</th>
                   <th className="px-2 py-2 text-center border w-10">馬番</th>
                   <th className="px-2 py-2 text-left border min-w-24">馬名</th>
+                  <th className="px-2 py-2 text-center border w-10" title="調教タイム分類">ﾀｲﾑ</th>
+                  <th className="px-2 py-2 text-center border w-10" title="調教ラップ分類">ﾗｯﾌﾟ</th>
+                  <th className="px-2 py-2 text-left border min-w-40" title="調教詳細（最終・1週前）">調教詳細</th>
                   <th className="px-2 py-2 text-center border w-10">調教</th>
                   <th className="px-2 py-2 text-left border min-w-28">調教短評</th>
                   <th className="px-2 py-2 text-left border min-w-48">攻め馬解説</th>
@@ -73,7 +84,11 @@ export default function TrainingInfoSection({ entries }: TrainingInfoSectionProp
               </thead>
               <tbody>
                 {sortedEntries.map((entry) => (
-                  <TrainingInfoRow key={entry.horse_number} entry={entry} />
+                  <TrainingInfoRow 
+                    key={entry.horse_number} 
+                    entry={entry} 
+                    trainingSummary={trainingSummaryMap[entry.horse_name]}
+                  />
                 ))}
               </tbody>
             </table>
@@ -86,9 +101,10 @@ export default function TrainingInfoSection({ entries }: TrainingInfoSectionProp
 
 interface TrainingInfoRowProps {
   entry: HorseEntry;
+  trainingSummary?: TrainingSummaryData;
 }
 
-function TrainingInfoRow({ entry }: TrainingInfoRowProps) {
+function TrainingInfoRow({ entry, trainingSummary }: TrainingInfoRowProps) {
   const { entry_data, training_data, stable_comment, previous_race_interview } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
 
@@ -99,6 +115,28 @@ function TrainingInfoRow({ entry }: TrainingInfoRowProps) {
       case '↘': return 'text-red-600 dark:text-red-400 font-bold';
       default: return 'text-gray-500';
     }
+  };
+
+  // 調教タイム分類の背景色（坂, コ, 両）
+  const getTimeRankBgColor = (rank?: string) => {
+    if (!rank || rank === '-') return '';
+    switch (rank) {
+      case '両': return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+      case '坂': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
+      case 'コ': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+      default: return '';
+    }
+  };
+
+  // 調教ラップ分類の背景色（SS, S+, A-, B=, etc.）
+  const getLapRankBgColor = (rank?: string) => {
+    if (!rank) return '';
+    if (rank.startsWith('SS')) return 'bg-red-200 dark:bg-red-800/50 text-red-800 dark:text-red-200';
+    if (rank.startsWith('S')) return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
+    if (rank.startsWith('A')) return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
+    if (rank.startsWith('B')) return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
+    if (rank.startsWith('C')) return 'bg-gray-100 dark:bg-gray-800/30 text-gray-600 dark:text-gray-400';
+    return '';
   };
 
   // テキストを短縮
@@ -125,6 +163,21 @@ function TrainingInfoRow({ entry }: TrainingInfoRowProps) {
       {/* 馬名 */}
       <td className="px-2 py-1.5 border font-medium">
         {entry.horse_name}
+      </td>
+      
+      {/* 調教タイム分類（TARGET） */}
+      <td className={`px-2 py-1.5 text-center border font-bold ${getTimeRankBgColor(trainingSummary?.timeRank)}`}>
+        {trainingSummary?.timeRank || '-'}
+      </td>
+      
+      {/* 調教ラップ分類（TARGET） */}
+      <td className={`px-2 py-1.5 text-center border font-bold ${getLapRankBgColor(trainingSummary?.lapRank)}`}>
+        {trainingSummary?.lapRank || '-'}
+      </td>
+      
+      {/* 調教詳細（TARGET） */}
+      <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
+        {trainingSummary?.detail || '-'}
       </td>
       
       {/* 調教評価 */}

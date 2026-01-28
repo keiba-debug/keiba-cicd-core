@@ -132,6 +132,8 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
       raceNumber: number;
       raceName: string;
       umaban?: string;
+      result?: string;
+      distance?: string;
       videoType: VideoType;
     }> = [];
 
@@ -151,6 +153,8 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
           raceNumber,
           raceName: race.raceName,
           umaban: race.umaban,
+          result: race.result,
+          distance: race.distance,
           videoType,
         });
       });
@@ -179,6 +183,8 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
               videoType: race.videoType,
               raceName: race.raceName,
               umaban: race.umaban,
+              result: race.result,
+              distance: race.distance,
             },
           },
           window.location.origin
@@ -193,7 +199,8 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
     params.set('horseId', horseId);
     params.set('horse', horseName);
     params.set('races', JSON.stringify(selectedVideoData));
-    const opened = window.open(`/multi-view?${params.toString()}`, windowName);
+    // レーシングビュアーは別タブで開く
+    const opened = window.open(`/multi-view?${params.toString()}`, '_blank');
     if (opened) {
       multiViewWindows.set(windowKey, opened);
     }
@@ -224,7 +231,7 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
       </div>
       
       <p className="text-sm text-muted-foreground mb-4">
-        過去レースの映像を選択して、マルチビューに一括追加できます
+        過去レースの映像を選択して、レーシングビュアーに一括追加できます
       </p>
 
       <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
@@ -307,13 +314,9 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
           disabled={selectedCount === 0 || isSearching}
           className="bg-blue-600 hover:bg-blue-700"
         >
-          📺 マルチビューに追加
+          📺 レーシングビュアーに追加
         </Button>
       </div>
-
-      <p className="text-xs text-muted-foreground mt-2">
-        ※ 2024年1月以降のJRA主催レースのみ対応
-      </p>
     </div>
   );
 }

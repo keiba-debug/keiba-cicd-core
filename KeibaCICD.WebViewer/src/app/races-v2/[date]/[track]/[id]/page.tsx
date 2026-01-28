@@ -12,6 +12,7 @@ import {
   hasRaceResults,
 } from '@/lib/data/integrated-race-reader';
 import { getRaceNavigation, getRaceInfo } from '@/lib/data';
+import { getTrainingSummaryMap } from '@/lib/data/training-summary-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -70,10 +71,11 @@ export default async function RaceDetailPage({ params }: PageParams) {
   const currentRaceNumber = parseInt(id.slice(-2), 10);
 
   // データ取得
-  const [raceData, navigation, raceInfo] = await Promise.all([
+  const [raceData, navigation, raceInfo, trainingSummaryMap] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
+    getTrainingSummaryMap(date),
   ]);
   
   if (!raceData) {
@@ -114,6 +116,29 @@ export default async function RaceDetailPage({ params }: PageParams) {
   const netkeibaUrl = `https://race.netkeiba.com/race/shutuba.html?race_id=${netkeibaRaceId}&rf=race_submenu`;
   const netkeibaBbsUrl = `https://yoso.netkeiba.com/?pid=race_board&id=c${netkeibaRaceId}`;
 
+  // 競馬場切り替え時に同じレース番号を維持するためのヘルパー
+  const getTrackRaceId = (targetTrack: string, raceNumber: number): string => {
+    if (!navigation) return '';
+    const trackInfo = navigation.tracks.find((t) => t.name === targetTrack);
+    if (!trackInfo) return '';
+
+    const byNumber = trackInfo.raceByNumber?.[raceNumber];
+    if (byNumber) return byNumber;
+
+    // 念のため近いレース番号へフォールバック
+    const raceByNumber = trackInfo.raceByNumber || {};
+    const availableNumbers = Object.keys(raceByNumber).map(Number).filter((n) => !Number.isNaN(n));
+    if (availableNumbers.length > 0) {
+      availableNumbers.sort((a, b) => a - b);
+      const closest = availableNumbers.reduce((prev, curr) =>
+        Math.abs(curr - raceNumber) < Math.abs(prev - raceNumber) ? curr : prev
+      );
+      return raceByNumber[closest] || trackInfo.firstRaceId;
+    }
+
+    return trackInfo.firstRaceId;
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* レースナビゲーション - v1スタイル */}
@@ -139,10 +164,11 @@ export default async function RaceDetailPage({ params }: PageParams) {
             <div className="flex gap-1.5 bg-gray-100 p-1 rounded-lg">
               {navigation.tracks.map((t) => {
                 const isActive = t.name === track;
+                const targetRaceId = getTrackRaceId(t.name, currentRaceNumber);
                 return (
                   <Link
                     key={t.name}
-                    href={`/races-v2/${date}/${encodeURIComponent(t.name)}/${t.firstRaceId}`}
+                    href={`/races-v2/${date}/${encodeURIComponent(t.name)}/${targetRaceId}`}
                     className={`px-4 py-2 text-sm font-bold rounded-md transition-all duration-200 ${
                       isActive 
                         ? `${getTrackBgClass(t.name)} text-white shadow-md scale-105` 
@@ -220,6 +246,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
         <RaceDetailContent 
           raceData={raceData}
           showResults={showResults}
+          trainingSummaryMap={trainingSummaryMap}
         />
 
         {/* データ情報（フッター） */}

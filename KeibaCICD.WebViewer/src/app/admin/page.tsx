@@ -14,7 +14,17 @@ import {
   type ExecutionStatus,
 } from '@/components/admin';
 import { ACTIONS, type ActionType } from '@/lib/admin/commands';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, ClipboardCopy, Download, Activity, Save } from 'lucide-react';
+
+// 調教サマリーの型
+interface TrainingSummary {
+  horseName: string;
+  kettoNum: string;
+  trainerName: string;
+  lapRank: string;
+  timeRank: string;
+  detail: string;
+}
 
 // 日付モード
 type DateMode = 'single' | 'range';
@@ -195,6 +205,160 @@ export default function AdminPage() {
   // 折りたたみ状態
   const [isFetchOpen, setIsFetchOpen] = useState(false);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
+  const [isTrainingOpen, setIsTrainingOpen] = useState(true);
+
+  // 調教データ管理
+  const [trainingDate, setTrainingDate] = useState(defaultDate);
+  const [trainingSummaries, setTrainingSummaries] = useState<TrainingSummary[]>([]);
+  const [trainingLoading, setTrainingLoading] = useState(false);
+  const [trainingError, setTrainingError] = useState<string | null>(null);
+  const [trainingRanges, setTrainingRanges] = useState<{
+    finalStart: string;
+    finalEnd: string;
+    weekAgoStart: string;
+    weekAgoEnd: string;
+  } | null>(null);
+
+  // 調教サマリー取得
+  const fetchTrainingSummary = async () => {
+    setTrainingLoading(true);
+    setTrainingError(null);
+    setTrainingSummaries([]);
+    setTrainingRanges(null);
+
+    try {
+      const dateStr = trainingDate.replace(/-/g, '');
+      const response = await fetch(`/api/training/summary?date=${dateStr}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      setTrainingSummaries(data.summaries || []);
+      setTrainingRanges(data.ranges || null);
+      
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'success',
+        message: `調教サマリー取得完了: ${data.count}件`,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setTrainingError(errorMessage);
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        message: `調教サマリー取得エラー: ${errorMessage}`,
+      });
+    } finally {
+      setTrainingLoading(false);
+    }
+  };
+
+  // クリップボードにコピー
+  const copyToClipboard = async (type: 'lap' | 'time' | 'detail') => {
+    if (trainingSummaries.length === 0) return;
+
+    let text = '';
+    switch (type) {
+      case 'lap':
+        text = trainingSummaries
+          .filter(s => s.lapRank)
+          .map(s => `${s.horseName}\t${s.lapRank}`)
+          .join('\n');
+        break;
+      case 'time':
+        text = trainingSummaries
+          .filter(s => s.timeRank)
+          .map(s => `${s.horseName}\t${s.timeRank}`)
+          .join('\n');
+        break;
+      case 'detail':
+        text = trainingSummaries
+          .filter(s => s.detail)
+          .map(s => `${s.horseName}\t${s.detail}`)
+          .join('\n');
+        break;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'success',
+        message: `クリップボードにコピーしました（${type}）`,
+      });
+    } catch (error) {
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        message: `クリップボードへのコピーに失敗しました`,
+      });
+    }
+  };
+
+  // TSVダウンロード
+  const downloadTsv = () => {
+    if (trainingSummaries.length === 0) return;
+
+    const header = '馬名\t調教師\t調教ラップ\t調教タイム\t調教詳細';
+    const rows = trainingSummaries.map(s => 
+      `${s.horseName}\t${s.trainerName}\t${s.lapRank}\t${s.timeRank}\t${s.detail}`
+    );
+    const tsv = [header, ...rows].join('\r\n');
+    
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values; charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `training_${trainingDate.replace(/-/g, '')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    addLog({
+      timestamp: new Date().toISOString(),
+      level: 'success',
+      message: `TSVファイルをダウンロードしました`,
+    });
+  };
+
+  // 調教サマリーをdataフォルダに保存
+  const saveTrainingSummary = async () => {
+    if (trainingSummaries.length === 0) {
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        message: 'サマリーを先に生成してください',
+      });
+      return;
+    }
+
+    try {
+      const dateStr = trainingDate.replace(/-/g, '');
+      const response = await fetch(`/api/training/save?date=${dateStr}`, {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'success',
+        message: `保存しました: ${data.path} (${data.count}件)`,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        message: `保存に失敗しました: ${errorMessage}`,
+      });
+    }
+  };
 
   return (
     <div className="container py-6 max-w-4xl">
@@ -366,6 +530,172 @@ export default function AdminPage() {
       </Card>
 
       <Separator className="my-6" />
+
+      {/* 調教データ管理 */}
+      <Collapsible open={isTrainingOpen} onOpenChange={setIsTrainingOpen}>
+        <Card className="mb-6 border-2 border-emerald-200 dark:border-emerald-800">
+          <CollapsibleTrigger asChild>
+            <CardHeader className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950 dark:to-teal-950">
+              <CardTitle className="text-xl flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Activity className="h-6 w-6" />
+                  調教データ管理
+                  <span className="text-xs font-normal text-muted-foreground ml-2">TARGETから直接取得</span>
+                </span>
+                {isTrainingOpen ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </CardTitle>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-4 space-y-4">
+              {/* 日付選択 */}
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">レース開催日:</span>
+                  <input
+                    type="date"
+                    value={trainingDate}
+                    onChange={(e) => setTrainingDate(e.target.value)}
+                    disabled={trainingLoading}
+                    aria-label="レース開催日"
+                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                  />
+                </div>
+                <button
+                  onClick={fetchTrainingSummary}
+                  disabled={trainingLoading}
+                  className="h-9 px-4 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 text-sm font-medium transition-colors"
+                >
+                  {trainingLoading ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      取得中...
+                    </>
+                  ) : (
+                    <>
+                      <Activity className="h-4 w-4" />
+                      サマリー生成
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* 日付範囲表示 */}
+              {trainingRanges && (
+                <div className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
+                  <div className="flex flex-wrap gap-4">
+                    <span>
+                      <strong>最終追い切り:</strong> {trainingRanges.finalStart.slice(4,6)}/{trainingRanges.finalStart.slice(6,8)}〜{trainingRanges.finalEnd.slice(4,6)}/{trainingRanges.finalEnd.slice(6,8)}
+                    </span>
+                    <span>
+                      <strong>一週前:</strong> {trainingRanges.weekAgoStart.slice(4,6)}/{trainingRanges.weekAgoStart.slice(6,8)}〜{trainingRanges.weekAgoEnd.slice(4,6)}/{trainingRanges.weekAgoEnd.slice(6,8)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* エラー表示 */}
+              {trainingError && (
+                <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950 rounded-lg p-3">
+                  エラー: {trainingError}
+                </div>
+              )}
+
+              {/* 結果表示 */}
+              {trainingSummaries.length > 0 && (
+                <>
+                  {/* アクションボタン */}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => copyToClipboard('lap')}
+                      className="h-8 px-3 rounded-md border bg-background hover:bg-muted flex items-center gap-2 text-sm transition-colors"
+                    >
+                      <ClipboardCopy className="h-4 w-4" />
+                      馬名・ラップ
+                    </button>
+                    <button
+                      onClick={() => copyToClipboard('time')}
+                      className="h-8 px-3 rounded-md border bg-background hover:bg-muted flex items-center gap-2 text-sm transition-colors"
+                    >
+                      <ClipboardCopy className="h-4 w-4" />
+                      馬名・タイム
+                    </button>
+                    <button
+                      onClick={() => copyToClipboard('detail')}
+                      className="h-8 px-3 rounded-md border bg-background hover:bg-muted flex items-center gap-2 text-sm transition-colors"
+                    >
+                      <ClipboardCopy className="h-4 w-4" />
+                      馬名・詳細
+                    </button>
+                    <button
+                      onClick={downloadTsv}
+                      className="h-8 px-3 rounded-md border bg-background hover:bg-muted flex items-center gap-2 text-sm transition-colors"
+                    >
+                      <Download className="h-4 w-4" />
+                      TSVダウンロード
+                    </button>
+                    <button
+                      onClick={saveTrainingSummary}
+                      className="h-8 px-3 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-2 text-sm transition-colors"
+                    >
+                      <Save className="h-4 w-4" />
+                      データ保存
+                    </button>
+                    <span className="text-sm text-muted-foreground self-center ml-2">
+                      {trainingSummaries.length}件
+                    </span>
+                  </div>
+
+                  {/* テーブル */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="max-h-96 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted sticky top-0">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium">馬名</th>
+                            <th className="px-3 py-2 text-center font-medium w-16">ラップ</th>
+                            <th className="px-3 py-2 text-center font-medium w-16">タイム</th>
+                            <th className="px-3 py-2 text-left font-medium">詳細</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {trainingSummaries.slice(0, 100).map((s, i) => (
+                            <tr key={i} className="hover:bg-muted/50">
+                              <td className="px-3 py-1.5 font-medium">{s.horseName}</td>
+                              <td className="px-3 py-1.5 text-center">
+                                <span className={`inline-block min-w-[2rem] px-1 rounded ${
+                                  s.lapRank.startsWith('SS') ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' :
+                                  s.lapRank.startsWith('S') ? 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' :
+                                  s.lapRank.startsWith('A') ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' :
+                                  s.lapRank.startsWith('B') ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' :
+                                  ''
+                                }`}>
+                                  {s.lapRank}
+                                </span>
+                              </td>
+                              <td className="px-3 py-1.5 text-center">{s.timeRank}</td>
+                              <td className="px-3 py-1.5 text-muted-foreground text-xs">{s.detail}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {trainingSummaries.length > 100 && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground bg-muted/50 border-t">
+                        ...他 {trainingSummaries.length - 100}件
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {/* 詳細オプション - 折りたたみ可能 */}
       <div className="space-y-4">

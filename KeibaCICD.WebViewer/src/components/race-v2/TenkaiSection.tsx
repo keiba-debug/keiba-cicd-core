@@ -17,7 +17,10 @@ interface TenkaiSectionProps {
 export default function TenkaiSection({ tenkaiData, entries }: TenkaiSectionProps) {
   if (!tenkaiData) return null;
 
-  const { pace, positions, description } = tenkaiData;
+  const pace = tenkaiData.pace || 'M';
+  const description = tenkaiData.description;
+  // positions が欠けているデータがあるため安全にフォールバック
+  const positions = (tenkaiData.positions ?? {}) as TenkaiData['positions'];
 
   // 馬番から馬名を取得するマップ
   const horseNameMap = new Map<string, string>();
@@ -160,16 +163,17 @@ function PositionCard({ label, horseNumbers, horseNameMap, color }: PositionCard
 }
 
 interface TenkaiVisualProps {
-  positions: TenkaiData['positions'];
+  positions?: TenkaiData['positions'] | null;
   horseNameMap: Map<string, string>;
 }
 
 function TenkaiVisual({ positions, horseNameMap }: TenkaiVisualProps) {
+  const safePositions = (positions ?? {}) as TenkaiData['positions'];
   // 位置ごとの馬を取得
-  const nige = positions.逃げ || [];
-  const koi = positions.好位 || [];
-  const chui = positions.中位 || [];
-  const koho = positions.後方 || [];
+  const nige = safePositions.逃げ || [];
+  const koi = safePositions.好位 || [];
+  const chui = safePositions.中位 || [];
+  const koho = safePositions.後方 || [];
 
   if (nige.length === 0 && koi.length === 0 && chui.length === 0 && koho.length === 0) {
     return null;
