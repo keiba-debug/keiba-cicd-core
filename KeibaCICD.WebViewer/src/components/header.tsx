@@ -128,7 +128,29 @@ export function Header() {
                 <MapPin className="h-4 w-4" />
                 <span className="hidden sm:inline">データ分析</span>
               </summary>
-              <div className="absolute left-0 mt-2 w-48 rounded-xl border bg-background shadow-lg overflow-hidden">
+              <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
+                <Link
+                  href="/analysis/rpci"
+                  onClick={() => {
+                    if (devMenuRef.current) {
+                      devMenuRef.current.open = false;
+                    }
+                  }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  📊 RPCI分析（レース特性）
+                </Link>
+                <Link
+                  href="/analysis/rating"
+                  onClick={() => {
+                    if (devMenuRef.current) {
+                      devMenuRef.current.open = false;
+                    }
+                  }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  📈 レイティング分析（クラス別）
+                </Link>
                 <Link
                   href="/analysis/obstacle"
                   onClick={() => {
@@ -138,7 +160,7 @@ export function Header() {
                   }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
-                  障害レース分析
+                  🏇 障害レース分析
                 </Link>
                 <Link
                   href="/demo/course"
@@ -149,7 +171,7 @@ export function Header() {
                   }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
-                  コースデータ
+                  🗺️ コースデータ
                 </Link>
               </div>
             </details>

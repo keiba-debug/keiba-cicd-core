@@ -1,0 +1,32 @@
+﻿File: E:\TFJV\SE_DATA\2025\SR202511.DAT
+Exists: True
+
+File size: 122112 bytes
+Estimated records: 96
+
+
+--- Record 0 ---
+Race ID: 202501010101
+Race Name: 
+  Offset 270: '' (hex: 2020)
+  Offset 271: '' (hex: 2020)
+  Offset 272: '' (hex: 2020)
+  Offset 273: '' (hex: 2020)
+  Offset 274: '' (hex: 2020)
+  Offset 275: '' (hex: 2020)
+  Offset 126: '' (hex: 8140)
+python : Traceback (most recent call last):
+発生場所 C:\Users\nakas\AppData\Local\Temp\ps-script-bff94da0-0fc5-4414-866f-b37ca317fd2c.ps1:16 文字:1
++ python scripts/debug_grade_offset.py 2>&1 | Out-File -Encoding utf8 d ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "E:\share\KEIBA-CICD\_keiba\keiba-cicd-core\KeibaCICD.TARGET\scripts\debug_grade_offset.py", line 79, in <module
+>
+    result = analyze_record(data, i * SR_RECORD_LEN)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\share\KEIBA-CICD\_keiba\keiba-cicd-core\KeibaCICD.TARGET\scripts\debug_grade_offset.py", line 50, in analyze
+_record
+    print(f"  Offset {off}: '{val}' (hex: {raw.hex()})")
+UnicodeEncodeError: 'cp932' codec can't encode character '\ufffd' in position 15: illegal multibyte sequence

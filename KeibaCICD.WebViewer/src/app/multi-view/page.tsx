@@ -104,7 +104,43 @@ type MultiViewMessage = {
 };
 
 const STORAGE_KEY = 'keiba-multi-view-slots';
+const PROCESSED_ADD_KEY = 'keiba-multi-view-processed-add';
 const MAX_SLOTS = Number.POSITIVE_INFINITY;
+
+function isAddTokenProcessed(token: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = sessionStorage.getItem(PROCESSED_ADD_KEY);
+    if (!raw) return false;
+    const set = new Set<string>(JSON.parse(raw));
+    return set.has(token);
+  } catch {
+    return false;
+  }
+}
+
+function markAddTokenProcessed(token: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = sessionStorage.getItem(PROCESSED_ADD_KEY);
+    const set = new Set<string>(raw ? JSON.parse(raw) : []);
+    set.add(token);
+    const maxStored = 200;
+    const arr = Array.from(set);
+    if (arr.length > maxStored) {
+      arr.splice(0, arr.length - maxStored);
+    }
+    sessionStorage.setItem(PROCESSED_ADD_KEY, JSON.stringify(arr));
+  } catch {
+    // ignore
+  }
+}
+
+function slotKey(slot: { date?: SlotDate; track: string; raceNumber: number; videoType: VideoType }): string {
+  if (!slot.date) return '';
+  const { year, month, day } = slot.date;
+  return `${year}-${month}-${day}-${slot.track}-${slot.raceNumber}-${slot.videoType}`;
+}
 
 // URL生成
 // JRA Racing Viewer URL format: 
@@ -227,6 +263,7 @@ function MultiViewPage() {
   // 初期化フラグ
   const [initialized, setInitialized] = useState(false);
   const lastAddTokenRef = useRef<string | null>(null);
+  const initialParamsHandledRef = useRef(false);
 
   // クエリパラメータからレース情報を初期化
   useEffect(() => {
@@ -294,7 +331,7 @@ function MultiViewPage() {
     initSlots();
   }, [racesParam, initialized]);
 
-  // 追加パラメータでスロットを追記
+  // add なしで date/track/raceNumber のみのURLで開かれた場合: 1回だけスロット追加し、即座にクエリを消してリロードループを防ぐ
   useEffect(() => {
     const addToken = searchParams.get('add');
     const addDate = searchParams.get('date');
@@ -305,8 +342,89 @@ function MultiViewPage() {
     const addKai = searchParams.get('kai');
     const addNichi = searchParams.get('nichi');
 
-    if (!addToken || lastAddTokenRef.current === addToken) return;
-    if (!addDate || !addTrack || !addRaceNumber) return;
+    if (addToken || !addDate || !addTrack || !addRaceNumber) return;
+    if (initialParamsHandledRef.current) return;
+    initialParamsHandledRef.current = true;
+
+    // 先にURLをクリアして同一URLでの再リクエストを防ぐ
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    const appendFromParams = async () => {
+      const raceDate = parseDateString(addDate);
+      if (!raceDate) return;
+
+      let raceKai = addKai ? Number(addKai) : undefined;
+      let raceNichi = addNichi ? Number(addNichi) : undefined;
+      if (!raceKai || !raceNichi) {
+        try {
+          const res = await fetch(
+            `/api/race-lookup?date=${addDate}&track=${encodeURIComponent(addTrack)}&raceNumber=${addRaceNumber}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.race) {
+              raceKai = data.race.kai;
+              raceNichi = data.race.nichi;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const videoType: VideoType = addVideoType || 'paddock';
+      const candidateKey = slotKey({
+        date: raceDate,
+        track: addTrack,
+        raceNumber: Number(addRaceNumber),
+        videoType,
+      });
+
+      setSlots((prev) => {
+        const alreadyExists = prev.some((s) => slotKey(s) === candidateKey);
+        if (alreadyExists) return prev;
+        const nextId = prev.length > 0 ? Math.max(...prev.map((s) => s.id)) + 1 : 1;
+        const slot: ViewSlot = {
+          id: nextId,
+          track: addTrack,
+          raceNumber: Number(addRaceNumber),
+          videoType,
+          date: raceDate,
+          kai: raceKai,
+          nichi: raceNichi,
+          url: null,
+          label: addRaceName || undefined,
+        };
+        slot.url = buildSlotUrl(slot);
+        return [...prev, slot];
+      });
+    };
+
+    appendFromParams();
+  }, [searchParams]);
+
+  // 追加パラメータでスロットを追記（同一URLの多重リクエスト・再マウントで重複追加しない）
+  useEffect(() => {
+    const addToken = searchParams.get('add');
+    const addDate = searchParams.get('date');
+    const addTrack = searchParams.get('track');
+    const addRaceNumber = searchParams.get('raceNumber');
+    const addVideoType = searchParams.get('videoType') as VideoType | null;
+    const addRaceName = searchParams.get('raceName');
+    const addKai = searchParams.get('kai');
+    const addNichi = searchParams.get('nichi');
+
+    if (!addToken || !addDate || !addTrack || !addRaceNumber) return;
+    if (lastAddTokenRef.current === addToken) return;
+    if (isAddTokenProcessed(addToken)) {
+      lastAddTokenRef.current = addToken;
+      const url = new URL(window.location.href);
+      url.searchParams.delete('add');
+      window.history.replaceState({}, '', url.toString());
+      return;
+    }
 
     lastAddTokenRef.current = addToken;
 
@@ -334,13 +452,26 @@ function MultiViewPage() {
         }
       }
 
+      const videoType: VideoType = addVideoType || 'paddock';
+      const candidateKey = slotKey({
+        date: raceDate,
+        track: addTrack,
+        raceNumber: Number(addRaceNumber),
+        videoType,
+      });
+
       setSlots((prev) => {
+        const alreadyExists = prev.some(
+          (s) => slotKey(s) === candidateKey
+        );
+        if (alreadyExists) return prev;
+        markAddTokenProcessed(addToken);
         const nextId = prev.length > 0 ? Math.max(...prev.map((s) => s.id)) + 1 : 1;
         const slot: ViewSlot = {
           id: nextId,
           track: addTrack,
           raceNumber: Number(addRaceNumber),
-          videoType: addVideoType || 'paddock',
+          videoType,
           date: raceDate,
           kai: raceKai,
           nichi: raceNichi,
@@ -409,13 +540,23 @@ function MultiViewPage() {
           }
         }
 
+        const videoType: VideoType = addVideoType || 'paddock';
+        const candidateKey = slotKey({
+          date: raceDate,
+          track: addTrack,
+          raceNumber: Number(addRaceNumber),
+          videoType,
+        });
+
         setSlots((prev) => {
+          const alreadyExists = prev.some((s) => slotKey(s) === candidateKey);
+          if (alreadyExists) return prev;
           const nextId = prev.length > 0 ? Math.max(...prev.map((s) => s.id)) + 1 : 1;
           const slot: ViewSlot = {
             id: nextId,
             track: addTrack,
             raceNumber: Number(addRaceNumber),
-            videoType: addVideoType || 'paddock',
+            videoType,
             date: raceDate,
             kai: raceKai,
             nichi: raceNichi,

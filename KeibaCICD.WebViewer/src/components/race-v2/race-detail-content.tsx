@@ -1,16 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { LayoutGrid, List } from 'lucide-react';
+import { LayoutGrid, List, TrendingUp, TrendingDown, Minus, Zap } from 'lucide-react';
 import {
   HorseEntryTable,
   TrainingInfoSection,
   RaceResultSection,
   TenkaiSection,
 } from '@/components/race-v2';
+import TrainingAnalysisSection from './TrainingAnalysisSection';
+import StakeholderCommentsSection from './StakeholderCommentsSection';
 import type { IntegratedRaceData } from '@/lib/data/integrated-race-reader';
+import type { CourseRpciInfo } from '@/lib/data/rpci-utils';
+import type { RatingStandards } from '@/lib/data/rating-utils';
+import type { BabaCondition } from '@/lib/data/baba-reader';
+import { analyzeRaceRatings } from '@/lib/data/rating-utils';
+import { POSITIVE_BG } from '@/lib/positive-colors';
 
 // 調教サマリー型
 interface TrainingSummaryData {
@@ -23,12 +30,25 @@ interface RaceDetailContentProps {
   raceData: IntegratedRaceData;
   showResults: boolean;
   trainingSummaryMap?: Record<string, TrainingSummaryData>;
+  rpciInfo?: CourseRpciInfo | null;
+  ratingStandards?: RatingStandards | null;
+  babaInfo?: BabaCondition | null;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = {} }: RaceDetailContentProps) {
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('tabs');
+export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = {}, rpciInfo, ratingStandards, babaInfo }: RaceDetailContentProps) {
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
+
+  // レイティング分析を実行
+  const ratingAnalysis = useMemo(() => {
+    return analyzeRaceRatings(
+      raceData.entries,
+      raceData.race_info.grade,
+      ratingStandards,
+      raceData.race_info.race_condition
+    );
+  }, [raceData.entries, raceData.race_info.grade, ratingStandards, raceData.race_info.race_condition]);
 
   return (
     <>
@@ -68,7 +88,12 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
           </TabsList>
 
           {/* 出走表タブ */}
-          <TabsContent value="entries" className="mt-4">
+          <TabsContent value="entries" className="mt-4 space-y-4">
+            {/* レイティング分析カード */}
+            {ratingAnalysis && (
+              <RatingAnalysisCard analysis={ratingAnalysis} grade={raceData.race_info.grade} />
+            )}
+            
             <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
               <h2 className="text-lg font-semibold mb-4">🐎 出走表</h2>
               <HorseEntryTable 
@@ -80,10 +105,13 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
           </TabsContent>
 
           {/* 調教・談話タブ */}
-          <TabsContent value="training" className="mt-4">
-            <TrainingInfoSection 
+          <TabsContent value="training" className="mt-4 space-y-6">
+            <TrainingAnalysisSection 
               entries={raceData.entries} 
               trainingSummaryMap={trainingSummaryMap}
+            />
+            <StakeholderCommentsSection 
+              entries={raceData.entries} 
             />
           </TabsContent>
 
@@ -101,6 +129,9 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
               <RaceResultSection 
                 entries={raceData.entries}
                 payouts={raceData.payouts}
+                tenkaiData={raceData.tenkai_data}
+                distance={raceData.race_info.distance}
+                rpciInfo={rpciInfo}
               />
             </TabsContent>
           )}
@@ -110,6 +141,11 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
       {/* 全表示モード */}
       {displayMode === 'all' && (
         <div className="space-y-6">
+          {/* レイティング分析カード */}
+          {ratingAnalysis && (
+            <RatingAnalysisCard analysis={ratingAnalysis} grade={raceData.race_info.grade} />
+          )}
+          
           {/* 出走表 */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
             <h2 className="text-lg font-semibold mb-4">🐎 出走表</h2>
@@ -128,10 +164,15 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
             />
           )}
 
-          {/* 調教・厩舎情報 */}
-          <TrainingInfoSection 
+          {/* 調教分析 */}
+          <TrainingAnalysisSection 
             entries={raceData.entries} 
             trainingSummaryMap={trainingSummaryMap}
+          />
+
+          {/* 関係者コメント分析 */}
+          <StakeholderCommentsSection 
+            entries={raceData.entries} 
           />
 
           {/* レース結果 */}
@@ -139,10 +180,95 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
             <RaceResultSection 
               entries={raceData.entries}
               payouts={raceData.payouts}
+              tenkaiData={raceData.tenkai_data}
+              distance={raceData.race_info.distance}
+              rpciInfo={rpciInfo}
+              babaInfo={babaInfo}
             />
           )}
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * レイティング分析カードコンポーネント
+ */
+interface RatingAnalysisCardProps {
+  analysis: ReturnType<typeof analyzeRaceRatings>;
+  grade?: string;
+}
+
+function RatingAnalysisCard({ analysis, grade }: RatingAnalysisCardProps) {
+  if (!analysis) return null;
+  
+  // レベルアイコン
+  const getLevelIcon = () => {
+    if (analysis.levelLabel === '高レベル') {
+      return <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />;
+    } else if (analysis.levelLabel === '低レベル') {
+      return <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />;
+    }
+    return <Minus className="h-4 w-4 text-gray-500" />;
+  };
+  
+  // 混戦度カラー
+  const getCompetitivenessColor = () => {
+    if (analysis.competitivenessLabel.includes('混戦')) {
+      return 'bg-red-100 text-red-700 border-red-200';
+    } else if (analysis.competitivenessLabel === '力差明確') {
+      return 'bg-green-100 text-green-700 border-green-200';
+    }
+    return 'bg-gray-100 text-gray-700 border-gray-200';
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
+      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+        📊 レース分析
+        {grade && <span className="text-xs font-normal text-muted-foreground">({grade})</span>}
+      </h3>
+      
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* レースレベル */}
+        <div className="text-center p-3 bg-slate-50 rounded-lg">
+          <div className="flex items-center justify-center gap-1 mb-1">
+            {getLevelIcon()}
+            <span className="font-semibold text-sm">{analysis.levelLabel}</span>
+          </div>
+          <div className="text-xs text-muted-foreground">{analysis.levelDescription}</div>
+        </div>
+        
+        {/* 混戦度 */}
+        <div className="text-center p-3 bg-slate-50 rounded-lg">
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-medium mb-1 ${getCompetitivenessColor()}`}>
+            <Zap className="h-3 w-3" />
+            {analysis.competitivenessLabel}
+          </div>
+          <div className="text-xs text-muted-foreground">{analysis.competitivenessDescription}</div>
+        </div>
+        
+        {/* 平均レイティング */}
+        <div className="text-center p-3 bg-slate-50 rounded-lg">
+          <div className="text-xl font-bold">{analysis.mean}</div>
+          <div className="text-xs text-muted-foreground">平均レイティング</div>
+        </div>
+        
+        {/* 上位差 */}
+        <div className="text-center p-3 bg-slate-50 rounded-lg">
+          <div className="text-xl font-bold">{analysis.top3Diff}<span className="text-sm font-normal">pt</span></div>
+          <div className="text-xs text-muted-foreground">上位3頭と4位の差</div>
+        </div>
+      </div>
+      
+      {/* 補足情報 */}
+      <div className="mt-3 pt-3 border-t flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span>レンジ: {analysis.min} - {analysis.max}</span>
+        <span>標準偏差: {analysis.stdev}</span>
+        <span>中央値: {analysis.median}</span>
+        <span>対象: {analysis.count}頭</span>
+      </div>
+    </div>
   );
 }

@@ -41,6 +41,8 @@ npm run dev
 
 ブラウザで http://localhost:3000 を開きます。
 
+- **Turbopack FATAL や multi-view のリロードループが出る場合**: Next.js 16 は開発時に Turbopack がデフォルトです。環境によっては `npm run dev:webpack`（webpack で起動）で解消することがあります。詳しくは `keiba-cicd-core/運用サポート.md` を参照してください。
+
 ### プロダクションビルド
 
 ```bash

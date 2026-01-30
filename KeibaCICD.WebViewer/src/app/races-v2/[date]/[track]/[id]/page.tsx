@@ -13,6 +13,9 @@ import {
 } from '@/lib/data/integrated-race-reader';
 import { getRaceNavigation, getRaceInfo } from '@/lib/data';
 import { getTrainingSummaryMap } from '@/lib/data/training-summary-reader';
+import { getCourseRpciInfo } from '@/lib/data/rpci-standards-reader';
+import { getRatingStandards } from '@/lib/data/rating-standards-reader';
+import { getBabaCondition, trackToSurface } from '@/lib/data/baba-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -22,6 +25,7 @@ import {
   generateRaceUrl,
   generatePatrolUrl,
   getKaisaiInfoFromRaceInfo,
+  getKaisaiInfoFromRaceInfoWithFallback,
 } from '@/lib/jra-viewer-url';
 
 interface PageParams {
@@ -82,6 +86,16 @@ export default async function RaceDetailPage({ params }: PageParams) {
     notFound();
   }
 
+  // RPCI基準値情報とレイティング基準値を取得
+  const [rpciInfo, ratingStandards] = await Promise.all([
+    getCourseRpciInfo(
+      track,
+      raceData.race_info.track || '',
+      raceData.race_info.distance || 0
+    ),
+    getRatingStandards(),
+  ]);
+
   // 結果があるかどうか
   const showResults = hasRaceResults(raceData);
 
@@ -90,8 +104,16 @@ export default async function RaceDetailPage({ params }: PageParams) {
   let raceUrl: string | null = null;
   let patrolUrl: string | null = null;
   
+  let babaInfo: import('@/lib/data/baba-reader').BabaCondition | null = null;
   if (raceInfo) {
-    const kaisaiInfo = getKaisaiInfoFromRaceInfo(raceInfo.kaisai_data, id);
+    const kaisaiInfo =
+      getKaisaiInfoFromRaceInfo(raceInfo.kaisai_data, id) ??
+      getKaisaiInfoFromRaceInfoWithFallback(
+        raceInfo.kaisai_data,
+        id,
+        track,
+        currentRaceNumber
+      );
     if (kaisaiInfo) {
       const [year, month, day] = date.split('-').map(Number);
       const urlParams = {
@@ -106,6 +128,13 @@ export default async function RaceDetailPage({ params }: PageParams) {
       paddockUrl = generatePaddockUrl(urlParams);
       raceUrl = generateRaceUrl(urlParams);
       patrolUrl = generatePatrolUrl(urlParams);
+      babaInfo = getBabaCondition(
+        id,
+        trackToSurface(raceData.race_info.track || ''),
+        kaisaiInfo.kai,
+        kaisaiInfo.nichi,
+        track
+      );
     }
   }
 
@@ -238,6 +267,8 @@ export default async function RaceDetailPage({ params }: PageParams) {
           netkeibaUrl,
           netkeibaBbsUrl,
         }}
+        rpciInfo={rpciInfo}
+        babaInfo={babaInfo}
       />
 
       {/* メインコンテンツ */}
@@ -247,6 +278,9 @@ export default async function RaceDetailPage({ params }: PageParams) {
           raceData={raceData}
           showResults={showResults}
           trainingSummaryMap={trainingSummaryMap}
+          rpciInfo={rpciInfo}
+          ratingStandards={ratingStandards}
+          babaInfo={babaInfo}
         />
 
         {/* データ情報（フッター） */}

@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import { HorseEntry, getWakuColor } from '@/types/race-data';
+import { POSITIVE_BG, POSITIVE_BG_MUTED } from '@/lib/positive-colors';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -117,25 +118,22 @@ function TrainingInfoRow({ entry, trainingSummary }: TrainingInfoRowProps) {
     }
   };
 
-  // 調教タイム分類の背景色（坂, コ, 両）
+  // 調教タイム分類の背景色（プラス色で統一）
   const getTimeRankBgColor = (rank?: string) => {
     if (!rank || rank === '-') return '';
     switch (rank) {
-      case '両': return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
-      case '坂': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
-      case 'コ': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+      case '両': return POSITIVE_BG;
+      case '坂':
+      case 'コ': return POSITIVE_BG_MUTED;
       default: return '';
     }
   };
 
-  // 調教ラップ分類の背景色（SS, S+, A-, B=, etc.）
+  // 調教ラップ分類の背景色（S+/A+ のみプラス色で強調）
   const getLapRankBgColor = (rank?: string) => {
     if (!rank) return '';
-    if (rank.startsWith('SS')) return 'bg-red-200 dark:bg-red-800/50 text-red-800 dark:text-red-200';
-    if (rank.startsWith('S')) return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
-    if (rank.startsWith('A')) return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
-    if (rank.startsWith('B')) return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
-    if (rank.startsWith('C')) return 'bg-gray-100 dark:bg-gray-800/30 text-gray-600 dark:text-gray-400';
+    if (rank === 'S+' || rank === 'S=') return POSITIVE_BG;
+    if (rank === 'A+' || rank === 'A=') return POSITIVE_BG_MUTED;
     return '';
   };
 

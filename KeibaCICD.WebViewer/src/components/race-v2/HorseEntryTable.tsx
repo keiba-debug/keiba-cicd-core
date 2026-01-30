@@ -13,6 +13,7 @@ import {
   toCircleNumber,
   TRAINING_ARROW_LABELS,
 } from '@/types/race-data';
+import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH, RATING_MID_HIGH, RATING_MID } from '@/lib/positive-colors';
 import { Badge } from '@/components/ui/badge';
 
 // 調教サマリー型
@@ -53,8 +54,6 @@ export default function HorseEntryTable({
             <th className="px-2 py-2 text-center border w-10">印</th>
             <th className="px-2 py-2 text-center border w-10">P</th>
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
-            <th className="px-2 py-2 text-center border w-10" title="調教タイム分類">ﾀｲﾑ</th>
-            <th className="px-2 py-2 text-center border w-10" title="調教ラップ分類">ﾗｯﾌﾟ</th>
             <th className="px-2 py-2 text-center border w-10">調教</th>
             <th className="px-2 py-2 text-left border min-w-28">調教短評</th>
             <th className="px-2 py-2 text-center border w-12">パ評価</th>
@@ -135,27 +134,6 @@ function HorseEntryRow({ entry, showResult, trainingSummary }: HorseEntryRowProp
     }
   };
 
-  // 調教タイム分類の背景色（坂, コ, 両）
-  const getTimeRankBgColor = (rank?: string) => {
-    if (!rank || rank === '-') return '';
-    switch (rank) {
-      case '両': return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
-      case '坂': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
-      case 'コ': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
-      default: return '';
-    }
-  };
-
-  // 調教ラップ分類の背景色（SS, S+, A-, B=, etc.）
-  const getLapRankBgColor = (rank?: string) => {
-    if (!rank) return '';
-    if (rank.startsWith('SS')) return 'bg-red-200 dark:bg-red-800/50 text-red-800 dark:text-red-200';
-    if (rank.startsWith('S')) return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
-    if (rank.startsWith('A')) return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300';
-    if (rank.startsWith('B')) return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
-    if (rank.startsWith('C')) return 'bg-gray-100 dark:bg-gray-800/30 text-gray-600 dark:text-gray-400';
-    return '';
-  };
 
   // AI指数ランクのセル背景色
   const getAiRankBgColor = (rank?: string) => {
@@ -169,11 +147,11 @@ function HorseEntryRow({ entry, showResult, trainingSummary }: HorseEntryRowProp
     }
   };
 
-  // 総合ポイントに基づく背景色
+  // 総合ポイントに基づく背景色（プラス色で統一）
   const getPointBgColor = (point: number) => {
-    if (point >= 30) return 'bg-red-100 dark:bg-red-900/30 font-bold';
-    if (point >= 20) return 'bg-orange-100 dark:bg-orange-900/30';
-    if (point >= 10) return 'bg-yellow-100 dark:bg-yellow-900/30';
+    if (point >= 30) return `${POSITIVE_BG} font-bold`;
+    if (point >= 20) return POSITIVE_BG_MUTED;
+    if (point >= 10) return 'bg-emerald-50 dark:bg-emerald-900/10 text-emerald-700 dark:text-emerald-300';
     return '';
   };
 
@@ -256,7 +234,7 @@ function HorseEntryRow({ entry, showResult, trainingSummary }: HorseEntryRowProp
       </td>
       
       {/* レイティング */}
-      <td className="px-2 py-1.5 text-center border font-mono">
+      <td className={`px-2 py-1.5 text-center border font-mono ${getRatingColor(entry_data.rating)}`}>
         {entry_data.rating || '-'}
       </td>
       
@@ -275,16 +253,7 @@ function HorseEntryRow({ entry, showResult, trainingSummary }: HorseEntryRowProp
         {entry_data.short_comment || '-'}
       </td>
       
-      {/* 調教タイム分類（TARGET） */}
-      <td className={`px-2 py-1.5 text-center border font-bold ${getTimeRankBgColor(trainingSummary?.timeRank)}`}>
-        {trainingSummary?.timeRank || '-'}
-      </td>
-      
-      {/* 調教ラップ分類（TARGET） */}
-      <td className={`px-2 py-1.5 text-center border font-bold ${getLapRankBgColor(trainingSummary?.lapRank)}`}>
-        {trainingSummary?.lapRank || '-'}
-      </td>
-      
+
       {/* 調教 */}
       <td className={`px-2 py-1.5 text-center border ${getTrainingBgColor(training_data?.training_arrow)} ${getArrowColor(training_data?.training_arrow || '')}`}>
         {training_data?.training_arrow || training_data?.evaluation || '-'}

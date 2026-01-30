@@ -9,7 +9,10 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { RaceInfo, RaceMeta, getTrackLabel } from '@/types/race-data';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, MapPin, Clock, MessageCircle } from 'lucide-react';
+import { Calendar, MapPin, Clock, MessageCircle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import type { CourseRpciInfo, RpciTrend } from '@/lib/data/rpci-standards-reader';
+import type { BabaCondition } from '@/lib/data/baba-reader';
+import { getConditionBadgeClass } from '@/lib/data/baba-utils';
 
 interface ExternalLinks {
   paddockUrl: string | null;
@@ -30,6 +33,10 @@ interface RaceHeaderProps {
   urlTrack?: string;
   /** 外部リンク */
   externalLinks?: ExternalLinks;
+  /** RPCI基準値情報 */
+  rpciInfo?: CourseRpciInfo | null;
+  /** 馬場コンディション（クッション値・含水率） */
+  babaInfo?: BabaCondition | null;
 }
 
 // 競馬場テキストカラー
@@ -51,6 +58,8 @@ export default function RaceHeader({
   urlDate,
   urlTrack,
   externalLinks,
+  rpciInfo,
+  babaInfo,
 }: RaceHeaderProps) {
   // URLパラメータを優先、なければJSONデータを使用
   const displayDate = urlDate || raceInfo.date;
@@ -89,9 +98,21 @@ export default function RaceHeader({
               <span className={`font-bold ${trackColor}`}>{displayVenue}</span>
               
               {/* コース情報バッジ */}
-              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${getCourseBadgeClass(raceInfo.track)}`}>
-                {courseInfo}
-              </span>
+              {courseInfo && (
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${getCourseBadgeClass(raceInfo.track)}`}>
+                  {courseInfo}
+                </span>
+              )}
+              
+              {/* RPCI傾向バッジ */}
+              {rpciInfo && (
+                <RpciBadge rpciInfo={rpciInfo} />
+              )}
+
+              {/* 馬場コンディション（クッション値・含水率） */}
+              {babaInfo && (
+                <BabaConditionBadge babaInfo={babaInfo} />
+              )}
               
               {/* 発走時刻 */}
               {(raceInfo.post_time || raceInfo.start_time) && (
@@ -267,5 +288,77 @@ function GradeBadge({ grade }: { grade: string }) {
     <Badge className={style}>
       {grade}
     </Badge>
+  );
+}
+
+/**
+ * RPCI傾向バッジ
+ */
+function RpciBadge({ rpciInfo }: { rpciInfo: CourseRpciInfo }) {
+  const trendStyles: Record<RpciTrend, { bg: string; text: string; icon: React.ReactNode }> = {
+    instantaneous: {
+      bg: 'bg-blue-100',
+      text: 'text-blue-700',
+      icon: <TrendingUp className="w-3 h-3" />,
+    },
+    sustained: {
+      bg: 'bg-red-100',
+      text: 'text-red-700',
+      icon: <TrendingDown className="w-3 h-3" />,
+    },
+    neutral: {
+      bg: 'bg-gray-100',
+      text: 'text-gray-600',
+      icon: <Minus className="w-3 h-3" />,
+    },
+  };
+
+  const style = trendStyles[rpciInfo.trend];
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}
+      title={`RPCI: ${rpciInfo.rpciMean.toFixed(1)} (n=${rpciInfo.sampleCount})${rpciInfo.similarCourses.length > 0 ? `\n類似: ${rpciInfo.similarCourses.join(', ')}` : ''}`}
+    >
+      {style.icon}
+      <span>{rpciInfo.trendLabel}</span>
+      <span className="text-[10px] opacity-70">({rpciInfo.rpciMean.toFixed(1)})</span>
+    </span>
+  );
+}
+
+/**
+ * 馬場コンディション（クッション値・含水率）バッジ
+ */
+function BabaConditionBadge({ babaInfo }: { babaInfo: BabaCondition }) {
+  const parts: string[] = [];
+  if (babaInfo.cushion != null) {
+    parts.push(`クッション ${babaInfo.cushion.toFixed(1)}${babaInfo.cushionLabel ? `（${babaInfo.cushionLabel}）` : ''}`);
+  }
+  if (babaInfo.moistureG != null || babaInfo.moisture4 != null) {
+    const g = babaInfo.moistureG != null ? `G前 ${babaInfo.moistureG.toFixed(1)}%` : '';
+    const c4 = babaInfo.moisture4 != null ? `4C ${babaInfo.moisture4.toFixed(1)}%` : '';
+    parts.push([g, c4].filter(Boolean).join(' / '));
+  }
+  const conditionLabel = babaInfo.moistureConditionLabel
+    ? `（${babaInfo.moistureConditionLabel}の目安）`
+    : '';
+  const label =
+    parts.length > 0
+      ? `馬場: ${parts.join(' / ')}${conditionLabel}`
+      : '馬場: 計測なし';
+  if (!label) return null;
+
+  const badgeClass = babaInfo.moistureConditionLabel
+    ? getConditionBadgeClass(babaInfo.moistureConditionLabel)
+    : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
+
+  return (
+    <span
+      className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-sm ${badgeClass}`}
+      title="JRA早見表に基づく目安です。馬場状態は含水率だけで決まるものではありません。"
+    >
+      {label}
+    </span>
   );
 }

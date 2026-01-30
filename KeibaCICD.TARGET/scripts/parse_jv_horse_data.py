@@ -283,6 +283,68 @@ def search_horses_by_name(query: str, limit: int = 20) -> List[HorseRecord]:
     return results
 
 
+def find_horse_by_name(name: str) -> Optional[str]:
+    """
+    馬名で完全一致検索し、10桁馬IDを返す
+    
+    Args:
+        name: 馬名（完全一致）
+    
+    Returns:
+        10桁の血統登録番号（見つからない場合はNone）
+    """
+    name_stripped = name.strip()
+    
+    for um_file in get_um_files():
+        try:
+            with open(um_file, 'rb') as f:
+                data = f.read()
+            
+            num_records = len(data) // UM_RECORD_LEN
+            
+            for i in range(num_records):
+                offset = i * UM_RECORD_LEN
+                # 馬名部分を直接確認
+                horse_name = decode_sjis(data[offset + 46:offset + 82]).strip()
+                
+                if horse_name == name_stripped:
+                    ketto = decode_sjis(data[offset + 11:offset + 21])
+                    return ketto
+        except Exception:
+            pass
+    
+    return None
+
+
+def build_horse_name_index() -> Dict[str, str]:
+    """
+    馬名→10桁IDのインデックスを構築
+    
+    Returns:
+        {馬名: 10桁ID} の辞書
+    """
+    index = {}
+    
+    for um_file in get_um_files():
+        try:
+            with open(um_file, 'rb') as f:
+                data = f.read()
+            
+            num_records = len(data) // UM_RECORD_LEN
+            
+            for i in range(num_records):
+                offset = i * UM_RECORD_LEN
+                ketto = decode_sjis(data[offset + 11:offset + 21])
+                name = decode_sjis(data[offset + 46:offset + 82]).strip()
+                
+                if name and name not in index:
+                    index[name] = ketto
+        except Exception:
+            pass
+    
+    return index
+
+
 def build_horse_index(output_path: Path = None) -> dict:
     """
     馬インデックスを構築

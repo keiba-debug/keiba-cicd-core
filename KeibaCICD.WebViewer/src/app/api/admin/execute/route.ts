@@ -38,24 +38,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 日付範囲アクションの場合
-    if (isRangeAction) {
-      if (!startDate || !endDate) {
-        return NextResponse.json(
-          { error: 'startDate と endDate は必須です（日付範囲アクション）' },
-          { status: 400 }
-        );
-      }
-    } else {
-      if (!date) {
-        return NextResponse.json(
-          { error: 'date は必須です' },
-          { status: 400 }
-        );
+    const actionConfig = getAction(action);
+    
+    // 日付不要アクション以外は日付バリデーション
+    if (!actionConfig?.noDateRequired) {
+      // 日付範囲アクションの場合
+      if (isRangeAction) {
+        if (!startDate || !endDate) {
+          return NextResponse.json(
+            { error: 'startDate と endDate は必須です（日付範囲アクション）' },
+            { status: 400 }
+          );
+        }
+      } else {
+        if (!date) {
+          return NextResponse.json(
+            { error: 'date は必須です' },
+            { status: 400 }
+          );
+        }
       }
     }
-
-    const actionConfig = getAction(action);
     if (!actionConfig) {
       return NextResponse.json(
         { error: `不明なアクション: ${action}` },
@@ -79,9 +82,48 @@ export async function POST(request: NextRequest) {
           track,
         };
 
-        const commandsList = isRangeAction && startDate && endDate
-          ? getCommandArgsRange(action, startDate, endDate, options)
-          : getCommandArgs(action, date || '', options);
+        // 特別なアクションのコマンドを生成
+        let commandsList: string[][] = [];
+        let customCwd: string | undefined;
+        
+        if (action === 'calc_race_type_standards') {
+          // レース特性基準値算出 - JRA-VANデータから算出（TARGETディレクトリで実行）
+          // --since 2020: 2020年以降〜現在年まですべて計算対象
+          customCwd = ADMIN_CONFIG.targetPath;
+          commandsList = [
+            ['scripts/calculate_race_type_standards_jv.py', '--since', '2020', '--output', 'data/race_type_standards.json']
+          ];
+        } else if (action === 'calc_rating_standards') {
+          // レイティング基準値算出 - 競馬ブックデータから算出（keibabookディレクトリで実行）
+          // --since 2023: 2023年以降のデータを対象
+          customCwd = ADMIN_CONFIG.keibabookPath;
+          commandsList = [
+            ['scripts/calculate_rating_standards.py', '--since', '2023', '--output', 'data/rating_standards.json']
+          ];
+        } else if (action === 'training_summary') {
+          // 調教サマリ生成 - CK_DATAから調教サマリJSONを生成（TARGETディレクトリで実行）
+          customCwd = ADMIN_CONFIG.targetPath;
+          if (isRangeAction && startDate && endDate) {
+            commandsList = [
+              ['scripts/generate_training_summary.py', '--start', startDate, '--end', endDate]
+            ];
+          } else if (date) {
+            commandsList = [
+              ['scripts/generate_training_summary.py', '--date', date]
+            ];
+          }
+        } else if (action === 'build_horse_name_index') {
+          // 馬名インデックス作成 - UM_DATAから馬名→血統番号の辞書を再構築（TARGETディレクトリで実行）
+          customCwd = ADMIN_CONFIG.targetPath;
+          commandsList = [
+            ['scripts/horse_id_mapper.py', '--build-index']
+          ];
+        } else {
+          commandsList = isRangeAction && startDate && endDate
+            ? getCommandArgsRange(action, startDate, endDate, options)
+            : getCommandArgs(action, date || '', options);
+        }
+        
         const startTime = Date.now();
 
         sendEvent('start', {
@@ -110,7 +152,8 @@ export async function POST(request: NextRequest) {
                   level,
                   timestamp: new Date().toISOString(),
                 });
-              }
+              },
+              customCwd
             );
           }
 
@@ -156,10 +199,11 @@ export async function POST(request: NextRequest) {
  */
 function executeCommand(
   args: string[],
-  onLog: (message: string, level: 'info' | 'warning' | 'error') => void
+  onLog: (message: string, level: 'info' | 'warning' | 'error') => void,
+  customCwd?: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const cwd = ADMIN_CONFIG.keibabookPath;
+    const cwd = customCwd || ADMIN_CONFIG.keibabookPath;
     const pythonPath = ADMIN_CONFIG.pythonPath;
 
     onLog(`実行: python ${args.join(' ')}`, 'info');
