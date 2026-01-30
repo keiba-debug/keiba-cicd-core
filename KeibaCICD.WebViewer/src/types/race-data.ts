@@ -64,6 +64,10 @@ export interface EntryData {
   jockey: string;
   jockey_id?: string;
   trainer: string;
+  trainer_id?: string;      // 競馬ブック厩舎ID（例: "ｳ011"）
+  trainer_link?: string;    // 調教師リンクURL
+  trainer_tozai?: string;   // 所属（"美浦" | "栗東"）
+  trainer_comment?: string; // 調教師コメントデータ（勝負調教パターンなど）
   owner: string;
   short_comment: string;
   odds: string;
@@ -337,4 +341,31 @@ export function getWakuColor(waku: string | number): string {
     8: 'bg-pink-400 text-white',
   };
   return colors[wakuNum] || 'bg-gray-200';
+}
+
+/** 調教師名をフォーマット（所属を括弧で表示） */
+export function formatTrainerName(trainer: string, tozai?: string): string {
+  if (!trainer) return '-';
+  
+  // tozai情報があればそれを使用
+  if (tozai) {
+    const tozaiShort = tozai === '美浦' ? '美' : tozai === '栗東' ? '栗' : '';
+    if (tozaiShort) {
+      // 調教師名から所属の接頭辞を除去（例: "美堀内" → "堀内"）
+      const nameWithoutPrefix = trainer.replace(/^(美|栗)/, '');
+      return `（${tozaiShort}）${nameWithoutPrefix}`;
+    }
+  }
+  
+  // tozai情報がない場合は、調教師名から推測
+  // 「美堀内」→「（美）堀内」、「栗須貝」→「（栗）須貝」
+  if (trainer.startsWith('美')) {
+    return `（美）${trainer.substring(1)}`;
+  }
+  if (trainer.startsWith('栗')) {
+    return `（栗）${trainer.substring(1)}`;
+  }
+  
+  // 接頭辞がない場合はそのまま返す
+  return trainer;
 }

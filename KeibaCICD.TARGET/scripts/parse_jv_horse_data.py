@@ -120,7 +120,22 @@ class HorseRecord:
 
 def decode_sjis(data: bytes) -> str:
     """Shift-JISでデコードしてトリム"""
-    return data.decode('shift_jis', errors='replace').strip().replace('\u3000', '').replace('@', '')
+    # errors='replace'だと文字化けが発生するため、'ignore'を使用
+    # ただし、完全に無効なバイト列の場合は空文字になる可能性があるため、
+    # まず'replace'で試し、置換文字が多すぎる場合は'ignore'を試す
+    try:
+        decoded = data.decode('shift_jis', errors='replace').strip()
+        # 置換文字（\ufffd）が全体の50%以上を占める場合は、'ignore'で再試行
+        if decoded.count('\ufffd') > len(decoded) * 0.5:
+            decoded = data.decode('shift_jis', errors='ignore').strip()
+        # 置換文字を除去
+        decoded = decoded.replace('\ufffd', '')
+    except UnicodeDecodeError:
+        # デコードに失敗した場合は'ignore'で再試行
+        decoded = data.decode('shift_jis', errors='ignore').strip()
+    
+    # 全角空白と@を除去
+    return decoded.replace('\u3000', '').replace('@', '')
 
 
 def parse_um_record(data: bytes, offset: int = 0) -> Optional[HorseRecord]:
@@ -156,8 +171,41 @@ def parse_um_record(data: bytes, offset: int = 0) -> Optional[HorseRecord]:
         name_eng = decode_sjis(record[118:178])
         sex_cd = decode_sjis(record[200:201])
         tozai_cd = decode_sjis(record[849:850])
-        trainer_code = decode_sjis(record[850:855])
-        trainer_name = decode_sjis(record[855:863])
+        # 調教師コードは5桁数値（ゼロ埋め）なので、バイト列から直接数値文字列に変換
+        # 例: b'01234' → "01234"
+        trainer_code_bytes = record[850:855]
+        # 数値文字列として扱う（ASCII範囲の文字のみ、空白やNULLは無視）
+        trainer_code_chars = []
+        for b in trainer_code_bytes:
+            if 0x30 <= b <= 0x39:  # '0'-'9'
+                trainer_code_chars.append(chr(b))
+            elif b == 0x20 or b == 0x00:  # 空白やNULLは無視
+                continue
+            # その他の文字は無視（数値以外は含めない）
+        trainer_code = ''.join(trainer_code_chars).strip()
+        # 5桁未満の場合はゼロ埋め
+        if len(trainer_code) < 5:
+            trainer_code = trainer_code.zfill(5)
+        # 5桁を超える場合は最初の5桁のみ
+        if len(trainer_code) > 5:
+            trainer_code = trainer_code[:5]
+        # 調教師名はShift-JISでデコード（855-862、8バイト）
+        # 注意: 8バイトは全角4文字分。実際の名前が短い場合は空白で埋められている
+        trainer_name_bytes = record[855:863]
+        
+        # デバッグ: 最初の数件でバイト列を確認
+        # 調教師コードが01155の場合（最初の1件）のみデバッグ出力
+        if trainer_code == "01155" and len(trainer_code) == 5:
+            print(f"  [デバッグ] 調教師名バイト列: {trainer_name_bytes.hex()} (len={len(trainer_name_bytes)})")
+            print(f"  [デバッグ] 各バイト: {[hex(b) for b in trainer_name_bytes]}")
+            # 異なるオフセットで試す
+            for offset in [854, 855, 856]:
+                test_bytes = record[offset:offset+8]
+                test_name = decode_sjis(test_bytes)
+                if test_name and len(test_name) >= 2:
+                    print(f"  [デバッグ] offset {offset}: {test_name}")
+        
+        trainer_name = decode_sjis(trainer_name_bytes)
         
         # より後方のフィールド（オフセット調整が必要な場合あり）
         # 馬主・生産者情報は血統情報の後にあるため、正確なオフセットは仕様書確認が必要

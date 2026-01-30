@@ -18,6 +18,7 @@ import { ChevronDown, ChevronUp, Trophy, Timer, TrendingUp, TrendingDown, Minus,
 import { calculateActualRpci, type CourseRpciInfo, type RaceRpciAnalysis } from '@/lib/data/rpci-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import { POSITIVE_TEXT, getRatingColor } from '@/lib/positive-colors';
+import { cn } from '@/lib/utils';
 import {
   Collapsible,
   CollapsibleContent,
@@ -34,6 +35,81 @@ import {
   RaceProgressVisualization,
 } from './result-visualizations';
 
+// 丸数字マップ（通過順パース用）
+const circleNumMap: Record<string, number> = {
+  '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5,
+  '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
+  '⑪': 11, '⑫': 12, '⑬': 13, '⑭': 14, '⑮': 15,
+  '⑯': 16, '⑰': 17, '⑱': 18,
+};
+
+/**
+ * 通過順位文字列をハイフン区切りでフォーマット
+ * @param raw - 通過順位の生文字列 (例: "5555", "⑫1213", "3-2-3-1")
+ * @param totalHorses - 出走頭数（2桁判定に使用）
+ * @returns ハイフン区切りの通過順位文字列
+ */
+function formatPassingOrders(raw: string | undefined, totalHorses: number = 18): string {
+  if (!raw) return '-';
+  
+  // すでにハイフン区切りの場合はそのまま返す
+  if (raw.includes('-')) {
+    return raw;
+  }
+  
+  const positions: number[] = [];
+  let remaining = raw;
+  
+  // 頭数が10頭以上の場合、2桁数字を考慮
+  const hasTwoDigitNumbers = totalHorses >= 10;
+  
+  while (remaining.length > 0) {
+    let matched = false;
+    
+    // まず丸数字をチェック
+    for (const [circle, num] of Object.entries(circleNumMap)) {
+      if (remaining.startsWith(circle)) {
+        positions.push(num);
+        remaining = remaining.slice(circle.length);
+        matched = true;
+        break;
+      }
+    }
+    
+    if (matched) continue;
+    
+    // 2桁数字をチェック（10頭以上のレースの場合）
+    if (hasTwoDigitNumbers && remaining.length >= 2) {
+      const twoDigit = remaining.slice(0, 2);
+      const twoDigitNum = parseInt(twoDigit);
+      // 10-18（または頭数まで）の範囲なら2桁として解釈
+      if (!isNaN(twoDigitNum) && twoDigitNum >= 10 && twoDigitNum <= Math.max(totalHorses, 18)) {
+        positions.push(twoDigitNum);
+        remaining = remaining.slice(2);
+        continue;
+      }
+    }
+    
+    // 1桁数字をチェック
+    const oneDigit = remaining.slice(0, 1);
+    const oneDigitNum = parseInt(oneDigit);
+    if (!isNaN(oneDigitNum) && oneDigitNum > 0) {
+      positions.push(oneDigitNum);
+      remaining = remaining.slice(1);
+      continue;
+    }
+    
+    // マッチしない文字はスキップ
+    remaining = remaining.slice(1);
+  }
+  
+  if (positions.length === 0) {
+    return '-';
+  }
+  
+  return positions.join('-');
+}
+
 interface RaceResultSectionProps {
   entries: HorseEntry[];
   payouts?: PayoutEntry[] | null;
@@ -41,9 +117,12 @@ interface RaceResultSectionProps {
   distance?: number; // レース距離（メートル）
   rpciInfo?: CourseRpciInfo | null; // RPCI基準値情報
   babaInfo?: BabaCondition | null; // 馬場コンディション（クッション値・含水率）
+  raceId?: string; // レースID（スタートメモ用）
+  raceDate?: string; // レース日付（スタートメモ用）
+  raceName?: string; // レース名（スタートメモ用）
 }
 
-export default function RaceResultSection({ entries, payouts, tenkaiData, distance, rpciInfo, babaInfo }: RaceResultSectionProps) {
+export default function RaceResultSection({ entries, payouts, tenkaiData, distance, rpciInfo, babaInfo, raceId, raceDate, raceName }: RaceResultSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
   
   // 結果のある馬のみフィルタしてソート
@@ -61,6 +140,25 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
 
   // 上り最速を特定
   const fastestLast3f = getFastestLast3fEntry(resultsEntries);
+
+  // レイティング統計を計算（レース内相対表示用）
+  const ratingStats = useMemo(() => {
+    const ratings = entries
+      .map(e => ({ horseNumber: e.horse_number, rating: parseFloat(e.entry_data.rating) || 0 }))
+      .filter(r => r.rating > 0);
+    const ratingValues = ratings.map(r => r.rating);
+    const maxRating = ratingValues.length > 0 ? Math.max(...ratingValues) : 50;
+    const minRating = ratingValues.length > 0 ? Math.min(...ratingValues) : 40;
+    
+    // レース内順位を計算
+    const sortedRatings = [...ratings].sort((a, b) => b.rating - a.rating);
+    const ratingRankMap = new Map<number, number>();
+    sortedRatings.forEach((r, idx) => {
+      ratingRankMap.set(r.horseNumber, idx + 1);
+    });
+    
+    return { minRating, maxRating, ratingRankMap, totalCount: ratings.length };
+  }, [entries]);
 
   // 実際のRPCI分析を計算
   const rpciAnalysis = useMemo(() => {
@@ -142,6 +240,8 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
                       key={entry.horse_number} 
                       entry={entry}
                       isFastestLast3f={entry.horse_number === fastestLast3f?.horse_number}
+                      ratingStats={ratingStats}
+                      totalHorses={entries.length}
                     />
                   ))}
                 </tbody>
@@ -174,7 +274,14 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
       <RaceProgressVisualization entries={entries} distance={distance || 0} defaultOpen={false} />
 
       {/* 序盤位置取り比較 */}
-      <EarlyPositionComparison entries={entries} tenkaiData={tenkaiData || null} defaultOpen={false} />
+      <EarlyPositionComparison 
+        entries={entries} 
+        tenkaiData={tenkaiData || null} 
+        defaultOpen={false}
+        raceId={raceId}
+        raceDate={raceDate}
+        raceName={raceName}
+      />
 
       {/* 着差バー */}
       <MarginVisualization entries={entries} defaultOpen={false} />
@@ -189,12 +296,21 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
   );
 }
 
+interface RatingStats {
+  minRating: number;
+  maxRating: number;
+  ratingRankMap: Map<number, number>;
+  totalCount: number;
+}
+
 interface ResultRowProps {
   entry: HorseEntry;
   isFastestLast3f: boolean;
+  ratingStats: RatingStats;
+  totalHorses: number;
 }
 
-function ResultRow({ entry, isFastestLast3f }: ResultRowProps) {
+function ResultRow({ entry, isFastestLast3f, ratingStats, totalHorses }: ResultRowProps) {
   const { entry_data, result } = entry;
   if (!result) return null;
 
@@ -255,9 +371,9 @@ function ResultRow({ entry, isFastestLast3f }: ResultRowProps) {
         {isFastestLast3f && <span className="ml-0.5">🏃</span>}
       </td>
       
-      {/* 通過順 */}
-      <td className="px-2 py-1.5 text-center border text-gray-600 dark:text-gray-400">
-        {result.passing_orders || '-'}
+      {/* 通過順（ハイフン区切り） */}
+      <td className="px-2 py-1.5 text-center border text-gray-600 dark:text-gray-400 font-mono text-xs">
+        {formatPassingOrders(result.passing_orders, totalHorses)}
       </td>
       
       {/* 4角位置 */}
@@ -279,15 +395,95 @@ function ResultRow({ entry, isFastestLast3f }: ResultRowProps) {
       </td>
       
       {/* レイティング */}
-      <td className={`px-2 py-1.5 text-center border font-mono ${getRatingColor(entry_data.rating)}`}>
-        {entry_data.rating || '-'}
-      </td>
+      <RatingResultCell 
+        rating={entry_data.rating}
+        horseNumber={entry.horse_number}
+        ratingStats={ratingStats}
+      />
       
       {/* 寸評 */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
         {sunpyo || '-'}
       </td>
     </tr>
+  );
+}
+
+// レース結果用レイティングセル（色分け統一版）
+// 色分けルール: 黄色系(1位) → 青系(2-3位) → 緑系(上位30%)
+interface RatingResultCellProps {
+  rating: string;
+  horseNumber: number;
+  ratingStats: RatingStats;
+}
+
+function RatingResultCell({ rating, horseNumber, ratingStats }: RatingResultCellProps) {
+  const ratingNum = parseFloat(rating) || 0;
+  const rank = ratingStats.ratingRankMap.get(horseNumber) || 0;
+  const { minRating, maxRating, totalCount } = ratingStats;
+  
+  if (ratingNum <= 0 || rank <= 0) {
+    return (
+      <td className={cn("px-2 py-1.5 text-center border font-mono", getRatingColor(rating))}>
+        {rating || '-'}
+      </td>
+    );
+  }
+  
+  // バーの幅計算
+  const range = maxRating - minRating;
+  const percentage = range > 0 
+    ? 20 + ((ratingNum - minRating) / range) * 80
+    : 50;
+  
+  // 順位に応じた色（統一ルール）
+  const getBarColor = () => {
+    if (rank === 1) return 'bg-gradient-to-r from-yellow-500 to-amber-400';
+    if (rank === 2) return 'bg-gradient-to-r from-blue-600 to-blue-400';
+    if (rank === 3) return 'bg-gradient-to-r from-blue-500 to-blue-300';
+    if (rank <= Math.ceil(totalCount * 0.3)) return 'bg-gradient-to-r from-emerald-500 to-emerald-400';
+    if (rank <= Math.ceil(totalCount * 0.5)) return 'bg-gradient-to-r from-green-400 to-green-300';
+    return 'bg-gradient-to-r from-gray-400 to-gray-300';
+  };
+  
+  const getTextColor = () => {
+    if (rank === 1) return "text-amber-600 dark:text-amber-400 font-bold";
+    if (rank <= 3) return "text-blue-600 dark:text-blue-400 font-bold";
+    if (rank <= Math.ceil(totalCount * 0.3)) return "text-emerald-600 dark:text-emerald-400";
+    return "text-gray-600 dark:text-gray-400";
+  };
+  
+  const getBgColor = () => {
+    if (rank === 1) return "bg-amber-50 dark:bg-amber-900/10";
+    if (rank <= 3) return "bg-blue-50 dark:bg-blue-900/10";
+    if (rank <= Math.ceil(totalCount * 0.3)) return "bg-emerald-50 dark:bg-emerald-900/10";
+    return "";
+  };
+  
+  const getRankIcon = () => {
+    if (rank === 1) return '🥇';
+    if (rank === 2) return '🥈';
+    if (rank === 3) return '🥉';
+    return null;
+  };
+  
+  return (
+    <td className={cn("px-2 py-1.5 text-center border", getBgColor())}>
+      <div className="flex flex-col items-center gap-0.5">
+        <div className="flex items-center gap-0.5">
+          <span className={cn("font-mono text-xs", getTextColor())}>
+            {ratingNum.toFixed(1)}
+          </span>
+          {rank <= 3 && <span className="text-xs">{getRankIcon()}</span>}
+        </div>
+        <div className="w-10 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+          <div 
+            className={cn("h-full rounded-full", getBarColor())}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+      </div>
+    </td>
   );
 }
 

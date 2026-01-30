@@ -12,10 +12,12 @@ import {
   HorsePastRacesTable, 
   HorseStatsSection,
   HorseUserMemo,
+  HorseAnalysisSection,
 } from '@/components/horse-v2';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { HorseRaceSelector } from '@/components/horse-race-selector';
+import { analyzeHorse } from '@/lib/horse-analyzer';
 
 interface PageParams {
   params: Promise<{
@@ -50,6 +52,9 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
 
   const { basic, pastRaces, stats, userMemo } = horseData;
 
+  // 馬分析を実行
+  const analysis = analyzeHorse(pastRaces, stats);
+
   // 過去レースをHorseRaceSelector形式に変換
   const selectorRaces = pastRaces.slice(0, 20).map(race => ({
     date: race.date,
@@ -77,8 +82,8 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
           <span className="text-foreground">{basic.name || `馬ID: ${id}`}</span>
         </nav>
 
-        {/* ヘッダー */}
-        <HorseHeader basic={basic} />
+        {/* ヘッダー（トレンドインジケーター付き） */}
+        <HorseHeader basic={basic} recentRaces={pastRaces.slice(0, 5)} />
 
         {/* 外部リンク（上部） */}
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -90,7 +95,7 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
             >
-              <img src="/keibabook.ico" alt="" className="w-4 h-4" />
+              <span className="text-sm">📖</span>
               完全成績
             </a>
             <a
@@ -99,9 +104,20 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
             >
-              <img src="/keibabook.ico" alt="" className="w-4 h-4" />
+              <span className="text-sm">📊</span>
               調教履歴
             </a>
+            {basic.trainerLink && (
+              <a
+                href={basic.trainerLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
+              >
+                <span className="text-sm">🏇</span>
+                厩舎情報
+              </a>
+            )}
           </div>
         </div>
 
@@ -109,6 +125,11 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
 
         {/* 成績統計 */}
         <HorseStatsSection stats={stats} />
+
+        <Separator className="my-6" />
+
+        {/* 分析セクション */}
+        <HorseAnalysisSection analysis={analysis} />
 
         <Separator className="my-6" />
 

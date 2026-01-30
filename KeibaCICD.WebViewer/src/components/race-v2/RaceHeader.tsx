@@ -87,50 +87,53 @@ export default function RaceHeader({
         <div className="flex items-start justify-between gap-4">
           {/* 左側: レース情報 */}
           <div className="flex-1">
-            {/* 1行目: レース番号 + レース名 */}
+            {/* 1行目: 発走時刻 + クラス + レース名 */}
             <div className="flex items-center gap-3 mb-2">
-              <span className={`text-2xl font-bold ${trackColor}`}>{raceInfo.race_number}R</span>
-              <h1 className="text-xl font-bold">{raceInfo.race_name || ''}</h1>
+              {/* 発走時刻（目立つ） */}
+              {(raceInfo.post_time || raceInfo.start_time) && (
+                <span className="text-2xl font-bold text-blue-600 dark:text-blue-400 font-mono">
+                  {raceInfo.start_time || raceInfo.post_time}
+                </span>
+              )}
+              
+              {/* クラス（レース名） */}
+              <div className="flex items-center gap-2">
+                {raceInfo.race_condition && (
+                  <span className="text-lg font-bold text-gray-700 dark:text-gray-300">
+                    {raceInfo.race_condition}
+                  </span>
+                )}
+                {raceInfo.race_name && raceInfo.race_name !== raceInfo.race_condition && (
+                  <h1 className="text-lg font-bold">{raceInfo.race_name}</h1>
+                )}
+              </div>
             </div>
             
-            {/* 2行目: 競馬場 + コース + 発走時刻 + クラス */}
-            <div className="flex flex-wrap items-center gap-2 text-sm">
+            {/* 2行目: レース番号 + 競馬場 + コース距離 + 馬場情報 + ラップ傾向 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`text-xl font-bold ${trackColor}`}>{raceInfo.race_number}R</span>
               <span className={`font-bold ${trackColor}`}>{displayVenue}</span>
               
               {/* コース情報バッジ */}
               {courseInfo && (
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${getCourseBadgeClass(raceInfo.track)}`}>
+                <span className={`text-sm font-bold px-3 py-1 rounded ${getCourseBadgeClass(raceInfo.track)}`}>
                   {courseInfo}
                 </span>
               )}
               
-              {/* RPCI傾向バッジ */}
-              {rpciInfo && (
-                <RpciBadge rpciInfo={rpciInfo} />
+              {/* 区切り */}
+              {(babaInfo || rpciInfo) && (
+                <span className="text-gray-300 dark:text-gray-600">|</span>
               )}
 
-              {/* 馬場コンディション（クッション値・含水率） */}
+              {/* 馬場コンディション */}
               {babaInfo && (
                 <BabaConditionBadge babaInfo={babaInfo} />
               )}
               
-              {/* 発走時刻 */}
-              {(raceInfo.post_time || raceInfo.start_time) && (
-                <span className="text-muted-foreground text-xs font-mono">
-                  {raceInfo.start_time || raceInfo.post_time}発走
-                </span>
-              )}
-              
-              {/* グレード/クラス */}
-              {raceInfo.grade && raceInfo.grade !== '' && (
-                <GradeBadge grade={raceInfo.grade} />
-              )}
-              
-              {/* レース条件 */}
-              {raceInfo.race_condition && (
-                <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-sm">
-                  {raceInfo.race_condition}
-                </span>
+              {/* RPCI傾向 */}
+              {rpciInfo && (
+                <RpciBadge rpciInfo={rpciInfo} />
               )}
             </div>
           </div>

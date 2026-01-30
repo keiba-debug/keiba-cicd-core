@@ -352,17 +352,26 @@ export default function RaceProgressVisualization({
             ) : (
               /* 詳細テーブル */
               <div className="overflow-x-auto">
+                {/* 前半タイムの説明 */}
+                <div className="mb-2 text-xs text-gray-500 flex items-center gap-2">
+                  <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
+                    〜残600m = ゴールタイム − 上がり3F（スタートから残600m地点までのタイム）
+                  </span>
+                </div>
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-2 py-2 text-left">着順</th>
                       <th className="px-2 py-2 text-left">馬番</th>
                       <th className="px-2 py-2 text-left">馬名</th>
-                      <th className="px-2 py-2 text-right">ゴールタイム</th>
-                      <th className="px-2 py-2 text-right">前半</th>
+                      <th className="px-2 py-2 text-right">ゴール</th>
+                      <th className="px-2 py-2 text-center">
+                        <div className="flex flex-col items-center">
+                          <span>〜残600m</span>
+                          <span className="text-[10px] text-gray-400 font-normal">タイム / 順位</span>
+                        </div>
+                      </th>
                       <th className="px-2 py-2 text-right">上がり3F</th>
-                      <th className="px-2 py-2 text-center">600m順位</th>
-                      <th className="px-2 py-2 text-right">600m差</th>
                       <th className="px-2 py-2 text-right">着差</th>
                       <th className="px-2 py-2 text-center">変化</th>
                     </tr>
@@ -373,8 +382,26 @@ export default function RaceProgressVisualization({
                       const waku = horse.waku;
                       const wakuColor = getWakuColor(waku);
                       
+                      // 前半タイムの順位に応じた色分け（黄色→青→緑ルール）
+                      const getFirstHalfStyle = () => {
+                        if (horse.position600m === 1) return { bg: 'bg-amber-50', text: 'text-amber-600 font-bold', icon: '🥇' };
+                        if (horse.position600m === 2) return { bg: 'bg-blue-50', text: 'text-blue-600 font-bold', icon: '🥈' };
+                        if (horse.position600m === 3) return { bg: 'bg-blue-50', text: 'text-blue-500 font-bold', icon: '🥉' };
+                        if (horse.position600m <= Math.ceil(horseData.length * 0.3)) return { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: '' };
+                        return { bg: '', text: 'text-gray-600', icon: '' };
+                      };
+                      const firstHalfStyle = getFirstHalfStyle();
+                      
+                      // 前半タイムのバー幅（相対位置）
+                      const fastestFirstHalf = Math.min(...horseData.map(h => h.firstHalfSeconds));
+                      const slowestFirstHalf = Math.max(...horseData.map(h => h.firstHalfSeconds));
+                      const firstHalfRange = slowestFirstHalf - fastestFirstHalf;
+                      const firstHalfPercent = firstHalfRange > 0 
+                        ? 100 - ((horse.firstHalfSeconds - fastestFirstHalf) / firstHalfRange) * 80
+                        : 100;
+                      
                       return (
-                        <tr key={horse.horseNumber} className="border-t hover:bg-gray-50">
+                        <tr key={horse.horseNumber} className={`border-t hover:bg-gray-50 ${horse.finishPosition <= 3 ? 'bg-green-50/30' : ''}`}>
                           <td className={`px-2 py-2 font-bold
                             ${horse.finishPosition <= 3 ? 'text-green-600 dark:text-green-400' : ''}`}
                           >
@@ -395,28 +422,43 @@ export default function RaceProgressVisualization({
                           <td className="px-2 py-2 text-right font-mono">
                             {formatTime(horse.goalTimeSeconds)}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-orange-600">
-                            {formatTime(horse.firstHalfSeconds)}
+                          {/* 前半タイム（ビジュアライズ強化） */}
+                          <td className={`px-2 py-2 ${firstHalfStyle.bg}`}>
+                            <div className="flex flex-col items-center gap-0.5">
+                              <div className="flex items-center gap-1">
+                                <span className={`font-mono text-xs ${firstHalfStyle.text}`}>
+                                  {formatTime(horse.firstHalfSeconds)}
+                                </span>
+                                {firstHalfStyle.icon && <span className="text-xs">{firstHalfStyle.icon}</span>}
+                              </div>
+                              {/* ミニバー */}
+                              <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full rounded-full bg-gradient-to-r from-orange-400 to-orange-300"
+                                  style={{ width: `${firstHalfPercent}%` }}
+                                />
+                              </div>
+                              {/* 600m地点での差 */}
+                              <span className="text-[10px] text-gray-400">
+                                {horse.position600m}位 {horse.timeDiff600m > 0 ? `(+${horse.timeDiff600m.toFixed(1)})` : ''}
+                              </span>
+                            </div>
                           </td>
                           <td className={`px-2 py-2 text-right font-mono font-bold ${horse.finishPosition <= 3 ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
                             {horse.last3fSeconds.toFixed(1)}
-                          </td>
-                          <td className="px-2 py-2 text-center">
-                            <span className={`font-bold ${horse.position600m <= 3 ? 'text-orange-500' : ''}`}>
-                              {horse.position600m}位
-                            </span>
-                          </td>
-                          <td className="px-2 py-2 text-right font-mono text-gray-500">
-                            {horse.timeDiff600m > 0 ? `+${horse.timeDiff600m.toFixed(1)}` : '0.0'}
                           </td>
                           <td className="px-2 py-2 text-right font-mono">
                             {horse.marginFromWinner > 0 ? `+${horse.marginFromWinner.toFixed(2)}` : '-'}
                           </td>
                           <td className="px-2 py-2 text-center">
                             {posChange > 0 ? (
-                              <span className="text-green-600 font-bold">↑{posChange}</span>
+                              <span className="inline-flex items-center gap-0.5 text-green-600 font-bold bg-green-100 px-1.5 py-0.5 rounded">
+                                ↑{posChange}
+                              </span>
                             ) : posChange < 0 ? (
-                              <span className="text-red-600 font-bold">↓{Math.abs(posChange)}</span>
+                              <span className="inline-flex items-center gap-0.5 text-red-600 font-bold bg-red-100 px-1.5 py-0.5 rounded">
+                                ↓{Math.abs(posChange)}
+                              </span>
                             ) : (
                               <span className="text-gray-400">→</span>
                             )}

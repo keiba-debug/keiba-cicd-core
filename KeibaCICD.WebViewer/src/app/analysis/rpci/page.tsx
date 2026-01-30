@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { RpciGauge, RpciBar, StatCard } from '@/components/ui/visualization';
 
 // 型定義
 interface RpciStats {
@@ -186,30 +187,26 @@ export default function RpciAnalysisPage() {
         <div className="space-y-6">
           {/* サマリーカード */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="pt-6 text-center">
-                <div className="text-3xl font-bold text-slate-700">{data.summary.totalCourses}</div>
-                <div className="text-sm text-slate-500 mt-1">コース数</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6 text-center">
-                <div className="text-3xl font-bold text-slate-700">{data.summary.totalSamples.toLocaleString()}</div>
-                <div className="text-sm text-slate-500 mt-1">総レース数</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6 text-center">
-                <div className="text-3xl font-bold text-slate-700">{data.summary.distanceGroups}</div>
-                <div className="text-sm text-slate-500 mt-1">距離グループ</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6 text-center">
-                <div className="text-3xl font-bold text-slate-700">{Math.round(data.summary.similarPairs)}</div>
-                <div className="text-sm text-slate-500 mt-1">類似コースペア</div>
-              </CardContent>
-            </Card>
+            <StatCard
+              label="コース数"
+              value={data.summary.totalCourses}
+              icon="🏇"
+            />
+            <StatCard
+              label="総レース数"
+              value={data.summary.totalSamples.toLocaleString()}
+              icon="🏁"
+            />
+            <StatCard
+              label="距離グループ"
+              value={data.summary.distanceGroups}
+              icon="📏"
+            />
+            <StatCard
+              label="類似コースペア"
+              value={Math.round(data.summary.similarPairs)}
+              icon="🔗"
+            />
           </div>
 
           {/* メタデータ */}
@@ -265,56 +262,87 @@ export default function RpciAnalysisPage() {
 
           {/* 距離グループ別タブ */}
           {activeTab === 'distance' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">芝/ダート × 距離グループ別 RPCI</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-slate-50">
-                        <th className="text-left py-3 px-4">カテゴリ</th>
-                        <th className="text-right py-3 px-4">件数</th>
-                        <th className="text-right py-3 px-4">RPCI平均</th>
-                        <th className="text-center py-3 px-4">傾向</th>
-                        <th className="text-right py-3 px-4">瞬発閾値</th>
-                        <th className="text-right py-3 px-4">持続閾値</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(data.by_distance_group)
-                        .sort((a, b) => b[1].rpci.mean - a[1].rpci.mean)
-                        .map(([key, value]) => {
-                          const trend = getRpciTrend(value.rpci.mean);
-                          return (
-                            <tr key={key} className="border-b hover:bg-slate-50">
-                              <td className="py-3 px-4 font-medium">{formatDistanceGroup(key)}</td>
-                              <td className="text-right py-3 px-4">{value.sample_count.toLocaleString()}</td>
-                              <td className="text-right py-3 px-4 font-mono font-bold">{value.rpci.mean.toFixed(2)}</td>
-                              <td className="text-center py-3 px-4">
-                                <span className={`flex items-center justify-center gap-1 ${trend.color}`}>
-                                  {trend.icon}
-                                  <span className="text-xs">{trend.label}</span>
-                                </span>
-                              </td>
-                              <td className="text-right py-3 px-4 font-mono text-blue-600">&gt;{value.thresholds.instantaneous.toFixed(1)}</td>
-                              <td className="text-right py-3 px-4 font-mono text-red-600">&lt;{value.thresholds.sustained.toFixed(1)}</td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-6">
+              {/* ゲージグリッド表示 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                {Object.entries(data.by_distance_group)
+                  .sort((a, b) => b[1].rpci.mean - a[1].rpci.mean)
+                  .map(([key, value]) => (
+                    <Card key={key} className="hover:shadow-md transition-shadow">
+                      <CardContent className="pt-4 pb-3 flex flex-col items-center">
+                        <div className="text-xs font-medium text-muted-foreground mb-2">
+                          {formatDistanceGroup(key)}
+                        </div>
+                        <RpciGauge value={value.rpci.mean} size="sm" />
+                        <div className="text-[10px] text-muted-foreground mt-1">
+                          {value.sample_count.toLocaleString()}件
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
+
+              {/* 詳細テーブル */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">芝/ダート × 距離グループ別 RPCI</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-slate-50 dark:bg-slate-800">
+                          <th className="text-left py-3 px-4">カテゴリ</th>
+                          <th className="text-right py-3 px-4">件数</th>
+                          <th className="text-center py-3 px-4">RPCI</th>
+                          <th className="text-center py-3 px-4">傾向</th>
+                          <th className="text-right py-3 px-4">瞬発閾値</th>
+                          <th className="text-right py-3 px-4">持続閾値</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(data.by_distance_group)
+                          .sort((a, b) => b[1].rpci.mean - a[1].rpci.mean)
+                          .map(([key, value]) => {
+                            const trend = getRpciTrend(value.rpci.mean);
+                            return (
+                              <tr key={key} className="border-b hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                <td className="py-3 px-4 font-medium">{formatDistanceGroup(key)}</td>
+                                <td className="text-right py-3 px-4">{value.sample_count.toLocaleString()}</td>
+                                <td className="py-3 px-4">
+                                  <div className="flex justify-center">
+                                    <RpciGauge value={value.rpci.mean} size="sm" showLabel={false} />
+                                  </div>
+                                </td>
+                                <td className="text-center py-3 px-4">
+                                  <span className={`flex items-center justify-center gap-1 ${trend.color}`}>
+                                    {trend.icon}
+                                    <span className="text-xs">{trend.label}</span>
+                                  </span>
+                                </td>
+                                <td className="text-right py-3 px-4 font-mono text-blue-600">&gt;{value.thresholds.instantaneous.toFixed(1)}</td>
+                                <td className="text-right py-3 px-4 font-mono text-red-600">&lt;{value.thresholds.sustained.toFixed(1)}</td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {/* コース別タブ */}
           {activeTab === 'course' && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">コース別 RPCI</CardTitle>
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <span>コース別 RPCI ランキング</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {filteredCourses.length}コース
+                  </span>
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <input
@@ -322,43 +350,43 @@ export default function RpciAnalysisPage() {
                   placeholder="コース名で検索（例: 東京芝2000）"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-4 py-2 border rounded-lg text-sm"
+                  className="w-full px-4 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
                 />
-                <div className="overflow-x-auto max-h-[600px]">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-white">
-                      <tr className="border-b bg-slate-50">
-                        <th className="text-left py-3 px-4">コース</th>
-                        <th className="text-right py-3 px-4">件数</th>
-                        <th className="text-right py-3 px-4">RPCI</th>
-                        <th className="text-center py-3 px-4">傾向</th>
-                        <th className="text-right py-3 px-4">標準偏差</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredCourses.map(([key, value]) => {
-                        const trend = getRpciTrend(value.rpci.mean);
-                        return (
-                          <tr key={key} className="border-b hover:bg-slate-50">
-                            <td className="py-3 px-4 font-medium">{formatCourseName(key)}</td>
-                            <td className="text-right py-3 px-4">{value.sample_count}</td>
-                            <td className="text-right py-3 px-4 font-mono font-bold">{value.rpci.mean.toFixed(2)}</td>
-                            <td className="text-center py-3 px-4">
-                              <span className={`flex items-center justify-center gap-1 ${trend.color}`}>
-                                {trend.icon}
-                              </span>
-                            </td>
-                            <td className="text-right py-3 px-4 font-mono text-muted-foreground">{value.rpci.stdev.toFixed(2)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                
+                {/* バーグラフ表示 */}
+                <div className="max-h-[600px] overflow-y-auto space-y-1">
+                  {filteredCourses.map(([key, value], index) => (
+                    <RpciBar
+                      key={key}
+                      value={value.rpci.mean}
+                      label={formatCourseName(key)}
+                      rank={searchQuery === '' ? index + 1 : undefined}
+                      sampleCount={value.sample_count}
+                      animate={true}
+                      delay={index * 30}
+                    />
+                  ))}
                   {filteredCourses.length === 0 && (
                     <div className="py-8 text-center text-muted-foreground">
                       該当するコースがありません
                     </div>
                   )}
+                </div>
+
+                {/* 凡例 */}
+                <div className="flex flex-wrap gap-4 text-xs text-muted-foreground border-t pt-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 rounded bg-blue-500"></span>
+                    <span>瞬発戦（RPCI &gt; 50）</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 rounded bg-gray-400"></span>
+                    <span>平均的</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 rounded bg-red-500"></span>
+                    <span>持続戦（RPCI &lt; 50）</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>

@@ -7,6 +7,7 @@
 
 import re
 import json
+import urllib.parse
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -287,8 +288,30 @@ class SyutubaParser:
                     
                     self.logger.debug(f"umacd抽出: {horse_name} (umacd: {umacd})")
                 
+                # 調教師リンクを探す（厩舎ID取得）
+                trainer_link = cell.find('a', href=re.compile(r'/db/kyusya/'))
+                if trainer_link:
+                    href = trainer_link.get('href', '')
+                    trainer_name = trainer_link.get_text(strip=True)
+                    
+                    # URLから厩舎IDを抽出
+                    # 例: /db/kyusya/%EF%BD%B3011 → ｳ011
+                    if '/kyusya/' in href:
+                        trainer_id_encoded = href.split('/kyusya/')[-1]
+                        trainer_id = urllib.parse.unquote(trainer_id_encoded)
+                        
+                        # 厩舎IDとリンクを保存
+                        horse_data['trainer_id'] = trainer_id
+                        horse_data['trainer_link'] = href if href.startswith('http') else f"https://p.keibabook.co.jp{href}"
+                        
+                        # 調教師名も保存（リンクテキストが優先）
+                        if trainer_name:
+                            horse_data[normalized_key] = trainer_name
+                        
+                        self.logger.debug(f"調教師ID抽出: {trainer_name} (ID: {trainer_id})")
+                
                 # その他の特殊なリンクや属性も抽出可能
-                # 例：騎手リンク、調教師リンクなど
+                # 例：騎手リンクなど
                 
             # 馬番が数字でない場合はスキップ
             bano = horse_data.get('馬番', '')

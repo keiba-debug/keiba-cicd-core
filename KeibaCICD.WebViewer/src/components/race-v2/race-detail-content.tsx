@@ -133,6 +133,9 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
                 tenkaiData={raceData.tenkai_data}
                 distance={raceData.race_info.distance}
                 rpciInfo={rpciInfo}
+                raceId={raceData.meta?.race_id}
+                raceDate={raceData.race_info.date}
+                raceName={raceData.race_info.race_name}
               />
             </TabsContent>
           )}
@@ -186,6 +189,9 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
               distance={raceData.race_info.distance}
               rpciInfo={rpciInfo}
               babaInfo={babaInfo}
+              raceId={raceData.meta?.race_id}
+              raceDate={raceData.race_info.date}
+              raceName={raceData.race_info.race_name}
             />
           )}
         </div>

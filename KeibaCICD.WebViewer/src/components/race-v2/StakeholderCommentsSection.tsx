@@ -10,7 +10,7 @@
  */
 
 import React, { useState } from 'react';
-import { HorseEntry, getWakuColor } from '@/types/race-data';
+import { HorseEntry, getWakuColor, formatTrainerName } from '@/types/race-data';
 import { ChevronDown, ChevronUp, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -68,7 +68,7 @@ export default function StakeholderCommentsSection({ entries }: StakeholderComme
                   <th className="px-2 py-2 text-center border w-10">枠</th>
                   <th className="px-2 py-2 text-center border w-10">番</th>
                   <th className="px-2 py-2 text-left border min-w-24">馬名</th>
-                  <th className="px-2 py-2 text-left border min-w-20">調教師</th>
+                  <th className="px-2 py-2 text-left border min-w-24">調教師</th>
                   <th className="px-2 py-2 text-left border" style={{ minWidth: '280px' }}>厩舎談話</th>
                   <th className="px-2 py-2 text-left border" style={{ minWidth: '280px' }}>前走インタビュー</th>
                   <th className="px-2 py-2 text-left border" style={{ minWidth: '200px' }}>次走へのメモ</th>
@@ -131,8 +131,11 @@ function StakeholderCommentRow({ entry }: StakeholderCommentRowProps) {
       </td>
       
       {/* 調教師 */}
-      <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
-        {entry_data.trainer || '-'}
+      <td 
+        className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
+        title={entry_data.trainer_comment || undefined}
+      >
+        {formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}
       </td>
       
       {/* 厩舎談話 */}

@@ -9,6 +9,7 @@
 import os
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -18,6 +19,17 @@ from dataclasses import dataclass, field, asdict
 
 from ..utils.config import Config
 from ..batch.core.common import get_json_file_path, get_race_ids_file_path
+
+# JRA-VANライブラリのパスを追加（調教師ID変換用）
+TARGET_DIR = Path(__file__).resolve().parents[3] / "KeibaCICD.TARGET"
+if TARGET_DIR.exists():
+    sys.path.insert(0, str(TARGET_DIR))
+    try:
+        from common.jravan import get_trainer_info
+    except ImportError:
+        get_trainer_info = None
+else:
+    get_trainer_info = None
 
 
 @dataclass
@@ -300,6 +312,10 @@ class RaceDataIntegrator:
                 'weight_diff': syutuba_entry.get('増減') or syutuba_entry.get('weight_diff', ''),
                 'jockey': syutuba_entry.get('騎手') or syutuba_entry.get('騎\u2003手') or syutuba_entry.get('騎 手') or syutuba_entry.get('jockey', ''),
                 'trainer': syutuba_entry.get('厩舎') or syutuba_entry.get('厩\u2003舎') or syutuba_entry.get('厩 舎') or syutuba_entry.get('trainer', ''),
+                # 調教師ID関連（追加）
+                'trainer_id': syutuba_entry.get('trainer_id') or None,
+                'trainer_link': syutuba_entry.get('trainer_link') or None,
+                'trainer_tozai': None,  # 後でJRA-VANから取得
                 'owner': syutuba_entry.get('owner', ''),
                 'short_comment': syutuba_entry.get('短評') or syutuba_entry.get('短\u2003評') or syutuba_entry.get('短 評') or syutuba_entry.get('short_comment', ''),
                 'odds': syutuba_entry.get('単勝') or syutuba_entry.get('odds', ''),
@@ -323,6 +339,26 @@ class RaceDataIntegrator:
                 'aggregate_mark_point': syutuba_entry.get('総合印ポイント', syutuba_entry.get('本誌印ポイント', 0))
             }
         }
+        
+        # 調教師IDから所属情報を取得（JRA-VANライブラリが利用可能な場合）
+        trainer_id = horse_data['entry_data'].get('trainer_id')
+        if trainer_id and get_trainer_info:
+            try:
+                trainer_info = get_trainer_info(trainer_id)
+                if trainer_info:
+                    if trainer_info.get('tozai'):
+                        horse_data['entry_data']['trainer_tozai'] = trainer_info['tozai']
+                    # コメントデータも追加（あれば）
+                    if trainer_info.get('comment'):
+                        horse_data['entry_data']['trainer_comment'] = trainer_info['comment']
+                        self.logger.debug(f"調教師コメント設定: {trainer_id} -> {trainer_info['comment'][:50]}...")
+                else:
+                    self.logger.debug(f"調教師情報が見つかりません: trainer_id={trainer_id}")
+            except Exception as e:
+                # エラーが発生しても処理を続行
+                self.logger.warning(f"調教師情報取得エラー (trainer_id={trainer_id}): {e}")
+        elif trainer_id and not get_trainer_info:
+            self.logger.debug(f"get_trainer_infoが利用できません: trainer_id={trainer_id}")
         
         # 
         if cyokyo_data:

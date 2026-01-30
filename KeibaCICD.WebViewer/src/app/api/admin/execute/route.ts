@@ -118,6 +118,12 @@ export async function POST(request: NextRequest) {
           commandsList = [
             ['scripts/horse_id_mapper.py', '--build-index']
           ];
+        } else if (action === 'build_trainer_index') {
+          // 調教師インデックス作成 - 競馬ブック厩舎IDとJRA-VAN調教師コードの対応辞書を構築（TARGETディレクトリで実行）
+          customCwd = ADMIN_CONFIG.targetPath;
+          commandsList = [
+            ['scripts/build_trainer_index.py', '--build-index']
+          ];
         } else {
           commandsList = isRangeAction && startDate && endDate
             ? getCommandArgsRange(action, startDate, endDate, options)

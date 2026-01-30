@@ -10,9 +10,9 @@
  */
 
 import React, { useState } from 'react';
-import { HorseEntry, getWakuColor } from '@/types/race-data';
+import { HorseEntry, getWakuColor, formatTrainerName } from '@/types/race-data';
 import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED } from '@/lib/positive-colors';
-import { ChevronDown, ChevronUp, Dumbbell } from 'lucide-react';
+import { ChevronDown, ChevronUp, Dumbbell, MessageSquare, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Collapsible,
@@ -86,7 +86,7 @@ export default function TrainingAnalysisSection({
                   <th className="px-2 py-2 text-center border w-10">枠</th>
                   <th className="px-2 py-2 text-center border w-10">番</th>
                   <th className="px-2 py-2 text-left border min-w-20">馬名</th>
-                  <th className="px-2 py-2 text-left border min-w-16">調教師</th>
+                  <th className="px-2 py-2 text-left border min-w-24">調教師</th>
                   {/* 調教タイム詳細 */}
                   <th className="px-2 py-2 text-left border min-w-64" title="調教タイム詳細（最終/土日/1週前）">今走調教</th>
                   {/* 前走調教 */}
@@ -143,11 +143,25 @@ function TrainingAnalysisRow({ entry, trainingSummary, previousTraining }: Train
     }
   };
 
-  // ラップランクの色（S/Aは強調）
+  // ラップランクの色（S/A/B/C/Dで色分け）
   const getLapRankColor = (rank?: string) => {
     if (!rank) return '';
-    if (rank.startsWith('S')) return POSITIVE_TEXT + ' font-bold';
+    if (rank.startsWith('S')) return 'text-green-600 dark:text-green-400 font-bold';
     if (rank.startsWith('A')) return 'text-emerald-600 dark:text-emerald-400 font-medium';
+    if (rank.startsWith('B')) return 'text-blue-600 dark:text-blue-400';
+    if (rank.startsWith('C')) return 'text-orange-600 dark:text-orange-400';
+    if (rank.startsWith('D')) return 'text-red-600 dark:text-red-400';
+    return 'text-gray-500 dark:text-gray-400';
+  };
+
+  // ラップランクの背景色
+  const getLapRankBgColor = (rank?: string) => {
+    if (!rank) return '';
+    if (rank.startsWith('S')) return 'bg-green-50 dark:bg-green-900/20';
+    if (rank.startsWith('A')) return 'bg-emerald-50 dark:bg-emerald-900/20';
+    if (rank.startsWith('B')) return 'bg-blue-50 dark:bg-blue-900/20';
+    if (rank.startsWith('C')) return 'bg-orange-50 dark:bg-orange-900/20';
+    if (rank.startsWith('D')) return 'bg-red-50 dark:bg-red-900/20';
     return '';
   };
 
@@ -182,20 +196,25 @@ function TrainingAnalysisRow({ entry, trainingSummary, previousTraining }: Train
             isFastTime = trainingSummary.weekAgoSpeed === '◎';
           }
           
-          // 好タイムの場合は行全体を緑色で強調
-          const rowClass = isFastTime 
-            ? 'text-xs flex items-center gap-1 text-green-700 dark:text-green-400 font-medium' 
-            : 'text-xs flex items-center gap-1';
+          // 好タイムの場合は行全体を緑色で強調、背景も追加
+          const isGoodTime = isFastTime;
+          const rowClass = isGoodTime
+            ? 'text-xs flex items-center gap-1 text-green-700 dark:text-green-400 font-medium bg-green-50 dark:bg-green-900/30 px-1.5 py-0.5 rounded'
+            : 'text-xs flex items-center gap-1 text-gray-700 dark:text-gray-300';
+          
+          // ラップランクに応じた背景色を追加（好タイムでない場合）
+          const bgClass = !isGoodTime && lapRank ? getLapRankBgColor(lapRank) : '';
+          const combinedRowClass = `${rowClass} ${bgClass}`.trim();
           
           return (
-            <div key={idx} className={rowClass}>
-              <span className={isFastTime ? 'w-10 shrink-0' : 'text-muted-foreground w-10 shrink-0'}>{label}:</span>
-              <span className="font-mono">{value}</span>
-              {isFastTime && (
-                <span className="text-green-600 dark:text-green-400 font-bold" title="好タイム">◎</span>
+            <div key={idx} className={combinedRowClass}>
+              <span className={isGoodTime ? 'w-10 shrink-0 font-semibold' : 'text-muted-foreground w-10 shrink-0'}>{label}:</span>
+              <span className={`font-mono ${isGoodTime ? 'font-semibold' : ''}`}>{value}</span>
+              {isGoodTime && (
+                <span className="text-green-600 dark:text-green-400 font-bold ml-1" title="好タイム">◎</span>
               )}
               {lapRank && (
-                <span className={`ml-1 px-1 rounded text-xs ${getLapRankColor(lapRank)}`}>
+                <span className={`ml-1 px-1.5 py-0.5 rounded text-xs font-medium ${getLapRankColor(lapRank)} ${isGoodTime ? 'bg-green-100 dark:bg-green-800/40' : ''}`}>
                   {lapRank}
                 </span>
               )}
@@ -224,8 +243,16 @@ function TrainingAnalysisRow({ entry, trainingSummary, previousTraining }: Train
       </td>
       
       {/* 調教師 */}
-      <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
-        {entry_data.trainer || '-'}
+      <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+        <div className="flex items-center gap-1">
+          <span>{formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}</span>
+          {entry_data.trainer_comment && (
+            <TrainerCommentButton 
+              trainerName={formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}
+              comment={entry_data.trainer_comment}
+            />
+          )}
+        </div>
       </td>
       
       {/* 今走調教タイム詳細 */}
@@ -325,5 +352,115 @@ function ExpandableText({ text, maxLength }: ExpandableTextProps) {
         [続き]
       </button>
     </span>
+  );
+}
+
+interface TrainerCommentButtonProps {
+  trainerName: string;
+  comment: string;
+}
+
+function TrainerCommentButton({ trainerName, comment }: TrainerCommentButtonProps) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  // ESCキーでモーダルを閉じる
+  React.useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen]);
+
+  // コメントを整形（改行を保持）
+  const formattedComment = comment
+    .split('\n')
+    .map((line, idx) => (
+      <React.Fragment key={idx}>
+        {line}
+        {idx < comment.split('\n').length - 1 && <br />}
+      </React.Fragment>
+    ));
+
+  return (
+    <>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(true);
+        }}
+        className="inline-flex items-center justify-center w-4 h-4 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+        title="調教師コメントを表示"
+      >
+        <MessageSquare className="w-3.5 h-3.5" />
+      </button>
+
+      {/* モーダル */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setIsOpen(false)}
+        >
+          {/* 背景オーバーレイ */}
+          <div className="absolute inset-0 bg-black/50 dark:bg-black/70" />
+          
+          {/* モーダルコンテンツ */}
+          <div
+            className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-blue-500" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  調教師コメント
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="閉じる (ESC)"
+              >
+                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </div>
+
+            {/* コンテンツ */}
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="mb-4">
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">調教師</div>
+                <div className="text-base font-medium text-gray-900 dark:text-gray-100">
+                  {trainerName}
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">コメント</div>
+                <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+                  {formattedComment}
+                </div>
+              </div>
+            </div>
+
+            {/* フッター */}
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setIsOpen(false)}
+                className="text-sm"
+              >
+                閉じる
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
