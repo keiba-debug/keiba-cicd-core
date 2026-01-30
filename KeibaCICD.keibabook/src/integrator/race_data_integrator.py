@@ -349,16 +349,27 @@ class RaceDataIntegrator:
                     if trainer_info.get('tozai'):
                         horse_data['entry_data']['trainer_tozai'] = trainer_info['tozai']
                     # コメントデータも追加（あれば）
-                    if trainer_info.get('comment'):
-                        horse_data['entry_data']['trainer_comment'] = trainer_info['comment']
-                        self.logger.debug(f"調教師コメント設定: {trainer_id} -> {trainer_info['comment'][:50]}...")
+                    comment = trainer_info.get('comment')
+                    if comment:
+                        # 文字化け文字を除去
+                        comment = comment.replace('\ufffd', '').replace('�', '')
+                        import re
+                        comment = re.sub(r'�[A-Za-z0-9@]', '', comment)
+                        horse_data['entry_data']['trainer_comment'] = comment
+                        self.logger.debug(f"調教師コメント設定: {trainer_id} -> {comment[:50]}...")
+                    else:
+                        self.logger.debug(f"調教師コメントなし: trainer_id={trainer_id}")
                 else:
                     self.logger.debug(f"調教師情報が見つかりません: trainer_id={trainer_id}")
             except Exception as e:
                 # エラーが発生しても処理を続行
                 self.logger.warning(f"調教師情報取得エラー (trainer_id={trainer_id}): {e}")
+                import traceback
+                self.logger.debug(traceback.format_exc())
         elif trainer_id and not get_trainer_info:
             self.logger.debug(f"get_trainer_infoが利用できません: trainer_id={trainer_id}")
+        elif not trainer_id:
+            self.logger.debug(f"trainer_idが設定されていません: 馬名={horse_data.get('horse_name', '')}")
         
         # 
         if cyokyo_data:

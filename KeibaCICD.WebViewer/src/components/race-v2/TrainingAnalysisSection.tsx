@@ -9,7 +9,7 @@
  * - 調教評価（矢印）・攻め馬解説
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { HorseEntry, getWakuColor, formatTrainerName } from '@/types/race-data';
 import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED } from '@/lib/positive-colors';
 import { ChevronDown, ChevronUp, Dumbbell, MessageSquare, X } from 'lucide-react';
@@ -98,14 +98,14 @@ export default function TrainingAnalysisSection({
                 </tr>
               </thead>
               <tbody>
-                {sortedEntries.map((entry) => (
-                  <TrainingAnalysisRow 
-                    key={entry.horse_number} 
-                    entry={entry} 
-                    trainingSummary={trainingSummaryMap[entry.horse_name]}
-                    previousTraining={previousTrainingMap[entry.horse_name]}
-                  />
-                ))}
+          {sortedEntries.map((entry) => (
+            <TrainingAnalysisRow 
+              key={entry.horse_number} 
+              entry={entry} 
+              trainingSummary={trainingSummaryMap[entry.horse_name]}
+              previousTraining={previousTrainingMap[entry.horse_name]}
+            />
+          ))}
               </tbody>
             </table>
           </div>
@@ -246,9 +246,10 @@ function TrainingAnalysisRow({ entry, trainingSummary, previousTraining }: Train
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
         <div className="flex items-center gap-1">
           <span>{formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}</span>
-          {entry_data.trainer_comment && (
+          {(entry_data.trainer_comment || entry_data.trainer_id) && (
             <TrainerCommentButton 
               trainerName={formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}
+              trainerId={entry_data.trainer_id}
               comment={entry_data.trainer_comment}
             />
           )}
@@ -357,11 +358,71 @@ function ExpandableText({ text, maxLength }: ExpandableTextProps) {
 
 interface TrainerCommentButtonProps {
   trainerName: string;
-  comment: string;
+  trainerId?: string;
+  comment?: string;
 }
 
-function TrainerCommentButton({ trainerName, comment }: TrainerCommentButtonProps) {
+function TrainerCommentButton({ trainerName, trainerId, comment: initialComment }: TrainerCommentButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [comment, setComment] = useState<string | null>(initialComment || null);
+  const [isLoading, setIsLoading] = useState(false);
+  const hasFetchedRef = useRef<string | null>(null); // 取得済みのtrainerIdを記録
+
+  // trainerIdが変更された時にコメントとhasFetchedRefをリセット
+  React.useEffect(() => {
+    if (hasFetchedRef.current !== trainerId) {
+      hasFetchedRef.current = null;
+      setComment(initialComment || null);
+    }
+  }, [trainerId, initialComment]);
+
+  // コメントを取得（trainer_idがある場合、モーダルが開いた時のみ、初回のみ）
+  React.useEffect(() => {
+    // 既にコメントがある場合、またはtrainer_idがない場合、またはモーダルが閉じている場合、または既に取得済みの場合はスキップ
+    if (comment || !trainerId || !isOpen || hasFetchedRef.current === trainerId) {
+      return;
+    }
+    
+    setIsLoading(true);
+    hasFetchedRef.current = trainerId; // 取得開始をマーク
+    
+    const fetchComment = async () => {
+      try {
+        const response = await fetch(`/api/trainer/comment?trainer_id=${encodeURIComponent(trainerId)}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+          console.error('調教師コメント取得エラー:', data.error, data.details);
+          setComment(null);
+        } else if (data.comment && typeof data.comment === 'string' && data.comment.trim().length > 3) {
+          // 有効なコメントのみ設定（3文字以下や数字のみは除外）
+          const trimmedComment = data.comment.trim();
+          if (!/^\d+$/.test(trimmedComment)) {
+            setComment(trimmedComment);
+          } else {
+            setComment(null);
+          }
+        } else {
+          // コメントがない場合
+          setComment(null);
+        }
+      } catch (err) {
+        console.error('調教師コメント取得エラー:', err);
+        setComment(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchComment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trainerId, isOpen]); // trainerIdとisOpenが変更された時のみ実行
+
 
   // ESCキーでモーダルを閉じる
   React.useEffect(() => {
@@ -377,15 +438,22 @@ function TrainerCommentButton({ trainerName, comment }: TrainerCommentButtonProp
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen]);
 
+  // モーダルが閉じた時にhasFetchedRefをリセット（次回開いた時に再取得可能にする）
+  React.useEffect(() => {
+    if (!isOpen) {
+      hasFetchedRef.current = false;
+    }
+  }, [isOpen]);
+
   // コメントを整形（改行を保持）
   const formattedComment = comment
-    .split('\n')
-    .map((line, idx) => (
-      <React.Fragment key={idx}>
-        {line}
-        {idx < comment.split('\n').length - 1 && <br />}
-      </React.Fragment>
-    ));
+    ? comment.split('\n').map((line, idx) => (
+        <React.Fragment key={idx}>
+          {line}
+          {idx < comment.split('\n').length - 1 && <br />}
+        </React.Fragment>
+      ))
+    : null;
 
   return (
     <>
@@ -442,9 +510,15 @@ function TrainerCommentButton({ trainerName, comment }: TrainerCommentButtonProp
               
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">コメント</div>
-                <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
-                  {formattedComment}
-                </div>
+                {isLoading ? (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">読み込み中...</div>
+                ) : comment ? (
+                  <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+                    {formattedComment}
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-400 dark:text-gray-500">コメントがありません</div>
+                )}
               </div>
             </div>
 
