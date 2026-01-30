@@ -607,9 +607,13 @@ class RaceDataIntegrator:
         if seiseki_data:
             # race_details
             details = seiseki_data.get('race_details') or {}
-            for k in ['distance', 'track_type', 'track_condition', 'weather', 'start_time', 'grade']:
+            for k in ['distance', 'track_condition', 'weather', 'start_time', 'grade']:
                 if details.get(k) and not race_info.get(k):
                     race_info[k] = details.get(k)
+            # track_type -> track のマッピング
+            if details.get('track_type') and not race_info.get('track'):
+                track_type = details.get('track_type')
+                race_info['track'] = '芝' if track_type == '芝' else 'ダ'
         
         # 
         integrated_data = {

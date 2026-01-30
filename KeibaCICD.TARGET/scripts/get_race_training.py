@@ -25,22 +25,12 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 sys.path.insert(0, str(Path(__file__).parent))
 from parse_ck_data import analyze_horse_training, TrainingConfig, _config
 
-# 環境変数読み込み
-try:
-    from dotenv import load_dotenv
-    env_candidates = [
-        Path(__file__).resolve().parents[2] / "KeibaCICD.keibabook" / ".env",
-        Path(__file__).resolve().parents[1] / ".env",
-    ]
-    for env_path in env_candidates:
-        if env_path.exists():
-            load_dotenv(env_path)
-            break
-except ImportError:
-    pass
+# 共通設定モジュールをインポート
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common.config import get_keiba_data_root, get_races_dir
 
 # データルート
-DATA_ROOT = Path(os.getenv("KEIBA_DATA_ROOT_DIR", "E:/share/KEIBA-CICD/data2"))
+DATA_ROOT = get_keiba_data_root()
 
 
 def load_race_entries(race_id: str) -> List[str]:

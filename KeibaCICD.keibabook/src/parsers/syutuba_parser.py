@@ -140,7 +140,32 @@ class SyutubaParser:
                                 distance = match.group(2)
                                 race_info['track'] = '芝' if track == '芝' else 'ダ'
                                 race_info['distance'] = int(distance)
-                                self.logger.debug(f"コース情報抽出: {track} {distance}m")
+                                self.logger.debug(f"コース情報抽出(race list): {track} {distance}m")
+            
+            # フォールバック: race listから取得できなかった場合、他の場所を探す
+            if not race_info.get('distance'):
+                import re
+                # ページ全体のテキストからコース情報を探す
+                page_text = soup.get_text()
+                
+                # パターン1: "芝1800m" や "ダ1200m" など
+                pattern1 = re.search(r'(芝|ダート?)[・\s]*(\d{4})m', page_text)
+                if pattern1:
+                    track = pattern1.group(1)
+                    distance = pattern1.group(2)
+                    race_info['track'] = '芝' if '芝' in track else 'ダ'
+                    race_info['distance'] = int(distance)
+                    self.logger.debug(f"コース情報抽出(fallback1): {track} {distance}m")
+                else:
+                    # パターン2: タイトルから抽出（例: "○○記念 芝2000m"）
+                    title_text = race_info.get('title', '')
+                    pattern2 = re.search(r'(芝|ダート?)[・\s]*(\d{4})m?', title_text)
+                    if pattern2:
+                        track = pattern2.group(1)
+                        distance = pattern2.group(2)
+                        race_info['track'] = '芝' if '芝' in track else 'ダ'
+                        race_info['distance'] = int(distance)
+                        self.logger.debug(f"コース情報抽出(fallback2): {track} {distance}m")
                 
         except Exception as e:
             self.logger.debug(f"レース情報抽出エラー: {e}")

@@ -30,6 +30,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from parse_ck_data import analyze_horse_training, TrainingConfig, CK_DATA_ROOT, get_recent_training_files
 from horse_id_mapper import get_horse_name_index
 
+# common.config から SE_DATA パスを取得
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from common.config import get_jv_se_data_path
+
 
 # =============================================================================
 # 定数
@@ -37,6 +41,12 @@ from horse_id_mapper import get_horse_name_index
 
 # データルート
 DATA_ROOT = os.environ.get('DATA_ROOT', 'Z:/KEIBA-CICD/data2')
+
+# SE_DATA パス
+SE_DATA_PATH = get_jv_se_data_path()
+
+# SU_DATA レコード長（555バイト）
+SU_RECORD_LEN = 555
 
 # 調教データ解析対象期間（日数）
 DEFAULT_DAYS_BACK = 14
@@ -58,6 +68,106 @@ def get_date_range(start_date: str, end_date: str) -> List[str]:
         current += timedelta(days=1)
     
     return dates
+
+
+# =============================================================================
+# 前走日付取得（SE_DATA から）
+# =============================================================================
+
+def get_previous_race_date(ketto_num: str, current_race_date: str) -> Optional[str]:
+    """
+    SE_DATA から馬の前走日付を取得
+    
+    Args:
+        ketto_num: 血統登録番号（10桁）
+        current_race_date: 今走日付（YYYYMMDD形式）
+        
+    Returns:
+        前走日付（YYYY-MM-DD形式）、なければNone
+    """
+    if not ketto_num or not SE_DATA_PATH.exists():
+        return None
+    
+    try:
+        # 過去3年分のSU_DATAファイルを検索
+        current_year = int(current_race_date[:4])
+        race_dates = []
+        
+        for year in range(current_year, current_year - 3, -1):
+            year_dir = SE_DATA_PATH / str(year)
+            if not year_dir.exists():
+                continue
+            
+            # SU*.DAT ファイルを検索（馬毎成績）
+            su_files = sorted(year_dir.glob("SU*.DAT"), reverse=True)
+            
+            for su_file in su_files:
+                try:
+                    with open(su_file, 'rb') as f:
+                        data = f.read()
+                    
+                    # レコードを走査
+                    offset = 0
+                    while offset + SU_RECORD_LEN <= len(data):
+                        # 血統登録番号を抽出（オフセット30から10バイト）
+                        record_ketto = data[offset+30:offset+40].decode('shift_jis', errors='ignore').strip()
+                        
+                        if record_ketto == ketto_num:
+                            # 開催日を抽出（オフセット2から8バイト）
+                            race_date_raw = data[offset+2:offset+10].decode('shift_jis', errors='ignore').strip()
+                            if len(race_date_raw) == 8 and race_date_raw.isdigit():
+                                # 今走より前の日付のみ収集
+                                if race_date_raw < current_race_date:
+                                    race_dates.append(race_date_raw)
+                        
+                        offset += SU_RECORD_LEN
+                        
+                except Exception:
+                    continue
+        
+        if not race_dates:
+            return None
+        
+        # 最も新しい前走日付を取得
+        race_dates.sort(reverse=True)
+        prev_date = race_dates[0]
+        
+        # YYYY-MM-DD形式に変換
+        return f"{prev_date[:4]}-{prev_date[4:6]}-{prev_date[6:8]}"
+        
+    except Exception as e:
+        print(f"  [WARN] Failed to get previous race date for {ketto_num}: {e}")
+        return None
+
+
+def load_previous_training_summary(date: str) -> Dict[str, Dict[str, Any]]:
+    """
+    指定日の training_summary.json を読み込む
+    
+    Args:
+        date: 日付（YYYY-MM-DD形式）
+        
+    Returns:
+        馬名をキーにした調教サマリ辞書
+    """
+    try:
+        year, month, day = date.split('-')
+        file_path = Path(DATA_ROOT) / 'races' / year / month / day / 'temp' / 'training_summary.json'
+        
+        if not file_path.exists():
+            return {}
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        return data.get('summaries', {})
+        
+    except Exception:
+        return {}
+
+
+# 前走調教キャッシュ（日付 -> summaries）
+_previous_training_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
 
 def find_integrated_files(date: str) -> List[Path]:
@@ -304,6 +414,12 @@ def generate_summary_for_date(date: str, days_back: int = DEFAULT_DAYS_BACK,
             
             summary['detail'] = " / ".join(details) if details else ""
             
+            # 前走調教情報を追加
+            summary['previousRaceDate'] = ''
+            summary['previousDetail'] = ''
+            summary['previousLapRank'] = ''
+            summary['previousFinalSpeed'] = ''
+            
             # 坂路レコードの有無を集計（坂路/コース判定の診断用）
             if training_data.get('n_sakamichi', 0) > 0:
                 horses_with_sakamichi += 1
@@ -316,6 +432,13 @@ def generate_summary_for_date(date: str, days_back: int = DEFAULT_DAYS_BACK,
     
     print(f"  Generated {len(summaries)} summaries")
     print(f"  坂路レコードあり: {horses_with_sakamichi} 頭 / コースのみ: {len(summaries) - horses_with_sakamichi} 頭")
+    
+    # 前走調教情報を追加
+    # NOTE: SE_DATAスキャンは非常に遅いため一時的に無効化
+    # 馬ページ（horses-v2）で調教履歴が確認可能
+    # 将来的にはSU*.IDXインデックスを使用した高速検索を実装予定
+    print("  前走調教情報: スキップ（SE_DATAスキャン無効化中）")
+    
     return summaries
 
 

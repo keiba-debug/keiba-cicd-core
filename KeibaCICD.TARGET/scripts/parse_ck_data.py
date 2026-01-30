@@ -44,22 +44,12 @@ from typing import Dict, List, Optional, Tuple
 # UTF-8出力
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-# 環境変数読み込み
-try:
-    from dotenv import load_dotenv
-    env_candidates = [
-        Path(__file__).resolve().parents[2] / "KeibaCICD.keibabook" / ".env",
-        Path(__file__).resolve().parents[1] / ".env",
-    ]
-    for env_path in env_candidates:
-        if env_path.exists():
-            load_dotenv(env_path)
-            break
-except ImportError:
-    pass
+# 共通設定モジュールをインポート
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common.config import get_jv_ck_data_path
 
 # CK_DATAパス
-CK_DATA_ROOT = Path(os.getenv("JV_DATA_ROOT_DIR", "E:/TFJV")) / "CK_DATA"
+CK_DATA_ROOT = get_jv_ck_data_path()
 
 # トレセン名
 TRAINING_CENTER = {

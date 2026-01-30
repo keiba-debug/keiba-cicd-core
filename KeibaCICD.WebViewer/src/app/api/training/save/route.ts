@@ -17,8 +17,9 @@ import {
   getTrainingDateRanges,
   TrainingSummary,
 } from '@/lib/data/target-training-reader';
+import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
 
-const DATA_ROOT = process.env.DATA_ROOT || 'Z:/KEIBA-CICD/data2';
+const DATA_ROOT = KEIBA_DATA_ROOT_DIR;
 
 export async function POST(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;

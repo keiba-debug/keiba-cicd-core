@@ -13,15 +13,9 @@ import {
   toCircleNumber,
   TRAINING_ARROW_LABELS,
 } from '@/types/race-data';
-import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH, RATING_MID_HIGH, RATING_MID } from '@/lib/positive-colors';
+import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH, RATING_MID_HIGH, RATING_MID, getRatingColor } from '@/lib/positive-colors';
 import { Badge } from '@/components/ui/badge';
-
-// 調教サマリー型
-interface TrainingSummaryData {
-  lapRank?: string;
-  timeRank?: string;
-  detail?: string;
-}
+import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 
 interface HorseEntryTableProps {
   entries: HorseEntry[];

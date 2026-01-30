@@ -156,9 +156,10 @@ class Config:
     def get_log_dir(cls) -> Path:
         """
         ログディレクトリを取得する
-        
+
         環境変数 LOG_DIR または KEIBA_LOG_DIR で変更可能
-        
+        デフォルトは KEIBA_DATA_ROOT_DIR/logs
+
         Returns:
             Path: ログディレクトリのパス
         """
@@ -169,7 +170,8 @@ class Config:
             custom_path = cls.get_env("KEIBA_LOG_DIR")
         if custom_path:
             return Path(custom_path)
-        return cls.PROJECT_ROOT / "logs"
+        # デフォルトはデータルート配下のlogsフォルダ
+        return cls.get_data_root_dir() / "logs"
     
     # 後方互換性のためのプロパティ
     @property

@@ -16,20 +16,20 @@ import type { IntegratedRaceData } from '@/lib/data/integrated-race-reader';
 import type { CourseRpciInfo } from '@/lib/data/rpci-utils';
 import type { RatingStandards } from '@/lib/data/rating-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
+import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
 import { POSITIVE_BG } from '@/lib/positive-colors';
 
-// 調教サマリー型
-interface TrainingSummaryData {
-  lapRank?: string;
-  timeRank?: string;
-  detail?: string;
+interface PreviousTrainingEntry {
+  date: string;
+  training: TrainingSummaryData;
 }
 
 interface RaceDetailContentProps {
   raceData: IntegratedRaceData;
   showResults: boolean;
   trainingSummaryMap?: Record<string, TrainingSummaryData>;
+  previousTrainingMap?: Record<string, PreviousTrainingEntry>;
   rpciInfo?: CourseRpciInfo | null;
   ratingStandards?: RatingStandards | null;
   babaInfo?: BabaCondition | null;
@@ -37,7 +37,7 @@ interface RaceDetailContentProps {
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = {}, rpciInfo, ratingStandards, babaInfo }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
 
   // レイティング分析を実行
@@ -109,6 +109,7 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
             <TrainingAnalysisSection 
               entries={raceData.entries} 
               trainingSummaryMap={trainingSummaryMap}
+              previousTrainingMap={previousTrainingMap}
             />
             <StakeholderCommentsSection 
               entries={raceData.entries} 
@@ -168,6 +169,7 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
           <TrainingAnalysisSection 
             entries={raceData.entries} 
             trainingSummaryMap={trainingSummaryMap}
+            previousTrainingMap={previousTrainingMap}
           />
 
           {/* 関係者コメント分析 */}

@@ -255,9 +255,23 @@ function RaceRow({ race, isExpanded, onToggle }: {
                   <p className="mt-1">{race.shortComment}</p>
                 </div>
               )}
+              {race.trainingDetail && (
+                <div className="lg:col-span-2">
+                  <span className="text-muted-foreground">調教タイム:</span>
+                  <p className="mt-1 font-mono text-xs">
+                    {race.trainingDetail.split(' / ').map((part, idx) => (
+                      <span key={idx} className={`block ${race.trainingFinalSpeed === '◎' && idx === 0 ? 'text-green-600 font-medium' : ''}`}>
+                        {part}
+                        {race.trainingFinalSpeed === '◎' && idx === 0 && <span className="ml-1">◎</span>}
+                      </span>
+                    ))}
+                    {race.trainingLapRank && <span className="text-muted-foreground ml-2">(ラップ: {race.trainingLapRank})</span>}
+                  </p>
+                </div>
+              )}
               {race.trainingComment && (
                 <div>
-                  <span className="text-muted-foreground">調教:</span>
+                  <span className="text-muted-foreground">調教短評:</span>
                   <p className="mt-1">
                     {race.trainingArrow && <span className="mr-1">{race.trainingArrow}</span>}
                     {race.trainingComment}

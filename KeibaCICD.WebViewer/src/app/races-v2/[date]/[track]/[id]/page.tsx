@@ -12,7 +12,7 @@ import {
   hasRaceResults,
 } from '@/lib/data/integrated-race-reader';
 import { getRaceNavigation, getRaceInfo } from '@/lib/data';
-import { getTrainingSummaryMap } from '@/lib/data/training-summary-reader';
+import { getTrainingSummaryMap, getPreviousTrainingBatch } from '@/lib/data/training-summary-reader';
 import { getCourseRpciInfo } from '@/lib/data/rpci-standards-reader';
 import { getRatingStandards } from '@/lib/data/rating-standards-reader';
 import { getBabaCondition, trackToSurface } from '@/lib/data/baba-reader';
@@ -95,6 +95,18 @@ export default async function RaceDetailPage({ params }: PageParams) {
     ),
     getRatingStandards(),
   ]);
+  
+  // 前走調教データを取得（trainingSummaryMapからkettoNumを取得）
+  const horsesForPrevTraining = Object.entries(trainingSummaryMap)
+    .filter(([_, data]) => data.kettoNum)
+    .map(([horseName, data]) => ({
+      horseName,
+      kettoNum: data.kettoNum!
+    }));
+  
+  const previousTrainingMap = horsesForPrevTraining.length > 0
+    ? await getPreviousTrainingBatch(horsesForPrevTraining, date)
+    : {};
 
   // 結果があるかどうか
   const showResults = hasRaceResults(raceData);
@@ -278,6 +290,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
           raceData={raceData}
           showResults={showResults}
           trainingSummaryMap={trainingSummaryMap}
+          previousTrainingMap={previousTrainingMap}
           rpciInfo={rpciInfo}
           ratingStandards={ratingStandards}
           babaInfo={babaInfo}

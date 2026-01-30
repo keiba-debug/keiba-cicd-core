@@ -13,10 +13,11 @@ import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
-from dotenv import load_dotenv
-
-# .env
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # .env 未使用時は環境変数のみで動作
 
 # Config
 try:
@@ -93,15 +94,23 @@ def setup_batch_logger(name: str, log_level: str = "INFO", log_file: Optional[st
     Returns:
         logging.Logger: 
     """
-    # Config  KEIBA_DATA_ROOT_DIR 
+    # Config / 環境変数。ドライブルートのみ（例: Z:\）の場合は作成できないためローカルにフォールバック
     try:
         logs_dir = Path(Config.get_log_dir())
     except Exception:
-        # 
-        base_dir = Path(os.environ.get('KEIBA_DATA_ROOT_DIR') or 
+        base_dir = Path(os.environ.get('KEIBA_DATA_ROOT_DIR') or
                         os.environ.get('KEIBA_DATA_DIR') or '.')
+        # Windows でドライブルートのみ（Z:\ 等）のときは mkdir で FileNotFoundError になるためローカルへ
+        if sys.platform == 'win32' and base_dir.drive and len(base_dir.parts) <= 1:
+            base_dir = Path(__file__).resolve().parents[2]  # batch/core -> keibabook/src
         logs_dir = base_dir / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Z: がマウントされていない等で失敗した場合は keibabook 直下の logs を使用
+        fallback = Path(__file__).resolve().parents[2] / "logs"
+        fallback.mkdir(parents=True, exist_ok=True)
+        logs_dir = fallback
     
     # 
     if log_file is None:

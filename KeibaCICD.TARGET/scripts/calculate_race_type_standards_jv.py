@@ -23,33 +23,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
-def _load_dotenv_if_available() -> None:
-    try:
-        from dotenv import load_dotenv
-        env_candidates = [
-            Path(__file__).resolve().parents[2] / "KeibaCICD.keibabook" / ".env",
-            Path(__file__).resolve().parents[1] / ".env",
-        ]
-        for env_path in env_candidates:
-            if env_path.exists():
-                load_dotenv(env_path)
-                break
-    except ImportError:
-        pass
-
-
-def _get_env_path(key: str, default: str) -> Path:
-    value = os.getenv(key)
-    if value:
-        return Path(value)
-    return Path(default)
-
-
-_load_dotenv_if_available()
+# 共通設定モジュールをインポート
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common.config import get_jv_data_root, get_jv_se_data_path, get_target_data_dir
 
 # JRA-VAN data path
-JV_DATA_ROOT = _get_env_path("JV_DATA_ROOT_DIR", "Y:/")
-SE_DATA_PATH = JV_DATA_ROOT / "SE_DATA"
+JV_DATA_ROOT = get_jv_data_root()
+SE_DATA_PATH = get_jv_se_data_path()
 
 # Track codes
 TRACK_CODES = {
@@ -517,7 +498,7 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="data/race_type_standards.json",
+        default=str(get_target_data_dir() / "race_type_standards.json"),
         help="Output file path"
     )
     

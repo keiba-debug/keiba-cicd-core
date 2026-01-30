@@ -19,40 +19,23 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 
-// 調教サマリー型
-interface TrainingSummaryData {
-  lapRank?: string;
-  timeRank?: string;
-  detail?: string;
-  // 最終追切: 当週の水曜か木曜
-  finalLocation?: string;
-  finalSpeed?: string;
-  finalLap?: string;
-  finalTime4F?: number;
-  finalLap1?: number;
-  // 土日追切: 前週の土曜か日曜（両方あればタイムが早いほう）
-  weekendLocation?: string;
-  weekendSpeed?: string;
-  weekendLap?: string;
-  weekendTime4F?: number;
-  weekendLap1?: number;
-  // 一週前追切: 前週の水曜か木曜
-  weekAgoLocation?: string;
-  weekAgoSpeed?: string;
-  weekAgoLap?: string;
-  weekAgoTime4F?: number;
-  weekAgoLap1?: number;
+interface PreviousTrainingEntry {
+  date: string;
+  training: TrainingSummaryData;
 }
 
 interface TrainingAnalysisSectionProps {
   entries: HorseEntry[];
   trainingSummaryMap?: Record<string, TrainingSummaryData>;
+  previousTrainingMap?: Record<string, PreviousTrainingEntry>;
 }
 
 export default function TrainingAnalysisSection({ 
   entries, 
-  trainingSummaryMap = {} 
+  trainingSummaryMap = {},
+  previousTrainingMap = {}
 }: TrainingAnalysisSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
   
@@ -104,28 +87,14 @@ export default function TrainingAnalysisSection({
                   <th className="px-2 py-2 text-center border w-10">番</th>
                   <th className="px-2 py-2 text-left border min-w-20">馬名</th>
                   <th className="px-2 py-2 text-left border min-w-16">調教師</th>
-                  {/* 最終 → 土日 → 一週前の順 */}
-                  <th className="px-1 py-2 text-center border w-10" title="最終追切（当週水・木）場所">場所</th>
-                  <th className="px-1 py-2 text-center border w-10" title="最終追切スピード（◎=好タイム）">速</th>
-                  <th className="px-1 py-2 text-center border w-12" title="最終追切ラップ分類">ラップ</th>
-                  <th className="px-1 py-2 text-center border w-10" title="土日追切（前週土・日）場所">場所</th>
-                  <th className="px-1 py-2 text-center border w-10" title="土日追切スピード（◎=好タイム）">速</th>
-                  <th className="px-1 py-2 text-center border w-12" title="土日追切ラップ分類">ラップ</th>
-                  <th className="px-1 py-2 text-center border w-10" title="一週前追切（前週水・木）場所">場所</th>
-                  <th className="px-1 py-2 text-center border w-10" title="一週前追切スピード（◎=好タイム）">速</th>
-                  <th className="px-1 py-2 text-center border w-12" title="一週前追切ラップ分類">ラップ</th>
+                  {/* 調教タイム詳細 */}
+                  <th className="px-2 py-2 text-left border min-w-64" title="調教タイム詳細（最終/土日/1週前）">今走調教</th>
+                  {/* 前走調教 */}
+                  <th className="px-2 py-2 text-left border min-w-56" title="前走時の調教タイム">前走調教</th>
                   {/* その他 */}
                   <th className="px-2 py-2 text-center border w-10" title="調教評価">評価</th>
                   <th className="px-2 py-2 text-left border min-w-24">調教短評</th>
                   <th className="px-2 py-2 text-left border min-w-48">攻め馬解説</th>
-                </tr>
-                {/* サブヘッダー: 最終 → 土日 → 一週前 */}
-                <tr className="bg-gray-50 dark:bg-gray-800/50 text-xs text-muted-foreground">
-                  <th colSpan={4} className="border"></th>
-                  <th colSpan={3} className="border text-center">最終</th>
-                  <th colSpan={3} className="border text-center">土日</th>
-                  <th colSpan={3} className="border text-center">一週前</th>
-                  <th colSpan={3} className="border"></th>
                 </tr>
               </thead>
               <tbody>
@@ -134,6 +103,7 @@ export default function TrainingAnalysisSection({
                     key={entry.horse_number} 
                     entry={entry} 
                     trainingSummary={trainingSummaryMap[entry.horse_name]}
+                    previousTraining={previousTrainingMap[entry.horse_name]}
                   />
                 ))}
               </tbody>
@@ -143,9 +113,9 @@ export default function TrainingAnalysisSection({
           {/* 凡例 */}
           <div className="p-3 border-t bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-400">
             <div className="flex flex-wrap gap-4">
-              <span><strong>場所:</strong> 坂=坂路 / コ=コース</span>
-              <span><strong>速:</strong> ◎=好タイム</span>
-              <span><strong>ラップ:</strong> SS～D（終い重点度）、+ 加速 / = 同 / - 減速</span>
+              <span><strong>今走/前走調教:</strong> 最終（当週水・木）/ 土日（前週土・日）/ 1週前（前週水・木）</span>
+              <span><strong className="text-green-600">◎</strong>=好タイム（緑色表示）</span>
+              <span><strong>ラップ:</strong> S=終い重視 / A=やや終い / B=平均 / C=やや前傾 / D=前傾、+ 加速 / = 同 / - 減速</span>
             </div>
           </div>
         </CollapsibleContent>
@@ -157,9 +127,10 @@ export default function TrainingAnalysisSection({
 interface TrainingAnalysisRowProps {
   entry: HorseEntry;
   trainingSummary?: TrainingSummaryData;
+  previousTraining?: PreviousTrainingEntry;
 }
 
-function TrainingAnalysisRow({ entry, trainingSummary }: TrainingAnalysisRowProps) {
+function TrainingAnalysisRow({ entry, trainingSummary, previousTraining }: TrainingAnalysisRowProps) {
   const { entry_data, training_data } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
 
@@ -172,18 +143,67 @@ function TrainingAnalysisRow({ entry, trainingSummary }: TrainingAnalysisRowProp
     }
   };
 
-  // 場所は色分けしない（坂/コとも同じ表示）
-  const getLocationBgColor = (_location?: string) => '';
-
-  // 好タイム◎はプラス色で統一
-  const getSpeedColor = (speed?: string) => (speed === '◎' ? POSITIVE_TEXT : '');
-
-  // ラップ S+ S= A+ A= のみプラス色で強調
-  const getLapRankBgColor = (rank?: string) => {
+  // ラップランクの色（S/Aは強調）
+  const getLapRankColor = (rank?: string) => {
     if (!rank) return '';
-    if (rank === 'S+' || rank === 'S=') return POSITIVE_BG;
-    if (rank === 'A+' || rank === 'A=') return POSITIVE_BG_MUTED;
+    if (rank.startsWith('S')) return POSITIVE_TEXT + ' font-bold';
+    if (rank.startsWith('A')) return 'text-emerald-600 dark:text-emerald-400 font-medium';
     return '';
+  };
+
+  // detailをパースして行ごとに表示（最終/土日/1週前）
+  const formatTrainingDetail = () => {
+    if (!trainingSummary?.detail) return null;
+    
+    // "最終:坂路 4F47.0-13.9 / 土日:坂路 4F52.0-13.6 / 1週前:坂路 4F54.0-13.8" 形式をパース
+    const parts = trainingSummary.detail.split(' / ');
+    
+    return (
+      <div className="space-y-0.5">
+        {parts.map((part, idx) => {
+          // ラベル(最終/土日/1週前)と値を分離
+          const colonIdx = part.indexOf(':');
+          if (colonIdx === -1) return <div key={idx} className="text-xs">{part}</div>;
+          
+          const label = part.substring(0, colonIdx);
+          const value = part.substring(colonIdx + 1);
+          
+          // 対応するラップランクとスピード（◎=好タイム）を取得
+          let lapRank = '';
+          let isFastTime = false;
+          if (label === '最終') {
+            lapRank = trainingSummary.finalLap || '';
+            isFastTime = trainingSummary.finalSpeed === '◎';
+          } else if (label === '土日') {
+            lapRank = trainingSummary.weekendLap || '';
+            isFastTime = trainingSummary.weekendSpeed === '◎';
+          } else if (label === '1週前') {
+            lapRank = trainingSummary.weekAgoLap || '';
+            isFastTime = trainingSummary.weekAgoSpeed === '◎';
+          }
+          
+          // 好タイムの場合は行全体を緑色で強調
+          const rowClass = isFastTime 
+            ? 'text-xs flex items-center gap-1 text-green-700 dark:text-green-400 font-medium' 
+            : 'text-xs flex items-center gap-1';
+          
+          return (
+            <div key={idx} className={rowClass}>
+              <span className={isFastTime ? 'w-10 shrink-0' : 'text-muted-foreground w-10 shrink-0'}>{label}:</span>
+              <span className="font-mono">{value}</span>
+              {isFastTime && (
+                <span className="text-green-600 dark:text-green-400 font-bold" title="好タイム">◎</span>
+              )}
+              {lapRank && (
+                <span className={`ml-1 px-1 rounded text-xs ${getLapRankColor(lapRank)}`}>
+                  {lapRank}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -208,49 +228,40 @@ function TrainingAnalysisRow({ entry, trainingSummary }: TrainingAnalysisRowProp
         {entry_data.trainer || '-'}
       </td>
       
-      {/* 最終追切 - 場所 */}
-      <td className={`px-1 py-1.5 text-center border font-bold ${getLocationBgColor(trainingSummary?.finalLocation)}`}>
-        {trainingSummary?.finalLocation || '-'}
+      {/* 今走調教タイム詳細 */}
+      <td className="px-2 py-1.5 border">
+        {formatTrainingDetail() || <span className="text-gray-400 text-xs">-</span>}
       </td>
       
-      {/* 最終追切 - スピード */}
-      <td className={`px-1 py-1.5 text-center border ${getSpeedColor(trainingSummary?.finalSpeed)}`}>
-        {trainingSummary?.finalSpeed || '-'}
-      </td>
-      
-      {/* 最終追切 - ラップ */}
-      <td className={`px-1 py-1.5 text-center border font-bold ${getLapRankBgColor(trainingSummary?.finalLap)}`}>
-        {trainingSummary?.finalLap || '-'}
-      </td>
-      
-      {/* 土日追切 - 場所 */}
-      <td className={`px-1 py-1.5 text-center border font-bold ${getLocationBgColor(trainingSummary?.weekendLocation)}`}>
-        {trainingSummary?.weekendLocation || '-'}
-      </td>
-      
-      {/* 土日追切 - スピード */}
-      <td className={`px-1 py-1.5 text-center border ${getSpeedColor(trainingSummary?.weekendSpeed)}`}>
-        {trainingSummary?.weekendSpeed || '-'}
-      </td>
-      
-      {/* 土日追切 - ラップ */}
-      <td className={`px-1 py-1.5 text-center border font-bold ${getLapRankBgColor(trainingSummary?.weekendLap)}`}>
-        {trainingSummary?.weekendLap || '-'}
-      </td>
-      
-      {/* 一週前追切 - 場所 */}
-      <td className={`px-1 py-1.5 text-center border font-bold ${getLocationBgColor(trainingSummary?.weekAgoLocation)}`}>
-        {trainingSummary?.weekAgoLocation || '-'}
-      </td>
-      
-      {/* 一週前追切 - スピード */}
-      <td className={`px-1 py-1.5 text-center border ${getSpeedColor(trainingSummary?.weekAgoSpeed)}`}>
-        {trainingSummary?.weekAgoSpeed || '-'}
-      </td>
-      
-      {/* 一週前追切 - ラップ */}
-      <td className={`px-1 py-1.5 text-center border font-bold ${getLapRankBgColor(trainingSummary?.weekAgoLap)}`}>
-        {trainingSummary?.weekAgoLap || '-'}
+      {/* 前走調教 */}
+      <td className="px-2 py-1.5 border">
+        {previousTraining?.training?.detail ? (
+          <div className="space-y-0.5">
+            {previousTraining.date && (
+              <div className="text-xs text-muted-foreground mb-0.5">
+                {previousTraining.date}
+              </div>
+            )}
+            <div className="text-xs font-mono">
+              {previousTraining.training.detail.split(' / ').map((part, idx) => {
+                const isFastTime = previousTraining.training.finalSpeed === '◎' && idx === 0;
+                return (
+                  <div key={idx} className={isFastTime ? 'text-green-700 dark:text-green-400 font-medium' : ''}>
+                    {part}
+                    {isFastTime && <span className="ml-1 text-green-600 font-bold">◎</span>}
+                  </div>
+                );
+              })}
+            </div>
+            {previousTraining.training.lapRank && (
+              <div className={`text-xs ${getLapRankColor(previousTraining.training.lapRank)}`}>
+                ラップ: {previousTraining.training.lapRank}
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className="text-gray-400 text-xs">-</span>
+        )}
       </td>
       
       {/* 調教評価 */}
