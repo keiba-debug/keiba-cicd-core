@@ -178,26 +178,54 @@ class RaceDataIntegrator:
         Returns:
             Dict[str, Any]: 
         """
-        # 実際の開催日を使用
+        # 実際の開催日を使用（優先順位: actual_date_map > race_ids_data > フォールバック）
+        date_str = None
+        
+        # 1. actual_date_mapから取得（load_actual_datesで構築済み）
         if race_id in self.actual_date_map:
             date_str = self.actual_date_map[race_id]
-        else:
-            date_str = race_id[:8]
         
-        # 競馬場情報
-        venue_code = race_id[8:10]
+        # 2. race_ids_dataのdateフィールドから取得
+        if not date_str and race_ids_data and 'date' in race_ids_data:
+            date_str = race_ids_data['date']
+            # actual_date_mapにも保存（後続処理用）
+            self.actual_date_map[race_id] = date_str
+        
+        # 3. フォールバック（race_idから抽出、警告付き）
+        if not date_str:
+            date_str = race_id[:8]
+            self.logger.warning(f"開催日を特定できませんでした: race_id={race_id}. race_ids_dataのdateフィールドを確認してください。")
+        
+        # レース番号を抽出
         race_number = int(race_id[10:12])
         
-        # 実際の競馬場名を使用
+        # 競馬場名を決定（優先順位: venue_name_map > race_ids_data > フォールバック）
+        venue = None
+        
+        # 1. venue_name_mapから取得（load_actual_datesで構築済み）
         if race_id in self.venue_name_map:
             venue = self.venue_name_map[race_id]
-        else:
-            venue_map = {
-                '01': '札幌', '02': '函館', '03': '福島', '04': '新潟',
-                '05': '東京', '06': '中山', '07': '中京', '08': '京都',
-                '09': '阪神', '10': '小倉'
-            }
-            venue = venue_map.get(venue_code, f'{venue_code}')
+        
+        # 2. race_ids_dataから開催キー経由で取得
+        if not venue and race_ids_data:
+            import re
+            for kaisai_key, races in race_ids_data.get('kaisai_data', {}).items():
+                for race in races:
+                    if isinstance(race, dict) and race.get('race_id') == race_id:
+                        # 開催キー（例: "1回東京1日目"）から競馬場名を抽出
+                        venue_match = re.search(r'(札幌|函館|福島|新潟|東京|中山|中京|京都|阪神|小倉)', kaisai_key)
+                        if venue_match:
+                            venue = venue_match.group(1)
+                            # venue_name_mapにも保存（後続処理用）
+                            self.venue_name_map[race_id] = venue
+                        break
+                if venue:
+                    break
+        
+        # 3. フォールバック（警告付き）
+        if not venue:
+            self.logger.warning(f"競馬場名を特定できませんでした: race_id={race_id}. race_ids_dataまたはnittei JSONを確認してください。")
+            venue = "不明"
         
         # 発走時刻を取得（簡易実装）
         from ..utils.post_time_mapping import get_estimated_post_time

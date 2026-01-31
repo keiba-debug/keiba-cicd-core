@@ -369,3 +369,26 @@ export function formatTrainerName(trainer: string, tozai?: string): string {
   // 接頭辞がない場合はそのまま返す
   return trainer;
 }
+
+/**
+ * 馬名を正規化（調教データマッチング用）
+ * 接頭辞（外）（地）（父）などを除去して純粋な馬名を返す
+ * 
+ * 例:
+ * - "(外)ロッシニアーナ" → "ロッシニアーナ"
+ * - "（地）ホクショウマサル" → "ホクショウマサル"
+ * - "ディープインパクト" → "ディープインパクト"
+ */
+export function normalizeHorseName(name: string): string {
+  if (!name) return '';
+  
+  // 半角括弧・全角括弧両方に対応
+  // (外), (地), (父), (市), [外], [地] などを除去
+  return name
+    .replace(/^[\(（\[]外[\)）\]]/g, '')
+    .replace(/^[\(（\[]地[\)）\]]/g, '')
+    .replace(/^[\(（\[]父[\)）\]]/g, '')
+    .replace(/^[\(（\[]市[\)）\]]/g, '')
+    .replace(/^[\(（\[]抽[\)）\]]/g, '')
+    .trim();
+}

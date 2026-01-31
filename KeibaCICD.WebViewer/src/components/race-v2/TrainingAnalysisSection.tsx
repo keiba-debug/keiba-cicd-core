@@ -9,10 +9,10 @@
  * - 調教評価（矢印）・攻め馬解説
  */
 
-import React, { useState, useRef } from 'react';
-import { HorseEntry, getWakuColor, formatTrainerName } from '@/types/race-data';
+import React, { useState } from 'react';
+import { HorseEntry, getWakuColor, formatTrainerName, normalizeHorseName } from '@/types/race-data';
 import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED } from '@/lib/positive-colors';
-import { ChevronDown, ChevronUp, Dumbbell, MessageSquare, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Dumbbell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Collapsible,
@@ -43,16 +43,21 @@ export default function TrainingAnalysisSection({
   const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);
   
   // 調教情報があるエントリーのみフィルター
-  const entriesWithTraining = sortedEntries.filter(entry => 
-    entry.training_data?.attack_explanation ||
-    entry.training_data?.short_review ||
-    entry.training_data?.evaluation ||
-    entry.training_data?.training_arrow ||
-    trainingSummaryMap[entry.horse_name]?.finalLap ||
-    trainingSummaryMap[entry.horse_name]?.weekendLap ||
-    trainingSummaryMap[entry.horse_name]?.weekAgoLap ||
-    trainingSummaryMap[entry.horse_name]?.timeRank
-  );
+  // 馬名を正規化してマッチング（(外)などの接頭辞を除去）
+  const entriesWithTraining = sortedEntries.filter(entry => {
+    const normalizedName = normalizeHorseName(entry.horse_name);
+    const trainingSummary = trainingSummaryMap[entry.horse_name] || trainingSummaryMap[normalizedName];
+    return (
+      entry.training_data?.attack_explanation ||
+      entry.training_data?.short_review ||
+      entry.training_data?.evaluation ||
+      entry.training_data?.training_arrow ||
+      trainingSummary?.finalLap ||
+      trainingSummary?.weekendLap ||
+      trainingSummary?.weekAgoLap ||
+      trainingSummary?.timeRank
+    );
+  });
 
   if (entriesWithTraining.length === 0) {
     return null;
@@ -99,12 +104,12 @@ export default function TrainingAnalysisSection({
               </thead>
               <tbody>
           {sortedEntries.map((entry) => (
-            <TrainingAnalysisRow 
-              key={entry.horse_number} 
-              entry={entry} 
-              trainingSummary={trainingSummaryMap[entry.horse_name]}
-              previousTraining={previousTrainingMap[entry.horse_name]}
-            />
+              <TrainingAnalysisRow 
+                key={entry.horse_number} 
+                entry={entry} 
+                trainingSummary={trainingSummaryMap[entry.horse_name] || trainingSummaryMap[normalizeHorseName(entry.horse_name)]}
+                previousTraining={previousTrainingMap[entry.horse_name] || previousTrainingMap[normalizeHorseName(entry.horse_name)]}
+              />
           ))}
               </tbody>
             </table>
@@ -244,16 +249,7 @@ function TrainingAnalysisRow({ entry, trainingSummary, previousTraining }: Train
       
       {/* 調教師 */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
-        <div className="flex items-center gap-1">
-          <span>{formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}</span>
-          {(entry_data.trainer_comment || entry_data.trainer_id) && (
-            <TrainerCommentButton 
-              trainerName={formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}
-              trainerId={entry_data.trainer_id}
-              comment={entry_data.trainer_comment}
-            />
-          )}
-        </div>
+        {formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}
       </td>
       
       {/* 今走調教タイム詳細 */}
@@ -356,185 +352,3 @@ function ExpandableText({ text, maxLength }: ExpandableTextProps) {
   );
 }
 
-interface TrainerCommentButtonProps {
-  trainerName: string;
-  trainerId?: string;
-  comment?: string;
-}
-
-function TrainerCommentButton({ trainerName, trainerId, comment: initialComment }: TrainerCommentButtonProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [comment, setComment] = useState<string | null>(initialComment || null);
-  const [isLoading, setIsLoading] = useState(false);
-  const hasFetchedRef = useRef<string | null>(null); // 取得済みのtrainerIdを記録
-
-  // trainerIdが変更された時にコメントとhasFetchedRefをリセット
-  React.useEffect(() => {
-    if (hasFetchedRef.current !== trainerId) {
-      hasFetchedRef.current = null;
-      setComment(initialComment || null);
-    }
-  }, [trainerId, initialComment]);
-
-  // コメントを取得（trainer_idがある場合、モーダルが開いた時のみ、初回のみ）
-  React.useEffect(() => {
-    // 既にコメントがある場合、またはtrainer_idがない場合、またはモーダルが閉じている場合、または既に取得済みの場合はスキップ
-    if (comment || !trainerId || !isOpen || hasFetchedRef.current === trainerId) {
-      return;
-    }
-    
-    setIsLoading(true);
-    hasFetchedRef.current = trainerId; // 取得開始をマーク
-    
-    const fetchComment = async () => {
-      try {
-        const response = await fetch(`/api/trainer/comment?trainer_id=${encodeURIComponent(trainerId)}`);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.error) {
-          console.error('調教師コメント取得エラー:', data.error, data.details);
-          setComment(null);
-        } else if (data.comment && typeof data.comment === 'string' && data.comment.trim().length > 3) {
-          // 有効なコメントのみ設定（3文字以下や数字のみは除外）
-          const trimmedComment = data.comment.trim();
-          if (!/^\d+$/.test(trimmedComment)) {
-            setComment(trimmedComment);
-          } else {
-            setComment(null);
-          }
-        } else {
-          // コメントがない場合
-          setComment(null);
-        }
-      } catch (err) {
-        console.error('調教師コメント取得エラー:', err);
-        setComment(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    fetchComment();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trainerId, isOpen]); // trainerIdとisOpenが変更された時のみ実行
-
-
-  // ESCキーでモーダルを閉じる
-  React.useEffect(() => {
-    if (!isOpen) return;
-    
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsOpen(false);
-      }
-    };
-    
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen]);
-
-  // モーダルが閉じた時にhasFetchedRefをリセット（次回開いた時に再取得可能にする）
-  React.useEffect(() => {
-    if (!isOpen) {
-      hasFetchedRef.current = false;
-    }
-  }, [isOpen]);
-
-  // コメントを整形（改行を保持）
-  const formattedComment = comment
-    ? comment.split('\n').map((line, idx) => (
-        <React.Fragment key={idx}>
-          {line}
-          {idx < comment.split('\n').length - 1 && <br />}
-        </React.Fragment>
-      ))
-    : null;
-
-  return (
-    <>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsOpen(true);
-        }}
-        className="inline-flex items-center justify-center w-4 h-4 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-        title="調教師コメントを表示"
-      >
-        <MessageSquare className="w-3.5 h-3.5" />
-      </button>
-
-      {/* モーダル */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={() => setIsOpen(false)}
-        >
-          {/* 背景オーバーレイ */}
-          <div className="absolute inset-0 bg-black/50 dark:bg-black/70" />
-          
-          {/* モーダルコンテンツ */}
-          <div
-            className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* ヘッダー */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-blue-500" />
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                  調教師コメント
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                title="閉じる (ESC)"
-              >
-                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-              </button>
-            </div>
-
-            {/* コンテンツ */}
-            <div className="p-6 overflow-y-auto flex-1">
-              <div className="mb-4">
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">調教師</div>
-                <div className="text-base font-medium text-gray-900 dark:text-gray-100">
-                  {trainerName}
-                </div>
-              </div>
-              
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">コメント</div>
-                {isLoading ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">読み込み中...</div>
-                ) : comment ? (
-                  <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
-                    {formattedComment}
-                  </div>
-                ) : (
-                  <div className="text-sm text-gray-400 dark:text-gray-500">コメントがありません</div>
-                )}
-              </div>
-            </div>
-
-            {/* フッター */}
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
-              <Button
-                variant="outline"
-                onClick={() => setIsOpen(false)}
-                className="text-sm"
-              >
-                閉じる
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}

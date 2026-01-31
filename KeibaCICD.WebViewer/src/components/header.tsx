@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Calendar, Search, Wrench, ShieldCheck, MapPin } from 'lucide-react';
+import { Calendar, Search, Wrench, ShieldCheck, MapPin, DollarSign } from 'lucide-react';
+import { RemainingBudget } from '@/components/bankroll/RemainingBudget';
 import { useEffect, useRef } from 'react';
 
 export function Header() {
@@ -47,9 +48,10 @@ export function Header() {
   }, []);
 
   const navItems = [
-    { href: '/admin', label: 'データ登録', icon: ShieldCheck },
-    { href: '/', label: 'レース一覧', icon: Calendar },
-    { href: '/horses', label: '馬検索', icon: Search },
+    { href: '/admin', label: '収集', icon: ShieldCheck },
+    { href: '/', label: 'レース', icon: Calendar },
+    { href: '/horses', label: '馬', icon: Search },
+    { href: '/bankroll', label: '収支', icon: DollarSign },
   ];
 
   return (
@@ -73,7 +75,7 @@ export function Header() {
                 </span>
               </div>
               <div className="hidden md:block text-xs text-muted-foreground">
-                データ登録・分析・レーシングビュアーをひとつの導線で
+                集める、調べる、楽しむ
               </div>
             </div>
           </Link>
@@ -103,9 +105,9 @@ export function Header() {
             <details className="relative group" ref={toolsMenuRef}>
               <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
                 <Wrench className="h-4 w-4" />
-                <span className="hidden sm:inline">ツール</span>
+                <span className="hidden sm:inline whitespace-nowrap">ツール</span>
               </summary>
-              <div className="absolute left-0 mt-2 w-48 rounded-xl border bg-background shadow-lg overflow-hidden">
+              <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
                 <Link
                   href="/multi-view"
                   target="_blank"
@@ -117,8 +119,8 @@ export function Header() {
                   }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
-                  レーシングビュアー
-                  <span className="ml-2 text-xs text-muted-foreground/70">（別タブ）</span>
+                  🏁 レーシングビュアー
+                  <span className="block text-xs text-muted-foreground mt-0.5">複数レースを同時表示</span>
                 </Link>
               </div>
             </details>
@@ -126,9 +128,9 @@ export function Header() {
             <details className="relative group" ref={devMenuRef}>
               <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
                 <MapPin className="h-4 w-4" />
-                <span className="hidden sm:inline">データ分析</span>
+                <span className="hidden sm:inline whitespace-nowrap">分析</span>
               </summary>
-              <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
+              <div className="absolute left-0 mt-2 w-64 rounded-xl border bg-background shadow-lg overflow-hidden">
                 <Link
                   href="/analysis/rpci"
                   onClick={() => {
@@ -138,7 +140,13 @@ export function Header() {
                   }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
-                  📊 RPCI分析（レース特性）
+                  <span className="flex items-center gap-2">
+                    <span>📊</span>
+                    <span>
+                      <span className="font-medium">RPCI分析</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">レースペース・完走能力指数</span>
+                    </span>
+                  </span>
                 </Link>
                 <Link
                   href="/analysis/rating"
@@ -149,7 +157,13 @@ export function Header() {
                   }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
-                  📈 レイティング分析（クラス別）
+                  <span className="flex items-center gap-2">
+                    <span>📈</span>
+                    <span>
+                      <span className="font-medium">レイティング分析</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">能力値の推移を可視化</span>
+                    </span>
+                  </span>
                 </Link>
                 <Link
                   href="/analysis/obstacle"
@@ -160,7 +174,13 @@ export function Header() {
                   }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
-                  🏇 障害レース分析
+                  <span className="flex items-center gap-2">
+                    <span>🏇</span>
+                    <span>
+                      <span className="font-medium">障害レース分析</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">障害戦の傾向を分析</span>
+                    </span>
+                  </span>
                 </Link>
                 <Link
                   href="/demo/course"
@@ -171,19 +191,21 @@ export function Header() {
                   }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
-                  🗺️ コースデータ
+                  <span className="flex items-center gap-2">
+                    <span>🗺️</span>
+                    <span>
+                      <span className="font-medium">コースデータ</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">競馬場・コース情報</span>
+                    </span>
+                  </span>
                 </Link>
               </div>
             </details>
           </nav>
 
           {/* Status */}
-          <div className="ml-auto hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-            </span>
-            システム稼働中
+          <div className="ml-auto hidden sm:flex items-center gap-4 text-sm text-muted-foreground">
+            <RemainingBudget />
           </div>
         </div>
       </div>

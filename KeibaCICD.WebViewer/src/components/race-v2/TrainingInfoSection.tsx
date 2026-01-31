@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from 'react';
-import { HorseEntry, getWakuColor } from '@/types/race-data';
+import { HorseEntry, getWakuColor, normalizeHorseName } from '@/types/race-data';
 import { POSITIVE_BG, POSITIVE_BG_MUTED } from '@/lib/positive-colors';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -88,7 +88,7 @@ export default function TrainingInfoSection({ entries, trainingSummaryMap = {} }
                   <TrainingInfoRow 
                     key={entry.horse_number} 
                     entry={entry} 
-                    trainingSummary={trainingSummaryMap[entry.horse_name]}
+                    trainingSummary={trainingSummaryMap[entry.horse_name] || trainingSummaryMap[normalizeHorseName(entry.horse_name)]}
                   />
                 ))}
               </tbody>

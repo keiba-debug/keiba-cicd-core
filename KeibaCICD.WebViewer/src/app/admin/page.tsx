@@ -16,6 +16,15 @@ import {
 import { ACTIONS, type ActionType } from '@/lib/admin/commands';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
+// 簡易UUID生成（crypto.randomUUID が使えない環境用フォールバック）
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // フォールバック: タイムスタンプ + ランダム文字列
+  return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 11)}`;
+}
+
 // 日付モード
 type DateMode = 'single' | 'range';
 
@@ -51,7 +60,7 @@ export default function AdminPage() {
   const addLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
     setLogs((prev) => [
       ...prev,
-      { ...entry, id: crypto.randomUUID() },
+      { ...entry, id: generateId() },
     ]);
   }, []);
 

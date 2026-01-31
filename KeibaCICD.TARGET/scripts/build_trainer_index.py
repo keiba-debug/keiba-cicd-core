@@ -18,6 +18,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Dict, Optional
@@ -140,21 +141,34 @@ def get_trainers_from_um_data() -> Dict[str, Dict]:
                             continue
                         
                         if trainer_name and trainer_code:
-                            # 調教師コードをキーとして使用（一意性のため）
-                            if trainer_code not in trainers:
-                                trainers[trainer_code] = {
-                                    "jvn_code": trainer_code,
-                                    "name": trainer_name,
-                                    "tozai": record.tozai_name
-                                }
-                            # 調教師名でもアクセス可能にする
-                            # 注意: 同名の調教師が複数いる場合があるため、最初に見つかったものを優先
-                            if trainer_name not in trainers:
-                                trainers[trainer_name] = {
-                                    "jvn_code": trainer_code,
-                                    "name": trainer_name,
-                                    "tozai": record.tozai_name
-                                }
+                            # 文字化けチェック: 置換文字や不正な文字が含まれていないか確認
+                            has_replacement = '\ufffd' in trainer_name or '\ufffd' in trainer_code
+                            # 文字化けパターンチェック: 最初の文字が英数字1文字だけなど
+                            has_garbled_pattern = len(trainer_name) > 0 and (
+                                trainer_name[0] in 'n形ﾉ錘ｖｺcヶｬ' or
+                                (len(trainer_name) == 1 and trainer_name[0].isascii() and not trainer_name[0].isdigit())
+                            )
+                            
+                            # 文字化けしていない場合のみ追加
+                            if not has_replacement and not has_garbled_pattern:
+                                # 調教師コードをキーとして使用（一意性のため）
+                                if trainer_code not in trainers:
+                                    trainers[trainer_code] = {
+                                        "jvn_code": trainer_code,
+                                        "name": trainer_name,
+                                        "tozai": record.tozai_name
+                                    }
+                                # 調教師名でもアクセス可能にする
+                                # 注意: 同名の調教師が複数いる場合があるため、最初に見つかったものを優先
+                                if trainer_name not in trainers:
+                                    trainers[trainer_name] = {
+                                        "jvn_code": trainer_code,
+                                        "name": trainer_name,
+                                        "tozai": record.tozai_name
+                                    }
+                            else:
+                                # 文字化けしている場合はスキップ（デバッグ出力は既に上で実施）
+                                pass
                             
                             # デバッグ: 最初の10件の調教師名を表示（エラー回避のためtry-except）
                             code_count = len([k for k in trainers.keys() if isinstance(k, str) and k.isdigit()])
@@ -297,37 +311,56 @@ def load_trainer_csv() -> Dict[str, Dict]:
         return trainers
     
     try:
-        with open(csv_file, 'r', encoding='shift_jis') as f:
-            reader = csv.reader(f)
-            
-            # ヘッダー行を読み込んで列の位置を特定
-            header_row = next(reader, None)
-            if not header_row:
-                print("警告: CSVファイルにヘッダー行がありません")
-                return trainers
-            
-            # ヘッダーから列のインデックスを取得
-            header_map = {}
-            for idx, header in enumerate(header_row):
-                header_lower = header.strip().lower()
-                if '調教師' in header or '名前' in header or 'name' in header_lower:
-                    if 'name' not in header_map:
-                        header_map['name'] = idx
-                elif 'コード' in header or 'code' in header_lower:
-                    if 'code' not in header_map:
-                        header_map['code'] = idx
-                elif '所属' in header or 'tozai' in header_lower or '美浦' in header or '栗東' in header:
-                    if 'tozai' not in header_map:
-                        header_map['tozai'] = idx
-                elif 'コメント' in header or 'comment' in header_lower or '勝負' in header or '調教' in header:
-                    if 'comment' not in header_map:
-                        header_map['comment'] = idx
-            
-            # デバッグ: ヘッダーマッピングを表示
-            print(f"  [CSVヘッダー] 検出された列: {header_map}")
-            
-            # データ行を処理
-            for row_idx, row in enumerate(reader):
+        # 複数のエンコーディングを試す
+        encodings = ['shift_jis', 'cp932', 'utf-8-sig', 'utf-8']
+        csv_data = None
+        encoding_used = None
+        
+        for enc in encodings:
+            try:
+                with open(csv_file, 'r', encoding=enc, errors='replace') as f:
+                    csv_data = list(csv.reader(f))
+                    encoding_used = enc
+                    break
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        
+        if csv_data is None:
+            print(f"警告: CSVファイルの読み込みに失敗しました（すべてのエンコーディングでエラー）")
+            return trainers
+        
+        reader = iter(csv_data)
+        
+        # ヘッダー行を読み込んで列の位置を特定
+        header_row = next(reader, None)
+        if not header_row:
+            print("警告: CSVファイルにヘッダー行がありません")
+            return trainers
+        
+        # ヘッダーから列のインデックスを取得
+        header_map = {}
+        for idx, header in enumerate(header_row):
+            header_lower = header.strip().lower()
+            header_clean = header.strip()
+            if '調教師' in header or '名前' in header or 'name' in header_lower:
+                if 'name' not in header_map:
+                    header_map['name'] = idx
+            elif 'コード' in header or 'code' in header_lower:
+                if 'code' not in header_map:
+                    header_map['code'] = idx
+            elif '所属' in header or 'tozai' in header_lower or '美浦' in header or '栗東' in header:
+                if 'tozai' not in header_map:
+                    header_map['tozai'] = idx
+            elif header_clean == 'コメント' or header_lower == 'comment':
+                # 「コメント」列のみを厳密にマッチ（部分一致や他の列を除外）
+                if 'comment' not in header_map:
+                    header_map['comment'] = idx
+        
+        # デバッグ: ヘッダーマッピングを表示
+        print(f"  [CSVヘッダー] 検出された列: {header_map}")
+        
+        # データ行を処理
+        for row_idx, row in enumerate(reader):
                 if len(row) < 2:
                     continue
                 
@@ -357,6 +390,15 @@ def load_trainer_csv() -> Dict[str, Dict]:
                 
                 if 'comment' in header_map and header_map['comment'] < len(row):
                     comment = row[header_map['comment']].strip()
+                    # コメントから文字化け文字を除去
+                    comment = comment.replace('\ufffd', '').replace('�', '')
+                    # 特殊な文字化けパターンを除去（�@, �A など）
+                    comment = re.sub(r'�[A-Za-z0-9@]', '', comment)
+                    # 数字のみ、または空の場合は空文字列にする（コメントとして無効）
+                    if comment and re.match(r'^\d+$', comment):
+                        comment = ""
+                    if not comment or comment.strip() == '':
+                        comment = ""
                 
                 # デバッグ: 最初の5件で構造を確認
                 if len(trainers) < 5:
@@ -366,12 +408,22 @@ def load_trainer_csv() -> Dict[str, Dict]:
                         pass
                 
                 if trainer_code and trainer_name:
-                    trainers[trainer_code] = {
-                        "jvn_code": trainer_code,
-                        "name": trainer_name,
-                        "tozai": tozai if tozai in ["美浦", "栗東"] else "不明",
-                        "comment": comment
-                    }
+                    # 文字化けチェック: 置換文字や不正な文字が含まれていないか確認
+                    has_replacement = '\ufffd' in trainer_name or '\ufffd' in trainer_code or '�' in trainer_name or '�' in trainer_code
+                    has_invalid_chars = any(ord(c) < 0x20 and c not in '\t\n\r' for c in trainer_name)
+                    
+                    # 文字化けしていない場合のみ追加
+                    if not has_replacement and not has_invalid_chars:
+                        trainers[trainer_code] = {
+                            "jvn_code": trainer_code,
+                            "name": trainer_name,
+                            "tozai": tozai if tozai in ["美浦", "栗東"] else "不明",
+                            "comment": comment
+                        }
+                    else:
+                        # 文字化けしている場合はスキップ（デバッグ出力）
+                        if len(trainers) < 3:
+                            print(f"  [スキップ] 文字化け検出: コード={trainer_code}, 名前={repr(trainer_name[:20])}")
         
         print(f"調教師CSVから {len(trainers)} 件の調教師情報を読み込みました")
         return trainers
@@ -532,10 +584,18 @@ def build_index() -> Dict:
                 existing_index = json.load(f)
                 # 既存のエントリをマージ（手動マッピングで上書き）
                 for keibabook_id, info in existing_index.items():
+                    # 文字化けチェック: 置換文字や不正な文字が含まれていないか確認
+                    name = info.get('name', '')
+                    jvn_code = info.get('jvn_code', '')
+                    has_replacement = '\ufffd' in name or '\ufffd' in jvn_code or '�' in name or '�' in jvn_code
+                    
+                    # 文字化けしている場合はスキップ
+                    if has_replacement:
+                        continue
+                    
                     if keibabook_id not in index:
                         # 既存のエントリにコメントデータがない場合、CSVから取得を試みる
                         if 'comment' not in info or not info.get('comment'):
-                            jvn_code = info.get('jvn_code', '')
                             if jvn_code and jvn_code in csv_trainer_by_code:
                                 csv_info = csv_trainer_by_code[jvn_code]
                                 info['comment'] = csv_info.get('comment', '')
@@ -546,6 +606,15 @@ def build_index() -> Dict:
     # 実際のデータファイルから自動マッピングを構築
     auto_index = build_index_from_data_files()
     for keibabook_id, info in auto_index.items():
+        # 文字化けチェック
+        name = info.get('name', '')
+        jvn_code = info.get('jvn_code', '')
+        has_replacement = '\ufffd' in name or '\ufffd' in jvn_code or '�' in name or '�' in jvn_code
+        
+        # 文字化けしている場合はスキップ
+        if has_replacement:
+            continue
+        
         if keibabook_id not in index:
             index[keibabook_id] = info
         else:
@@ -554,12 +623,22 @@ def build_index() -> Dict:
                 if 'comment' in info and info.get('comment'):
                     index[keibabook_id]['comment'] = info['comment']
             # CSVからコメントデータを取得（あれば）
-            jvn_code = index[keibabook_id].get('jvn_code', '')
             if jvn_code and jvn_code in csv_trainer_by_code:
                 csv_info = csv_trainer_by_code[jvn_code]
                 csv_comment = csv_info.get('comment', '')
+                # 文字化け文字を除去
+                if csv_comment:
+                    csv_comment = csv_comment.replace('\ufffd', '').replace('�', '')
+                    csv_comment = re.sub(r'�[A-Za-z0-9@]', '', csv_comment)
                 if csv_comment and (not index[keibabook_id].get('comment') or len(csv_comment) > len(index[keibabook_id].get('comment', ''))):
                     index[keibabook_id]['comment'] = csv_comment
+        
+        # 既存のコメントからも文字化け文字を除去
+        for keibabook_id, info in index.items():
+            if 'comment' in info and info.get('comment'):
+                cleaned_comment = info['comment'].replace('\ufffd', '').replace('�', '')
+                cleaned_comment = re.sub(r'�[A-Za-z0-9@]', '', cleaned_comment)
+                info['comment'] = cleaned_comment
     
     return index
 

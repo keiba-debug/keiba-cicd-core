@@ -202,6 +202,22 @@ def find_integrated_files(date: str) -> List[Path]:
     return files
 
 
+def normalize_horse_name(name: str) -> str:
+    """
+    馬名を正規化（接頭辞を除去）
+    
+    例:
+    - "(外)ロッシニアーナ" → "ロッシニアーナ"
+    - "（地）ホクショウマサル" → "ホクショウマサル"
+    """
+    import re
+    if not name:
+        return name
+    
+    # (外), (地), (父), (市), (抽) などを除去（半角・全角両方）
+    return re.sub(r'^[\(（\[]外[\)）\]]|^[\(（\[]地[\)）\]]|^[\(（\[]父[\)）\]]|^[\(（\[]市[\)）\]]|^[\(（\[]抽[\)）\]]', '', name).strip()
+
+
 def extract_horse_ids_from_integrated(file_path: Path) -> List[Dict[str, str]]:
     """integrated_*.jsonから馬IDと馬名を抽出"""
     try:
@@ -216,7 +232,8 @@ def extract_horse_ids_from_integrated(file_path: Path) -> List[Dict[str, str]]:
             if horse_id and horse_name:
                 horses.append({
                     'horse_id': horse_id,
-                    'horse_name': horse_name
+                    'horse_name': horse_name,
+                    'horse_name_normalized': normalize_horse_name(horse_name)
                 })
         
         return horses
@@ -295,11 +312,19 @@ def generate_summary_for_date(date: str, days_back: int = DEFAULT_DAYS_BACK,
         horses = extract_horse_ids_from_integrated(file_path)
         for horse in horses:
             horse_name = horse['horse_name']
-            if horse_name not in all_horses:
-                # 馬名から10桁IDを取得
-                jvn_id = horse_name_index.get(horse_name)
+            horse_name_normalized = horse.get('horse_name_normalized', horse_name)
+            
+            if horse_name_normalized not in all_horses:
+                # 馬名から10桁IDを取得（正規化した馬名で検索）
+                jvn_id = horse_name_index.get(horse_name_normalized)
+                
+                # 正規化名で見つからない場合、元の馬名でも試行
+                if not jvn_id:
+                    jvn_id = horse_name_index.get(horse_name)
+                
                 if jvn_id:
-                    all_horses[horse_name] = jvn_id
+                    # 正規化した馬名をキーにして保存（training_summaryのキーと一致させる）
+                    all_horses[horse_name_normalized] = jvn_id
                 else:
                     horses_without_id.append(horse_name)
     

@@ -9,7 +9,10 @@ import {
   TrainingInfoSection,
   RaceResultSection,
   TenkaiSection,
+  PredictionSection,
+  PurchasePlanSection,
 } from '@/components/race-v2';
+import { RaceMemoSection } from '@/components/race-v2/RaceMemoSection';
 import TrainingAnalysisSection from './TrainingAnalysisSection';
 import StakeholderCommentsSection from './StakeholderCommentsSection';
 import type { IntegratedRaceData } from '@/lib/data/integrated-race-reader';
@@ -28,6 +31,10 @@ interface PreviousTrainingEntry {
 interface RaceDetailContentProps {
   raceData: IntegratedRaceData;
   showResults: boolean;
+  /** URLから取得した正確な日付（YYYY-MM-DD形式） */
+  urlDate?: string;
+  /** URLから取得した正確な競馬場名 */
+  urlTrack?: string;
   trainingSummaryMap?: Record<string, TrainingSummaryData>;
   previousTrainingMap?: Record<string, PreviousTrainingEntry>;
   rpciInfo?: CourseRpciInfo | null;
@@ -37,7 +44,7 @@ interface RaceDetailContentProps {
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
 
   // レイティング分析を実行
@@ -80,8 +87,9 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
       {/* タブモード */}
       {displayMode === 'tabs' && (
         <Tabs defaultValue={showResults ? 'results' : 'entries'} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="entries">出走表</TabsTrigger>
+            <TabsTrigger value="prediction">予想・購入</TabsTrigger>
             <TabsTrigger value="training">調教・談話</TabsTrigger>
             <TabsTrigger value="tenkai">展開予想</TabsTrigger>
             {showResults && <TabsTrigger value="results">結果</TabsTrigger>}
@@ -102,6 +110,42 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
                 trainingSummaryMap={trainingSummaryMap}
               />
             </div>
+          </TabsContent>
+
+          {/* 予想・購入タブ */}
+          <TabsContent value="prediction" className="mt-4 space-y-4">
+            <RaceMemoSection
+              raceId={raceData.meta?.race_id || ''}
+              raceDate={urlDate || raceData.race_info.date?.replace(/\//g, '-') || ''}
+              raceName={`${urlTrack || raceData.race_info.venue || ''}${raceData.race_info.race_number || 0}R ${raceData.race_info.race_name || ''}`}
+              showResults={showResults}
+            />
+            <PredictionSection
+              raceId={raceData.meta?.race_id || ''}
+              raceDate={raceData.race_info.date?.replace(/-/g, '') || ''}
+              raceName={raceData.race_info.race_name || ''}
+              venue={raceData.race_info.venue || ''}
+              raceNumber={raceData.race_info.race_number || 0}
+              entries={raceData.entries.map(e => ({
+                horse_number: e.horse_number,
+                horse_name: e.horse_name,
+                jockey_name: e.jockey_name,
+                odds: e.odds,
+              }))}
+            />
+            <PurchasePlanSection
+              raceId={raceData.meta?.race_id || ''}
+              raceDate={raceData.race_info.date?.replace(/-/g, '') || ''}
+              raceName={raceData.race_info.race_name || ''}
+              venue={raceData.race_info.venue || ''}
+              raceNumber={raceData.race_info.race_number || 0}
+              entries={raceData.entries.map(e => ({
+                horse_number: e.horse_number,
+                horse_name: e.horse_name,
+                jockey_name: e.jockey_name,
+                odds: e.odds,
+              }))}
+            />
           </TabsContent>
 
           {/* 調教・談話タブ */}
@@ -157,6 +201,44 @@ export function RaceDetailContent({ raceData, showResults, trainingSummaryMap = 
               entries={raceData.entries}
               showResult={showResults}
               trainingSummaryMap={trainingSummaryMap}
+            />
+          </div>
+
+          {/* 予想メモ */}
+          <RaceMemoSection
+            raceId={raceData.meta?.race_id || ''}
+            raceDate={urlDate || raceData.race_info.date?.replace(/\//g, '-') || ''}
+            raceName={`${urlTrack || raceData.race_info.venue || ''}${raceData.race_info.race_number || 0}R ${raceData.race_info.race_name || ''}`}
+            showResults={showResults}
+          />
+
+          {/* 予想・購入セクション */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <PredictionSection
+              raceId={raceData.meta?.race_id || ''}
+              raceDate={raceData.race_info.date?.replace(/-/g, '') || ''}
+              raceName={raceData.race_info.race_name || ''}
+              venue={raceData.race_info.venue || ''}
+              raceNumber={raceData.race_info.race_number || 0}
+              entries={raceData.entries.map(e => ({
+                horse_number: e.horse_number,
+                horse_name: e.horse_name,
+                jockey_name: e.jockey_name,
+                odds: e.odds,
+              }))}
+            />
+            <PurchasePlanSection
+              raceId={raceData.meta?.race_id || ''}
+              raceDate={raceData.race_info.date?.replace(/-/g, '') || ''}
+              raceName={raceData.race_info.race_name || ''}
+              venue={raceData.race_info.venue || ''}
+              raceNumber={raceData.race_info.race_number || 0}
+              entries={raceData.entries.map(e => ({
+                horse_number: e.horse_number,
+                horse_name: e.horse_name,
+                jockey_name: e.jockey_name,
+                odds: e.odds,
+              }))}
             />
           </div>
 

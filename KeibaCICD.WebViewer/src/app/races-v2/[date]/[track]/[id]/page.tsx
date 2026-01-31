@@ -289,6 +289,8 @@ export default async function RaceDetailPage({ params }: PageParams) {
         <RaceDetailContent 
           raceData={raceData}
           showResults={showResults}
+          urlDate={date}
+          urlTrack={track}
           trainingSummaryMap={trainingSummaryMap}
           previousTrainingMap={previousTrainingMap}
           rpciInfo={rpciInfo}

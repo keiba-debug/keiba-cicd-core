@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
+import { BabaInputForm } from '@/components/baba/BabaInputForm';
 import { ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react';
 
 // 日付を年月でグループ化
@@ -312,8 +313,16 @@ async function DateRaces({ date }: { date: string }) {
                   {getKaisaiLabel(trackGroup.track, trackGroup.races).replace(trackGroup.track, '')}
                 </span>
               </div>
-              <div className="text-xs font-mono text-muted-foreground">
-                12R
+              <div className="flex items-center gap-2">
+                <BabaInputForm
+                  date={date}
+                  track={trackGroup.track}
+                  kai={trackGroup.races[0]?.kai}
+                  nichi={trackGroup.races[0]?.nichi}
+                />
+                <div className="text-xs font-mono text-muted-foreground">
+                  12R
+                </div>
               </div>
             </CardHeader>
             

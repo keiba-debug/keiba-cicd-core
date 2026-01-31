@@ -8,3 +8,5 @@ export { default as TrainingInfoSection, TrainingInfoCards } from './TrainingInf
 export { default as RaceResultSection } from './RaceResultSection';
 export { default as TenkaiSection } from './TenkaiSection';
 export { RaceDetailContent } from './race-detail-content';
+export { PredictionSection } from './PredictionSection';
+export { PurchasePlanSection } from './PurchasePlanSection';

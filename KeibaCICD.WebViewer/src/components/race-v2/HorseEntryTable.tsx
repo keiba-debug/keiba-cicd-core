@@ -17,6 +17,7 @@ import {
   getWakuColor,
   toCircleNumber,
   TRAINING_ARROW_LABELS,
+  normalizeHorseName,
 } from '@/types/race-data';
 import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH, RATING_MID_HIGH, RATING_MID, getRatingColor } from '@/lib/positive-colors';
 import { Badge } from '@/components/ui/badge';
@@ -278,7 +279,7 @@ export default function HorseEntryTable({
               key={entry.horse_number} 
               entry={entry} 
               showResult={showResult}
-              trainingSummary={trainingSummaryMap[entry.horse_name]}
+              trainingSummary={trainingSummaryMap[entry.horse_name] || trainingSummaryMap[normalizeHorseName(entry.horse_name)]}
               minRating={minRating}
               maxRating={maxRating}
               ratingRank={ratingRankMap.get(entry.horse_number) || 0}

@@ -70,9 +70,18 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        let isClosed = false;
+        
         const sendEvent = (type: string, data: object) => {
-          const event = `data: ${JSON.stringify({ type, ...data })}\n\n`;
-          controller.enqueue(encoder.encode(event));
+          // コントローラーが閉じられている場合は何もしない
+          if (isClosed) return;
+          try {
+            const event = `data: ${JSON.stringify({ type, ...data })}\n\n`;
+            controller.enqueue(encoder.encode(event));
+          } catch {
+            // コントローラーが閉じられている場合のエラーを無視
+            isClosed = true;
+          }
         };
 
         // 日付範囲アクションかどうかでコマンドリストを切り替え
@@ -180,6 +189,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
+        isClosed = true;
         controller.close();
       },
     });
