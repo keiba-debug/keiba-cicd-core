@@ -4,7 +4,7 @@
  * POST /api/training/save?date=YYYYMMDD
  * 
  * TARGETのCK_DATAから調教サマリーを生成し、
- * Z:\KEIBA-CICD\data2\races\{year}\{month}\{day}\temp\training_summary.json
+ * KEIBA_DATA_ROOT_DIR/races/{year}/{month}/{day}/temp/training_summary.json
  * として保存
  */
 

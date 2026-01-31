@@ -2,7 +2,7 @@
 """
 RT_DATA（速報・オッズ）パーサー
 
-E:\TFJV\RT_DATA のオッズデータを解析します。
+JV_DATA_ROOT_DIR 配下の RT_DATA のオッズデータを解析します。
 JV-Data O1レコード（単複枠オッズ）形式に準拠。
 
 使用例:

@@ -13,9 +13,12 @@ import type { FundHistory, FundEntry, FundConfig } from '@/types/bankroll';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// 資金履歴ファイルのパス
-const getFundHistoryPath = () => {
-  const dataRoot = process.env.KEIBA_DATA_ROOT_DIR || 'E:\\share\\KEIBA-CICD\\data2';
+// 資金履歴ファイルのパス（環境変数 KEIBA_DATA_ROOT_DIR から構築）
+const getFundHistoryPath = (): string => {
+  const dataRoot = process.env.KEIBA_DATA_ROOT_DIR;
+  if (!dataRoot) {
+    throw new Error('KEIBA_DATA_ROOT_DIR が設定されていません');
+  }
   return path.join(dataRoot, 'userdata', 'fund_history.json');
 };
 

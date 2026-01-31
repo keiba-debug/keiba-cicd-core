@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'RT_DATA not available',
-        hint: 'JV_DATA_ROOT_DIR を E:\\TFJV に設定し、RT_DATA フォルダが存在するか確認してください',
+        hint: '環境変数 JV_DATA_ROOT_DIR を設定し、RT_DATA フォルダが存在するか確認してください',
       },
       { status: 503 }
     );

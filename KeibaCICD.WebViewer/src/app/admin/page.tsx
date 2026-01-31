@@ -14,7 +14,8 @@ import {
   type ExecutionStatus,
 } from '@/components/admin';
 import { ACTIONS, type ActionType } from '@/lib/admin/commands';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 // 簡易UUID生成（crypto.randomUUID が使えない環境用フォールバック）
 function generateId(): string {
@@ -56,6 +57,9 @@ export default function AdminPage() {
   const defaultRange = getDefaultDateRange();
   const [rangeStartDate, setRangeStartDate] = useState(defaultRange.start);
   const [rangeEndDate, setRangeEndDate] = useState(defaultRange.end);
+  
+  // インデックス再構築
+  const [isRebuildingIndex, setIsRebuildingIndex] = useState(false);
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
     setLogs((prev) => [
@@ -63,6 +67,43 @@ export default function AdminPage() {
       { ...entry, id: generateId() },
     ]);
   }, []);
+
+  // インデックス再構築
+  const rebuildIndex = useCallback(async () => {
+    setIsRebuildingIndex(true);
+    addLog({
+      timestamp: new Date().toISOString(),
+      type: 'info',
+      message: 'レース日付インデックスを再構築中...',
+    });
+
+    try {
+      const response = await fetch('/api/admin/rebuild-index', { method: 'POST' });
+      const result = await response.json();
+      
+      if (result.success) {
+        addLog({
+          timestamp: new Date().toISOString(),
+          type: 'success',
+          message: result.message,
+        });
+      } else {
+        addLog({
+          timestamp: new Date().toISOString(),
+          type: 'error',
+          message: `インデックス再構築エラー: ${result.error || result.details}`,
+        });
+      }
+    } catch (error) {
+      addLog({
+        timestamp: new Date().toISOString(),
+        type: 'error',
+        message: `インデックス再構築エラー: ${error}`,
+      });
+    } finally {
+      setIsRebuildingIndex(false);
+    }
+  }, [addLog]);
 
   const executeAction = async (action: ActionType) => {
     const actionConfig = ACTIONS.find((a) => a.id === action);
@@ -517,6 +558,33 @@ export default function AdminPage() {
           </Card>
         </Collapsible>
       </div>
+
+      <Separator className="my-6" />
+
+      {/* システム管理 */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            ⚙️ システム管理
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="outline"
+              onClick={rebuildIndex}
+              disabled={isRebuildingIndex || isRunning}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRebuildingIndex ? 'animate-spin' : ''}`} />
+              {isRebuildingIndex ? 'インデックス再構築中...' : 'インデックス再構築'}
+            </Button>
+            <span className="text-sm text-muted-foreground self-center">
+              新しい日程データを登録した後に実行してください
+            </span>
+          </div>
+        </CardContent>
+      </Card>
 
       <Separator className="my-6" />
 

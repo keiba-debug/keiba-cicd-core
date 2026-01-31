@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
         },
         target_integration: {
           enabled: true,
-          data_root: 'E:\\TFJV',
+          data_root: process.env.JV_DATA_ROOT_DIR ?? '',
           my_data_folder: 'MY_DATA',
         },
       };

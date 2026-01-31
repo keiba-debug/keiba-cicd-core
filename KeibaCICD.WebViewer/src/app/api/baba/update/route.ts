@@ -26,9 +26,12 @@ const TRACK_TO_VENUE: Record<string, string> = {
   '中山': '06', '中京': '07', '京都': '08', '阪神': '09', '小倉': '10',
 };
 
-// BABAデータディレクトリ
+// BABAデータディレクトリ（環境変数 JV_DATA_ROOT_DIR から構築）
 function getBabaDir(): string {
-  const jvDataRoot = process.env.JV_DATA_ROOT_DIR || 'E:/TFJV';
+  const jvDataRoot = process.env.JV_DATA_ROOT_DIR;
+  if (!jvDataRoot) {
+    throw new Error('JV_DATA_ROOT_DIR が設定されていません');
+  }
   return path.join(jvDataRoot, '_BABA');
 }
 

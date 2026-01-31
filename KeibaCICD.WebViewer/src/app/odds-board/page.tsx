@@ -651,7 +651,7 @@ export default function OddsBoardPage() {
           <CardContent className="py-4">
             <p className="text-destructive font-medium">{error}</p>
             <p className="text-sm text-muted-foreground mt-2">
-              JV_DATA_ROOT_DIR を E:\TFJV に設定し、TARGET frontier JV で RT_DATA が取得されているか確認してください。
+              環境変数 JV_DATA_ROOT_DIR を設定し、TARGET frontier JV で RT_DATA が取得されているか確認してください。
             </p>
           </CardContent>
         </Card>

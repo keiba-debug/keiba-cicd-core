@@ -210,7 +210,7 @@ export default async function HomePage({
       {dates.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           <p>レースデータがありません</p>
-          <p className="text-sm mt-2">data2フォルダにデータを配置してください</p>
+          <p className="text-sm mt-2">KEIBA_DATA_ROOT_DIR で指定したフォルダにデータを配置してください</p>
         </div>
       )}
     </div>
