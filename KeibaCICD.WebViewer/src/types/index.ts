@@ -12,6 +12,11 @@ export interface RaceSummary {
   kai?: number;
   nichi?: number;
   filePath: string;
+  // ペース分析情報
+  paceType?: 'sprint' | 'average' | 'stamina';  // 瞬発/平均/持続
+  winnerFirst3f?: number;  // 勝ち馬の前半3F
+  winnerLast3f?: number;   // 勝ち馬の後半3F
+  paceDiff?: number;       // 前半-後半の差（マイナス=瞬発戦）
 }
 
 export interface RaceDetail extends RaceSummary {

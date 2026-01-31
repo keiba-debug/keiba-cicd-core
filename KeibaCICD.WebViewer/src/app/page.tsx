@@ -415,6 +415,21 @@ async function DateRaces({ date }: { date: string }) {
                               {race.className}
                             </span>
                           )}
+                          {/* ペース分析バッジ */}
+                          {race.paceType && (
+                            <span 
+                              className={`text-[10px] font-medium px-1.5 py-0.5 rounded-sm whitespace-nowrap ${
+                                race.paceType === 'sprint' 
+                                  ? 'text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-950' 
+                                  : race.paceType === 'stamina' 
+                                    ? 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-950' 
+                                    : 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-800'
+                              }`}
+                              title={`前半${race.winnerFirst3f ?? '-'}s / 後半${race.winnerLast3f ?? '-'}s (差: ${race.paceDiff != null ? (race.paceDiff > 0 ? '+' : '') + race.paceDiff : '-'}s)`}
+                            >
+                              {race.paceType === 'sprint' ? '🔥瞬発' : race.paceType === 'stamina' ? '💪持続' : '⚖️平均'}
+                            </span>
+                          )}
                         </div>
                       </Link>
 

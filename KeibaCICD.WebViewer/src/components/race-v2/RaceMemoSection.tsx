@@ -5,12 +5,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   StickyNote,
   ChevronDown,
   ChevronUp,
   Check,
   Loader2,
   Plus,
+  Maximize2,
 } from 'lucide-react';
 
 interface Memo {
@@ -46,6 +53,7 @@ export function RaceMemoSection({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [showPostMemo, setShowPostMemo] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // テキストエリアの値
   const [preText, setPreText] = useState('');
@@ -217,6 +225,18 @@ export function RaceMemoSection({
                     保存しました
                   </span>
                 )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsFullscreen(true);
+                  }}
+                  title="全画面表示"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </Button>
                 {expanded ? (
                   <ChevronUp className="h-4 w-4 text-muted-foreground" />
                 ) : (
@@ -289,6 +309,79 @@ export function RaceMemoSection({
           </CardContent>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* 全画面表示モーダル */}
+      <Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
+        <DialogContent className="w-[95vw] max-w-[95vw] h-[95vh] max-h-[95vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <StickyNote className="h-5 w-5" />
+              予想メモ - {raceName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-6 py-4">
+            {/* 予想前メモ */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">
+                  予想メモ（レース前）
+                </label>
+                {preUpdated && (
+                  <span className="text-xs text-muted-foreground">
+                    最終保存: {formatTime(preUpdated)}
+                  </span>
+                )}
+              </div>
+              <textarea
+                value={preText}
+                onChange={(e) => handleTextChange('pre', e.target.value)}
+                placeholder="予想の根拠、気になるポイントなどをメモ..."
+                className="w-full flex-1 min-h-[300px] p-4 text-sm border rounded-md resize-none bg-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                style={{ height: showResults ? '35vh' : '70vh' }}
+              />
+            </div>
+
+            {/* 振り返りメモ */}
+            {showResults && (
+              <div className="space-y-2 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">
+                    振り返りメモ（レース後）
+                  </label>
+                  {postUpdated && (
+                    <span className="text-xs text-muted-foreground">
+                      最終保存: {formatTime(postUpdated)}
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  value={postText}
+                  onChange={(e) => handleTextChange('post', e.target.value)}
+                  placeholder="展開の読み、予想の精度、反省点などを振り返り..."
+                  className="w-full min-h-[300px] p-4 text-sm border rounded-md resize-none bg-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  style={{ height: '35vh' }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* ステータス表示 */}
+          <div className="flex items-center justify-end gap-2 pt-2 border-t">
+            {saving && (
+              <span className="text-sm text-muted-foreground flex items-center">
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                保存中...
+              </span>
+            )}
+            {saveSuccess && (
+              <span className="text-sm text-green-600 flex items-center">
+                <Check className="h-4 w-4 mr-2" />
+                保存しました
+              </span>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -133,6 +133,13 @@ export default async function RaceDetailPage({ params }: PageParams) {
   // kaisaiInfo（コメント編集用に外に出す）
   let kaisaiInfoForEdit: { kai: number; nichi: number } | undefined;
   
+  // JRA 16桁形式のレースID生成用
+  let jraRaceId: string | null = null;
+  const trackCodes: Record<string, string> = {
+    '札幌': '01', '函館': '02', '福島': '03', '新潟': '04', '東京': '05',
+    '中山': '06', '中京': '07', '京都': '08', '阪神': '09', '小倉': '10',
+  };
+  
   if (raceInfo) {
     const kaisaiInfo =
       getKaisaiInfoFromRaceInfo(raceInfo.kaisai_data, id) ??
@@ -175,6 +182,16 @@ export default async function RaceDetailPage({ params }: PageParams) {
       
       // コメント編集用にkaisaiInfoを保持
       kaisaiInfoForEdit = { kai: kaisaiInfo.kai, nichi: kaisaiInfo.nichi };
+      
+      // JRA 16桁形式のレースID生成
+      const trackCode = trackCodes[track];
+      if (trackCode) {
+        const dateNoDash = date.replace(/-/g, '');
+        const raceNo = String(currentRaceNumber).padStart(2, '0');
+        const kai = String(kaisaiInfo.kai).padStart(2, '0');
+        const nichi = String(kaisaiInfo.nichi).padStart(2, '0');
+        jraRaceId = `${dateNoDash}${trackCode}${kai}${nichi}${raceNo}`;
+      }
     }
   }
 
@@ -322,6 +339,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
         }}
         rpciInfo={rpciInfo}
         babaInfo={babaInfo}
+        jraRaceId={jraRaceId}
       />
 
       {/* メインコンテンツ */}

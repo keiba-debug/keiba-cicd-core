@@ -10,6 +10,9 @@ import {
   DateRangeSelector,
   LogViewer,
   StatusBadge,
+  DataStatusCard,
+  ValidationResultsCard,
+  SystemHealthCard,
   type LogEntry,
   type ExecutionStatus,
 } from '@/components/admin';
@@ -61,11 +64,20 @@ export default function AdminPage() {
   // インデックス再構築
   const [isRebuildingIndex, setIsRebuildingIndex] = useState(false);
 
+  // データ品質リフレッシュ用
+  const [dataQualityRefreshKey, setDataQualityRefreshKey] = useState(0);
+  const [isDataQualityOpen, setIsDataQualityOpen] = useState(false);
+  const [isSystemHealthOpen, setIsSystemHealthOpen] = useState(false);
+
   const addLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
     setLogs((prev) => [
       ...prev,
       { ...entry, id: generateId() },
     ]);
+  }, []);
+
+  const refreshDataQuality = useCallback(() => {
+    setDataQualityRefreshKey((prev) => prev + 1);
   }, []);
 
   // インデックス再構築
@@ -87,6 +99,7 @@ export default function AdminPage() {
           type: 'success',
           message: result.message,
         });
+        refreshDataQuality();
       } else {
         addLog({
           timestamp: new Date().toISOString(),
@@ -103,7 +116,7 @@ export default function AdminPage() {
     } finally {
       setIsRebuildingIndex(false);
     }
-  }, [addLog]);
+  }, [addLog, refreshDataQuality]);
 
   const executeAction = async (action: ActionType) => {
     const actionConfig = ACTIONS.find((a) => a.id === action);
@@ -172,7 +185,7 @@ export default function AdminPage() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              handleSSEEvent(data);
+              handleSSEEvent(data, action);
             } catch (e) {
               console.error('SSE parse error:', e);
             }
@@ -192,7 +205,10 @@ export default function AdminPage() {
     setCurrentAction(null);
   };
 
-  const handleSSEEvent = (data: { type: string; [key: string]: unknown }) => {
+  const handleSSEEvent = (
+    data: { type: string; [key: string]: unknown },
+    actionId: ActionType
+  ) => {
     switch (data.type) {
       case 'log':
         addLog({
@@ -217,6 +233,11 @@ export default function AdminPage() {
           message: data.message as string,
         });
         setStatus('success');
+        if (
+          ['batch_prepare', 'batch_after_race', 'integrate'].includes(actionId)
+        ) {
+          refreshDataQuality();
+        }
         break;
 
       case 'error':
@@ -553,6 +574,72 @@ export default function AdminPage() {
                     </a>
                   </div>
                 </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+
+        {/* データ品質セクション */}
+        <Collapsible open={isDataQualityOpen} onOpenChange={setIsDataQualityOpen}>
+          <Card className="border-muted">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="cursor-pointer pb-3 transition-colors hover:bg-muted/50">
+                <CardTitle className="flex items-center justify-between text-lg">
+                  <span className="flex items-center gap-2">
+                    📊 データ品質
+                    <span className="text-xs font-normal text-muted-foreground">
+                      （データ状態確認）
+                    </span>
+                  </span>
+                  {isDataQualityOpen ? (
+                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </CardTitle>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent>
+                <div className="space-y-4">
+                  <DataStatusCard
+                    selectedDate={selectedDate}
+                    refreshKey={dataQualityRefreshKey}
+                  />
+                  <Separator />
+                  <ValidationResultsCard
+                    selectedDate={selectedDate}
+                    refreshKey={dataQualityRefreshKey}
+                  />
+                </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+
+        {/* システム状態セクション */}
+        <Collapsible open={isSystemHealthOpen} onOpenChange={setIsSystemHealthOpen}>
+          <Card className="border-muted">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="cursor-pointer pb-3 transition-colors hover:bg-muted/50">
+                <CardTitle className="flex items-center justify-between text-lg">
+                  <span className="flex items-center gap-2">
+                    💚 システム状態
+                    <span className="text-xs font-normal text-muted-foreground">
+                      （ヘルスチェック）
+                    </span>
+                  </span>
+                  {isSystemHealthOpen ? (
+                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </CardTitle>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent>
+                <SystemHealthCard />
               </CardContent>
             </CollapsibleContent>
           </Card>

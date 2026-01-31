@@ -37,6 +37,8 @@ interface RaceHeaderProps {
   rpciInfo?: CourseRpciInfo | null;
   /** 馬場コンディション（クッション値・含水率） */
   babaInfo?: BabaCondition | null;
+  /** JRA-VAN形式のレースID（オッズ分析用） */
+  jraRaceId?: string | null;
 }
 
 // 競馬場テキストカラー
@@ -60,6 +62,7 @@ export default function RaceHeader({
   externalLinks,
   rpciInfo,
   babaInfo,
+  jraRaceId,
 }: RaceHeaderProps) {
   // URLパラメータを優先、なければJSONデータを使用
   const displayDate = urlDate || raceInfo.date;
@@ -210,6 +213,18 @@ export default function RaceHeader({
                 >
                   <MessageCircle className="w-5 h-5" />
                 </a>
+                {/* オッズ分析リンク */}
+                {jraRaceId && (
+                  <Link
+                    href={`/odds-race/${jraRaceId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                    title="オッズ分析"
+                  >
+                    <TrendingUp className="w-5 h-5 text-emerald-500" />
+                  </Link>
+                )}
               </div>
             </div>
           )}

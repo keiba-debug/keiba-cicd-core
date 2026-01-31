@@ -4,3 +4,8 @@ export { DateRangeSelector } from './date-range-selector';
 export { LogViewer, type LogEntry } from './log-viewer';
 export { StatusBadge, type ExecutionStatus } from './status-badge';
 export { RpciStandardsViewer } from './RpciStandardsViewer';
+export {
+  DataStatusCard,
+  ValidationResultsCard,
+  SystemHealthCard,
+} from './data-quality';

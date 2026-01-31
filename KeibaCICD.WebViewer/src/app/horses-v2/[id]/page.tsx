@@ -7,20 +7,18 @@ import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { getIntegratedHorseData } from '@/lib/data/integrated-horse-reader';
-import { getHorseCommentByName } from '@/lib/data/target-comment-reader';
+import { getHorseCommentByName, getKettoNumByName, getHorseComment } from '@/lib/data/target-comment-reader';
 import { 
   HorseHeader, 
   HorsePastRacesTable, 
   HorseStatsSection,
-  HorseUserMemo,
+  HorseCommentEditor,
   HorseAnalysisSection,
 } from '@/components/horse-v2';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { HorseRaceSelector } from '@/components/horse-race-selector';
 import { analyzeHorse } from '@/lib/horse-analyzer';
-import { MessageSquareText } from 'lucide-react';
 
 interface PageParams {
   params: Promise<{
@@ -53,10 +51,13 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
     notFound();
   }
 
-  const { basic, pastRaces, stats, userMemo } = horseData;
+  const { basic, pastRaces, stats } = horseData;
 
-  // TARGETの馬コメントを取得（馬名からkettoNumを検索）
-  const targetComment = getHorseCommentByName(basic.name);
+  // 馬名からkettoNumを取得
+  const kettoNum = getKettoNumByName(basic.name) || '';
+  
+  // TARGETの馬コメントを取得
+  const targetComment = kettoNum ? getHorseComment(kettoNum) : null;
 
   // 馬分析を実行
   const analysis = analyzeHorse(pastRaces, stats);
@@ -113,6 +114,15 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
               <span className="text-sm">📊</span>
               調教履歴
             </a>
+            <a
+              href={`https://db.netkeiba.com/horse/ped/${id}/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 text-green-800 dark:text-green-300 rounded transition-colors"
+            >
+              <span className="text-sm">🐴</span>
+              netkeiba
+            </a>
             {basic.trainerLink && (
               <a
                 href={basic.trainerLink}
@@ -127,15 +137,19 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
           </div>
         </div>
 
+        {/* 馬コメント（編集可能、TARGETに保存） */}
+        <div className="mt-4">
+          <HorseCommentEditor 
+            kettoNum={kettoNum}
+            horseName={basic.name}
+            initialComment={targetComment?.comment || ''}
+          />
+        </div>
+
         <Separator className="my-6" />
 
         {/* 成績統計 */}
         <HorseStatsSection stats={stats} />
-
-        <Separator className="my-6" />
-
-        {/* 分析セクション */}
-        <HorseAnalysisSection analysis={analysis} />
 
         <Separator className="my-6" />
 
@@ -156,27 +170,8 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
 
         <Separator className="my-6" />
 
-        {/* TARGETコメント（読み取り専用） */}
-        {targetComment && (
-          <>
-            <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <MessageSquareText className="w-4 h-4 text-amber-600" />
-                  TARGETメモ
-                  <span className="text-xs font-normal text-muted-foreground">（読み取り専用）</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="whitespace-pre-wrap text-sm">{targetComment.comment}</p>
-              </CardContent>
-            </Card>
-            <Separator className="my-6" />
-          </>
-        )}
-
-        {/* ユーザーメモ */}
-        <HorseUserMemo horseId={id} horseName={basic.name} initialMemo={userMemo} />
+        {/* 分析セクション - 一番下に配置 */}
+        <HorseAnalysisSection analysis={analysis} />
 
         {/* フッター情報 */}
         <div className="mt-8 pt-4 border-t text-sm text-gray-500 dark:text-gray-400">

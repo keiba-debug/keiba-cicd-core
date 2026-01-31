@@ -48,10 +48,10 @@ export function Header() {
   }, []);
 
   const navItems = [
-    { href: '/admin', label: 'データ登録', icon: ShieldCheck },
     { href: '/', label: 'レース', icon: Calendar },
     { href: '/horses', label: '馬', icon: Search },
     { href: '/bankroll', label: '資金管理', icon: DollarSign },
+    { href: '/admin', label: '管理', icon: ShieldCheck },
   ];
 
   return (

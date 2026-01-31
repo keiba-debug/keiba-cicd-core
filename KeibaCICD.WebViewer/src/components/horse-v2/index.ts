@@ -5,5 +5,5 @@
 export { HorseHeader } from './HorseHeader';
 export { HorseStatsSection } from './HorseStatsSection';
 export { HorsePastRacesTable } from './HorsePastRacesTable';
-export { HorseUserMemo } from './HorseUserMemo';
+export { HorseCommentEditor } from './HorseCommentEditor';
 export { HorseAnalysisSection } from './HorseAnalysis';

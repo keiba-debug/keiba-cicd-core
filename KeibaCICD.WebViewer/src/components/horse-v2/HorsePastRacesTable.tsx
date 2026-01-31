@@ -110,16 +110,19 @@ function RaceRow({ race, isExpanded, onToggle }: {
           {raceLink ? (
             <Link 
               href={raceLink}
-              className="text-blue-600 hover:underline"
+              className="text-blue-600 hover:underline hover:text-blue-800 font-medium"
               onClick={(e) => e.stopPropagation()}
+              title={`${race.track} ${race.raceNumber}R ${race.raceName || ''} の詳細を見る`}
             >
-              {race.raceNumber}R
-              {race.raceName && <span className="ml-0.5">{race.raceName.slice(0, 6)}</span>}
+              <span className="inline-flex items-center gap-0.5">
+                {race.raceNumber}R
+                {race.raceName && <span className="ml-0.5">{race.raceName.slice(0, 8)}</span>}
+              </span>
             </Link>
           ) : (
             <span>
               {race.raceNumber}R
-              {race.raceName && <span className="ml-0.5">{race.raceName.slice(0, 6)}</span>}
+              {race.raceName && <span className="ml-0.5">{race.raceName.slice(0, 8)}</span>}
             </span>
           )}
           {race.raceClass && (
@@ -232,83 +235,99 @@ function RaceRow({ race, isExpanded, onToggle }: {
           {race.cornerPositions || '-'}
         </td>
 
-        {/* 寸評 */}
-        <td className="px-1 py-1.5 border text-xs truncate max-w-20" title={race.sunpyou}>
-          {race.sunpyou || '-'}
+        {/* 調教短評 */}
+        <td className="px-1 py-1.5 border text-xs truncate max-w-24" title={race.trainingComment}>
+          {race.trainingComment ? (
+            <span>
+              {race.trainingArrow && <span className="mr-0.5">{race.trainingArrow}</span>}
+              {race.trainingComment}
+            </span>
+          ) : '-'}
         </td>
       </tr>
 
-      {/* 展開時の詳細行 */}
-      {isExpanded && (
-        <tr className="bg-gray-50 dark:bg-gray-800/30">
-          <td colSpan={22} className="px-4 py-3 border">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+      {/* 2行目: 要約情報（常時表示） - 寸評・調教短評のみ */}
+      {(race.sunpyou || race.trainingComment) && (
+        <tr className={`text-[10px] ${isGoodResult ? 'bg-amber-50/30 dark:bg-amber-900/5' : 'bg-gray-50/50 dark:bg-gray-800/20'}`}>
+          <td className="border"></td>
+          <td colSpan={21} className="px-1 py-0.5 border">
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5">
               {race.sunpyou && (
-                <div className="lg:col-span-3">
-                  <span className="text-muted-foreground">寸評:</span>
-                  <p className="mt-1">{race.sunpyou}</p>
-                </div>
-              )}
-              {race.shortComment && (
-                <div>
-                  <span className="text-muted-foreground">短評:</span>
-                  <p className="mt-1">{race.shortComment}</p>
-                </div>
-              )}
-              {race.trainingDetail && (
-                <div className="lg:col-span-2">
-                  <span className="text-muted-foreground">調教タイム:</span>
-                  <p className="mt-1 font-mono text-xs">
-                    {race.trainingDetail.split(' / ').map((part, idx) => (
-                      <span key={idx} className={`block ${race.trainingFinalSpeed === '◎' && idx === 0 ? 'text-green-600 font-medium' : ''}`}>
-                        {part}
-                        {race.trainingFinalSpeed === '◎' && idx === 0 && <span className="ml-1">◎</span>}
-                      </span>
-                    ))}
-                    {race.trainingLapRank && <span className="text-muted-foreground ml-2">(ラップ: {race.trainingLapRank})</span>}
-                  </p>
-                </div>
+                <span className="inline-flex items-center gap-0.5">
+                  <span className="text-amber-600 dark:text-amber-400 font-medium">寸評:</span>
+                  <span className="text-foreground">{race.sunpyou}</span>
+                </span>
               )}
               {race.trainingComment && (
-                <div>
-                  <span className="text-muted-foreground">調教短評:</span>
-                  <p className="mt-1">
-                    {race.trainingArrow && <span className="mr-1">{race.trainingArrow}</span>}
+                <span className="inline-flex items-center gap-0.5">
+                  <span className="text-cyan-600 dark:text-cyan-400 font-medium">調教:</span>
+                  <span className="text-foreground">
+                    {race.trainingArrow && <span className="mr-0.5">{race.trainingArrow}</span>}
                     {race.trainingComment}
-                  </p>
+                  </span>
+                </span>
+              )}
+              {race.shortComment && (
+                <span className="inline-flex items-center gap-0.5">
+                  <span className="text-gray-500 dark:text-gray-400 font-medium">短評:</span>
+                  <span className="text-foreground">{race.shortComment}</span>
+                </span>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+
+      {/* 展開時の詳細行 - 2行目にない詳細情報のみ */}
+      {isExpanded && (
+        <tr className="bg-gray-50 dark:bg-gray-800/30">
+          <td colSpan={22} className="px-2 py-1.5 border">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-1 text-xs">
+              {race.trainingDetail && (
+                <div className="lg:col-span-2">
+                  <span className="text-cyan-600 dark:text-cyan-400 font-medium">調教タイム:</span>
+                  <span className="ml-1 font-mono">
+                    {race.trainingDetail.split(' / ').map((part, idx) => (
+                      <span key={idx} className={`${idx > 0 ? 'ml-2' : ''} ${race.trainingFinalSpeed === '◎' && idx === 0 ? 'text-green-600 font-medium' : ''}`}>
+                        {part}
+                        {race.trainingFinalSpeed === '◎' && idx === 0 && <span className="ml-0.5">◎</span>}
+                      </span>
+                    ))}
+                    {race.trainingLapRank && <span className="text-muted-foreground ml-1">(ラップ: {race.trainingLapRank})</span>}
+                  </span>
                 </div>
               )}
               {race.attackExplanation && (
-                <div>
-                  <span className="text-muted-foreground">攻め馬解説:</span>
-                  <p className="mt-1">{race.attackExplanation}</p>
+                <div className="lg:col-span-2">
+                  <span className="text-green-600 dark:text-green-400 font-medium">攻め馬解説:</span>
+                  <span className="ml-1">{race.attackExplanation}</span>
                 </div>
               )}
               {race.stableComment && (
-                <div>
-                  <span className="text-muted-foreground">厩舎談話:</span>
-                  <p className="mt-1">{race.stableComment}</p>
+                <div className="lg:col-span-2">
+                  <span className="text-blue-600 dark:text-blue-400 font-medium">厩舎談話:</span>
+                  <span className="ml-1">{race.stableComment}</span>
                 </div>
               )}
               {(race.paddockMark || race.paddockComment) && (
-                <div>
-                  <span className="text-muted-foreground">パドック:</span>
-                  <p className="mt-1">
-                    {race.paddockMark && <span className="mr-1 font-bold">{race.paddockMark}</span>}
+                <div className="lg:col-span-2">
+                  <span className="text-orange-600 dark:text-orange-400 font-medium">パドック:</span>
+                  <span className="ml-1">
+                    {race.paddockMark && <span className="mr-0.5 font-bold">{race.paddockMark}</span>}
                     {race.paddockComment}
-                  </p>
+                  </span>
                 </div>
               )}
               {race.resultMemo && (
-                <div>
-                  <span className="text-muted-foreground">結果メモ:</span>
-                  <p className="mt-1">{race.resultMemo}</p>
+                <div className="lg:col-span-2">
+                  <span className="text-purple-600 dark:text-purple-400 font-medium">回顧:</span>
+                  <span className="ml-1">{race.resultMemo}</span>
                 </div>
               )}
               {race.resultComment && (
-                <div>
-                  <span className="text-muted-foreground">騎手コメント:</span>
-                  <p className="mt-1">{race.resultComment}</p>
+                <div className="lg:col-span-2">
+                  <span className="text-rose-600 dark:text-rose-400 font-medium">騎手コメント:</span>
+                  <span className="ml-1">{race.resultComment}</span>
                 </div>
               )}
               {race.timeDiff && (
@@ -381,7 +400,7 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
               <th className="px-1 py-1.5 border text-center w-10">上3F</th>
               <th className="px-1 py-1.5 border text-center w-6">4角</th>
               <th className="px-1 py-1.5 border text-center w-14">通過</th>
-              <th className="px-1 py-1.5 border text-center w-20">寸評</th>
+              <th className="px-1 py-1.5 border text-center w-24">調教短評</th>
             </tr>
           </thead>
           <tbody>

@@ -188,6 +188,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               raceName={`${urlTrack || raceData.race_info.venue || ''}${raceData.race_info.race_number || 0}R ${raceData.race_info.race_name || ''}`}
               showResults={showResults}
             />
+            {/* TODO: 予想入力・購入計画は将来実装予定
             <PredictionSection
               raceId={raceData.meta?.race_id || ''}
               raceDate={raceData.race_info.date?.replace(/-/g, '') || ''}
@@ -214,6 +215,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 odds: e.odds,
               }))}
             />
+            */}
           </TabsContent>
 
           {/* 調教・談話タブ */}
@@ -284,7 +286,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
             showResults={showResults}
           />
 
-          {/* 予想・購入セクション */}
+          {/* TODO: 予想入力・購入計画は将来実装予定
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <PredictionSection
               raceId={raceData.meta?.race_id || ''}
@@ -313,6 +315,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               }))}
             />
           </div>
+          */}
 
           {/* 展開予想 */}
           {raceData.tenkai_data && (
