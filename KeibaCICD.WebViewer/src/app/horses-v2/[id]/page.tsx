@@ -7,6 +7,7 @@ import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { getIntegratedHorseData } from '@/lib/data/integrated-horse-reader';
+import { getHorseCommentByName } from '@/lib/data/target-comment-reader';
 import { 
   HorseHeader, 
   HorsePastRacesTable, 
@@ -16,8 +17,10 @@ import {
 } from '@/components/horse-v2';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { HorseRaceSelector } from '@/components/horse-race-selector';
 import { analyzeHorse } from '@/lib/horse-analyzer';
+import { MessageSquareText } from 'lucide-react';
 
 interface PageParams {
   params: Promise<{
@@ -51,6 +54,9 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
   }
 
   const { basic, pastRaces, stats, userMemo } = horseData;
+
+  // TARGETの馬コメントを取得（馬名からkettoNumを検索）
+  const targetComment = getHorseCommentByName(basic.name);
 
   // 馬分析を実行
   const analysis = analyzeHorse(pastRaces, stats);
@@ -149,6 +155,25 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
         <HorsePastRacesTable races={pastRaces} />
 
         <Separator className="my-6" />
+
+        {/* TARGETコメント（読み取り専用） */}
+        {targetComment && (
+          <>
+            <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <MessageSquareText className="w-4 h-4 text-amber-600" />
+                  TARGETメモ
+                  <span className="text-xs font-normal text-muted-foreground">（読み取り専用）</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="whitespace-pre-wrap text-sm">{targetComment.comment}</p>
+              </CardContent>
+            </Card>
+            <Separator className="my-6" />
+          </>
+        )}
 
         {/* ユーザーメモ */}
         <HorseUserMemo horseId={id} horseName={basic.name} initialMemo={userMemo} />

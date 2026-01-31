@@ -22,12 +22,23 @@ import {
 import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH, RATING_MID_HIGH, RATING_MID, getRatingColor } from '@/lib/positive-colors';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { MessageSquareText } from 'lucide-react';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
+import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
+
+/** TARGETコメント（馬番→コメント） */
+interface TargetCommentsMap {
+  predictions: Record<number, RaceHorseComment>;
+  results: Record<number, RaceHorseComment>;
+  horseComments?: Record<number, HorseComment>;
+}
 
 interface HorseEntryTableProps {
   entries: HorseEntry[];
   showResult?: boolean;
   trainingSummaryMap?: Record<string, TrainingSummaryData>;
+  /** TARGETコメント */
+  targetComments?: TargetCommentsMap;
 }
 
 // レイティング文字列を数値に変換するヘルパー
@@ -212,6 +223,7 @@ export default function HorseEntryTable({
   entries, 
   showResult = false,
   trainingSummaryMap = {},
+  targetComments,
 }: HorseEntryTableProps) {
   // 馬番順にソート
   const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);
@@ -287,6 +299,9 @@ export default function HorseEntryTable({
               aiIndexRank={aiIndexRankMap.get(entry.horse_number) || 0}
               secondAiIndex={secondAiIndex}
               aiIndexTotalCount={aiIndices.length}
+              predictionComment={targetComments?.predictions[entry.horse_number]}
+              resultComment={targetComments?.results[entry.horse_number]}
+              horseComment={targetComments?.horseComments?.[entry.horse_number]}
             />
           ))}
         </tbody>
@@ -306,6 +321,9 @@ interface HorseEntryRowProps {
   aiIndexRank: number;  // AI指数レース内順位
   secondAiIndex: number;  // 2位のAI指数値（特別抜けているかどうかの判定用）
   aiIndexTotalCount: number;  // 有効AI指数馬数
+  predictionComment?: RaceHorseComment;  // TARGETの予想コメント
+  resultComment?: RaceHorseComment;  // TARGETの結果コメント
+  horseComment?: HorseComment;  // TARGETの馬コメント
 }
 
 function HorseEntryRow({ 
@@ -318,7 +336,10 @@ function HorseEntryRow({
   ratingTotalCount,
   aiIndexRank,
   secondAiIndex,
-  aiIndexTotalCount
+  aiIndexTotalCount,
+  predictionComment,
+  resultComment,
+  horseComment,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
@@ -419,16 +440,38 @@ function HorseEntryRow({
         {entry.horse_number}
       </td>
       
-      {/* 馬名 */}
+      {/* 馬名 + TARGETコメント */}
       <td className="px-2 py-1.5 border">
-        <Link 
-          href={`/horses-v2/${entry.horse_id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-        >
-          {entry.horse_name}
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link 
+            href={`/horses-v2/${entry.horse_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+          >
+            {entry.horse_name}
+          </Link>
+          {/* TARGETコメントアイコン */}
+          {(horseComment || predictionComment || resultComment) && (
+            <span
+              className={cn(
+                "inline-flex items-center justify-center w-4 h-4 rounded cursor-help",
+                resultComment 
+                  ? "text-orange-500 hover:text-orange-600" 
+                  : horseComment
+                    ? "text-emerald-500 hover:text-emerald-600"
+                    : "text-blue-500 hover:text-blue-600"
+              )}
+              title={[
+                horseComment && `【馬】${horseComment.comment}`,
+                predictionComment && `【予想】${predictionComment.comment}`,
+                resultComment && `【結果】${resultComment.comment}`,
+              ].filter(Boolean).join('\n')}
+            >
+              <MessageSquareText className="w-3.5 h-3.5" />
+            </span>
+          )}
+        </div>
       </td>
       
       {/* 性齢 */}

@@ -16,6 +16,7 @@ import { getTrainingSummaryMap, getPreviousTrainingBatch } from '@/lib/data/trai
 import { getCourseRpciInfo } from '@/lib/data/rpci-standards-reader';
 import { getRatingStandards } from '@/lib/data/rating-standards-reader';
 import { getBabaCondition, trackToSurface } from '@/lib/data/baba-reader';
+import { getRaceAllComments, getHorseCommentsBatch, type RaceHorseComment, type HorseComment } from '@/lib/data/target-comment-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -117,6 +118,11 @@ export default async function RaceDetailPage({ params }: PageParams) {
   let patrolUrl: string | null = null;
   
   let babaInfo: import('@/lib/data/baba-reader').BabaCondition | null = null;
+  let targetComments: {
+    predictions: Map<number, RaceHorseComment>;
+    results: Map<number, RaceHorseComment>;
+  } = { predictions: new Map(), results: new Map() };
+  
   if (raceInfo) {
     const kaisaiInfo =
       getKaisaiInfoFromRaceInfo(raceInfo.kaisai_data, id) ??
@@ -147,8 +153,30 @@ export default async function RaceDetailPage({ params }: PageParams) {
         kaisaiInfo.nichi,
         track
       );
+      
+      // TARGETコメント取得（レース別コメント）
+      targetComments = getRaceAllComments(
+        track,
+        date.split('-')[0], // year (4桁)
+        kaisaiInfo.kai,
+        kaisaiInfo.nichi,
+        currentRaceNumber
+      );
     }
   }
+
+  // TARGETコメント取得（馬コメント）
+  // trainingSummaryMapからkettoNum（JRA-VAN 10桁ID）を取得して使用
+  // 競馬ブックのhorse_idではなく、kettoNumで検索する必要がある
+  const kettoNumList = raceData.entries
+    .map(e => {
+      // normalizeHorseNameはrace-data.tsからインポート済みと想定
+      const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
+      const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
+      return summary?.kettoNum;
+    })
+    .filter((id): id is string => !!id);
+  const horseCommentsMap = getHorseCommentsBatch(kettoNumList);
 
   // 外部リンクURL生成
   const [year, month, dayStr] = date.split('-');
@@ -296,6 +324,25 @@ export default async function RaceDetailPage({ params }: PageParams) {
           rpciInfo={rpciInfo}
           ratingStandards={ratingStandards}
           babaInfo={babaInfo}
+          targetComments={{
+            predictions: Object.fromEntries(targetComments.predictions),
+            results: Object.fromEntries(targetComments.results),
+            // 馬コメント（馬番→コメントのマッピング）
+            // kettoNumで検索するので、trainingSummaryMapからkettoNumを取得
+            horseComments: Object.fromEntries(
+              raceData.entries
+                .filter(e => {
+                  const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
+                  const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
+                  return summary?.kettoNum && horseCommentsMap.has(summary.kettoNum);
+                })
+                .map(e => {
+                  const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
+                  const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
+                  return [e.horse_number, horseCommentsMap.get(summary!.kettoNum!)!];
+                })
+            ),
+          }}
         />
 
         {/* データ情報（フッター） */}

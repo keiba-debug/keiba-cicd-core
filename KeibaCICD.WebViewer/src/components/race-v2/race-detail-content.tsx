@@ -11,6 +11,7 @@ import {
   TenkaiSection,
   PredictionSection,
   PurchasePlanSection,
+  TargetCommentsModal,
 } from '@/components/race-v2';
 
 // 調教・厩舎情報セクションを遅延読み込み
@@ -49,12 +50,21 @@ import type { CourseRpciInfo } from '@/lib/data/rpci-utils';
 import type { RatingStandards } from '@/lib/data/rating-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
+import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
 import { POSITIVE_BG } from '@/lib/positive-colors';
 
 interface PreviousTrainingEntry {
   date: string;
   training: TrainingSummaryData;
+}
+
+/** TARGETコメント（馬番→コメント） */
+export interface TargetCommentsMap {
+  predictions: Record<number, RaceHorseComment>;
+  results: Record<number, RaceHorseComment>;
+  /** 馬コメント（UMA_COM）馬番→コメント */
+  horseComments?: Record<number, HorseComment>;
 }
 
 interface RaceDetailContentProps {
@@ -69,11 +79,13 @@ interface RaceDetailContentProps {
   rpciInfo?: CourseRpciInfo | null;
   ratingStandards?: RatingStandards | null;
   babaInfo?: BabaCondition | null;
+  /** TARGETコメント */
+  targetComments?: TargetCommentsMap;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
 
   // レイティング分析を実行
@@ -132,11 +144,15 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
             )}
             
             <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
-              <h2 className="text-lg font-semibold mb-4">🐎 出走表</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">🐎 出走表</h2>
+                <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} />
+              </div>
               <HorseEntryTable 
                 entries={raceData.entries}
                 showResult={showResults}
                 trainingSummaryMap={trainingSummaryMap}
+                targetComments={targetComments}
               />
             </div>
           </TabsContent>
@@ -225,11 +241,15 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
           
           {/* 出走表 */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
-            <h2 className="text-lg font-semibold mb-4">🐎 出走表</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">🐎 出走表</h2>
+              <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} />
+            </div>
             <HorseEntryTable 
               entries={raceData.entries}
               showResult={showResults}
               trainingSummaryMap={trainingSummaryMap}
+              targetComments={targetComments}
             />
           </div>
 
