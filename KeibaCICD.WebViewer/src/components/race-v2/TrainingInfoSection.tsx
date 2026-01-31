@@ -29,7 +29,8 @@ interface TrainingInfoSectionProps {
 }
 
 export default function TrainingInfoSection({ entries, trainingSummaryMap = {} }: TrainingInfoSectionProps) {
-  const [isOpen, setIsOpen] = useState(true);
+  // デフォルトは折りたたみ（初期レンダリング高速化）
+  const [isOpen, setIsOpen] = useState(false);
   
   // 馬番順にソート
   const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);

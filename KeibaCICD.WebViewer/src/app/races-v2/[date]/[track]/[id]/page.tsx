@@ -74,29 +74,20 @@ export default async function RaceDetailPage({ params }: PageParams) {
   // レースIDからレース番号を抽出
   const currentRaceNumber = parseInt(id.slice(-2), 10);
 
-  // データ取得
-  const [raceData, navigation, raceInfo, trainingSummaryMap] = await Promise.all([
+  // データ取得（1段階目: 依存関係のないデータを並列取得）
+  const [raceData, navigation, raceInfo, trainingSummaryMap, ratingStandards] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
     getTrainingSummaryMap(date),
+    getRatingStandards(),  // 依存なし → 1段階目に移動
   ]);
   
   if (!raceData) {
     notFound();
   }
 
-  // RPCI基準値情報とレイティング基準値を取得
-  const [rpciInfo, ratingStandards] = await Promise.all([
-    getCourseRpciInfo(
-      track,
-      raceData.race_info.track || '',
-      raceData.race_info.distance || 0
-    ),
-    getRatingStandards(),
-  ]);
-  
-  // 前走調教データを取得（trainingSummaryMapからkettoNumを取得）
+  // 2段階目: raceData/trainingSummaryMapに依存するデータを並列取得
   const horsesForPrevTraining = Object.entries(trainingSummaryMap)
     .filter(([_, data]) => data.kettoNum)
     .map(([horseName, data]) => ({
@@ -104,9 +95,18 @@ export default async function RaceDetailPage({ params }: PageParams) {
       kettoNum: data.kettoNum!
     }));
   
-  const previousTrainingMap = horsesForPrevTraining.length > 0
-    ? await getPreviousTrainingBatch(horsesForPrevTraining, date)
-    : {};
+  const [rpciInfo, previousTrainingMap] = await Promise.all([
+    // RPCI基準値情報（raceDataに依存）
+    getCourseRpciInfo(
+      track,
+      raceData.race_info.track || '',
+      raceData.race_info.distance || 0
+    ),
+    // 前走調教データ（trainingSummaryMapに依存）
+    horsesForPrevTraining.length > 0
+      ? getPreviousTrainingBatch(horsesForPrevTraining, date)
+      : Promise.resolve({}),
+  ]);
 
   // 結果があるかどうか
   const showResults = hasRaceResults(raceData);

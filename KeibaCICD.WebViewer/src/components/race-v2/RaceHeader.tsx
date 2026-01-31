@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, MapPin, Clock, MessageCircle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import type { CourseRpciInfo, RpciTrend } from '@/lib/data/rpci-standards-reader';
 import type { BabaCondition } from '@/lib/data/baba-reader';
-import { getConditionBadgeClass } from '@/lib/data/baba-utils';
+import { getConditionBadgeClassBySurface, getSurfaceInfo } from '@/lib/data/baba-utils';
 
 interface ExternalLinks {
   paddockUrl: string | null;
@@ -332,36 +332,99 @@ function RpciBadge({ rpciInfo }: { rpciInfo: CourseRpciInfo }) {
 
 /**
  * 馬場コンディション（クッション値・含水率）バッジ
+ * 芝: 緑系（良→高速、重→水を含みパワー必要）
+ * ダート: 茶/オレンジ系（良→軽い砂、重→時計かかりパワー必要）
  */
 function BabaConditionBadge({ babaInfo }: { babaInfo: BabaCondition }) {
-  const parts: string[] = [];
-  if (babaInfo.cushion != null) {
-    parts.push(`クッション ${babaInfo.cushion.toFixed(1)}${babaInfo.cushionLabel ? `（${babaInfo.cushionLabel}）` : ''}`);
-  }
-  if (babaInfo.moistureG != null || babaInfo.moisture4 != null) {
-    const g = babaInfo.moistureG != null ? `G前 ${babaInfo.moistureG.toFixed(1)}%` : '';
-    const c4 = babaInfo.moisture4 != null ? `4C ${babaInfo.moisture4.toFixed(1)}%` : '';
-    parts.push([g, c4].filter(Boolean).join(' / '));
-  }
-  const conditionLabel = babaInfo.moistureConditionLabel
-    ? `（${babaInfo.moistureConditionLabel}の目安）`
-    : '';
-  const label =
-    parts.length > 0
-      ? `馬場: ${parts.join(' / ')}${conditionLabel}`
-      : '馬場: 計測なし';
-  if (!label) return null;
+  const surfaceInfo = getSurfaceInfo(babaInfo.surface);
+  
+  // クッション値表示（芝のみ）
+  const cushionPart = babaInfo.cushion != null
+    ? `${babaInfo.cushion.toFixed(1)}${babaInfo.cushionLabel ? `(${babaInfo.cushionLabel})` : ''}`
+    : null;
 
-  const badgeClass = babaInfo.moistureConditionLabel
-    ? getConditionBadgeClass(babaInfo.moistureConditionLabel)
-    : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
+  // 含水率表示
+  const moistureG = babaInfo.moistureG != null ? `G前${babaInfo.moistureG.toFixed(1)}%` : null;
+  const moisture4 = babaInfo.moisture4 != null ? `4C${babaInfo.moisture4.toFixed(1)}%` : null;
+  const moisturePart = [moistureG, moisture4].filter(Boolean).join('/');
+
+  // 馬場状態ラベル（良/稍重/重/不良）
+  const conditionLabel = babaInfo.moistureConditionLabel || '';
+
+  // 色分け取得
+  const colors = babaInfo.moistureConditionLabel
+    ? getConditionBadgeClassBySurface(babaInfo.moistureConditionLabel, babaInfo.surface)
+    : {
+        bgClass: 'bg-gray-100 dark:bg-gray-800',
+        textClass: 'text-gray-700 dark:text-gray-300',
+        borderClass: 'border-gray-300 dark:border-gray-600',
+      };
+
+  // 馬場状態の説明テキスト
+  const getConditionDescription = (): string => {
+    if (!conditionLabel) return '';
+    if (babaInfo.surface === 'dirt') {
+      switch (conditionLabel) {
+        case '良': return '軽い砂・高速';
+        case '稍重': return 'やや重い';
+        case '重': return '時計かかる・パワー必要';
+        case '不良': return '大きく時計かかる';
+        default: return '';
+      }
+    } else {
+      switch (conditionLabel) {
+        case '良': return '高速馬場';
+        case '稍重': return 'やや滑る';
+        case '重': return '水含み・パワー必要';
+        case '不良': return '大きくパワー必要';
+        default: return '';
+      }
+    }
+  };
+
+  const description = getConditionDescription();
 
   return (
     <span
-      className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-sm ${badgeClass}`}
-      title="JRA早見表に基づく目安です。馬場状態は含水率だけで決まるものではありません。"
+      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border ${colors.bgClass} ${colors.textClass} ${colors.borderClass}`}
+      title={`JRA早見表に基づく目安です。馬場状態は含水率だけで決まるものではありません。${description ? `\n${description}` : ''}`}
     >
-      {label}
+      {/* 芝/ダート表示 */}
+      <span className={`font-bold ${surfaceInfo.colorClass}`}>
+        {surfaceInfo.label}
+      </span>
+      
+      {/* 馬場状態ラベル */}
+      {conditionLabel && (
+        <span className="font-bold">{conditionLabel}</span>
+      )}
+      
+      {/* セパレータ */}
+      <span className="opacity-50">|</span>
+      
+      {/* クッション値（芝のみ） */}
+      {cushionPart && babaInfo.surface === 'turf' && (
+        <>
+          <span className="opacity-75">C:</span>
+          <span>{cushionPart}</span>
+        </>
+      )}
+      
+      {/* 含水率 */}
+      {moisturePart && (
+        <>
+          <span className="opacity-75">水:</span>
+          <span>{moisturePart}</span>
+        </>
+      )}
+      
+      {/* 馬場状態の簡易説明 */}
+      {description && (
+        <>
+          <span className="opacity-50">-</span>
+          <span className="italic opacity-90">{description}</span>
+        </>
+      )}
     </span>
   );
 }

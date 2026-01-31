@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { getAvailableDates, getRacesByDate } from '@/lib/data';
+import { getVenueBabaSummary, type VenueBabaSummary } from '@/lib/data/baba-reader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
 import { BabaInputForm } from '@/components/baba/BabaInputForm';
+import { BabaSummaryBadges } from '@/components/baba/BabaSummaryBadges';
 import { ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react';
 
 // 日付を年月でグループ化
@@ -222,6 +224,16 @@ async function DateRaces({ date }: { date: string }) {
     return <p className="text-muted-foreground">データが見つかりません</p>;
   }
 
+  // 競馬場ごとの馬場情報を取得
+  const babaSummaryMap = new Map<string, VenueBabaSummary | null>();
+  for (const trackGroup of data.tracks) {
+    const firstRace = trackGroup.races[0];
+    if (firstRace?.kai && firstRace?.nichi) {
+      const summary = getVenueBabaSummary(date, trackGroup.track, firstRace.kai, firstRace.nichi);
+      babaSummaryMap.set(trackGroup.track, summary);
+    }
+  }
+
   const netkeibaRaceId = (race: { track: string; raceNumber: number; kai?: number; nichi?: number; date: string }) => {
     if (!race.kai || !race.nichi) return null;
     const trackCodes: Record<string, string> = {
@@ -303,27 +315,35 @@ async function DateRaces({ date }: { date: string }) {
           >
             {/* 開催ヘッダー */}
             <CardHeader 
-              className="py-3 px-4 border-b bg-muted/10 flex flex-row items-center justify-between space-y-0"
+              className="py-3 px-4 border-b bg-muted/10 space-y-0"
             >
-              <div className="flex items-baseline gap-2">
-                <CardTitle className={`text-lg font-bold ${getTrackTextClass(trackGroup.track)}`}>
-                  {trackGroup.track}
-                </CardTitle>
-                <span className="text-xs text-muted-foreground">
-                  {getKaisaiLabel(trackGroup.track, trackGroup.races).replace(trackGroup.track, '')}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <BabaInputForm
-                  date={date}
-                  track={trackGroup.track}
-                  kai={trackGroup.races[0]?.kai}
-                  nichi={trackGroup.races[0]?.nichi}
-                />
-                <div className="text-xs font-mono text-muted-foreground">
-                  12R
+              <div className="flex flex-row items-center justify-between">
+                <div className="flex items-baseline gap-2">
+                  <CardTitle className={`text-lg font-bold ${getTrackTextClass(trackGroup.track)}`}>
+                    {trackGroup.track}
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">
+                    {getKaisaiLabel(trackGroup.track, trackGroup.races).replace(trackGroup.track, '')}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <BabaInputForm
+                    date={date}
+                    track={trackGroup.track}
+                    kai={trackGroup.races[0]?.kai}
+                    nichi={trackGroup.races[0]?.nichi}
+                  />
+                  <div className="text-xs font-mono text-muted-foreground">
+                    12R
+                  </div>
                 </div>
               </div>
+              {/* 馬場情報バッジ */}
+              {babaSummaryMap.get(trackGroup.track)?.hasData && (
+                <div className="mt-2 pt-2 border-t border-border/30">
+                  <BabaSummaryBadges summary={babaSummaryMap.get(trackGroup.track) ?? null} />
+                </div>
+              )}
             </CardHeader>
             
             <CardContent className="p-0">
