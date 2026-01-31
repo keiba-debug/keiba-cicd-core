@@ -1,15 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
-import { TrendingUp, TrendingDown, DollarSign, Target, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { TrendingUp, TrendingDown, AlertCircle, Settings, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { AlertBar } from '@/components/bankroll/AlertBar';
-import { AllocationGuide } from '@/components/bankroll/AllocationGuide';
 import { BudgetForm } from '@/components/bankroll/BudgetForm';
-import { PurchasePlanSection } from '@/components/bankroll/PurchasePlanSection';
+import { TodaySummary } from '@/components/bankroll/TodaySummary';
+import { DailyPurchaseList } from '@/components/bankroll/DailyPurchaseList';
+import { BetTypeStats } from '@/components/bankroll/BetTypeStats';
 
 interface MonthlySummary {
   year: number;
@@ -19,69 +26,115 @@ interface MonthlySummary {
   profit: number;
   recovery_rate: number;
   race_count: number;
+  has_data?: boolean;
+  file_exists?: boolean;
 }
 
-interface BetTypeStats {
-  [betType: string]: {
-    bet_type: string;
-    total_bet: number;
-    total_payout: number;
-    count: number;
-    win_count: number;
-    recovery_rate: number;
-    win_rate: number;
-  };
-}
+// 日付をYYYYMMDD形式に変換
+const formatDateToStr = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+};
 
-interface DailySummary {
-  date: string;
-  total_bet: number;
-  total_payout: number;
-  profit: number;
-  recovery_rate: number;
-  race_count: number;
-  races: any[];
-}
+// 日付を表示用にフォーマット
+const formatDateDisplay = (dateStr: string): string => {
+  const year = parseInt(dateStr.slice(0, 4));
+  const month = parseInt(dateStr.slice(4, 6));
+  const day = parseInt(dateStr.slice(6, 8));
+  // 曜日を取得
+  const date = new Date(year, month - 1, day);
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+  const weekday = weekdays[date.getDay()];
+  return `${year}年${month}月${day}日(${weekday})`;
+};
 
 export default function BankrollPage() {
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
 
+  // 開催日一覧（YYYYMMDD形式）
+  const [raceDates, setRaceDates] = useState<string[]>([]);
+  // 日別表示用の日付（YYYYMMDD形式）
+  const [selectedDate, setSelectedDate] = useState('');
+  
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary | null>(null);
-  const [betTypeStats, setBetTypeStats] = useState<BetTypeStats | null>(null);
-  const [dailyBudget, setDailyBudget] = useState(5000);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 設定を取得
-  useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const res = await fetch('/api/bankroll/config');
-        if (res.ok) {
-          const data = await res.json();
-          const totalBankroll = data.settings?.total_bankroll || 100000;
-          const dailyLimitPercent = data.settings?.daily_limit_percent || 5;
-          setDailyBudget(Math.floor(totalBankroll * (dailyLimitPercent / 100)));
-        }
-      } catch (error) {
-        console.error('設定取得エラー:', error);
+  // 開催日一覧を取得
+  const loadRaceDates = useCallback(async () => {
+    try {
+      const res = await fetch('/api/race-dates');
+      if (!res.ok) return;
+      const { dates } = await res.json();
+      // YYYY-MM-DD形式からYYYYMMDD形式に変換
+      const yyyymmdd = (dates as string[]).map((d) => d.replace(/-/g, ''));
+      setRaceDates(yyyymmdd);
+      // 最新の開催日をデフォルトに
+      if (yyyymmdd.length > 0) {
+        setSelectedDate((prev) => prev || yyyymmdd[0]);
+      } else {
+        setSelectedDate(formatDateToStr(today));
       }
-    };
-    fetchConfig();
+    } catch {
+      setSelectedDate(formatDateToStr(today));
+    }
   }, []);
 
-  // 月間サマリーと統計を取得
+  useEffect(() => {
+    loadRaceDates();
+  }, [loadRaceDates]);
+
+  // 現在選択中の日付のインデックス
+  const currentIndex = raceDates.indexOf(selectedDate);
+
+  // 前の開催日に移動
+  const goToPrevDay = () => {
+    if (raceDates.length === 0) return;
+    if (currentIndex < 0) {
+      // 選択中の日付がリストにない場合、最新の日付に
+      setSelectedDate(raceDates[0]);
+      return;
+    }
+    if (currentIndex >= raceDates.length - 1) return; // 最古の日付
+    setSelectedDate(raceDates[currentIndex + 1]);
+  };
+
+  // 次の開催日に移動
+  const goToNextDay = () => {
+    if (raceDates.length === 0) return;
+    if (currentIndex < 0) {
+      setSelectedDate(raceDates[0]);
+      return;
+    }
+    if (currentIndex <= 0) return; // 最新の日付
+    setSelectedDate(raceDates[currentIndex - 1]);
+  };
+
+  // 最新の開催日に移動
+  const goToLatest = () => {
+    if (raceDates.length > 0) {
+      setSelectedDate(raceDates[0]);
+    }
+  };
+
+  // 日付が最新かどうか
+  const isLatest = raceDates.length > 0 && selectedDate === raceDates[0];
+  // 日付が最古かどうか
+  const isOldest = raceDates.length > 0 && currentIndex >= raceDates.length - 1;
+
+  // 月間サマリーを取得
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        // 月間サマリー
         const summaryRes = await fetch(
           `/api/bankroll/summary?year=${selectedYear}&month=${selectedMonth}`
         );
@@ -90,16 +143,6 @@ export default function BankrollPage() {
         }
         const summaryData = await summaryRes.json();
         setMonthlySummary(summaryData);
-
-        // 馬券種別統計
-        const statsRes = await fetch(
-          `/api/bankroll/stats?year=${selectedYear}&month=${selectedMonth}`
-        );
-        if (!statsRes.ok) {
-          throw new Error('馬券種別統計の取得に失敗しました');
-        }
-        const statsData = await statsRes.json();
-        setBetTypeStats(statsData);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
       } finally {
@@ -118,7 +161,7 @@ export default function BankrollPage() {
   };
 
   const formatPercent = (value: number) => {
-    return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
+    return `${value.toFixed(1)}%`;
   };
 
   const getRecoveryRateColor = (rate: number) => {
@@ -133,49 +176,97 @@ export default function BankrollPage() {
     return 'text-muted-foreground';
   };
 
-  if (loading) {
-    return (
-      <div className="container py-6 max-w-6xl">
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">データを読み込み中...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="container py-6 max-w-6xl">
-        <Card className="border-red-200 dark:border-red-800">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-              <AlertCircle className="h-5 w-5" />
-              <p>{error}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="container py-6 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2">
           💰 収支管理 (TARGET連携)
         </h1>
-        <Badge variant="outline" className="text-sm">
-          同期: 自動
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Settings className="h-4 w-4 mr-2" />
+                予算設定
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>予算設定</DialogTitle>
+              </DialogHeader>
+              <BudgetForm isModal />
+            </DialogContent>
+          </Dialog>
+          <Badge variant="outline" className="text-sm">
+            同期: 自動
+          </Badge>
+        </div>
       </div>
 
       {/* アラートバー */}
       <AlertBar />
 
+      {/* 開催日選択 */}
+      <Card className="mb-6">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={goToPrevDay}
+                disabled={raceDates.length === 0 || isOldest}
+                title="前の開催日"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-muted-foreground" />
+                <select
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="rounded-md border bg-background px-3 py-2 text-lg font-bold min-w-[200px]"
+                  disabled={raceDates.length === 0}
+                >
+                  {raceDates.length === 0 && selectedDate && (
+                    <option value={selectedDate}>{formatDateDisplay(selectedDate)}</option>
+                  )}
+                  {raceDates.map((d) => (
+                    <option key={d} value={d}>
+                      {formatDateDisplay(d)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={goToNextDay}
+                disabled={raceDates.length === 0 || isLatest}
+                title="次の開催日"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+            {!isLatest && raceDates.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={goToLatest}>
+                最新の開催日へ
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 選択日の成績 */}
+      <TodaySummary dateStr={selectedDate} />
+
+      {/* 選択日の購入リスト */}
+      <DailyPurchaseList dateStr={selectedDate} />
+
       {/* 年月選択 */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle className="text-lg">期間選択</CardTitle>
+          <CardTitle className="text-lg">期間選択（月間収支）</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-4">
@@ -212,7 +303,22 @@ export default function BankrollPage() {
       </Card>
 
       {/* 月間収支サマリー */}
-      {monthlySummary && (
+      {loading ? (
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <p className="text-muted-foreground text-center">データを読み込み中...</p>
+          </CardContent>
+        </Card>
+      ) : error ? (
+        <Card className="mb-6 border-red-200 dark:border-red-800">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+              <AlertCircle className="h-5 w-5" />
+              <p>{error}</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : monthlySummary && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-xl">
@@ -290,89 +396,8 @@ export default function BankrollPage() {
         </Card>
       )}
 
-      {/* 予算設定フォーム */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <BudgetForm />
-        <AllocationGuide year={selectedYear} month={selectedMonth} />
-      </div>
-
-      {/* 購入管理セクション */}
-      <div className="mb-6">
-        <PurchasePlanSection dailyBudget={dailyBudget} />
-      </div>
-
-      {/* 馬券種別回収率 */}
-      {betTypeStats && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">【馬券種別回収率】</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {betTypeStats._meta && !betTypeStats._meta.file_exists ? (
-              <div className="text-center py-8">
-                <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">
-                  TARGETデータファイルが見つかりません
-                </p>
-              </div>
-            ) : betTypeStats._meta && !betTypeStats._meta.has_data ? (
-              <div className="text-center py-8">
-                <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">
-                  データがありません
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {Object.entries(betTypeStats)
-                  .filter(([key]) => key !== '_meta')
-                  .sort(([, a], [, b]) => b.recovery_rate - a.recovery_rate)
-                  .map(([betType, stats]) => (
-                    <div key={betType} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <span className="font-medium min-w-[80px]">{betType}</span>
-                        <Badge
-                          variant={
-                            stats.recovery_rate >= 100
-                              ? 'default'
-                              : stats.recovery_rate >= 80
-                                ? 'secondary'
-                                : 'destructive'
-                          }
-                          className="text-xs"
-                        >
-                          {stats.count}件
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <div
-                            className={`text-lg font-bold ${getRecoveryRateColor(
-                              stats.recovery_rate
-                            )}`}
-                          >
-                            {formatPercent(stats.recovery_rate)}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            的中率: {formatPercent(stats.win_rate)}
-                          </div>
-                        </div>
-                        {stats.recovery_rate < 50 && (
-                          <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-            {betTypeStats._meta && betTypeStats._meta.has_data && Object.keys(betTypeStats).filter(key => key !== '_meta').length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                データがありません
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* 馬券種別実績（期間選択付き） */}
+      <BetTypeStats />
     </div>
   );
 }

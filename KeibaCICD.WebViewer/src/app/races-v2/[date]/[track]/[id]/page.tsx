@@ -123,6 +123,9 @@ export default async function RaceDetailPage({ params }: PageParams) {
     results: Map<number, RaceHorseComment>;
   } = { predictions: new Map(), results: new Map() };
   
+  // kaisaiInfo（コメント編集用に外に出す）
+  let kaisaiInfoForEdit: { kai: number; nichi: number } | undefined;
+  
   if (raceInfo) {
     const kaisaiInfo =
       getKaisaiInfoFromRaceInfo(raceInfo.kaisai_data, id) ??
@@ -162,6 +165,9 @@ export default async function RaceDetailPage({ params }: PageParams) {
         kaisaiInfo.nichi,
         currentRaceNumber
       );
+      
+      // コメント編集用にkaisaiInfoを保持
+      kaisaiInfoForEdit = { kai: kaisaiInfo.kai, nichi: kaisaiInfo.nichi };
     }
   }
 
@@ -343,6 +349,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
                 })
             ),
           }}
+          kaisaiInfo={kaisaiInfoForEdit}
         />
 
         {/* データ情報（フッター） */}

@@ -18,7 +18,11 @@ interface Config {
   };
 }
 
-export function BudgetForm() {
+interface BudgetFormProps {
+  isModal?: boolean;
+}
+
+export function BudgetForm({ isModal = false }: BudgetFormProps) {
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -93,7 +97,99 @@ export function BudgetForm() {
     return Math.floor(formData.total_bankroll * (formData.race_limit_percent / 100));
   };
 
+  // フォームコンテンツ
+  const formContent = (
+    <div className="space-y-5">
+      <div>
+        <label className="text-sm text-muted-foreground mb-2 block">
+          総資金
+        </label>
+        <div className="flex items-center gap-3">
+          <Input
+            type="number"
+            value={formData.total_bankroll}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                total_bankroll: parseInt(e.target.value) || 0,
+              })
+            }
+            className="flex-1 text-right text-lg font-bold h-12"
+          />
+          <span className="text-base text-muted-foreground w-8">円</span>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-sm text-muted-foreground mb-2 block">
+          1日上限
+        </label>
+        <div className="flex items-center gap-3">
+          <Input
+            type="number"
+            step="0.1"
+            value={formData.daily_limit_percent}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                daily_limit_percent: parseFloat(e.target.value) || 0,
+              })
+            }
+            className="w-24 text-right text-lg font-bold h-12"
+          />
+          <span className="text-base text-muted-foreground">%</span>
+          <span className="text-lg font-bold text-primary ml-auto">
+            → ¥{calculateDailyLimit().toLocaleString()}
+          </span>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-sm text-muted-foreground mb-2 block">
+          1レース上限
+        </label>
+        <div className="flex items-center gap-3">
+          <Input
+            type="number"
+            step="0.1"
+            value={formData.race_limit_percent}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                race_limit_percent: parseFloat(e.target.value) || 0,
+              })
+            }
+            className="w-24 text-right text-lg font-bold h-12"
+          />
+          <span className="text-base text-muted-foreground">%</span>
+          <span className="text-lg font-bold text-primary ml-auto">
+            → ¥{calculateRaceLimit().toLocaleString()}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex gap-3 pt-4">
+        <Button onClick={handleSave} disabled={saving} className="flex-1 h-11">
+          <Save className="h-4 w-4 mr-2" />
+          保存
+        </Button>
+        <Button
+          onClick={handleReset}
+          variant="outline"
+          disabled={saving}
+          className="flex-1 h-11"
+        >
+          <RotateCcw className="h-4 w-4 mr-2" />
+          リセット
+        </Button>
+      </div>
+    </div>
+  );
+
   if (loading) {
+    if (isModal) {
+      return <p className="text-muted-foreground py-4">読み込み中...</p>;
+    }
     return (
       <Card>
         <CardHeader>
@@ -106,96 +202,18 @@ export function BudgetForm() {
     );
   }
 
+  // モーダル表示の場合はカードなし
+  if (isModal) {
+    return formContent;
+  }
+
+  // 通常表示の場合はカードでラップ
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">本日の予算設定</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <label className="text-sm text-muted-foreground mb-1 block">
-            総資金
-          </label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              value={formData.total_bankroll}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  total_bankroll: parseInt(e.target.value) || 0,
-                })
-              }
-              className="flex-1"
-            />
-            <span className="text-sm text-muted-foreground">円</span>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-sm text-muted-foreground mb-1 block">
-            1日上限
-          </label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              step="0.1"
-              value={formData.daily_limit_percent}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  daily_limit_percent: parseFloat(e.target.value) || 0,
-                })
-              }
-              className="w-24"
-            />
-            <span className="text-sm text-muted-foreground">%</span>
-            <span className="text-sm font-medium ml-auto">
-              → {calculateDailyLimit().toLocaleString()}円
-            </span>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-sm text-muted-foreground mb-1 block">
-            1レース上限
-          </label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              step="0.1"
-              value={formData.race_limit_percent}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  race_limit_percent: parseFloat(e.target.value) || 0,
-                })
-              }
-              className="w-24"
-            />
-            <span className="text-sm text-muted-foreground">%</span>
-            <span className="text-sm font-medium ml-auto">
-              → {calculateRaceLimit().toLocaleString()}円
-            </span>
-          </div>
-        </div>
-
-        <div className="flex gap-2 pt-2">
-          <Button onClick={handleSave} disabled={saving} className="flex-1">
-            <Save className="h-4 w-4 mr-2" />
-            保存
-          </Button>
-          <Button
-            onClick={handleReset}
-            variant="outline"
-            disabled={saving}
-            className="flex-1"
-          >
-            <RotateCcw className="h-4 w-4 mr-2" />
-            リセット
-          </Button>
-        </div>
-      </CardContent>
+      <CardContent>{formContent}</CardContent>
     </Card>
   );
 }

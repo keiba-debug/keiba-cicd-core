@@ -158,21 +158,9 @@ export async function GET(request: NextRequest) {
 
     const alerts: Alert[] = [];
 
-    // 1. 馬券種別回収率チェック
-    if (betTypeStats && typeof betTypeStats === 'object') {
-      for (const [betType, stats] of Object.entries(betTypeStats)) {
-        const stat = stats as any;
-        if (stat.recovery_rate < 50) {
-          alerts.push({
-            type: 'warning',
-            message: `${betType}の回収率が${stat.recovery_rate.toFixed(1)}%です。購入を控えることを推奨します`,
-            severity: stat.recovery_rate < 30 ? 'high' : 'medium',
-          });
-        }
-      }
-    }
+    // 馬券種別回収率の警告は馬券種別実績エリアで表示するため、ここでは表示しない
 
-    // 2. 残り予算チェック
+    // 1. 残り予算チェック
     const totalBankroll = config.settings?.total_bankroll || 100000;
     const dailyLimitPercent = config.settings?.daily_limit_percent || 5.0;
     const raceLimitPercent = config.settings?.race_limit_percent || 2.0;

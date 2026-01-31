@@ -109,6 +109,18 @@ export function Header() {
               </summary>
               <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
                 <Link
+                  href="/odds-board"
+                  onClick={() => {
+                    if (toolsMenuRef.current) {
+                      toolsMenuRef.current.open = false;
+                    }
+                  }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  📊 オッズボード
+                  <span className="block text-xs text-muted-foreground mt-0.5">株ボード風オッズ確認（RT_DATA）</span>
+                </Link>
+                <Link
                   href="/multi-view"
                   target="_blank"
                   rel="noopener noreferrer"

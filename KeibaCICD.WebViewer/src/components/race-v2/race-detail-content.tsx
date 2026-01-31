@@ -67,6 +67,12 @@ export interface TargetCommentsMap {
   horseComments?: Record<number, HorseComment>;
 }
 
+/** レース開催情報（コメント編集用） */
+interface KaisaiInfo {
+  kai: number;
+  nichi: number;
+}
+
 interface RaceDetailContentProps {
   raceData: IntegratedRaceData;
   showResults: boolean;
@@ -81,12 +87,29 @@ interface RaceDetailContentProps {
   babaInfo?: BabaCondition | null;
   /** TARGETコメント */
   targetComments?: TargetCommentsMap;
+  /** 開催情報（回・日） */
+  kaisaiInfo?: KaisaiInfo;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments, kaisaiInfo }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
+
+  // TARGETコメント編集用のレース情報
+  const raceInfoForComments = useMemo(() => {
+    if (!kaisaiInfo || !urlTrack || !urlDate) return undefined;
+    const raceNumber = parseInt(raceData.meta?.race_id?.slice(-2) || '0', 10);
+    if (!raceNumber) return undefined;
+    
+    return {
+      venue: urlTrack,
+      year: urlDate.split('-')[0],
+      kai: kaisaiInfo.kai,
+      nichi: kaisaiInfo.nichi,
+      raceNumber,
+    };
+  }, [kaisaiInfo, urlTrack, urlDate, raceData.meta?.race_id]);
 
   // レイティング分析を実行
   const ratingAnalysis = useMemo(() => {
@@ -146,7 +169,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
             <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold">🐎 出走表</h2>
-                <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} />
+                <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} raceInfo={raceInfoForComments} trainingSummaryMap={trainingSummaryMap} />
               </div>
               <HorseEntryTable 
                 entries={raceData.entries}
@@ -243,7 +266,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
           <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">🐎 出走表</h2>
-              <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} />
+              <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} raceInfo={raceInfoForComments} trainingSummaryMap={trainingSummaryMap} />
             </div>
             <HorseEntryTable 
               entries={raceData.entries}

@@ -357,6 +357,8 @@ async function DateRaces({ date }: { date: string }) {
                       {/* レース番号 + 発走時刻 */}
                       <Link
                         href={`/races-v2/${date}/${trackGroup.track}/${race.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex flex-col items-center justify-center pt-0.5"
                       >
                         <span 
@@ -372,6 +374,8 @@ async function DateRaces({ date }: { date: string }) {
                       {/* レース名 + コース + クラス */}
                       <Link
                         href={`/races-v2/${date}/${trackGroup.track}/${race.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex flex-col justify-start min-w-0"
                       >
                         <div className="mb-1">

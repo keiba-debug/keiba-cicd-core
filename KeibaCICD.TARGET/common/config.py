@@ -170,6 +170,16 @@ def get_jv_ck_data_path() -> Path:
     return get_jv_data_root() / "CK_DATA"
 
 
+def get_jv_rt_data_path() -> Path:
+    """
+    JRA-VAN RT_DATA（速報・オッズ）パスを取得
+
+    Returns:
+        {JV_DATA_ROOT_DIR}/RT_DATA
+    """
+    return get_jv_data_root() / "RT_DATA"
+
+
 # =============================================================================
 # ディレクトリ作成ヘルパー
 # =============================================================================
@@ -222,6 +232,7 @@ def print_config() -> None:
     print(f"  - DE_DATA: {get_jv_de_data_path()}")
     print(f"  - SE_DATA: {get_jv_se_data_path()}")
     print(f"  - CK_DATA: {get_jv_ck_data_path()}")
+    print(f"  - RT_DATA: {get_jv_rt_data_path()}")
     print("=" * 60)
 
 
