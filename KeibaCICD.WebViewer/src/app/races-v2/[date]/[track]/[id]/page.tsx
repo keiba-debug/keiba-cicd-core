@@ -60,10 +60,17 @@ export async function generateMetadata({ params }: PageParams): Promise<Metadata
   const { race_info } = raceData;
   // URLパラメータのtrackを優先（JSONデータは不正確な場合がある）
   const displayTrack = decodeURIComponent(track);
-  const title = `${displayTrack}${race_info.race_number}R ${race_info.race_name || ''}`.trim();
+  
+  // 日付を短い形式に変換（2026-01-31 → 1/31）
+  const [, month, day] = date.split('-');
+  const shortDate = `${parseInt(month)}/${parseInt(day)}`;
+  
+  // レース名があれば表示、なければ距離等
+  const raceName = race_info.race_name || race_info.race_condition || '';
+  const title = `${displayTrack}${race_info.race_number}R ${raceName}`.trim();
   
   return {
-    title: `${title} | KeibaCICD`,
+    title: `${title} (${shortDate})`,
     description: `${date} ${title} - ${race_info.race_condition || ''}`,
   };
 }

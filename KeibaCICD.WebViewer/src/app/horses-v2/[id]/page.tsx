@@ -37,11 +37,11 @@ export async function generateMetadata({ params }: PageParams): Promise<Metadata
   }
   
   const { basic } = horseData;
-  const title = basic.name || `馬ID: ${id}`;
+  const horseName = basic.name || `馬ID: ${id}`;
   
   return {
-    title: `${title} | KeibaCICD`,
-    description: `${title} ${basic.age} - プロフィール・過去成績`,
+    title: `${horseName} (馬情報)`,
+    description: `${horseName} ${basic.age} - プロフィール・過去成績`,
   };
 }
 

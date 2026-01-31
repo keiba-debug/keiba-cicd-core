@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
 import { BabaInputForm } from '@/components/baba/BabaInputForm';
 import { BabaSummaryBadges } from '@/components/baba/BabaSummaryBadges';
-import { ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MessageCircle, TrendingUp } from 'lucide-react';
 
 // 日付を年月でグループ化
 function groupDatesByYearMonth(dates: string[]): Map<string, string[]> {
@@ -234,20 +234,21 @@ async function DateRaces({ date }: { date: string }) {
     }
   }
 
+  const trackCodes: Record<string, string> = {
+    '札幌': '01',
+    '函館': '02',
+    '福島': '03',
+    '新潟': '04',
+    '東京': '05',
+    '中山': '06',
+    '中京': '07',
+    '京都': '08',
+    '阪神': '09',
+    '小倉': '10',
+  };
+
   const netkeibaRaceId = (race: { track: string; raceNumber: number; kai?: number; nichi?: number; date: string }) => {
     if (!race.kai || !race.nichi) return null;
-    const trackCodes: Record<string, string> = {
-      '札幌': '01',
-      '函館': '02',
-      '福島': '03',
-      '新潟': '04',
-      '東京': '05',
-      '中山': '06',
-      '中京': '07',
-      '京都': '08',
-      '阪神': '09',
-      '小倉': '10',
-    };
     const code = trackCodes[race.track];
     if (!code) return null;
     const [year] = race.date.split('-');
@@ -255,6 +256,18 @@ async function DateRaces({ date }: { date: string }) {
     const kai = String(race.kai).padStart(2, '0');
     const nichi = String(race.nichi).padStart(2, '0');
     return `${year}${code}${kai}${nichi}${raceNo}`;
+  };
+
+  // JRA 16桁形式のレースID (YYYYMMDD + 場コード + 回 + 日 + レース番号)
+  const jraRaceId = (race: { track: string; raceNumber: number; kai?: number; nichi?: number; date: string }) => {
+    if (!race.kai || !race.nichi) return null;
+    const code = trackCodes[race.track];
+    if (!code) return null;
+    const dateNoDash = race.date.replace(/-/g, '');
+    const raceNo = String(race.raceNumber).padStart(2, '0');
+    const kai = String(race.kai).padStart(2, '0');
+    const nichi = String(race.nichi).padStart(2, '0');
+    return `${dateNoDash}${code}${kai}${nichi}${raceNo}`;
   };
 
   const formatCondition = (distance?: string) => {
@@ -439,6 +452,18 @@ async function DateRaces({ date }: { date: string }) {
                                 <MessageCircle className="w-4 h-4 text-blue-500" />
                               </a>
                             </>
+                          )}
+                          {/* オッズ分析リンク */}
+                          {jraRaceId(race) && (
+                            <Link
+                              href={`/odds-race/${jraRaceId(race)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                              title="オッズ分析"
+                            >
+                              <TrendingUp className="w-4 h-4 text-emerald-500" />
+                            </Link>
                           )}
                         </div>
                         {/* 2行目: JRAビュアーリンク */}

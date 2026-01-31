@@ -23,7 +23,10 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'KEIBA Data Viewer',
+  title: {
+    template: '%s | 競馬CICD',
+    default: 'レース一覧 | 競馬CICD',
+  },
   description: '競馬データビューアー',
   generator: 'v0.app',
   icons: {

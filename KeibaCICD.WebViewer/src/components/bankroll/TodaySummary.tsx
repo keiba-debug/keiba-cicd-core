@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, Calendar, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { TrendingUp, TrendingDown, Calendar, AlertCircle, Wallet, Check } from 'lucide-react';
 
 interface DailySummary {
   date: string;
@@ -18,6 +19,7 @@ interface DailySummary {
 
 interface TodaySummaryProps {
   dateStr?: string; // YYYYMMDD形式
+  onSyncComplete?: () => void; // 同期完了時のコールバック
 }
 
 // YYYYMMDD形式から表示用にフォーマット
@@ -28,15 +30,85 @@ const formatDateDisplay = (dateStr: string): string => {
   return `${year}年${month}月${day}日`;
 };
 
-export function TodaySummary({ dateStr }: TodaySummaryProps) {
+export function TodaySummary({ dateStr, onSyncComplete }: TodaySummaryProps) {
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [synced, setSynced] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // デフォルトは今日の日付
   const today = new Date();
   const targetDateStr = dateStr || today.toISOString().slice(0, 10).replace(/-/g, '');
   const displayDate = formatDateDisplay(targetDateStr);
+
+  // 既に反映済みかチェック
+  useEffect(() => {
+    const checkSyncStatus = async () => {
+      try {
+        const res = await fetch(`/api/bankroll/fund?check_date=${targetDateStr}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.is_synced) {
+            setSynced(true);
+          }
+        }
+      } catch (err) {
+        // エラーは無視
+      }
+    };
+    checkSyncStatus();
+  }, [targetDateStr]);
+
+  // 資金に反映
+  const handleSyncToFund = async () => {
+    if (!summary || !summary.has_data) return;
+
+    setSyncing(true);
+    setSyncError(null);
+
+    try {
+      const res = await fetch('/api/bankroll/fund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'sync_betting',
+          date: targetDateStr,
+          betting_detail: {
+            total_bet: summary.total_bet,
+            total_payout: summary.total_payout,
+            profit: summary.profit,
+            recovery_rate: summary.recovery_rate,
+            race_count: summary.race_count,
+            win_count: summary.win_count || 0,
+          },
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          // 既に登録済み
+          setSynced(true);
+          setSyncError('既に登録済みです');
+        } else {
+          throw new Error(data.error || '同期に失敗しました');
+        }
+        return;
+      }
+
+      setSynced(true);
+      if (onSyncComplete) {
+        onSyncComplete();
+      }
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'エラーが発生しました');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   useEffect(() => {
     const fetchSummary = async () => {
@@ -185,11 +257,38 @@ export function TodaySummary({ dateStr }: TodaySummaryProps) {
             </div>
           </div>
         </div>
-        <div className="mt-3 pt-3 border-t flex items-center gap-4 text-sm text-muted-foreground">
-          <span>購入件数: {summary.race_count}件</span>
-          {summary.win_count !== undefined && (
-            <span>的中: {summary.win_count}件</span>
-          )}
+        <div className="mt-3 pt-3 border-t flex items-center justify-between">
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <span>購入件数: {summary.race_count}件</span>
+            {summary.win_count !== undefined && (
+              <span>的中: {summary.win_count}件</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {syncError && (
+              <span className="text-xs text-muted-foreground">{syncError}</span>
+            )}
+            <Button
+              variant={synced ? 'outline' : 'default'}
+              size="sm"
+              onClick={handleSyncToFund}
+              disabled={syncing || synced}
+            >
+              {synced ? (
+                <>
+                  <Check className="h-4 w-4 mr-1" />
+                  反映済み
+                </>
+              ) : syncing ? (
+                '反映中...'
+              ) : (
+                <>
+                  <Wallet className="h-4 w-4 mr-1" />
+                  資金に反映
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>

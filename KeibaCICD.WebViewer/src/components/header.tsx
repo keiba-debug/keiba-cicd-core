@@ -48,10 +48,10 @@ export function Header() {
   }, []);
 
   const navItems = [
-    { href: '/admin', label: '収集', icon: ShieldCheck },
+    { href: '/admin', label: 'データ登録', icon: ShieldCheck },
     { href: '/', label: 'レース', icon: Calendar },
     { href: '/horses', label: '馬', icon: Search },
-    { href: '/bankroll', label: '収支', icon: DollarSign },
+    { href: '/bankroll', label: '資金管理', icon: DollarSign },
   ];
 
   return (
@@ -75,7 +75,7 @@ export function Header() {
                 </span>
               </div>
               <div className="hidden md:block text-xs text-muted-foreground">
-                集める、調べる、楽しむ
+                自分で集める、調べる、楽しむ
               </div>
             </div>
           </Link>
@@ -118,7 +118,7 @@ export function Header() {
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   📊 オッズボード
-                  <span className="block text-xs text-muted-foreground mt-0.5">株ボード風オッズ確認（RT_DATA）</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">ボード風オッズ確認</span>
                 </Link>
                 <Link
                   href="/multi-view"

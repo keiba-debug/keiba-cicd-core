@@ -17,6 +17,8 @@ import { BudgetForm } from '@/components/bankroll/BudgetForm';
 import { TodaySummary } from '@/components/bankroll/TodaySummary';
 import { DailyPurchaseList } from '@/components/bankroll/DailyPurchaseList';
 import { BetTypeStats } from '@/components/bankroll/BetTypeStats';
+import { FundManagement } from '@/components/bankroll/FundManagement';
+import { WinningCollection } from '@/components/bankroll/WinningCollection';
 
 interface MonthlySummary {
   year: number;
@@ -180,7 +182,7 @@ export default function BankrollPage() {
     <div className="container py-6 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2">
-          💰 収支管理 (TARGET連携)
+          💰 資金管理
         </h1>
         <div className="flex items-center gap-2">
           <Dialog>
@@ -205,6 +207,9 @@ export default function BankrollPage() {
 
       {/* アラートバー */}
       <AlertBar />
+
+      {/* 資金管理 */}
+      <FundManagement />
 
       {/* 開催日選択 */}
       <Card className="mb-6">
@@ -398,6 +403,9 @@ export default function BankrollPage() {
 
       {/* 馬券種別実績（期間選択付き） */}
       <BetTypeStats />
+
+      {/* 的中コレクション */}
+      <WinningCollection />
     </div>
   );
 }
