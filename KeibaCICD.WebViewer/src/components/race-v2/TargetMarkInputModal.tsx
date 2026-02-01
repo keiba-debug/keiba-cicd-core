@@ -6,7 +6,7 @@
  * レース詳細画面から呼び出し、TARGETの馬印を編集・保存
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Save, RefreshCw, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -266,7 +266,7 @@ export function TargetMarkInputModal({
                 </tr>
               </thead>
               <tbody>
-                {entries.map((entry) => {
+                {[...entries].sort((a, b) => a.horse_number - b.horse_number).map((entry) => {
                   const currentMark = marks[entry.horse_number] || '';
                   const wakuColorClass = entry.entry_data.waku
                     ? getWakuColor(entry.entry_data.waku)

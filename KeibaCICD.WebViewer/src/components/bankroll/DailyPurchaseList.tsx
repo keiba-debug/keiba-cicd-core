@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ShoppingCart, AlertCircle, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Check, X } from 'lucide-react';
+import { ShoppingCart, AlertCircle, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Check, X, Clock, HelpCircle } from 'lucide-react';
 
 interface BetDetail {
   bet_type: string;
@@ -39,6 +39,7 @@ interface RacePurchase {
   recovery_rate: number;
   hits: string[];
   bets?: BetDetail[];
+  confirmed?: boolean; // 結果確定済みかどうか
 }
 
 interface DailyData {
@@ -118,9 +119,30 @@ export function DailyPurchaseList({ dateStr }: DailyPurchaseListProps) {
     return 'text-muted-foreground';
   };
 
-  const getRowClass = (profit: number) => {
-    if (profit > 0) return 'bg-green-50 dark:bg-green-950/20';
-    return '';
+  const getRowClass = (race: RacePurchase) => {
+    // 未確定の場合
+    if (race.confirmed === false) {
+      return 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800';
+    }
+    // 確定後的中
+    if (race.profit > 0) {
+      return 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800';
+    }
+    // 確定後はずれ
+    return 'bg-slate-50 dark:bg-slate-900/20';
+  };
+
+  // 状態に応じたバッジを返す
+  const getStatusBadge = (race: RacePurchase) => {
+    if (race.confirmed === false) {
+      return (
+        <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 border-amber-300">
+          <Clock className="h-3 w-3 mr-1" />
+          未確定
+        </Badge>
+      );
+    }
+    return null;
   };
 
   if (loading) {
@@ -199,7 +221,7 @@ export function DailyPurchaseList({ dateStr }: DailyPurchaseListProps) {
           {data.races.map((race, index) => {
             const isExpanded = expandedRaces.has(index);
             return (
-              <div key={index} className={`rounded-lg border ${getRowClass(race.profit)}`}>
+              <div key={index} className={`rounded-lg border ${getRowClass(race)}`}>
                 {/* サマリー行 */}
                 <button
                   onClick={() => toggleRaceExpand(index)}
@@ -237,9 +259,16 @@ export function DailyPurchaseList({ dateStr }: DailyPurchaseListProps) {
                   <span className={`text-right w-14 flex-shrink-0 ${getProfitColor(race.profit)}`}>
                     {formatPercent(race.recovery_rate)}
                   </span>
-                  {/* 的中 */}
-                  <span className="w-20 flex-shrink-0">
-                    {race.hits && race.hits.length > 0 ? (
+                  {/* 的中/状態 */}
+                  <span className="w-24 flex-shrink-0">
+                    {race.confirmed === false ? (
+                      // 未確定
+                      <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 border-amber-300">
+                        <Clock className="h-3 w-3 mr-1" />
+                        未確定
+                      </Badge>
+                    ) : race.hits && race.hits.length > 0 ? (
+                      // 確定後的中
                       <div className="flex flex-wrap gap-1">
                         {race.hits.map((hit, i) => (
                           <Badge key={i} variant="default" className="text-xs bg-green-600">
@@ -248,7 +277,11 @@ export function DailyPurchaseList({ dateStr }: DailyPurchaseListProps) {
                         ))}
                       </div>
                     ) : (
-                      <span className="text-muted-foreground text-xs">-</span>
+                      // 確定後はずれ
+                      <Badge variant="secondary" className="text-xs">
+                        <X className="h-3 w-3 mr-1" />
+                        はずれ
+                      </Badge>
                     )}
                   </span>
                 </button>
@@ -256,6 +289,12 @@ export function DailyPurchaseList({ dateStr }: DailyPurchaseListProps) {
                 {/* 買い目詳細 */}
                 {isExpanded && race.bets && race.bets.length > 0 && (
                   <div className="border-t bg-muted/30 p-3">
+                    {race.confirmed === false && (
+                      <div className="mb-2 p-2 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-sm flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        レース結果未確定のため、払戻は予想値です
+                      </div>
+                    )}
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -268,24 +307,51 @@ export function DailyPurchaseList({ dateStr }: DailyPurchaseListProps) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {race.bets.map((bet, betIndex) => (
-                          <TableRow key={betIndex} className={bet.is_hit ? 'bg-green-100 dark:bg-green-900/30' : ''}>
-                            <TableCell className="font-medium">{bet.bet_type}</TableCell>
-                            <TableCell>{bet.selection}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(bet.amount)}</TableCell>
-                            <TableCell className="text-right">{bet.odds.toFixed(1)}</TableCell>
-                            <TableCell className={`text-right font-bold ${bet.is_hit ? 'text-green-600' : 'text-muted-foreground'}`}>
-                              {bet.is_hit ? formatCurrency(bet.payout) : '-'}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {bet.is_hit ? (
-                                <Check className="h-5 w-5 text-green-600 mx-auto" />
-                              ) : (
-                                <X className="h-5 w-5 text-muted-foreground mx-auto" />
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {race.bets.map((bet, betIndex) => {
+                          // 未確定の場合の行スタイル
+                          const rowClass = race.confirmed === false
+                            ? 'bg-amber-50/50 dark:bg-amber-900/10'
+                            : bet.is_hit
+                              ? 'bg-green-100 dark:bg-green-900/30'
+                              : '';
+                          
+                          return (
+                            <TableRow key={betIndex} className={rowClass}>
+                              <TableCell className="font-medium">{bet.bet_type}</TableCell>
+                              <TableCell>{bet.selection}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(bet.amount)}</TableCell>
+                              <TableCell className="text-right">{bet.odds.toFixed(1)}</TableCell>
+                              <TableCell className={`text-right font-bold ${
+                                race.confirmed === false
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : bet.is_hit
+                                    ? 'text-green-600'
+                                    : 'text-muted-foreground'
+                              }`}>
+                                {race.confirmed === false ? (
+                                  // 未確定: オッズから予想払戻を表示
+                                  <span className="flex items-center justify-end gap-1">
+                                    <span className="text-xs text-muted-foreground">(予想)</span>
+                                    {formatCurrency(Math.floor(bet.amount * bet.odds))}
+                                  </span>
+                                ) : bet.is_hit ? (
+                                  formatCurrency(bet.payout)
+                                ) : (
+                                  '-'
+                                )}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {race.confirmed === false ? (
+                                  <HelpCircle className="h-5 w-5 text-amber-500 mx-auto" />
+                                ) : bet.is_hit ? (
+                                  <Check className="h-5 w-5 text-green-600 mx-auto" />
+                                ) : (
+                                  <X className="h-5 w-5 text-muted-foreground mx-auto" />
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
