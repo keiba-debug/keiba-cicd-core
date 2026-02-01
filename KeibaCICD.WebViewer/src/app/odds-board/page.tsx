@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import type { RaceOdds, HorseOdds } from '@/lib/data/rt-data-types';
 import { getTrackNameFromRaceId } from '@/lib/data/rt-data-types';
 import { getWakuColor } from '@/types/race-data';
+import type { ExpectedValueResponse } from '@/types/prediction';
 
 const TRACK_ORDER: Record<string, number> = {
   札幌: 1, 函館: 2, 福島: 3, 新潟: 4, 東京: 5, 中山: 6,
@@ -22,7 +23,7 @@ const TRACK_ORDER: Record<string, number> = {
 };
 
 /** フィルタモード */
-type FilterMode = 'all' | 'top5' | 'under10' | 'honshi' | 'ana' | 'gekisou';
+type FilterMode = 'all' | 'top5' | 'under10' | 'honshi' | 'ana' | 'gekisou' | 'expected_value';
 
 /** ソートキー */
 type SortKey = 'ninki' | 'odds' | 'ai' | 'rating' | 'umaban' | 'finish';
@@ -35,6 +36,7 @@ const FILTER_OPTIONS: { value: FilterMode; label: string; description: string }[
   { value: 'honshi', label: '本紙◎', description: '本紙印◎の馬のみ' },
   { value: 'ana', label: '穴馬候補', description: '10-30倍ゾーン' },
   { value: 'gekisou', label: '激走候補', description: 'AI指数高 × オッズ妙味' },
+  { value: 'expected_value', label: '💰 期待値', description: '期待値110%以上' },
 ];
 
 /** フィルタ適用 */
@@ -58,6 +60,12 @@ function applyFilter(horses: HorseOdds[], mode: FilterMode): HorseOdds[] {
         const isHighAi = h.aiIndex >= aiMedian;
         const isUnderrated = (h.ninki ?? 0) >= 4;
         return isHighAi && isUnderrated;
+      });
+    case 'expected_value':
+      // 期待値110%以上の馬のみ表示（期待値データが付与されている前提）
+      return horses.filter((h) => {
+        const evRate = (h as any).expectedValueRate;
+        return evRate != null && evRate >= 110;
       });
     default:
       return horses;
@@ -191,9 +199,10 @@ interface OddsTableProps {
   odds: RaceOdds;
   filterMode: FilterMode;
   showDetails: boolean;
+  expectedValues?: ExpectedValueResponse;
 }
 
-function OddsTable({ odds, filterMode, showDetails }: OddsTableProps) {
+function OddsTable({ odds, filterMode, showDetails, expectedValues }: OddsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('ninki');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
@@ -218,7 +227,17 @@ function OddsTable({ odds, filterMode, showDetails }: OddsTableProps) {
   };
 
   const filtered = useMemo(() => {
-    const applied = applyFilter(odds.horses, filterMode);
+    // 期待値データをマージ
+    let horsesWithEv = odds.horses;
+    if (expectedValues) {
+      const evMap = new Map(expectedValues.horses.map((ev) => [ev.umaban, ev.expectedValueRate]));
+      horsesWithEv = odds.horses.map((h) => ({
+        ...h,
+        expectedValueRate: evMap.get(h.umaban) ?? evMap.get(h.umaban.replace(/^0+/, '')),
+      }));
+    }
+
+    const applied = applyFilter(horsesWithEv, filterMode);
     return [...applied].sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
@@ -246,7 +265,7 @@ function OddsTable({ odds, filterMode, showDetails }: OddsTableProps) {
       }
       return sortOrder === 'asc' ? cmp : -cmp;
     });
-  }, [odds.horses, filterMode, sortKey, sortOrder]);
+  }, [odds.horses, filterMode, sortKey, sortOrder, expectedValues]);
 
   // ヒートマップ用の全AI値・レイティング配列
   const allAiValues = useMemo(
@@ -315,6 +334,11 @@ function OddsTable({ odds, filterMode, showDetails }: OddsTableProps) {
                   評価<SortIcon columnKey="rating" />
                 </th>
               </>
+            )}
+            {(filterMode === 'expected_value' || showDetails) && (
+              <th className="px-2 py-2 text-right font-bold w-16">
+                期待値
+              </th>
             )}
             <th
               className="px-2 py-2 text-center font-bold w-10 cursor-pointer hover:bg-muted/70 select-none"
@@ -409,6 +433,20 @@ function OddsTable({ odds, filterMode, showDetails }: OddsTableProps) {
                     </td>
                   </>
                 )}
+                {/* 期待値 */}
+                {(filterMode === 'expected_value' || showDetails) && (
+                  <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+                    {(h as any).expectedValueRate != null ? (
+                      <span className={
+                        (h as any).expectedValueRate >= 110 ? 'text-green-600 dark:text-green-400 font-bold' :
+                        (h as any).expectedValueRate >= 100 ? 'text-yellow-600 dark:text-yellow-400' :
+                        'text-red-600 dark:text-red-400'
+                      }>
+                        {(h as any).expectedValueRate.toFixed(1)}%
+                      </span>
+                    ) : '-'}
+                  </td>
+                )}
                 {/* 人気 */}
                 <td className="px-2 py-1.5 text-center">
                   {h.ninki != null ? (
@@ -443,9 +481,11 @@ export default function OddsBoardPage() {
   const [error, setError] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [selectedTrack, setSelectedTrack] = useState<string | 'all'>('all');
+  const [expectedValueMap, setExpectedValueMap] = useState<Record<string, ExpectedValueResponse>>({});
+  const [loadingEv, setLoadingEv] = useState(false);
 
-  // 詳細表示モード（上位5頭、激走候補などでは詳細表示）
-  const showDetails = filterMode === 'top5' || filterMode === 'gekisou';
+  // 詳細表示モード（上位5頭、激走候補、期待値などでは詳細表示）
+  const showDetails = filterMode === 'top5' || filterMode === 'gekisou' || filterMode === 'expected_value';
 
   // 開催場リストを抽出
   const tracks = useMemo(() => {
@@ -511,6 +551,26 @@ export default function OddsBoardPage() {
     }
   }, [dateStr]);
 
+  const loadExpectedValues = useCallback(async () => {
+    if (raceIds.length === 0) return;
+    setLoadingEv(true);
+    try {
+      const map: Record<string, ExpectedValueResponse> = {};
+      for (const raceId of raceIds) {
+        const res = await fetch(`/api/odds/expected-value?raceId=${raceId}`);
+        if (res.ok) {
+          const data: ExpectedValueResponse = await res.json();
+          map[raceId] = data;
+        }
+      }
+      setExpectedValueMap(map);
+    } catch (e) {
+      console.error('期待値取得エラー:', e);
+    } finally {
+      setLoadingEv(false);
+    }
+  }, [raceIds]);
+
   useEffect(() => {
     loadRaceDates();
   }, [loadRaceDates]);
@@ -518,6 +578,13 @@ export default function OddsBoardPage() {
   useEffect(() => {
     if (dateStr) loadData();
   }, [dateStr, loadData]);
+
+  // 期待値フィルタが選択された時に期待値を取得
+  useEffect(() => {
+    if (filterMode === 'expected_value' && raceIds.length > 0 && Object.keys(expectedValueMap).length === 0) {
+      loadExpectedValues();
+    }
+  }, [filterMode, raceIds, expectedValueMap, loadExpectedValues]);
 
   const currentIndex = raceDates.indexOf(dateStr);
   const prevDay = () => {
@@ -612,8 +679,16 @@ export default function OddsBoardPage() {
                 onClick={() => setFilterMode(opt.value)}
                 title={opt.description}
                 className="text-xs"
+                disabled={opt.value === 'expected_value' && loadingEv}
               >
-                {opt.label}
+                {opt.value === 'expected_value' && loadingEv ? (
+                  <>
+                    <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                    読み込み中...
+                  </>
+                ) : (
+                  opt.label
+                )}
               </Button>
             ))}
           </div>
@@ -740,7 +815,12 @@ export default function OddsBoardPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <OddsTable odds={odds} filterMode={filterMode} showDetails={showDetails} />
+                  <OddsTable
+                    odds={odds}
+                    filterMode={filterMode}
+                    showDetails={showDetails}
+                    expectedValues={expectedValueMap[raceId]}
+                  />
                 </CardContent>
               </Card>
             );

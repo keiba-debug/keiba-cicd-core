@@ -104,8 +104,31 @@ async function loadConfig(): Promise<any> {
         daily_limit_percent: 5.0,
         race_limit_percent: 2.0,
         consecutive_loss_limit: 3,
+        use_current_balance: true,
       },
     };
+  }
+}
+
+/**
+ * 現在資金を取得
+ */
+async function loadCurrentBalance(): Promise<number> {
+  try {
+    const dataRoot = process.env.KEIBA_DATA_ROOT_DIR || 'E:\\share\\KEIBA-CICD\\data2';
+    const fundHistoryPath = path.join(dataRoot, 'userdata', 'fund_history.json');
+    const content = await fs.readFile(fundHistoryPath, 'utf-8');
+    const history = JSON.parse(content);
+    
+    // 現在残高を計算
+    let balance = history.config?.initial_balance || 100000;
+    for (const entry of history.entries || []) {
+      balance += entry.amount;
+    }
+    return balance;
+  } catch (error) {
+    // エラー時はデフォルト値
+    return 100000;
   }
 }
 
@@ -161,11 +184,17 @@ export async function GET(request: NextRequest) {
     // 馬券種別回収率の警告は馬券種別実績エリアで表示するため、ここでは表示しない
 
     // 1. 残り予算チェック
+    const useCurrentBalance = config.settings?.use_current_balance ?? true;
     const totalBankroll = config.settings?.total_bankroll || 100000;
     const dailyLimitPercent = config.settings?.daily_limit_percent || 5.0;
     const raceLimitPercent = config.settings?.race_limit_percent || 2.0;
-    const dailyLimit = Math.floor(totalBankroll * (dailyLimitPercent / 100));
-    const raceLimit = Math.floor(totalBankroll * (raceLimitPercent / 100));
+    
+    // 計算基準を決定（現在資金ベースか投資枠ベースか）
+    const currentBalance = await loadCurrentBalance();
+    const baseAmount = useCurrentBalance ? currentBalance : totalBankroll;
+    
+    const dailyLimit = Math.floor(baseAmount * (dailyLimitPercent / 100));
+    const raceLimit = Math.floor(baseAmount * (raceLimitPercent / 100));
     const todaySpent = dailySummary.total_bet || 0;
     const remaining = dailyLimit - todaySpent;
 
@@ -203,6 +232,10 @@ export async function GET(request: NextRequest) {
       raceLimit,
       remaining,
       todaySpent,
+      // 追加情報
+      baseAmount,
+      currentBalance,
+      useCurrentBalance,
     });
   } catch (error) {
     console.error('[BankrollAlertsAPI] Error:', error);

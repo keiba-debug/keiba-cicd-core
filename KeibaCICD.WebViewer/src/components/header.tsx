@@ -50,7 +50,7 @@ export function Header() {
   const navItems = [
     { href: '/', label: 'レース', icon: Calendar },
     { href: '/horses', label: '馬', icon: Search },
-    { href: '/bankroll', label: '資金管理', icon: DollarSign },
+    { href: '/bankroll', label: '資金管理', icon: DollarSign, newTab: true },
     { href: '/admin', label: '管理', icon: ShieldCheck },
   ];
 
@@ -90,6 +90,8 @@ export function Header() {
                 <Link
                   key={item.href}
                   href={item.href}
+                  target={item.newTab ? '_blank' : undefined}
+                  rel={item.newTab ? 'noopener noreferrer' : undefined}
                   className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors ${
                     isActive
                       ? 'bg-background text-foreground shadow-sm'

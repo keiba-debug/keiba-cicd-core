@@ -37,8 +37,8 @@ export default function TrainingAnalysisSection({
   trainingSummaryMap = {},
   previousTrainingMap = {}
 }: TrainingAnalysisSectionProps) {
-  // デフォルトは折りたたみ（初期レンダリング高速化）
-  const [isOpen, setIsOpen] = useState(false);
+  // デフォルトは展開状態
+  const [isOpen, setIsOpen] = useState(true);
   
   // 馬番順にソート
   const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);

@@ -33,12 +33,20 @@ interface TargetCommentsMap {
   horseComments?: Record<number, HorseComment>;
 }
 
+/** TARGET馬印（馬番→印） */
+export interface TargetMarksMap {
+  horseMarks: Record<number, string>;  // 馬番 → 印（◎, ○, ▲, △, ★, 穴）
+  horseMarks2?: Record<number, string>;  // 馬印2
+}
+
 interface HorseEntryTableProps {
   entries: HorseEntry[];
   showResult?: boolean;
   trainingSummaryMap?: Record<string, TrainingSummaryData>;
   /** TARGETコメント */
   targetComments?: TargetCommentsMap;
+  /** TARGET馬印（My印） */
+  targetMarks?: TargetMarksMap;
 }
 
 // レイティング文字列を数値に変換するヘルパー
@@ -224,6 +232,7 @@ export default function HorseEntryTable({
   showResult = false,
   trainingSummaryMap = {},
   targetComments,
+  targetMarks,
 }: HorseEntryTableProps) {
   // 馬番順にソート
   const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);
@@ -262,6 +271,9 @@ export default function HorseEntryTable({
           <tr className="bg-gray-100 dark:bg-gray-800">
             <th className="px-2 py-2 text-center border w-10">枠</th>
             <th className="px-2 py-2 text-center border w-10">馬番</th>
+            <th className="px-2 py-2 text-center border w-10">本紙</th>
+            <th className="px-2 py-2 text-center border w-10">My印</th>
+            <th className="px-2 py-2 text-center border w-10">My2</th>
             <th className="px-2 py-2 text-left border min-w-32">馬名</th>
             <th className="px-2 py-2 text-center border w-16">性齢</th>
             <th className="px-2 py-2 text-left border min-w-20">騎手</th>
@@ -269,7 +281,6 @@ export default function HorseEntryTable({
             <th className="px-2 py-2 text-right border w-16">オッズ</th>
             <th className="px-2 py-2 text-center border w-16">AI指数</th>
             <th className="px-2 py-2 text-center border w-12">レート</th>
-            <th className="px-2 py-2 text-center border w-10">印</th>
             <th className="px-2 py-2 text-center border w-10">P</th>
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
             <th className="px-2 py-2 text-center border w-10">調教</th>
@@ -302,6 +313,8 @@ export default function HorseEntryTable({
               predictionComment={targetComments?.predictions[entry.horse_number]}
               resultComment={targetComments?.results[entry.horse_number]}
               horseComment={targetComments?.horseComments?.[entry.horse_number]}
+              myMark={targetMarks?.horseMarks[entry.horse_number]}
+              myMark2={targetMarks?.horseMarks2?.[entry.horse_number]}
             />
           ))}
         </tbody>
@@ -324,6 +337,8 @@ interface HorseEntryRowProps {
   predictionComment?: RaceHorseComment;  // TARGETの予想コメント
   resultComment?: RaceHorseComment;  // TARGETの結果コメント
   horseComment?: HorseComment;  // TARGETの馬コメント
+  myMark?: string;  // TARGET馬印（My印）
+  myMark2?: string;  // TARGET馬印2（My印2）
 }
 
 function HorseEntryRow({ 
@@ -340,17 +355,47 @@ function HorseEntryRow({
   predictionComment,
   resultComment,
   horseComment,
+  myMark,
+  myMark2,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
   
-  // 印の背景色
+  // 印の背景色（本紙）
   const getMarkBgColor = (mark: string) => {
     switch (mark) {
       case '◎': return 'bg-red-100 dark:bg-red-900/30';
       case '○': return 'bg-blue-100 dark:bg-blue-900/30';
       case '▲': return 'bg-yellow-100 dark:bg-yellow-900/30';
       case '△': return 'bg-gray-100 dark:bg-gray-700/30';
+      default: return '';
+    }
+  };
+
+  // My印の背景色（紫系でTarget印と区別）
+  const getMyMarkBgColor = (mark?: string) => {
+    if (!mark) return '';
+    switch (mark) {
+      case '◎': return 'bg-purple-200 dark:bg-purple-900/40 text-purple-900 dark:text-purple-200';
+      case '○': return 'bg-purple-100 dark:bg-purple-800/30 text-purple-800 dark:text-purple-300';
+      case '▲': return 'bg-violet-100 dark:bg-violet-800/30 text-violet-800 dark:text-violet-300';
+      case '△': return 'bg-violet-50 dark:bg-violet-700/20 text-violet-700 dark:text-violet-400';
+      case '★': return 'bg-fuchsia-100 dark:bg-fuchsia-800/30 text-fuchsia-800 dark:text-fuchsia-300';
+      case '穴': return 'bg-pink-100 dark:bg-pink-800/30 text-pink-800 dark:text-pink-300';
+      default: return '';
+    }
+  };
+
+  // My印2の背景色（緑系で区別）
+  const getMyMark2BgColor = (mark?: string) => {
+    if (!mark) return '';
+    switch (mark) {
+      case '◎': return 'bg-teal-200 dark:bg-teal-900/40 text-teal-900 dark:text-teal-200';
+      case '○': return 'bg-teal-100 dark:bg-teal-800/30 text-teal-800 dark:text-teal-300';
+      case '▲': return 'bg-cyan-100 dark:bg-cyan-800/30 text-cyan-800 dark:text-cyan-300';
+      case '△': return 'bg-cyan-50 dark:bg-cyan-700/20 text-cyan-700 dark:text-cyan-400';
+      case '★': return 'bg-emerald-100 dark:bg-emerald-800/30 text-emerald-800 dark:text-emerald-300';
+      case '穴': return 'bg-green-100 dark:bg-green-800/30 text-green-800 dark:text-green-300';
       default: return '';
     }
   };
@@ -438,6 +483,21 @@ function HorseEntryRow({
       {/* 馬番 */}
       <td className="px-2 py-1.5 text-center border font-bold">
         {entry.horse_number}
+      </td>
+      
+      {/* 本紙印 */}
+      <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getMarkBgColor(entry_data.honshi_mark)}`}>
+        {entry_data.honshi_mark || '-'}
+      </td>
+      
+      {/* My印（TARGET馬印1） */}
+      <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getMyMarkBgColor(myMark)}`}>
+        {myMark || '-'}
+      </td>
+      
+      {/* My印2（TARGET馬印2） */}
+      <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getMyMark2BgColor(myMark2)}`}>
+        {myMark2 || '-'}
       </td>
       
       {/* 馬名 + TARGETコメント */}
@@ -531,11 +591,6 @@ function HorseEntryRow({
         rank={ratingRank}
         totalCount={ratingTotalCount}
       />
-      
-      {/* 本誌印 */}
-      <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getMarkBgColor(entry_data.honshi_mark)}`}>
-        {entry_data.honshi_mark || '-'}
-      </td>
       
       {/* 総合ポイント */}
       <td className={`px-2 py-1.5 text-center border ${getPointBgColor(entry_data.aggregate_mark_point)}`}>

@@ -30,8 +30,12 @@ import {
   Minus, 
   History,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { FundChart } from './FundChart';
+
+// 月間入金上限（警告閾値）
+const MONTHLY_DEPOSIT_WARNING_THRESHOLD = 50000; // 5万円
 
 interface FundEntry {
   id: string;
@@ -145,6 +149,23 @@ export function FundManagement() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // 今月の入金額を計算
+  const getMonthlyDeposits = (): number => {
+    if (!data) return 0;
+    const now = new Date();
+    const thisMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return data.entries
+      .filter(e => e.type === 'deposit' && e.date.startsWith(thisMonth))
+      .reduce((sum, e) => sum + e.amount, 0);
+  };
+
+  // 入金警告を表示するか
+  const showDepositWarning = (): boolean => {
+    const monthlyDeposits = getMonthlyDeposits();
+    const newAmount = parseInt(depositAmount) || 0;
+    return (monthlyDeposits + newAmount) > MONTHLY_DEPOSIT_WARNING_THRESHOLD;
+  };
 
   // 入金処理
   const handleDeposit = async () => {
@@ -276,6 +297,17 @@ export function FundManagement() {
                   <DialogTitle>入金</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
+                  {/* 今月の入金状況 */}
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <div className="text-sm text-muted-foreground mb-1">今月の入金額</div>
+                    <div className="text-lg font-bold">
+                      ¥{getMonthlyDeposits().toLocaleString()}
+                      <span className="text-sm font-normal text-muted-foreground ml-2">
+                        / 目安 ¥{MONTHLY_DEPOSIT_WARNING_THRESHOLD.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  
                   <div>
                     <label className="text-sm text-muted-foreground">金額</label>
                     <Input
@@ -286,6 +318,28 @@ export function FundManagement() {
                       className="text-right text-lg font-bold"
                     />
                   </div>
+                  
+                  {/* 使いすぎ警告 */}
+                  {showDepositWarning() && (
+                    <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-bold text-amber-800 dark:text-amber-200">
+                            ⚠️ 使いすぎ注意！
+                          </div>
+                          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                            今月の入金が目安（¥{MONTHLY_DEPOSIT_WARNING_THRESHOLD.toLocaleString()}）を超えています。
+                            本当に入金しますか？
+                          </p>
+                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                            入金後: ¥{(getMonthlyDeposits() + (parseInt(depositAmount) || 0)).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
                   <div>
                     <label className="text-sm text-muted-foreground">メモ（任意）</label>
                     <Input

@@ -54,7 +54,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { total_bankroll, daily_limit_percent, race_limit_percent } = body;
+    const { total_bankroll, daily_limit_percent, race_limit_percent, use_current_balance } = body;
 
     // 既存の設定を読み込む
     let config: any = {};
@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
           race_limit_percent: 2.0,
           consecutive_loss_limit: 3,
           kelly_fraction: 0.25,
+          use_current_balance: true, // デフォルトは現在資金ベース
         },
         rules: {
           no_increase_after_loss: true,
@@ -94,6 +95,9 @@ export async function POST(request: NextRequest) {
     }
     if (race_limit_percent !== undefined) {
       config.settings.race_limit_percent = race_limit_percent;
+    }
+    if (use_current_balance !== undefined) {
+      config.settings.use_current_balance = use_current_balance;
     }
 
     config.updated_at = new Date().toISOString().split('T')[0];

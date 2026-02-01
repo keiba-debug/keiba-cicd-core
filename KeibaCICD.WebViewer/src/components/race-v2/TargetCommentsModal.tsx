@@ -36,6 +36,13 @@ interface RaceInfo {
   raceNumber: number;
 }
 
+/** 保存後に返されるデータ */
+export interface TargetCommentSavedData {
+  horseNumber: number;
+  type: 'prediction' | 'result';
+  comment: string;
+}
+
 interface TargetCommentsModalProps {
   entries: HorseEntry[];
   targetComments?: {
@@ -47,6 +54,8 @@ interface TargetCommentsModalProps {
   raceInfo?: RaceInfo;
   /** trainingSummaryMapからkettoNumを取得するため */
   trainingSummaryMap?: Record<string, { kettoNum?: string }>;
+  /** 保存後のコールバック（保存されたコメント情報を受け取る） */
+  onSaved?: (data: TargetCommentSavedData) => void;
 }
 
 interface CommentRowData {
@@ -71,6 +80,7 @@ export function TargetCommentsModal({
   targetComments, 
   raceInfo,
   trainingSummaryMap = {},
+  onSaved,
 }: TargetCommentsModalProps) {
   const [showOnlyWithComments, setShowOnlyWithComments] = useState(false); // 編集時は全馬表示がデフォルト
   const [isEditMode, setIsEditMode] = useState(false);
@@ -184,6 +194,8 @@ export function TargetCommentsModal({
           next.delete(key);
           return next;
         });
+        // 親コンポーネントに通知（即時反映用）
+        onSaved?.({ horseNumber, type, comment: value });
       } else {
         setSaveMessage(`エラー: ${result.message}`);
       }
@@ -196,7 +208,7 @@ export function TargetCommentsModal({
         return next;
       });
     }
-  }, [raceInfo, editingComments]);
+  }, [raceInfo, editingComments, onSaved]);
 
   // 編集モード終了時にリセット
   const handleEditModeChange = (enabled: boolean) => {
@@ -223,7 +235,7 @@ export function TargetCommentsModal({
           )}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MessageSquareText className="w-5 h-5" />
@@ -295,9 +307,19 @@ export function TargetCommentsModal({
             <thead className="sticky top-0 bg-background border-b z-10">
               <tr>
                 <th className="px-2 py-2 text-center w-12">馬番</th>
-                <th className="px-2 py-2 text-left w-28">馬名</th>
-                <th className="px-2 py-2 text-left">予想</th>
-                <th className="px-2 py-2 text-left">結果</th>
+                <th className="px-2 py-2 text-left w-24">馬名</th>
+                <th className="px-3 py-2 text-left w-[42%]">
+                  <span className="inline-flex items-center gap-1">
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">予想</Badge>
+                    YOS_COM
+                  </span>
+                </th>
+                <th className="px-3 py-2 text-left w-[42%]">
+                  <span className="inline-flex items-center gap-1">
+                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">結果</Badge>
+                    KEK_COM
+                  </span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -326,14 +348,14 @@ export function TargetCommentsModal({
                       </td>
                       
                       {/* 予想コメント */}
-                      <td className="px-2 py-2 align-top">
+                      <td className="px-3 py-2 align-top">
                         {isEditMode ? (
                           <div className="space-y-1">
                             <Textarea
                               value={getEditingValue(row.horseNumber, 'prediction', row.prediction?.comment)}
                               onChange={(e) => setEditingValue(row.horseNumber, 'prediction', e.target.value)}
                               placeholder="予想コメントを入力..."
-                              className="min-h-[50px] text-xs resize-none"
+                              className="min-h-[60px] text-sm resize-none"
                             />
                             {hasChanges(row.horseNumber, 'prediction', row.prediction?.comment) && (
                               <Button
@@ -352,21 +374,26 @@ export function TargetCommentsModal({
                             )}
                           </div>
                         ) : (
-                          <span className="text-sm whitespace-pre-wrap">
+                          <div className={cn(
+                            "text-sm whitespace-pre-wrap p-2 rounded",
+                            row.prediction?.comment 
+                              ? "bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900" 
+                              : "text-muted-foreground"
+                          )}>
                             {row.prediction?.comment || '-'}
-                          </span>
+                          </div>
                         )}
                       </td>
                       
                       {/* 結果コメント */}
-                      <td className="px-2 py-2 align-top">
+                      <td className="px-3 py-2 align-top">
                         {isEditMode ? (
                           <div className="space-y-1">
                             <Textarea
                               value={getEditingValue(row.horseNumber, 'result', row.result?.comment)}
                               onChange={(e) => setEditingValue(row.horseNumber, 'result', e.target.value)}
                               placeholder="結果コメントを入力..."
-                              className="min-h-[50px] text-xs resize-none"
+                              className="min-h-[60px] text-sm resize-none"
                             />
                             {hasChanges(row.horseNumber, 'result', row.result?.comment) && (
                               <Button
@@ -385,9 +412,14 @@ export function TargetCommentsModal({
                             )}
                           </div>
                         ) : (
-                          <span className="text-sm whitespace-pre-wrap">
+                          <div className={cn(
+                            "text-sm whitespace-pre-wrap p-2 rounded",
+                            row.result?.comment 
+                              ? "bg-orange-50 dark:bg-orange-950/30 border border-orange-100 dark:border-orange-900" 
+                              : "text-muted-foreground"
+                          )}>
                             {row.result?.comment || '-'}
-                          </span>
+                          </div>
                         )}
                       </td>
                     </tr>

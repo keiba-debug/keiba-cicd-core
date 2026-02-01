@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,9 @@ import {
   PredictionSection,
   PurchasePlanSection,
   TargetCommentsModal,
+  TargetMarkInputModal,
+  type TargetMarksSavedData,
+  type TargetCommentSavedData,
 } from '@/components/race-v2';
 
 // 調教・厩舎情報セクションを遅延読み込み
@@ -51,6 +54,7 @@ import type { RatingStandards } from '@/lib/data/rating-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
+import type { TargetMarksMap } from './HorseEntryTable';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
 import { POSITIVE_BG } from '@/lib/positive-colors';
 
@@ -89,12 +93,63 @@ interface RaceDetailContentProps {
   targetComments?: TargetCommentsMap;
   /** 開催情報（回・日） */
   kaisaiInfo?: KaisaiInfo;
+  /** TARGET馬印（My印） */
+  targetMarks?: TargetMarksMap;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments, kaisaiInfo }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
+  
+  // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
+  const [targetMarks, setTargetMarks] = useState<TargetMarksMap | undefined>(initialTargetMarks);
+  
+  // TARGETコメントをローカルstateで管理（モーダル保存時に即時反映するため）
+  const [targetComments, setTargetComments] = useState<TargetCommentsMap | undefined>(initialTargetComments);
+
+  // TARGET印保存時のハンドラー（即時反映）
+  const handleMarksSaved = useCallback((data: TargetMarksSavedData) => {
+    setTargetMarks(prev => {
+      const updated = { ...prev };
+      // markSet 1 → horseMarks, markSet 2 → horseMarks2
+      if (data.markSet === 1) {
+        updated.horseMarks = data.horseMarks;
+      } else if (data.markSet === 2) {
+        updated.horseMarks2 = data.horseMarks;
+      }
+      return updated;
+    });
+  }, []);
+
+  // TARGETコメント保存時のハンドラー（即時反映）
+  const handleCommentSaved = useCallback((data: TargetCommentSavedData) => {
+    setTargetComments(prev => {
+      if (!prev) {
+        prev = { predictions: {}, results: {} };
+      }
+      const updated = { ...prev };
+      
+      if (data.type === 'prediction') {
+        updated.predictions = {
+          ...updated.predictions,
+          [data.horseNumber]: {
+            ...updated.predictions[data.horseNumber],
+            comment: data.comment,
+          },
+        };
+      } else if (data.type === 'result') {
+        updated.results = {
+          ...updated.results,
+          [data.horseNumber]: {
+            ...updated.results[data.horseNumber],
+            comment: data.comment,
+          },
+        };
+      }
+      return updated;
+    });
+  }, []);
 
   // TARGETコメント編集用のレース情報
   const raceInfoForComments = useMemo(() => {
@@ -169,13 +224,26 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
             <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold">🐎 出走表</h2>
-                <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} raceInfo={raceInfoForComments} trainingSummaryMap={trainingSummaryMap} />
+                <div className="flex items-center gap-2">
+                  {raceInfoForComments && (
+                    <TargetMarkInputModal
+                      raceInfo={{
+                        ...raceInfoForComments,
+                        raceName: raceData.race_info.race_name,
+                      }}
+                      entries={raceData.entries}
+                      onSaved={handleMarksSaved}
+                    />
+                  )}
+                  <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} raceInfo={raceInfoForComments} trainingSummaryMap={trainingSummaryMap} onSaved={handleCommentSaved} />
+                </div>
               </div>
               <HorseEntryTable 
                 entries={raceData.entries}
                 showResult={showResults}
                 trainingSummaryMap={trainingSummaryMap}
                 targetComments={targetComments}
+                targetMarks={targetMarks}
               />
             </div>
           </TabsContent>
@@ -268,13 +336,26 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
           <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">🐎 出走表</h2>
-              <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} raceInfo={raceInfoForComments} trainingSummaryMap={trainingSummaryMap} />
+              <div className="flex items-center gap-2">
+                {raceInfoForComments && (
+                  <TargetMarkInputModal
+                    raceInfo={{
+                      ...raceInfoForComments,
+                      raceName: raceData.race_info.race_name,
+                    }}
+                    entries={raceData.entries}
+                    onSaved={handleMarksSaved}
+                  />
+                )}
+                <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} raceInfo={raceInfoForComments} trainingSummaryMap={trainingSummaryMap} onSaved={handleCommentSaved} />
+              </div>
             </div>
             <HorseEntryTable 
               entries={raceData.entries}
               showResult={showResults}
               trainingSummaryMap={trainingSummaryMap}
               targetComments={targetComments}
+              targetMarks={targetMarks}
             />
           </div>
 

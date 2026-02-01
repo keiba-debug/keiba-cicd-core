@@ -17,6 +17,7 @@ import { getCourseRpciInfo } from '@/lib/data/rpci-standards-reader';
 import { getRatingStandards } from '@/lib/data/rating-standards-reader';
 import { getBabaCondition, trackToSurface } from '@/lib/data/baba-reader';
 import { getRaceAllComments, getHorseCommentsBatch, type RaceHorseComment, type HorseComment } from '@/lib/data/target-comment-reader';
+import { getRaceMarks, type RaceMarks } from '@/lib/data/target-mark-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -130,6 +131,10 @@ export default async function RaceDetailPage({ params }: PageParams) {
     results: Map<number, RaceHorseComment>;
   } = { predictions: new Map(), results: new Map() };
   
+  // TARGET馬印（My印, My印2）
+  let targetMarks: RaceMarks | null = null;
+  let targetMarks2: RaceMarks | null = null;
+  
   // kaisaiInfo（コメント編集用に外に出す）
   let kaisaiInfoForEdit: { kai: number; nichi: number } | undefined;
   
@@ -179,6 +184,29 @@ export default async function RaceDetailPage({ params }: PageParams) {
         kaisaiInfo.nichi,
         currentRaceNumber
       );
+      
+      // TARGET馬印取得（My印1, My印2）
+      const yearNum = parseInt(date.split('-')[0], 10);
+      const marks1 = getRaceMarks(
+        yearNum,
+        kaisaiInfo.kai,
+        kaisaiInfo.nichi,
+        currentRaceNumber,
+        track,
+        1  // 馬印1
+      );
+      const marks2 = getRaceMarks(
+        yearNum,
+        kaisaiInfo.kai,
+        kaisaiInfo.nichi,
+        currentRaceNumber,
+        track,
+        2  // 馬印2
+      );
+      
+      // それぞれ保存
+      targetMarks = marks1;
+      targetMarks2 = marks2;
       
       // コメント編集用にkaisaiInfoを保持
       kaisaiInfoForEdit = { kai: kaisaiInfo.kai, nichi: kaisaiInfo.nichi };
@@ -375,6 +403,14 @@ export default async function RaceDetailPage({ params }: PageParams) {
             ),
           }}
           kaisaiInfo={kaisaiInfoForEdit}
+          targetMarks={
+            (targetMarks || targetMarks2) 
+              ? { 
+                  horseMarks: targetMarks?.horseMarks || {}, 
+                  horseMarks2: targetMarks2?.horseMarks || {} 
+                } 
+              : undefined
+          }
         />
 
         {/* データ情報（フッター） */}

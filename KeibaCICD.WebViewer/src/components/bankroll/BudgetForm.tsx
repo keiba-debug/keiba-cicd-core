@@ -4,13 +4,15 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Save, RotateCcw } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Save, RotateCcw, TrendingDown, TrendingUp, AlertTriangle, Wallet } from 'lucide-react';
 
 interface Config {
   settings: {
     total_bankroll: number;
     daily_limit_percent: number;
     race_limit_percent: number;
+    use_current_balance?: boolean; // 現在資金ベースか投資枠ベースか
   };
   calculated: {
     dailyLimit: number;
@@ -26,33 +28,46 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [currentBalance, setCurrentBalance] = useState<number | null>(null);
+  const [totalProfit, setTotalProfit] = useState<number>(0);
   const [formData, setFormData] = useState({
     total_bankroll: 100000,
     daily_limit_percent: 5.0,
     race_limit_percent: 2.0,
+    use_current_balance: true, // デフォルトは現在資金ベース
   });
 
   useEffect(() => {
-    const fetchConfig = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch('/api/bankroll/config');
-        if (res.ok) {
-          const data = await res.json();
+        // 設定を取得
+        const configRes = await fetch('/api/bankroll/config');
+        if (configRes.ok) {
+          const data = await configRes.json();
           setConfig(data);
           setFormData({
             total_bankroll: data.settings?.total_bankroll || 100000,
             daily_limit_percent: data.settings?.daily_limit_percent || 5.0,
             race_limit_percent: data.settings?.race_limit_percent || 2.0,
+            use_current_balance: data.settings?.use_current_balance ?? true,
           });
         }
+        
+        // 現在資金を取得
+        const fundRes = await fetch('/api/bankroll/fund');
+        if (fundRes.ok) {
+          const fundData = await fundRes.json();
+          setCurrentBalance(fundData.current_balance);
+          setTotalProfit(fundData.total_profit || 0);
+        }
       } catch (error) {
-        console.error('設定取得エラー:', error);
+        console.error('データ取得エラー:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchConfig();
+    fetchData();
   }, []);
 
   const handleSave = async () => {
@@ -85,24 +100,92 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
         total_bankroll: config.settings.total_bankroll,
         daily_limit_percent: config.settings.daily_limit_percent,
         race_limit_percent: config.settings.race_limit_percent,
+        use_current_balance: config.settings.use_current_balance ?? true,
       });
     }
   };
 
+  // 計算の基準となる金額
+  const getBaseAmount = () => {
+    if (formData.use_current_balance && currentBalance !== null) {
+      return currentBalance;
+    }
+    return formData.total_bankroll;
+  };
+
   const calculateDailyLimit = () => {
-    return Math.floor(formData.total_bankroll * (formData.daily_limit_percent / 100));
+    return Math.floor(getBaseAmount() * (formData.daily_limit_percent / 100));
   };
 
   const calculateRaceLimit = () => {
-    return Math.floor(formData.total_bankroll * (formData.race_limit_percent / 100));
+    return Math.floor(getBaseAmount() * (formData.race_limit_percent / 100));
   };
 
   // フォームコンテンツ
   const formContent = (
     <div className="space-y-5">
-      <div>
+      {/* 現在資金の表示 */}
+      {currentBalance !== null && (
+        <div className="p-4 rounded-lg bg-muted/50 border">
+          <div className="flex items-center gap-2 mb-2">
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">現在資金（実績）</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl font-bold">
+              ¥{currentBalance.toLocaleString()}
+            </span>
+            <Badge 
+              variant={totalProfit >= 0 ? 'default' : 'destructive'}
+              className="flex items-center gap-1"
+            >
+              {totalProfit >= 0 ? (
+                <TrendingUp className="h-3 w-3" />
+              ) : (
+                <TrendingDown className="h-3 w-3" />
+              )}
+              {totalProfit >= 0 ? '+' : ''}¥{totalProfit.toLocaleString()}
+            </Badge>
+          </div>
+        </div>
+      )}
+
+      {/* 計算基準の選択 */}
+      <div className="space-y-2">
+        <label className="text-sm text-muted-foreground block">
+          1日上限の計算基準
+        </label>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant={formData.use_current_balance ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFormData({ ...formData, use_current_balance: true })}
+            className="flex-1"
+          >
+            現在資金ベース
+          </Button>
+          <Button
+            type="button"
+            variant={!formData.use_current_balance ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFormData({ ...formData, use_current_balance: false })}
+            className="flex-1"
+          >
+            投資枠ベース
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {formData.use_current_balance 
+            ? '💡 負けると1日上限も減少します（抑止効果あり）' 
+            : '📌 投資枠は固定で、現在資金に関係なく一定です'}
+        </p>
+      </div>
+
+      {/* 投資枠（use_current_balance=falseの時のみ編集可能） */}
+      <div className={formData.use_current_balance ? 'opacity-50' : ''}>
         <label className="text-sm text-muted-foreground mb-2 block">
-          総資金
+          投資枠
         </label>
         <div className="flex items-center gap-3">
           <Input
@@ -114,9 +197,23 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
                 total_bankroll: parseInt(e.target.value) || 0,
               })
             }
+            disabled={formData.use_current_balance}
             className="flex-1 text-right text-lg font-bold h-12"
           />
           <span className="text-base text-muted-foreground w-8">円</span>
+        </div>
+        {formData.use_current_balance && (
+          <p className="text-xs text-muted-foreground mt-1">
+            ※ 現在資金ベースのため使用されません
+          </p>
+        )}
+      </div>
+
+      {/* 計算基準の表示 */}
+      <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
+        <div className="text-sm text-muted-foreground mb-1">計算基準</div>
+        <div className="text-xl font-bold text-primary">
+          ¥{getBaseAmount().toLocaleString()}
         </div>
       </div>
 
