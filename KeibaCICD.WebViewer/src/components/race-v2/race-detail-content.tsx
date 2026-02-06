@@ -111,7 +111,9 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
   // TARGET印保存時のハンドラー（即時反映）
   const handleMarksSaved = useCallback((data: TargetMarksSavedData) => {
     setTargetMarks(prev => {
-      const updated = { ...prev };
+      // prevがundefinedの場合、初期値を設定
+      const updated: TargetMarksMap = prev ? { ...prev } : { horseMarks: {} };
+
       // markSet 1 → horseMarks, markSet 2 → horseMarks2
       if (data.markSet === 1) {
         updated.horseMarks = data.horseMarks;

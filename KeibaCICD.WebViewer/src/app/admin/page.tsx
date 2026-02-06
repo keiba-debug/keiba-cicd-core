@@ -85,7 +85,7 @@ export default function AdminPage() {
     setIsRebuildingIndex(true);
     addLog({
       timestamp: new Date().toISOString(),
-      type: 'info',
+      level: 'info',
       message: 'レース日付インデックスを再構築中...',
     });
 
@@ -96,21 +96,21 @@ export default function AdminPage() {
       if (result.success) {
         addLog({
           timestamp: new Date().toISOString(),
-          type: 'success',
+          level: 'success',
           message: result.message,
         });
         refreshDataQuality();
       } else {
         addLog({
           timestamp: new Date().toISOString(),
-          type: 'error',
+          level: 'error',
           message: `インデックス再構築エラー: ${result.error || result.details}`,
         });
       }
     } catch (error) {
       addLog({
         timestamp: new Date().toISOString(),
-        type: 'error',
+        level: 'error',
         message: `インデックス再構築エラー: ${error}`,
       });
     } finally {

@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { getWakuColor } from '@/types/race-data';
+import { getWakuColor, type HorseEntry } from '@/types/race-data';
 import { cn } from '@/lib/utils';
 
 // 印の定義
@@ -37,14 +37,6 @@ const MARK_OPTIONS = [
   { value: '穴', label: '穴', color: 'bg-pink-500 hover:bg-pink-600 text-white' },
   { value: '', label: '消', color: 'bg-gray-200 hover:bg-gray-300 text-gray-700' },
 ] as const;
-
-interface HorseEntry {
-  horse_number: number;
-  horse_name: string;
-  entry_data: {
-    waku?: number;
-  };
-}
 
 /** 保存後に返されるデータ */
 export interface TargetMarksSavedData {

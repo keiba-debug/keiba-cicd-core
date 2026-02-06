@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { HorseEntry, parseFinishPosition, toCircleNumber, getWakuColor } from '@/types/race-data';
+import { HorseEntry, parseFinishPosition, toCircleNumber } from '@/types/race-data';
 import { ChevronDown, ChevronUp, Flag, MapPin, Timer, ArrowRight } from 'lucide-react';
 import {
   Collapsible,
@@ -18,6 +18,21 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
+
+/** Get waku color as RGB values for inline styles */
+function getWakuColorRGB(waku: number): { bg: string; text: string } {
+  const colors: Record<number, { bg: string; text: string }> = {
+    1: { bg: '#ffffff', text: '#000000' },
+    2: { bg: '#000000', text: '#ffffff' },
+    3: { bg: '#ef4444', text: '#ffffff' },
+    4: { bg: '#3b82f6', text: '#ffffff' },
+    5: { bg: '#eab308', text: '#000000' },
+    6: { bg: '#22c55e', text: '#000000' },
+    7: { bg: '#f97316', text: '#ffffff' },
+    8: { bg: '#ec4899', text: '#ffffff' },
+  };
+  return colors[waku] || { bg: '#9ca3af', text: '#ffffff' };
+}
 
 interface RaceProgressVisualizationProps {
   entries: HorseEntry[];
@@ -261,7 +276,7 @@ export default function RaceProgressVisualization({
                   <div className="space-y-1 relative z-10">
                     {horseData.map((horse) => {
                       const waku = horse.waku;
-                      const wakuColor = getWakuColor(waku);
+                      const wakuColor = getWakuColorRGB(waku);
                       
                       // ゴール地点での位置（左側: 1着が左端、着差があるほど右）
                       const goalPercent = (horse.marginFromWinner / maxScale) * 40;
@@ -380,7 +395,7 @@ export default function RaceProgressVisualization({
                     {horseData.map((horse) => {
                       const posChange = horse.position600m - horse.finishPosition;
                       const waku = horse.waku;
-                      const wakuColor = getWakuColor(waku);
+                      const wakuColor = getWakuColorRGB(waku);
                       
                       // 前半タイムの順位に応じた色分け（黄色→青→緑ルール）
                       const getFirstHalfStyle = () => {
