@@ -6,8 +6,8 @@ KeibaCICD.TARGET 共通設定モジュール
 環境変数ベースのパス管理を提供し、全スクリプトで統一的に使用できます。
 
 環境変数:
-    KEIBA_DATA_ROOT_DIR: 競馬データルートディレクトリ（デフォルト: E:/share/KEIBA-CICD/data2）
-    JV_DATA_ROOT_DIR: JRA-VAN生データディレクトリ（デフォルト: Y:/）
+    KEIBA_DATA_ROOT_DIR: 競馬データルートディレクトリ（デフォルト: C:/KEIBA-CICD/data2）
+    JV_DATA_ROOT_DIR: JRA-VAN生データディレクトリ（デフォルト: C:/TFJV）
 
 Usage:
     from common.config import get_keiba_data_root, get_target_data_dir
@@ -81,9 +81,9 @@ def get_keiba_data_root() -> Path:
     競馬データルートディレクトリを取得
 
     Returns:
-        KEIBA_DATA_ROOT_DIR の値（デフォルト: E:/share/KEIBA-CICD/data2）
+        KEIBA_DATA_ROOT_DIR の値（デフォルト: C:/KEIBA-CICD/data2）
     """
-    return _get_env_path("KEIBA_DATA_ROOT_DIR", "E:/share/KEIBA-CICD/data2")
+    return _get_env_path("KEIBA_DATA_ROOT_DIR", "C:/KEIBA-CICD/data2")
 
 
 def get_jv_data_root() -> Path:
@@ -91,9 +91,9 @@ def get_jv_data_root() -> Path:
     JRA-VAN生データルートディレクトリを取得
 
     Returns:
-        JV_DATA_ROOT_DIR の値（デフォルト: Y:/）
+        JV_DATA_ROOT_DIR の値（デフォルト: C:/TFJV）
     """
-    return _get_env_path("JV_DATA_ROOT_DIR", "Y:/")
+    return _get_env_path("JV_DATA_ROOT_DIR", "C:/TFJV")
 
 
 def get_target_data_dir() -> Path:

@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "created_at": "2026-01-29T23:22:17.668355",
+    "created_at": "2026-02-07T01:01:49.831464",
     "source": "JRA-VAN SR_DATA",
     "years": "2020-2026",
     "years_list": [
@@ -17,11 +17,11 @@
   },
   "by_distance_group": {
     "Dirt_1200m-": {
-      "sample_count": 2633,
+      "sample_count": 2650,
       "rpci": {
         "mean": 46.39,
         "stdev": 1.94,
-        "median": 46.57,
+        "median": 46.58,
         "min": 39.69,
         "max": 53.17
       },
@@ -31,49 +31,49 @@
       }
     },
     "Dirt_1400-1600m": {
-      "sample_count": 2392,
+      "sample_count": 2411,
       "rpci": {
-        "mean": 47.07,
+        "mean": 47.08,
         "stdev": 1.87,
-        "median": 47.02,
+        "median": 47.04,
         "min": 39.16,
         "max": 53.88
       },
       "thresholds": {
-        "instantaneous": 48.01,
-        "sustained": 46.13
+        "instantaneous": 48.02,
+        "sustained": 46.14
       }
     },
     "Dirt_1800-2200m": {
-      "sample_count": 4208,
+      "sample_count": 4239,
       "rpci": {
         "mean": 46.39,
         "stdev": 3.95,
-        "median": 47.58,
+        "median": 47.59,
         "min": 36.47,
         "max": 55.6
       },
       "thresholds": {
-        "instantaneous": 48.37,
+        "instantaneous": 48.36,
         "sustained": 44.41
       }
     },
     "Dirt_2400m+": {
-      "sample_count": 132,
+      "sample_count": 133,
       "rpci": {
-        "mean": 48.6,
+        "mean": 48.63,
         "stdev": 3.75,
-        "median": 49.03,
+        "median": 49.11,
         "min": 37.59,
         "max": 57.14
       },
       "thresholds": {
-        "instantaneous": 50.48,
-        "sustained": 46.73
+        "instantaneous": 50.5,
+        "sustained": 46.75
       }
     },
     "Turf_1200m-": {
-      "sample_count": 1989,
+      "sample_count": 2001,
       "rpci": {
         "mean": 48.49,
         "stdev": 1.45,
@@ -87,9 +87,9 @@
       }
     },
     "Turf_1400-1600m": {
-      "sample_count": 2855,
+      "sample_count": 2871,
       "rpci": {
-        "mean": 50.39,
+        "mean": 50.4,
         "stdev": 2.45,
         "median": 50.29,
         "min": 40.11,
@@ -101,7 +101,7 @@
       }
     },
     "Turf_1800-2200m": {
-      "sample_count": 4351,
+      "sample_count": 4382,
       "rpci": {
         "mean": 51.24,
         "stdev": 2.44,
@@ -115,7 +115,7 @@
       }
     },
     "Turf_2400m+": {
-      "sample_count": 713,
+      "sample_count": 717,
       "rpci": {
         "mean": 51.11,
         "stdev": 3.47,
@@ -635,11 +635,11 @@
       }
     },
     "Kokura_Dirt_1000m": {
-      "sample_count": 183,
+      "sample_count": 188,
       "rpci": {
-        "mean": 47.71,
+        "mean": 47.72,
         "stdev": 0.78,
-        "median": 47.73,
+        "median": 47.72,
         "min": 45.95,
         "max": 49.72
       },
@@ -649,241 +649,241 @@
       }
     },
     "Kokura_Dirt_1700m": {
-      "sample_count": 182,
+      "sample_count": 186,
       "rpci": {
-        "mean": 40.16,
+        "mean": 40.17,
         "stdev": 1.23,
         "median": 39.98,
         "min": 37.25,
         "max": 43.82
       },
       "thresholds": {
-        "instantaneous": 40.77,
+        "instantaneous": 40.78,
         "sustained": 39.55
       }
     },
     "Kokura_Dirt_2400m": {
-      "sample_count": 13,
+      "sample_count": 14,
       "rpci": {
-        "mean": 49.38,
-        "stdev": 2.02,
+        "mean": 49.58,
+        "stdev": 2.09,
         "median": 49.74,
         "min": 45.62,
         "max": 53.8
       },
       "thresholds": {
-        "instantaneous": 50.39,
-        "sustained": 48.37
+        "instantaneous": 50.63,
+        "sustained": 48.54
       }
     },
     "Kokura_Turf_1200m": {
-      "sample_count": 444,
+      "sample_count": 455,
       "rpci": {
-        "mean": 47.77,
-        "stdev": 1.27,
-        "median": 47.72,
+        "mean": 47.79,
+        "stdev": 1.26,
+        "median": 47.75,
         "min": 44.19,
         "max": 51.89
       },
       "thresholds": {
-        "instantaneous": 48.4,
-        "sustained": 47.13
+        "instantaneous": 48.42,
+        "sustained": 47.15
       }
     },
     "Kokura_Turf_1800m": {
-      "sample_count": 257,
+      "sample_count": 262,
       "rpci": {
-        "mean": 50.72,
-        "stdev": 2.3,
-        "median": 50.71,
+        "mean": 50.71,
+        "stdev": 2.31,
+        "median": 50.77,
         "min": 45.77,
         "max": 56.41
       },
       "thresholds": {
-        "instantaneous": 51.87,
-        "sustained": 49.57
+        "instantaneous": 51.86,
+        "sustained": 49.55
       }
     },
     "Kokura_Turf_2000m": {
-      "sample_count": 234,
+      "sample_count": 241,
       "rpci": {
         "mean": 49.44,
-        "stdev": 2.07,
+        "stdev": 2.06,
         "median": 49.3,
         "min": 44.71,
         "max": 55.67
       },
       "thresholds": {
-        "instantaneous": 50.47,
-        "sustained": 48.4
+        "instantaneous": 50.48,
+        "sustained": 48.41
       }
     },
     "Kokura_Turf_2600m": {
-      "sample_count": 66,
+      "sample_count": 69,
       "rpci": {
         "mean": 50.66,
-        "stdev": 1.84,
-        "median": 50.63,
+        "stdev": 1.9,
+        "median": 50.69,
         "min": 46.65,
         "max": 55.16
       },
       "thresholds": {
-        "instantaneous": 51.58,
-        "sustained": 49.74
+        "instantaneous": 51.61,
+        "sustained": 49.71
       }
     },
     "Kyoto_Dirt_1200m": {
-      "sample_count": 229,
+      "sample_count": 234,
       "rpci": {
-        "mean": 47.76,
-        "stdev": 1.22,
-        "median": 47.61,
+        "mean": 47.8,
+        "stdev": 1.25,
+        "median": 47.65,
         "min": 44.29,
         "max": 50.83
       },
       "thresholds": {
-        "instantaneous": 48.37,
-        "sustained": 47.15
+        "instantaneous": 48.42,
+        "sustained": 47.18
       }
     },
     "Kyoto_Dirt_1400m": {
-      "sample_count": 286,
+      "sample_count": 294,
       "rpci": {
-        "mean": 46.68,
-        "stdev": 1.42,
-        "median": 46.59,
+        "mean": 46.72,
+        "stdev": 1.44,
+        "median": 46.64,
         "min": 43.56,
-        "max": 50.71
+        "max": 51.5
       },
       "thresholds": {
-        "instantaneous": 47.39,
-        "sustained": 45.97
+        "instantaneous": 47.44,
+        "sustained": 46.0
       }
     },
     "Kyoto_Dirt_1800m": {
-      "sample_count": 450,
+      "sample_count": 463,
       "rpci": {
-        "mean": 48.35,
+        "mean": 48.39,
         "stdev": 1.77,
-        "median": 48.38,
+        "median": 48.42,
         "min": 44.35,
         "max": 53.14
       },
       "thresholds": {
-        "instantaneous": 49.23,
-        "sustained": 47.47
+        "instantaneous": 49.28,
+        "sustained": 47.51
       }
     },
     "Kyoto_Dirt_1900m": {
-      "sample_count": 58,
+      "sample_count": 61,
       "rpci": {
-        "mean": 40.18,
-        "stdev": 1.41,
-        "median": 40.05,
+        "mean": 40.19,
+        "stdev": 1.38,
+        "median": 40.08,
         "min": 37.29,
         "max": 43.07
       },
       "thresholds": {
-        "instantaneous": 40.89,
-        "sustained": 39.48
+        "instantaneous": 40.88,
+        "sustained": 39.5
       }
     },
     "Kyoto_Turf_1200m": {
-      "sample_count": 94,
+      "sample_count": 95,
       "rpci": {
-        "mean": 49.51,
-        "stdev": 1.59,
-        "median": 49.42,
+        "mean": 49.53,
+        "stdev": 1.6,
+        "median": 49.43,
         "min": 46.32,
         "max": 53.94
       },
       "thresholds": {
-        "instantaneous": 50.31,
-        "sustained": 48.71
+        "instantaneous": 50.33,
+        "sustained": 48.73
       }
     },
     "Kyoto_Turf_1400m": {
-      "sample_count": 146,
+      "sample_count": 149,
       "rpci": {
-        "mean": 50.26,
-        "stdev": 1.79,
-        "median": 50.07,
+        "mean": 50.3,
+        "stdev": 1.81,
+        "median": 50.14,
         "min": 46.39,
         "max": 55.62
       },
       "thresholds": {
-        "instantaneous": 51.16,
-        "sustained": 49.37
+        "instantaneous": 51.21,
+        "sustained": 49.39
       }
     },
     "Kyoto_Turf_1600m": {
-      "sample_count": 222,
+      "sample_count": 228,
       "rpci": {
-        "mean": 50.12,
+        "mean": 50.13,
         "stdev": 2.12,
-        "median": 49.86,
+        "median": 49.93,
         "min": 45.42,
         "max": 55.74
       },
       "thresholds": {
-        "instantaneous": 51.18,
-        "sustained": 49.06
+        "instantaneous": 51.19,
+        "sustained": 49.07
       }
     },
     "Kyoto_Turf_1800m": {
-      "sample_count": 170,
+      "sample_count": 171,
       "rpci": {
-        "mean": 51.16,
+        "mean": 51.15,
         "stdev": 2.07,
-        "median": 51.05,
+        "median": 51.01,
         "min": 45.58,
         "max": 56.65
       },
       "thresholds": {
-        "instantaneous": 52.2,
+        "instantaneous": 52.19,
         "sustained": 50.12
       }
     },
     "Kyoto_Turf_2000m": {
-      "sample_count": 175,
+      "sample_count": 179,
       "rpci": {
-        "mean": 51.74,
-        "stdev": 2.19,
+        "mean": 51.73,
+        "stdev": 2.17,
         "median": 51.98,
         "min": 44.59,
         "max": 58.21
       },
       "thresholds": {
-        "instantaneous": 52.83,
+        "instantaneous": 52.82,
         "sustained": 50.65
       }
     },
     "Kyoto_Turf_2200m": {
-      "sample_count": 59,
+      "sample_count": 61,
       "rpci": {
-        "mean": 51.93,
-        "stdev": 2.36,
+        "mean": 51.92,
+        "stdev": 2.34,
         "median": 51.6,
         "min": 47.32,
         "max": 57.27
       },
       "thresholds": {
-        "instantaneous": 53.11,
+        "instantaneous": 53.1,
         "sustained": 50.75
       }
     },
     "Kyoto_Turf_2400m": {
-      "sample_count": 61,
+      "sample_count": 62,
       "rpci": {
-        "mean": 50.46,
-        "stdev": 2.26,
-        "median": 50.14,
+        "mean": 50.47,
+        "stdev": 2.24,
+        "median": 50.36,
         "min": 45.96,
         "max": 56.12
       },
       "thresholds": {
-        "instantaneous": 51.59,
-        "sustained": 49.33
+        "instantaneous": 51.6,
+        "sustained": 49.35
       }
     },
     "Kyoto_Turf_3000m": {
@@ -901,7 +901,7 @@
       }
     },
     "Nakayama_Dirt_1200m": {
-      "sample_count": 772,
+      "sample_count": 779,
       "rpci": {
         "mean": 45.52,
         "stdev": 1.27,
@@ -911,21 +911,21 @@
       },
       "thresholds": {
         "instantaneous": 46.16,
-        "sustained": 44.88
+        "sustained": 44.89
       }
     },
     "Nakayama_Dirt_1800m": {
-      "sample_count": 864,
+      "sample_count": 872,
       "rpci": {
-        "mean": 48.16,
+        "mean": 48.15,
         "stdev": 1.71,
-        "median": 48.07,
-        "min": 42.82,
+        "median": 48.06,
+        "min": 42.69,
         "max": 55.53
       },
       "thresholds": {
-        "instantaneous": 49.01,
-        "sustained": 47.3
+        "instantaneous": 49.0,
+        "sustained": 47.29
       }
     },
     "Nakayama_Dirt_2400m": {
@@ -957,7 +957,7 @@
       }
     },
     "Nakayama_Turf_1600m": {
-      "sample_count": 394,
+      "sample_count": 397,
       "rpci": {
         "mean": 50.1,
         "stdev": 1.88,
@@ -966,50 +966,50 @@
         "max": 56.96
       },
       "thresholds": {
-        "instantaneous": 51.04,
+        "instantaneous": 51.03,
         "sustained": 49.16
       }
     },
     "Nakayama_Turf_1800m": {
-      "sample_count": 211,
+      "sample_count": 213,
       "rpci": {
         "mean": 52.11,
-        "stdev": 2.24,
+        "stdev": 2.23,
         "median": 52.12,
         "min": 46.04,
         "max": 60.24
       },
       "thresholds": {
-        "instantaneous": 53.22,
-        "sustained": 50.99
+        "instantaneous": 53.23,
+        "sustained": 51.0
       }
     },
     "Nakayama_Turf_2000m": {
-      "sample_count": 306,
+      "sample_count": 308,
       "rpci": {
-        "mean": 51.02,
+        "mean": 51.03,
         "stdev": 2.05,
-        "median": 50.89,
+        "median": 50.94,
         "min": 44.17,
         "max": 57.31
       },
       "thresholds": {
-        "instantaneous": 52.04,
-        "sustained": 49.99
+        "instantaneous": 52.06,
+        "sustained": 50.0
       }
     },
     "Nakayama_Turf_2200m": {
-      "sample_count": 108,
+      "sample_count": 110,
       "rpci": {
-        "mean": 51.38,
-        "stdev": 1.78,
-        "median": 51.16,
+        "mean": 51.33,
+        "stdev": 1.8,
+        "median": 51.14,
         "min": 47.18,
         "max": 55.65
       },
       "thresholds": {
-        "instantaneous": 52.27,
-        "sustained": 50.49
+        "instantaneous": 52.23,
+        "sustained": 50.43
       }
     },
     "Nakayama_Turf_2500m": {
@@ -1293,9 +1293,9 @@
       }
     },
     "Tokyo_Dirt_1400m": {
-      "sample_count": 558,
+      "sample_count": 564,
       "rpci": {
-        "mean": 48.25,
+        "mean": 48.26,
         "stdev": 1.53,
         "median": 48.23,
         "min": 44.28,
@@ -1307,7 +1307,7 @@
       }
     },
     "Tokyo_Dirt_1600m": {
-      "sample_count": 679,
+      "sample_count": 684,
       "rpci": {
         "mean": 47.71,
         "stdev": 1.66,
@@ -1316,28 +1316,28 @@
         "max": 53.88
       },
       "thresholds": {
-        "instantaneous": 48.54,
+        "instantaneous": 48.53,
         "sustained": 46.88
       }
     },
     "Tokyo_Dirt_2100m": {
-      "sample_count": 217,
+      "sample_count": 220,
       "rpci": {
         "mean": 41.47,
-        "stdev": 1.37,
+        "stdev": 1.38,
         "median": 41.49,
         "min": 37.81,
         "max": 45.71
       },
       "thresholds": {
         "instantaneous": 42.16,
-        "sustained": 40.79
+        "sustained": 40.78
       }
     },
     "Tokyo_Turf_1400m": {
-      "sample_count": 320,
+      "sample_count": 322,
       "rpci": {
-        "mean": 51.08,
+        "mean": 51.09,
         "stdev": 1.87,
         "median": 51.01,
         "min": 45.09,
@@ -1349,7 +1349,7 @@
       }
     },
     "Tokyo_Turf_1600m": {
-      "sample_count": 425,
+      "sample_count": 427,
       "rpci": {
         "mean": 51.5,
         "stdev": 2.12,
@@ -1359,34 +1359,34 @@
       },
       "thresholds": {
         "instantaneous": 52.56,
-        "sustained": 50.45
+        "sustained": 50.44
       }
     },
     "Tokyo_Turf_1800m": {
-      "sample_count": 346,
+      "sample_count": 350,
       "rpci": {
-        "mean": 52.47,
+        "mean": 52.49,
         "stdev": 2.12,
-        "median": 52.35,
+        "median": 52.48,
         "min": 45.9,
         "max": 58.96
       },
       "thresholds": {
-        "instantaneous": 53.53,
-        "sustained": 51.41
+        "instantaneous": 53.55,
+        "sustained": 51.43
       }
     },
     "Tokyo_Turf_2000m": {
-      "sample_count": 255,
+      "sample_count": 257,
       "rpci": {
-        "mean": 53.02,
-        "stdev": 2.42,
+        "mean": 53.01,
+        "stdev": 2.41,
         "median": 53.21,
         "min": 45.47,
         "max": 58.68
       },
       "thresholds": {
-        "instantaneous": 54.23,
+        "instantaneous": 54.22,
         "sustained": 51.81
       }
     },
@@ -1592,6 +1592,7 @@
       "Hanshin_Turf_2200m",
       "Kokura_Dirt_2400m",
       "Kokura_Turf_2000m",
+      "Kyoto_Dirt_1800m",
       "Kyoto_Turf_1200m",
       "Nakayama_Dirt_2400m",
       "Nakayama_Turf_1200m",
@@ -1617,6 +1618,7 @@
       "Hanshin_Turf_2200m",
       "Kokura_Dirt_2400m",
       "Kokura_Turf_2000m",
+      "Kyoto_Dirt_1800m",
       "Kyoto_Turf_1200m",
       "Nakayama_Dirt_2400m",
       "Nakayama_Turf_1200m",
@@ -1754,6 +1756,7 @@
       "Hanshin_Turf_2200m",
       "Kokura_Dirt_2400m",
       "Kokura_Turf_2000m",
+      "Kyoto_Dirt_1800m",
       "Kyoto_Turf_1200m",
       "Nakayama_Dirt_2400m",
       "Nakayama_Turf_1200m",
@@ -1809,7 +1812,6 @@
       "Kokura_Dirt_2400m",
       "Kokura_Turf_2000m",
       "Kyoto_Turf_1200m",
-      "Kyoto_Turf_1400m",
       "Kyoto_Turf_1600m",
       "Nakayama_Dirt_2400m",
       "Nakayama_Turf_1600m",
@@ -1879,6 +1881,7 @@
       "Chukyo_Dirt_1800m",
       "Chukyo_Turf_1200m",
       "Chukyo_Turf_1400m",
+      "Chukyo_Turf_2200m",
       "Fukushima_Dirt_2400m",
       "Fukushima_Turf_1800m",
       "Fukushima_Turf_2000m",
@@ -1890,6 +1893,7 @@
       "Hanshin_Turf_2200m",
       "Kokura_Turf_2000m",
       "Kyoto_Turf_1200m",
+      "Kyoto_Turf_1400m",
       "Kyoto_Turf_1600m",
       "Nakayama_Dirt_2400m",
       "Nakayama_Turf_1600m",
@@ -1924,6 +1928,32 @@
       "Sapporo_Dirt_1000m",
       "Sapporo_Dirt_2400m",
       "Sapporo_Turf_2000m"
+    ],
+    "Kyoto_Dirt_1800m": [
+      "Chukyo_Dirt_1800m",
+      "Chukyo_Turf_1200m",
+      "Chukyo_Turf_1400m",
+      "Fukushima_Dirt_2400m",
+      "Fukushima_Turf_1200m",
+      "Fukushima_Turf_2000m",
+      "Hakodate_Dirt_1000m",
+      "Hakodate_Turf_1200m",
+      "Hakodate_Turf_2000m",
+      "Hanshin_Dirt_1800m",
+      "Hanshin_Turf_1400m",
+      "Kokura_Dirt_1000m",
+      "Kokura_Turf_1200m",
+      "Kyoto_Dirt_1200m",
+      "Nakayama_Dirt_1800m",
+      "Nakayama_Dirt_2400m",
+      "Nakayama_Turf_1200m",
+      "Niigata_Dirt_1800m",
+      "Niigata_Turf_1200m",
+      "Niigata_Turf_1400m",
+      "Sapporo_Dirt_1000m",
+      "Sapporo_Turf_1200m",
+      "Tokyo_Dirt_1400m",
+      "Tokyo_Dirt_1600m"
     ],
     "Kyoto_Turf_1200m": [
       "Chukyo_Dirt_1800m",
@@ -1966,6 +1996,7 @@
       "Hanshin_Turf_2200m",
       "Kokura_Dirt_2400m",
       "Kokura_Turf_2000m",
+      "Kyoto_Dirt_1800m",
       "Kyoto_Turf_1200m",
       "Nakayama_Turf_1200m",
       "Niigata_Turf_1000m",
@@ -2319,28 +2350,6 @@
       "Tokyo_Dirt_1400m",
       "Tokyo_Dirt_1600m"
     ],
-    "Kyoto_Dirt_1800m": [
-      "Chukyo_Turf_1400m",
-      "Fukushima_Dirt_2400m",
-      "Fukushima_Turf_1200m",
-      "Fukushima_Turf_2000m",
-      "Hakodate_Dirt_1000m",
-      "Hakodate_Turf_1200m",
-      "Hanshin_Dirt_1800m",
-      "Hanshin_Turf_1400m",
-      "Kokura_Dirt_1000m",
-      "Kokura_Turf_1200m",
-      "Kyoto_Dirt_1200m",
-      "Nakayama_Dirt_1800m",
-      "Nakayama_Turf_1200m",
-      "Niigata_Dirt_1800m",
-      "Niigata_Turf_1200m",
-      "Niigata_Turf_1400m",
-      "Sapporo_Dirt_1000m",
-      "Sapporo_Turf_1200m",
-      "Tokyo_Dirt_1400m",
-      "Tokyo_Dirt_1600m"
-    ],
     "Nakayama_Dirt_1800m": [
       "Chukyo_Turf_1400m",
       "Fukushima_Dirt_2400m",
@@ -2414,6 +2423,7 @@
       "Hanshin_Turf_3000m",
       "Kokura_Turf_1800m",
       "Kokura_Turf_2600m",
+      "Kyoto_Turf_1400m",
       "Kyoto_Turf_1800m",
       "Kyoto_Turf_2000m",
       "Kyoto_Turf_2400m",
@@ -2431,6 +2441,7 @@
       "Hakodate_Turf_1800m",
       "Hanshin_Turf_1200m",
       "Hanshin_Turf_2200m",
+      "Kokura_Dirt_2400m",
       "Kokura_Turf_1800m",
       "Kokura_Turf_2600m",
       "Kyoto_Turf_1200m",
@@ -2667,6 +2678,26 @@
       "Sapporo_Turf_2000m",
       "Tokyo_Turf_1400m"
     ],
+    "Kyoto_Turf_1400m": [
+      "Chukyo_Turf_1600m",
+      "Chukyo_Turf_2200m",
+      "Fukushima_Turf_1800m",
+      "Hakodate_Turf_1800m",
+      "Hanshin_Turf_2200m",
+      "Kokura_Dirt_2400m",
+      "Kokura_Turf_1800m",
+      "Kokura_Turf_2600m",
+      "Kyoto_Turf_1200m",
+      "Kyoto_Turf_1600m",
+      "Kyoto_Turf_2400m",
+      "Nakayama_Turf_1600m",
+      "Nakayama_Turf_2000m",
+      "Niigata_Turf_2000m",
+      "Niigata_Turf_2400m",
+      "Sapporo_Dirt_2400m",
+      "Sapporo_Turf_2000m",
+      "Tokyo_Turf_1400m"
+    ],
     "Kyoto_Turf_1800m": [
       "Chukyo_Turf_1600m",
       "Fukushima_Turf_2600m",
@@ -2774,7 +2805,6 @@
       "Kyoto_Turf_2200m",
       "Nakayama_Turf_1800m",
       "Nakayama_Turf_2000m",
-      "Niigata_Turf_1600m",
       "Niigata_Turf_1800m",
       "Niigata_Turf_2000m",
       "Sapporo_Turf_1800m",
@@ -2794,6 +2824,7 @@
       "Hanshin_Turf_3000m",
       "Kokura_Turf_1800m",
       "Kokura_Turf_2600m",
+      "Kyoto_Turf_1400m",
       "Kyoto_Turf_1800m",
       "Kyoto_Turf_2000m",
       "Kyoto_Turf_2400m",
@@ -2862,6 +2893,7 @@
       "Hanshin_Turf_3000m",
       "Kokura_Turf_1800m",
       "Kokura_Turf_2600m",
+      "Kyoto_Turf_1400m",
       "Kyoto_Turf_1800m",
       "Kyoto_Turf_2000m",
       "Kyoto_Turf_2400m",
@@ -2958,7 +2990,6 @@
       "Kyoto_Turf_2000m",
       "Kyoto_Turf_2200m",
       "Nakayama_Turf_1800m",
-      "Nakayama_Turf_2200m",
       "Niigata_Turf_1800m",
       "Sapporo_Turf_1800m",
       "Sapporo_Turf_2600m",
@@ -3029,23 +3060,6 @@
       "Nakayama_Turf_1600m",
       "Niigata_Turf_1000m",
       "Niigata_Turf_2200m",
-      "Niigata_Turf_2400m",
-      "Sapporo_Dirt_2400m",
-      "Sapporo_Turf_2000m"
-    ],
-    "Kyoto_Turf_1400m": [
-      "Chukyo_Turf_2200m",
-      "Fukushima_Turf_1800m",
-      "Hakodate_Turf_1800m",
-      "Hanshin_Turf_1200m",
-      "Hanshin_Turf_2200m",
-      "Kokura_Turf_1800m",
-      "Kokura_Turf_2600m",
-      "Kyoto_Turf_1200m",
-      "Kyoto_Turf_1600m",
-      "Kyoto_Turf_2400m",
-      "Nakayama_Turf_1600m",
-      "Nakayama_Turf_2000m",
       "Niigata_Turf_2400m",
       "Sapporo_Dirt_2400m",
       "Sapporo_Turf_2000m"

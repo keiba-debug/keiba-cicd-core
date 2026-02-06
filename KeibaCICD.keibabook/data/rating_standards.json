@@ -1,9 +1,9 @@
 {
   "metadata": {
-    "created_at": "2026-01-30T00:21:47.172299",
+    "created_at": "2026-02-07T01:03:05.035728",
     "source": "keibabook integrated data",
     "years": "2023-2026",
-    "total_races": 9584,
+    "total_races": 9684,
     "description": "Rating standards by grade class"
   },
   "by_grade": {
@@ -68,28 +68,28 @@
       }
     },
     "OP": {
-      "sample_count": 780,
-      "horse_count": 10532,
+      "sample_count": 788,
+      "horse_count": 10643,
       "rating": {
         "mean": 61.49,
-        "stdev": 5.09,
+        "stdev": 5.1,
         "median": 62.9,
         "min": 45.0,
         "max": 78.0
       },
       "competitiveness": {
-        "mean_race_stdev": 2.04,
+        "mean_race_stdev": 2.05,
         "mean_top3_diff": 2.08,
         "description": "非常に混戦"
       },
       "thresholds": {
-        "high_level": 64.03,
+        "high_level": 64.05,
         "low_level": 58.94
       }
     },
     "3勝クラス": {
-      "sample_count": 644,
-      "horse_count": 9226,
+      "sample_count": 652,
+      "horse_count": 9341,
       "rating": {
         "mean": 60.28,
         "stdev": 1.9,
@@ -99,7 +99,7 @@
       },
       "competitiveness": {
         "mean_race_stdev": 1.85,
-        "mean_top3_diff": 1.81,
+        "mean_top3_diff": 1.8,
         "description": "非常に混戦"
       },
       "thresholds": {
@@ -108,8 +108,8 @@
       }
     },
     "2勝クラス": {
-      "sample_count": 1417,
-      "horse_count": 18754,
+      "sample_count": 1431,
+      "horse_count": 18930,
       "rating": {
         "mean": 56.88,
         "stdev": 1.95,
@@ -128,8 +128,8 @@
       }
     },
     "1勝クラス": {
-      "sample_count": 2807,
-      "horse_count": 37306,
+      "sample_count": 2838,
+      "horse_count": 37740,
       "rating": {
         "mean": 53.78,
         "stdev": 2.15,
@@ -139,17 +139,17 @@
       },
       "competitiveness": {
         "mean_race_stdev": 2.05,
-        "mean_top3_diff": 1.7,
+        "mean_top3_diff": 1.69,
         "description": "非常に混戦"
       },
       "thresholds": {
         "high_level": 54.86,
-        "low_level": 52.7
+        "low_level": 52.71
       }
     },
     "未勝利": {
-      "sample_count": 3766,
-      "horse_count": 50446,
+      "sample_count": 3805,
+      "horse_count": 50972,
       "rating": {
         "mean": 50.48,
         "stdev": 2.62,
@@ -164,7 +164,7 @@
       },
       "thresholds": {
         "high_level": 51.79,
-        "low_level": 49.17
+        "low_level": 49.16
       }
     }
   },
@@ -179,75 +179,119 @@
       }
     },
     "top3_diff": {
-      "mean": 1.87,
+      "mean": 1.86,
       "description": "上位3頭と4位のレイティング差"
     }
   },
   "maiden_by_season": {
-    "2歳未勝利_6-8月_ダ": {
-      "sample_count": 36,
-      "horse_count": 485,
+    "2歳未勝利_6-8月_芝": {
+      "sample_count": 109,
+      "horse_count": 1028,
       "rating": {
-        "mean": 49.74,
-        "stdev": 2.63,
+        "mean": 49.94,
+        "stdev": 2.73,
+        "median": 50.0,
+        "min": 44.7,
+        "max": 55.5
+      }
+    },
+    "2歳未勝利_6-8月_ダ": {
+      "sample_count": 32,
+      "horse_count": 383,
+      "rating": {
+        "mean": 49.5,
+        "stdev": 2.8,
         "median": 49.7,
-        "min": 43.4,
-        "max": 54.8
+        "min": 44.8,
+        "max": 55.0
+      }
+    },
+    "2歳未勝利_9-12月_芝": {
+      "sample_count": 148,
+      "horse_count": 1881,
+      "rating": {
+        "mean": 50.34,
+        "stdev": 2.62,
+        "median": 50.5,
+        "min": 44.1,
+        "max": 55.5
+      }
+    },
+    "2歳未勝利_9-12月_ダ": {
+      "sample_count": 389,
+      "horse_count": 5271,
+      "rating": {
+        "mean": 49.5,
+        "stdev": 2.58,
+        "median": 49.5,
+        "min": 43.3,
+        "max": 55.5
       }
     },
     "3歳未勝利_1-3月_芝": {
-      "sample_count": 671,
-      "horse_count": 9534,
+      "sample_count": 207,
+      "horse_count": 3007,
       "rating": {
-        "mean": 50.93,
-        "stdev": 2.62,
-        "median": 51.1,
-        "min": 42.7,
-        "max": 57.4
+        "mean": 50.56,
+        "stdev": 2.63,
+        "median": 50.7,
+        "min": 43.0,
+        "max": 56.8
       }
     },
     "3歳未勝利_1-3月_ダ": {
-      "sample_count": 1526,
-      "horse_count": 21035,
+      "sample_count": 675,
+      "horse_count": 9290,
       "rating": {
-        "mean": 50.44,
-        "stdev": 2.53,
-        "median": 50.6,
+        "mean": 49.98,
+        "stdev": 2.5,
+        "median": 50.1,
         "min": 42.8,
-        "max": 56.9
+        "max": 55.9
       }
     },
     "3歳未勝利_4-6月_芝": {
-      "sample_count": 21,
-      "horse_count": 198,
+      "sample_count": 214,
+      "horse_count": 3113,
       "rating": {
-        "mean": 50.74,
-        "stdev": 2.62,
-        "median": 50.9,
-        "min": 44.9,
-        "max": 56.9
+        "mean": 50.83,
+        "stdev": 2.63,
+        "median": 51.0,
+        "min": 42.7,
+        "max": 56.8
       }
     },
     "3歳未勝利_4-6月_ダ": {
-      "sample_count": 76,
-      "horse_count": 922,
+      "sample_count": 595,
+      "horse_count": 8214,
       "rating": {
-        "mean": 50.77,
-        "stdev": 2.58,
-        "median": 51.0,
-        "min": 44.1,
-        "max": 56.0
+        "mean": 50.53,
+        "stdev": 2.46,
+        "median": 50.7,
+        "min": 43.0,
+        "max": 56.9
+      }
+    },
+    "3歳未勝利_7-9月_芝": {
+      "sample_count": 252,
+      "horse_count": 3568,
+      "rating": {
+        "mean": 51.4,
+        "stdev": 2.53,
+        "median": 51.5,
+        "min": 42.9,
+        "max": 57.4
       }
     },
     "3歳未勝利_7-9月_ダ": {
-      "sample_count": 3,
-      "horse_count": 29,
+      "sample_count": 331,
+      "horse_count": 4541,
       "rating": {
-        "mean": 48.88,
-        "stdev": 2.55,
-        "median": 49.0,
-        "min": 43.6,
-        "max": 53.2
+        "mean": 51.31,
+        "stdev": 2.49,
+        "median": 51.6,
+        "min": 43.0,
+        "max": 56.6
       }
     }
   }

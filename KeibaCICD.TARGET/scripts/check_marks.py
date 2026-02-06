@@ -44,7 +44,8 @@ def check_file(filepath):
 
 
 def main():
-    my_data = "E:/TFJV/MY_DATA"
+    jv_root = os.environ.get('JV_DATA_ROOT_DIR', 'C:/TFJV')
+    my_data = os.path.join(jv_root, 'MY_DATA')
     
     # 2026年のファイルを確認
     patterns = [

@@ -46,7 +46,7 @@ def _get_env_path(key: str, default: str) -> Path:
 _load_dotenv_if_available()
 
 # JRA-VAN データパス
-JV_DATA_ROOT = _get_env_path("JV_DATA_ROOT_DIR", "Y:/")
+JV_DATA_ROOT = _get_env_path("JV_DATA_ROOT_DIR", "C:/TFJV")
 UM_DATA_PATH = JV_DATA_ROOT / "UM_DATA"
 
 # レコード長

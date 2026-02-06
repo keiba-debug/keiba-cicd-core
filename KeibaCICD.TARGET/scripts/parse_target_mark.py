@@ -58,7 +58,7 @@ def get_mark_file_path(year: int, kai: int, venue_kanji: str, my_data_dir: str =
         ファイルパス
     """
     if my_data_dir is None:
-        jv_root = os.environ.get('JV_DATA_ROOT_DIR', 'E:\\TFJV')
+        jv_root = os.environ.get('JV_DATA_ROOT_DIR', 'C:\\TFJV')
         my_data_dir = Path(jv_root) / 'MY_DATA'
     else:
         my_data_dir = Path(my_data_dir)
@@ -189,7 +189,7 @@ def write_horse_mark(file_path: Path, day: int, race_number: int,
 def main():
     """テスト実行"""
     # 環境変数設定
-    jv_root = os.environ.get('JV_DATA_ROOT_DIR', 'E:\\TFJV')
+    jv_root = os.environ.get('JV_DATA_ROOT_DIR', 'C:\\TFJV')
     my_data_dir = Path(jv_root) / 'MY_DATA'
     
     print("=== TARGET馬印ファイル解析 ===\n")

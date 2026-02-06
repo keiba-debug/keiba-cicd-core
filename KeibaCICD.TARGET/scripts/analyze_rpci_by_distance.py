@@ -29,7 +29,7 @@ def _load_dotenv_if_available() -> None:
 
 _load_dotenv_if_available()
 
-JV_DATA_ROOT = Path(os.getenv('JV_DATA_ROOT_DIR', 'Y:/'))
+JV_DATA_ROOT = Path(os.getenv('JV_DATA_ROOT_DIR', 'C:/TFJV'))
 SE_DATA_PATH = JV_DATA_ROOT / 'SE_DATA'
 
 TRACK_CODES = {

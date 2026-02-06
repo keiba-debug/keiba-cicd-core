@@ -39,7 +39,7 @@ def get_old_log_dir() -> Path:
     old_log = os.getenv("LOG_DIR")
     if old_log:
         return Path(old_log)
-    return Path("E:/share/KEIBA-CICD/logs")
+    return get_keiba_data_root() / "logs"
 
 
 def scan_files(source_dir: Path) -> List[Path]:

@@ -1,133 +1,171 @@
-# KEIBA Data Viewer
+# KeibaCICD.WebViewer
 
-競馬データをWebブラウザで閲覧するためのローカルアプリケーションです。
+> 競馬データ可視化・Web UIモジュール
 
-## 機能
+レース情報・馬プロファイルのWeb表示、JRA映像マルチビューを提供します。
+
+---
+
+## 🎯 主要機能
 
 - 📅 **日付別レース一覧**: 日付を選択してその日のレースを一覧表示
 - 🏟️ **競馬場別表示**: 中山・東京・京都・阪神など競馬場ごとにグループ化
-- 🕒 **正確な発走時刻**: JRA-VANデータ連携により正確な発走時刻を表示
-- 📝 **レース詳細**: MarkdownファイルをHTMLに変換して表示
-- 🐴 **馬プロファイル**: 馬の詳細情報を表示
-- 🔗 **リンク連携**: 
-  - レース⇔馬の相互リンク
-  - 外部サイト（競馬ブック、netkeiba、BBS）への直接リンク
-- 📰 **表示切替**: カード型 / 新聞風のテーマ切替
-- 📺 **JRAビュアー連携**: パドック・レース・パトロール映像へのワンクリックアクセス
-- 🖥️ **マルチビュー**: 
-  - 複数のJRA映像を並べて同時視聴（スロット数無制限）
-  - 馬プロファイルから過去レースを一括で比較視聴
-- 📝 **ユーザーメモ**: レース・馬ごとにメモを保存
+- 📝 **レース詳細**: Markdownファイルを解析してHTML表示
+- 🐴 **馬プロファイル**: 馬の詳細情報・過去レース成績
+- 📺 **JRA映像マルチビュー**: 複数JRA映像を並べて同時視聴
+- 📝 **メモ機能**: レース・馬ごとにローカルメモ保存
+- 💰 **資金管理**: 予算管理・収支記録
 
-## 必要条件
+---
 
-- Node.js 18.x 以上
-- npm
+## 🚀 クイックスタート
 
-## セットアップ
+### 1. セットアップ
 
 ```bash
-cd keiba-cicd-core/KeibaCICD.WebViewer
+cd KeibaCICD.WebViewer
 npm install
 ```
 
-## 起動方法
+### 2. 環境変数設定
 
-### 開発モード
+`.env.local` ファイルを作成：
+```ini
+DATA_ROOT=C:/KEIBA-CICD/data2
+JV_DATA_ROOT_DIR=C:/TFJV
+```
+
+### 3. 開発サーバー起動
 
 ```bash
 npm run dev
 ```
 
-ブラウザで http://localhost:3000 を開きます。
+ブラウザで `http://localhost:3000` を開きます。
 
-- **Turbopack FATAL や multi-view のリロードループが出る場合**: Next.js 16 は開発時に Turbopack がデフォルトです。環境によっては `npm run dev:webpack`（webpack で起動）で解消することがあります。詳しくは `keiba-cicd-core/運用サポート.md` を参照してください。
+---
 
-### プロダクションビルド
+## 📦 技術スタック
+
+- **フレームワーク**: Next.js 16.1 (App Router)
+- **UI**: React 19, shadcn/ui (Radix UI), Tailwind CSS 4.0
+- **Markdown**: remark + remark-gfm
+- **その他**: Mermaid 11.12, date-fns 4.1
+
+---
+
+## 📁 主要ページ
+
+### トップページ
+
+- **パス**: `/`
+- **機能**: 日付選択・レース一覧表示
+
+### レース詳細
+
+- **パス**: `/races-v2/[date]/[track]/[id]`
+- **機能**: 出走表・調教情報・予想・レース結果・メモ
+
+### 馬プロファイル
+
+- **パス**: `/horses-v2/[id]`
+- **機能**: 基本情報・過去レース成績・ユーザーメモ
+
+### マルチビュー
+
+- **パス**: `/multi-view`
+- **機能**: 複数JRA映像の並列表示
+
+### 管理画面
+
+- **パス**: `/admin`
+- **機能**: データ取得・キャッシュクリア
+
+---
+
+## 🗂️ ディレクトリ構成
+
+```
+KeibaCICD.WebViewer/
+├── src/
+│   ├── app/                    # Next.js App Router
+│   │   ├── page.tsx            # トップ
+│   │   ├── races-v2/[...]/     # レース詳細
+│   │   ├── horses-v2/[id]/     # 馬プロファイル
+│   │   ├── multi-view/         # マルチビュー
+│   │   ├── admin/              # 管理画面
+│   │   └── api/                # REST API
+│   ├── components/
+│   │   ├── ui/                 # shadcn/ui
+│   │   ├── race-v2/            # レース表示
+│   │   ├── horse-v2/           # 馬プロファイル
+│   │   └── bankroll/           # 資金管理
+│   ├── lib/
+│   │   ├── data/               # データ読込
+│   │   └── config.ts           # 設定
+│   └── types/
+│       └── index.ts            # 型定義
+└── user-data/                  # ローカル永続化
+    ├── notes/                  # レースメモ
+    └── horse-memo/             # 馬メモ
+```
+
+---
+
+## 📚 ドキュメント
+
+### はじめに読むドキュメント
+
+- **[MODULE_OVERVIEW.md](../../../ai-team/knowledge/MODULE_OVERVIEW.md)** - WebViewerモジュール詳細
+- **[SETUP_GUIDE.md](../../../ai-team/knowledge/SETUP_GUIDE.md)** - 環境構築手順
+- **[ARCHITECTURE.md](../../../ai-team/knowledge/ARCHITECTURE.md)** - システム全体構成
+
+### その他ドキュメント
+
+- **[管理画面設計.md](./docs/管理画面設計.md)** - 管理画面仕様
+- **[馬過去レースマルチビュー計画.md](./docs/馬過去レースマルチビュー計画.md)** - マルチビュー仕様
+
+---
+
+## 🔧 コマンド
 
 ```bash
+# 開発サーバー起動
+npm run dev
+
+# 本番ビルド
 npm run build
+
+# 本番サーバー起動
 npm start
 ```
 
-## データソース
+---
 
-デフォルトでは `Z:/KEIBA-CICD/data2/` フォルダからデータを読み込みます。
+## ⚠️ トラブルシューティング
 
-```
-Z:/KEIBA-CICD/data2/
-├── races/
-│   └── {YYYY}/{MM}/{DD}/{競馬場}/{レースID}.md
-└── horses/
-    └── profiles/{馬ID}_{馬名}.md
-```
+### Turbopack FATAL エラー
 
-データパスを変更する場合は環境変数 `DATA_ROOT` を設定してください。
+Next.js 16はTurbopackがデフォルトです。環境によっては以下で解消：
 
 ```bash
-DATA_ROOT="C:/path/to/your/data" npm run dev
+npm run dev:webpack
 ```
 
-## 技術スタック
+### データが表示されない
 
-- **フレームワーク**: Next.js 14+ (App Router)
-- **スタイリング**: Tailwind CSS v4
-- **UIコンポーネント**: shadcn/ui
-- **Markdown変換**: remark + remark-gfm
-- **データ連携**: Python CLI (fast_batch_cli, parse_jv_race_data)
+1. `DATA_ROOT` 環境変数が正しく設定されているか確認
+2. keibabook でデータ収集が完了しているか確認
+3. Next.jsサーバーを再起動
 
-## 機能拡張状況
+---
 
-- [x] SQLiteによるデータベース化 (一部検討中)
-- [x] 全文検索機能 (馬検索実装済み)
-- [x] JRA-VAN連携 (KeibaCICD.JraVanSync / KeibaCICD.TARGET)
-  - 発走時刻の取得 (DRファイル解析)
-- [x] **馬過去レースマルチビュー**: 1頭の馬の過去レースを複数選択して並べて確認
-  - 実装完了: 馬プロファイルページから複数レースを選択してマルチビューに追加可能
+## 🔗 関連モジュール
 
-## ディレクトリ構成
+- **[KeibaCICD.keibabook](../KeibaCICD.keibabook/)** - データ収集モジュール
+- **[KeibaCICD.TARGET](../KeibaCICD.TARGET/)** - データ分析モジュール
 
-```
-src/
-├── app/                    # Next.js App Router
-│   ├── page.tsx           # トップ（日付選択・レース一覧）
-│   ├── races/[date]/[track]/[id]/
-│   │   └── page.tsx       # レース詳細
-│   ├── horses/
-│   │   ├── page.tsx       # 馬検索
-│   │   └── [id]/page.tsx  # 馬プロファイル
-│   ├── multi-view/
-│   │   └── page.tsx       # マルチビュー（JRA映像並列表示）
-│   ├── admin/
-│   │   └── page.tsx       # 管理画面（データ取得・更新）
-│   └── api/
-│       ├── horses/search/route.ts  # 検索API
-│       ├── notes/route.ts          # レースメモAPI
-│       ├── horse-memo/route.ts     # 馬メモAPI
-│       └── race-lookup/route.ts    # レース情報検索API
-├── components/
-│   ├── ui/                    # shadcn/ui コンポーネント
-│   ├── header.tsx             # ヘッダー
-│   ├── providers.tsx          # Context Provider
-│   ├── jra-viewer-links.tsx   # JRAビュアーリンク
-│   ├── jra-viewer-mini-links.tsx  # JRAビュアー小リンク
-│   ├── race-memo-editor.tsx   # レースメモエディタ
-│   ├── horse-profile-memo-editor.tsx  # 馬メモエディタ
-│   ├── horse-race-selector.tsx # 過去レース選択コンポーネント
-│   └── race-fetch-actions.tsx # データ取得アクション
-├── lib/
-│   ├── config.ts              # 設定
-│   ├── jra-viewer-url.ts      # JRAビュアーURL生成
-│   ├── data/                  # データ読込層
-│   │   ├── race-reader.ts
-│   │   ├── horse-reader.ts
-│   │   ├── race-lookup.ts     # レース検索ロジック
-│   │   └── ...
-│   └── admin/                 # 管理画面ロジック
-└── types/
-    └── index.ts               # 型定義
+---
 
-docs/
-├── 管理画面設計.md
-└── 馬過去レースマルチビュー計画.md
-```
+**プロジェクトオーナー**: ふくだ君
+**最終更新**: 2026-02-06

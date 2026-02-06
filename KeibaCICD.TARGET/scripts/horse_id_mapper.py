@@ -47,7 +47,7 @@ except ImportError:
 # =============================================================================
 
 # JRA-VAN データルート
-JV_DATA_ROOT = Path(os.getenv("JV_DATA_ROOT_DIR", "E:/TFJV"))
+JV_DATA_ROOT = Path(os.getenv("JV_DATA_ROOT_DIR", "C:/TFJV"))
 UM_DATA_ROOT = JV_DATA_ROOT / "UM_DATA"
 
 # インデックスファイルパス

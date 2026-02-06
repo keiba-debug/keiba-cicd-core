@@ -115,7 +115,7 @@ async function loadConfig(): Promise<any> {
  */
 async function loadCurrentBalance(): Promise<number> {
   try {
-    const dataRoot = process.env.KEIBA_DATA_ROOT_DIR || 'E:\\share\\KEIBA-CICD\\data2';
+    const dataRoot = process.env.KEIBA_DATA_ROOT_DIR || 'C:\\KEIBA-CICD\\data2';
     const fundHistoryPath = path.join(dataRoot, 'userdata', 'fund_history.json');
     const content = await fs.readFile(fundHistoryPath, 'utf-8');
     const history = JSON.parse(content);

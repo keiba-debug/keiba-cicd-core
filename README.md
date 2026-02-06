@@ -1,211 +1,261 @@
-# 競馬データ取得システム v2.4
+# KeibaCICD v3.0
 
-競馬ブックのサイトから競馬データを取得・保存するためのスクリプト群です。
+> **毎週の競馬予想でプラス収支を実現し、推理エンターテインメントとして競馬を楽しむ**
 
-## 🚀 v2.4の新機能（リファクタリング版）
-- **フォルダ構造最適化**: `KeibaCICD.keibabook/src/` への統合
-- **RequestsScraperによる高速化**: 従来版の10-20倍の速度を実現
-- **並列処理対応**: 最大22並列でデータ取得
-- **リソース使用量削減**: Selenium不使用でメモリ・CPU使用量を大幅削減
-- **安定性向上**: HTTP直接通信による高い安定性
+競馬データの自動収集・分析・可視化を行う統合システムです。
 
-## 🔥 推奨使用方法（統合CLI）
+---
 
-まず作業ディレクトリを移動します。
+## 🏗️ システム構成
+
+KeibaCICDは3つの独立モジュールで構成されています：
+
+```
+┌─────────────────────┐
+│ KeibaCICD.keibabook │  データ収集層
+│  Webスクレイピング  │  競馬ブックからデータ取得
+└──────────┬──────────┘
+           │
+           ↓ JSON/Markdown
+    ┌──────────────┐
+    │ 共有データストア │
+    └──────┬───────┘
+           │
+    ┌──────┴────────┬─────────────┐
+    ↓               ↓             ↓
+┌────────────┐ ┌────────────┐ ┌──────────────┐
+│ KeibaCICD  │ │ KeibaCICD  │ │  KeibaCICD   │
+│  .TARGET   │ │.WebViewer  │ │  .JraVanSync │
+│ 分析・ML   │ │ Web表示    │ │  補助ツール  │
+└────────────┘ └────────────┘ └──────────────┘
+```
+
+---
+
+## 📦 モジュール概要
+
+### 1. [KeibaCICD.keibabook](./KeibaCICD.keibabook/) - データ収集層
+
+**役割**: 競馬ブックWebサイトからのデータスクレイピング・統合
+
+**主要機能**:
+- 成績・出馬表・調教・談話データの自動取得
+- レース情報の統合（JSON/Markdown出力）
+- 並列処理による高速化（最大22並列）
+
+**技術**: Python 3.11+, requests, Selenium, BeautifulSoup
+
+**クイックスタート**:
+```bash
+cd KeibaCICD.keibabook
+python src/fast_batch_cli.py --date 2026-02-08
+```
+
+---
+
+### 2. [KeibaCICD.TARGET](./KeibaCICD.TARGET/) - データ分析層
+
+**役割**: JRA-VANデータ解析・機械学習予測
+
+**主要機能**:
+- JRA-VAN統合ライブラリ（ID変換・データアクセス）
+- PCI（ペース指数）分析
+- 機械学習による勝率予測（LightGBM/XGBoost）
+- 期待値計算（オッズ×勝率）
+
+**技術**: Python 3.8+, LightGBM, XGBoost, scikit-learn
+
+**クイックスタート**:
+```bash
+cd KeibaCICD.TARGET
+python scripts/training_summary.py 2026-02-08
+```
+
+---
+
+### 3. [KeibaCICD.WebViewer](./KeibaCICD.WebViewer/) - プレゼンテーション層
+
+**役割**: データ可視化・Web UI
+
+**主要機能**:
+- レース情報のWeb表示
+- 馬プロファイル表示
+- JRA映像マルチビュー
+- メモ機能・資金管理
+
+**技術**: Next.js 16, React 19, TypeScript, Tailwind CSS
+
+**クイックスタート**:
+```bash
+cd KeibaCICD.WebViewer
+npm run dev
+# http://localhost:3000
+```
+
+---
+
+## 📚 ドキュメント
+
+### 🎯 はじめに読むドキュメント
+
+| ドキュメント | 内容 | 対象者 |
+|------------|------|--------|
+| **[ARCHITECTURE.md](../ai-team/knowledge/ARCHITECTURE.md)** | システム全体構成・データフロー | 全員 ⭐ |
+| **[SETUP_GUIDE.md](../ai-team/knowledge/SETUP_GUIDE.md)** | 環境構築手順 | 初回セットアップ時 ⭐ |
+| **[MODULE_OVERVIEW.md](../ai-team/knowledge/MODULE_OVERVIEW.md)** | 各モジュール詳細・API | 開発者 |
+| **[CLAUDE.md](../ai-team/knowledge/CLAUDE.md)** | AIエージェントチーム統合ガイドライン | AIエージェント |
+| **[DATA_SPECIFICATION.md](../ai-team/knowledge/DATA_SPECIFICATION.md)** | データ仕様書 | 全員 |
+
+### 📖 詳細ドキュメント
+
+- **[プロジェクト計画](./docs/project/project-plan.md)** - 3年計画・フェーズ定義
+- **[開発ガイドライン](./docs/development/development-guidelines.md)** - コーディング規約
+- **[JRA-VAN使用ガイド](./KeibaCICD.TARGET/docs/jravan/USAGE_GUIDE.md)** - JRA-VANライブラリ
+
+---
+
+## 🚀 クイックスタート
+
+### 1. 環境構築
+
+```bash
+# リポジトリクローン
+git clone <repository-url> c:/KEIBA-CICD/_keiba
+cd c:/KEIBA-CICD/_keiba/keiba-cicd-core
+
+# データディレクトリ作成
+mkdir -p C:/KEIBA-CICD/data2
+```
+
+詳細は **[SETUP_GUIDE.md](../ai-team/knowledge/SETUP_GUIDE.md)** を参照。
+
+---
+
+### 2. データ収集（keibabook）
 
 ```bash
 cd KeibaCICD.keibabook
+python -m venv venv
+source venv/Scripts/activate
+pip install -r src/requirements.txt
+
+# 2026-02-08のデータ取得
+python src/fast_batch_cli.py --date 2026-02-08
+python src/integrator_cli.py --date 2026-02-08
 ```
 
-### 基本的な実行例（従来版CLI）
+---
+
+### 3. データ分析（TARGET）
+
 ```bash
-# レース日程の取得
-python -m src.batch_cli schedule --start-date 2025/06/14
+cd KeibaCICD.TARGET
+python -m venv venv
+source venv/Scripts/activate
+pip install -r ml/requirements.txt
 
-# レースデータの取得（成績のみ）
-python -m src.batch_cli data --start-date 2025/06/14 --data-types seiseki
+# 馬名インデックス構築
+python scripts/horse_id_mapper.py --build-index
 
-# 日程→データの一括実行
-python -m src.batch_cli full --start-date 2025/06/14
+# 調教データ集計
+python scripts/training_summary.py 2026-02-08
 ```
 
-### 高速版（実験的）
+---
+
+### 4. Web表示（WebViewer）
+
 ```bash
-# 高速日程取得
-python -m src.fast_batch_cli schedule --start-date 2025/06/14 --delay 0.5
-
-# 高速データ取得（並列）
-python -m src.fast_batch_cli data --start-date 2025/06/14 --data-types seiseki,shutsuba --delay 0.5
+cd KeibaCICD.WebViewer
+npm install
+npm run dev
+# http://localhost:3000 を開く
 ```
 
-### Windows PowerShell 実行例
-```powershell
-# 作業ディレクトリへ移動
-Set-Location KeibaCICD.keibabook
+---
 
-# 環境変数（例）
-$env:KEIBA_DATA_ROOT_DIR = "C:\\keiba_data"
-$env:LOG_LEVEL = "INFO"
+## 🔧 環境変数
 
-# 従来版CLI
-python -m src.batch_cli full --start-date 2025/06/14
+### keibabook / TARGET
 
-# 高速版CLI（実験）
-python -m src.fast_batch_cli data --start-date 2025/06/14 --data-types seiseki --delay 0.5 --max-workers 8
-```
+`.env` ファイルを作成：
 
-### WSL の注意点
-- `.env` は必ず `KeibaCICD.keibabook/.env` に配置してください
-- `KEIBA_DATA_ROOT_DIR` は WSL 上のパス（例: `/mnt/c/keiba_data`）で指定してください
-- Windows 側の PowerShell で実行する場合は `C:\keiba_data` のように Windows パスで指定してください
+```ini
+# データディレクトリ
+KEIBA_DATA_ROOT_DIR=E:\share\KEIBA-CICD\data2
+JV_DATA_ROOT_DIR=E:\TFJV
 
-### 高速スクリプト（上級者向け）
-```bash
-# 今日のデータを高速取得
-./KeibaCICD.keibabook/scripts/fast_daily_scraping.sh
-
-# 指定日のデータを高速取得
-./KeibaCICD.keibabook/scripts/fast_daily_scraping.sh 20250607
-```
-
-### パフォーマンス比較
-
-| 項目 | 従来版（Selenium） | 高速版（requests） | 改善率 |
-|------|-------------------|-------------------|--------|
-| **処理時間** | 60-90秒/12レース | **8.6秒/12レース** | **7-10倍高速** |
-| **リソース使用量** | 高（Chrome起動） | **低（HTTP直接）** | **大幅削減** |
-| **並列処理** | 困難 | **最大22並列対応** | **大幅改善** |
-| **安定性** | 中（ブラウザ依存） | **高（HTTP直接）** | **向上** |
-
-## スクリプトの概要（現行）
-- 統合CLI（従来版）: `src/keibabook/batch_cli.py`
-- 統合CLI（高速版）: `src/keibabook/fast_batch_cli.py`
-- 単体レースエントリーポイント（互換）: `src/keibabook/main.py`
-
-## 使用方法（まとめ）
-
-1. `cd KeibaCICD.keibabook`
-2. 統合CLI（従来版）を実行
-   - `python -m src.batch_cli full --start-date 2025/06/14`
-3. 高速版が必要なら
-   - `python -m src.fast_batch_cli full --start-date 2025/06/14 --delay 0.5`
-
-## 環境変数の設定
-
-- 保存先ディレクトリは環境変数 `KEIBA_DATA_ROOT_DIR` で指定します。
-- `.env` は `KeibaCICD.keibabook/.env` に配置します。
-
-### .envファイル例（KeibaCICD.keibabook/.env）
-```
-KEIBA_DATA_ROOT_DIR=/path/to/data
-LOG_LEVEL=INFO
-KEIBABOOK_SESSION=...
-KEIBABOOK_TK=...
-KEIBABOOK_XSRF_TOKEN=...
-```
-
-## データ構造
-
-- レースID形式: 年(4桁) + 月日(4桁) + 開催場所コード(1桁) + 開催回(1桁) + レース番号(2桁)
-  - 例: 202503040101 (2025年・東京3回1日目・1レース)
-
-- 開催場所コード:
-  - 東京: 04
-  - 中山: 06
-  - 阪神: 01
-  - 京都: 02
-  - 新潟: 03
-  - 福島: 05
-  - 小倉: 07
-  - 札幌: 08
-
-## 保存先ディレクトリ
-
-すべてのJSONは `KEIBA_DATA_ROOT_DIR` 直下に保存されます。
-
-- レース日程: `nittei_YYYYMMDD.json`
-- レースID情報: `race_ids/YYYYMMDD_info.json`
-- 出馬表: `shutsuba_{race_id}.json`
-- 成績: `seiseki_{race_id}.json`
-- 調教: `cyokyo_{race_id}.json`
-
-## 必要なライブラリ
-
-```
-pip install requests beautifulsoup4 python-dotenv
-```
-
-## 機能
-
-- 競馬ブックへの自動ログイン
-- 談話記事のスクレイピング
-- エラーハンドリングとリトライ機能
-- スクレイピングデータのJSON形式での保存
-
-## セットアップ
-
-1. 必要なパッケージのインストール:
-```bash
-pip install -r KeibaCICD.keibabook/src/requirements.txt
-```
-
-2. 環境変数の設定:
-`.env`ファイルを作成し、以下の内容を設定:
-```
-KEIBABOOK_TK=your_token
+# 競馬ブック認証（要手動設定）
+KEIBABOOK_SESSION=your_session_token
+KEIBABOOK_TK=your_tk_token
 KEIBABOOK_XSRF_TOKEN=your_xsrf_token
-KEIBA_DATA_DIR=Z:\KEIBA-CICD\data
 ```
 
-## 🧪 テスト & 動作確認（互換エントリーポイント）
-```bash
-# 基本動作テスト（KeibaCICD.keibabook 配下）
-cd KeibaCICD.keibabook
-python src/keibabook/main.py --test
+### WebViewer
 
-# 特定レースでの動作確認
-python src/keibabook/main.py --race-id 202502041211 --mode scrape_and_parse --use-requests
+`.env.local` ファイルを作成：
+
+```ini
+DATA_ROOT=C:/KEIBA-CICD/data2
+JV_DATA_ROOT_DIR=C:/TFJV
 ```
 
-### 実行例と出力
-```bash
-$ python batch_process.py --start-date 2025/6/14 --data-types seiseki --delay 3
+---
 
-🏇 バッチ処理を開始します
-📅 期間: 2025-06-14 ～ 2025-06-14
-📊 データタイプ: seiseki
-⏱️ 遅延: 3秒
-⏸️ 待機時間: 5秒
-📊 生成されたレース数: 288
-🧪 テスト実行: 最初の 10 件
-✅ 成功: 1
-❌ エラー: 0
-📈 成功率: 100.0%
+## 📊 データフロー
+
+```
+競馬ブックWeb
+    ↓ [スクレイピング]
+KeibaCICD.keibabook
+    ↓ [JSON/Markdown]
+共有データストア (C:/KEIBA-CICD/data2/)
+    ↓
+┌───────────┴───────────┐
+↓                       ↓
+KeibaCICD.TARGET    KeibaCICD.WebViewer
+    ↓                       ↓
+予測結果JSON         ブラウザUI
 ```
 
-## 注意事項
+詳細は **[ARCHITECTURE.md](../ai-team/knowledge/ARCHITECTURE.md)** を参照。
 
-- **未来の日付**: まだ開催されていないレースはデータが存在しないためエラーになります
-- **スクレイピング間隔**: サーバーに負荷をかけないよう適切な間隔（3秒以上推奨）を空けてください
-- **取得制限**: 大量取得時はテスト用に最初の10件のみ処理されます
-- **利用規約**: 取得したデータの利用は、競馬ブックの利用規約に従ってください
-- **認証情報**: トークンは必ず環境変数で管理し、ソースコードに直接記載しないでください
+---
 
-## トラブルシューティング
+## 🎯 プロジェクトの目的
 
-1. **認証エラー**
-   - 環境変数 `KEIBABOOK_TK` と `KEIBABOOK_XSRF_TOKEN` が正しく設定されているか確認
-   - トークンが有効期限内であるか確認
+**毎週の競馬予想でプラス収支を実現し、推理エンターテインメントとして競馬を楽しむ**
 
-2. **データ取得エラー**
-   - ネットワーク接続を確認
-   - 指定したレースIDが存在するか確認（未来の日付でないか）
-   - ログファイル（`logs/`ディレクトリ）を確認
+これは競馬システムを作ることが目的ではなく、**実際に馬券を当てること**が目的です。
 
-3. **パースエラー**
-   - `成績テーブルが見つかりません` → 該当レースが存在しない可能性
-   - HTMLの構造変更により既存のパーサーが動作しない可能性
+### 設計思想
 
-## ライセンス
+- **データ駆動**: 複数ソースからの自動データ取得
+- **AI協調**: 専門エキスパートAIチームによる分析
+- **期待値重視**: オッズ×勝率による投資判断
+- **継続改善**: 予想と結果の記録・学習
 
-MIT License
+---
+
+## 🆘 サポート
+
+- **GitHub Issues**: `https://github.com/your-org/keiba-cicd/issues`
+- **AIエージェント**: カカシ（AI相談役）に質問
+- **ドキュメント**: `ai-team/knowledge/` 配下
+
+---
+
+## 📝 バージョン履歴
+
+| バージョン | 日付 | 変更内容 |
+|-----------|------|---------|
+| **v3.0** | 2026-02-06 | ドキュメント統一・アーキテクチャ整理（カカシ） |
+| v2.4 | 2025-06 | keibabook高速版CLI、並列処理対応 |
+| v2.0 | 2025 | RaceDataIntegrator統合、TARGET ML実装 |
+| v1.0 | 2024 | 初版リリース |
+
+---
+
+**プロジェクトオーナー**: ふくだ君
+**AI相談役**: カカシ
+**最終更新**: 2026-02-06

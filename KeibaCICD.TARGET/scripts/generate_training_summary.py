@@ -30,17 +30,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 from parse_ck_data import analyze_horse_training, TrainingConfig, CK_DATA_ROOT, get_recent_training_files
 from horse_id_mapper import get_horse_name_index
 
-# common.config から SE_DATA パスを取得
+# common.config から SE_DATA パス・KEIBA_DATA_ROOT を取得
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from common.config import get_jv_se_data_path
+from common.config import get_jv_se_data_path, get_keiba_data_root
 
 
 # =============================================================================
 # 定数
 # =============================================================================
 
-# データルート
-DATA_ROOT = os.environ.get('DATA_ROOT', 'Z:/KEIBA-CICD/data2')
+# データルート（KEIBA_DATA_ROOT_DIR に従う）
+DATA_ROOT = str(get_keiba_data_root())
 
 # SE_DATA パス
 SE_DATA_PATH = get_jv_se_data_path()
@@ -528,7 +528,7 @@ def main():
         sys.exit(1)
     
     print(f"DATA_ROOT: {DATA_ROOT}")
-    jv_root = os.environ.get('JV_DATA_ROOT_DIR', '(未設定→E:/TFJV)')
+    jv_root = os.environ.get('JV_DATA_ROOT_DIR', '(未設定→C:/TFJV)')
     print(f"JV_DATA_ROOT_DIR: {jv_root}")
     print(f"CK_DATA参照先: {CK_DATA_ROOT}")
     # 1日分のCK_DATAファイル数（HC/WC）を表示
