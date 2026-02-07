@@ -5,6 +5,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
+import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
 import type { RatingStandards, GradeStandard } from './rating-utils';
 
 // キャッシュ
@@ -17,10 +18,8 @@ const CACHE_TTL = 5 * 60 * 1000; // 5分
  */
 function getRatingStandardsPath(): string {
   return path.join(
-    process.cwd(),
-    '..',
-    'KeibaCICD.keibabook',
-    'data',
+    KEIBA_DATA_ROOT_DIR,
+    'keibabook',
     'rating_standards.json'
   );
 }

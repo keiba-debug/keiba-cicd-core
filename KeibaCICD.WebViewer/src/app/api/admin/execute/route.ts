@@ -5,8 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
+import path from 'path';
 import { ActionType, getCommandArgs, getCommandArgsRange, getAction, type CommandOptions } from '@/lib/admin/commands';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
+import { DATA_ROOT } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -99,15 +101,17 @@ export async function POST(request: NextRequest) {
           // レース特性基準値算出 - JRA-VANデータから算出（TARGETディレクトリで実行）
           // --since 2020: 2020年以降〜現在年まですべて計算対象
           customCwd = ADMIN_CONFIG.targetPath;
+          const raceTypeOutput = path.join(DATA_ROOT, 'target', 'race_type_standards.json');
           commandsList = [
-            ['scripts/calculate_race_type_standards_jv.py', '--since', '2020', '--output', 'data/race_type_standards.json']
+            ['scripts/calculate_race_type_standards_jv.py', '--since', '2020', '--output', raceTypeOutput]
           ];
         } else if (action === 'calc_rating_standards') {
           // レイティング基準値算出 - 競馬ブックデータから算出（keibabookディレクトリで実行）
           // --since 2023: 2023年以降のデータを対象
           customCwd = ADMIN_CONFIG.keibabookPath;
+          const ratingOutput = path.join(DATA_ROOT, 'keibabook', 'rating_standards.json');
           commandsList = [
-            ['scripts/calculate_rating_standards.py', '--since', '2023', '--output', 'data/rating_standards.json']
+            ['scripts/calculate_rating_standards.py', '--since', '2023', '--output', ratingOutput]
           ];
         } else if (action === 'training_summary') {
           // 調教サマリ生成 - CK_DATAから調教サマリJSONを生成（TARGETディレクトリで実行）

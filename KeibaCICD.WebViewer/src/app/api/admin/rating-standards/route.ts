@@ -5,16 +5,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 // レイティング基準値ファイルのパス
 const RATING_STANDARDS_PATH = path.join(
-  process.cwd(),
-  '..',
-  'KeibaCICD.keibabook',
-  'data',
+  KEIBA_DATA_ROOT_DIR,
+  'keibabook',
   'rating_standards.json'
 );
 

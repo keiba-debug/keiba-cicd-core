@@ -35,8 +35,8 @@ try:
 except ImportError:
     pass
 
-# グレードマスターのパス（TARGETディレクトリ）
-GRADE_MASTER_PATH = Path(__file__).resolve().parents[2] / "KeibaCICD.TARGET" / "data" / "grade_master.json"
+# グレードマスターのパス（DATA_ROOT/target配下）
+GRADE_MASTER_PATH = Path(os.getenv('KEIBA_DATA_ROOT_DIR', 'C:/KEIBA-CICD/data2')) / "target" / "grade_master.json"
 
 
 class GradeMatcher:
@@ -533,10 +533,13 @@ def main():
         default=2024,
         help="Start year (default: 2024)"
     )
+    default_output = str(
+        Path(os.getenv('KEIBA_DATA_ROOT_DIR', 'C:/KEIBA-CICD/data2')) / "keibabook" / "rating_standards.json"
+    )
     parser.add_argument(
         "--output",
         type=str,
-        default="data/rating_standards.json",
+        default=default_output,
         help="Output file path"
     )
     parser.add_argument(
