@@ -1,0 +1,379 @@
+---
+description: KeibaCICD プロジェクトの命名規則（モジュール名、ファイル名、変数名等）
+globs:
+alwaysApply: false
+---
+
+# KeibaCICD 命名規則
+
+## 📌 基本方針
+
+- **一貫性**: 同じ種類の要素には同じ命名パターンを適用
+- **可読性**: 略語を避け、意味が明確な名前を使用
+- **KeibaCICD.*パターン**: モジュール名はすべて `KeibaCICD.` プレフィックスを使用
+
+---
+
+## 🗂️ モジュール命名規則
+
+### パターン: `KeibaCICD.<ModuleName>`
+
+**例**:
+- ✅ `KeibaCICD.keibabook` - データスクレイピング
+- ✅ `KeibaCICD.TARGET` - データ分析・加工
+- ✅ `KeibaCICD.WebViewer` - Web表示
+- ✅ `KeibaCICD.AI` - ML予想・期待値計算
+
+**NG例**:
+- ❌ `keiba-ai` → `KeibaCICD.AI` に変更済み（2026-02-06）
+- ❌ `scraper` → `KeibaCICD.keibabook` に統合
+- ❌ `viewer` → `KeibaCICD.WebViewer`
+
+### 大文字・小文字の使い分け
+
+- **小文字**: 外部サービス名由来（例: `keibabook`）
+- **PascalCase**: 機能名・頭字語（例: `TARGET`, `WebViewer`, `AI`）
+
+---
+
+## 📁 ファイル・ディレクトリ命名
+
+### Python（KeibaCICD.TARGET, KeibaCICD.AI, KeibaCICD.keibabook）
+
+**スクリプトファイル**: `snake_case.py`
+
+```
+✅ parse_ck_data.py
+✅ generate_training_summary.py
+✅ horse_id_mapper.py
+✅ target_reader.py
+```
+
+**ディレクトリ**: `lowercase` または `snake_case`
+
+```
+✅ common/jravan/
+✅ scripts/
+✅ tools/
+✅ data/
+```
+
+**クラス名**: `PascalCase`
+
+```python
+✅ class TrainingRecord:
+✅ class HorseIdMapper:
+✅ class BankrollManager:
+```
+
+**関数名**: `snake_case`
+
+```python
+✅ def get_horse_id_by_name():
+✅ def analyze_horse_training():
+✅ def build_race_id():
+```
+
+**定数**: `UPPER_SNAKE_CASE`
+
+```python
+✅ KEIBA_DATA_ROOT_DIR = "C:\\KEIBA-CICD\\data2"
+✅ JV_DATA_ROOT_DIR = "C:\\TFJV"
+✅ CACHE_TTL = 60000
+```
+
+---
+
+### TypeScript / Next.js（KeibaCICD.WebViewer）
+
+**コンポーネントファイル**: `PascalCase.tsx`
+
+```
+✅ RefreshButton.tsx
+✅ BankrollAlerts.tsx
+✅ TrainingAnalysisSection.tsx
+```
+
+**フックファイル**: `camelCase.ts` （`use` プレフィックス）
+
+```
+✅ useBankrollAlerts.ts
+✅ useRaceData.ts
+```
+
+**ユーティリティファイル**: `camelCase.ts` または `kebab-case.ts`
+
+```
+✅ formatDate.ts
+✅ api-client.ts
+```
+
+**API Routeファイル**: `route.ts`（Next.js App Router規約）
+
+```
+✅ app/api/bankroll/alerts/route.ts
+✅ app/api/predictions/route.ts
+```
+
+**ディレクトリ**: `kebab-case` または `lowercase`
+
+```
+✅ components/bankroll/
+✅ components/race-v2/
+✅ hooks/
+✅ app/api/
+```
+
+**コンポーネント名**: `PascalCase`
+
+```typescript
+✅ export function RefreshButton() {}
+✅ export default function BankrollAlerts() {}
+```
+
+**関数名**: `camelCase`
+
+```typescript
+✅ function executePythonScript() {}
+✅ async function loadConfig() {}
+✅ const handleRefresh = () => {}
+```
+
+**定数**: `UPPER_SNAKE_CASE` または `camelCase`
+
+```typescript
+✅ const CACHE_TTL = 60000;
+✅ const fetcher = (url: string) => fetch(url);
+```
+
+**型・インターフェース**: `PascalCase`
+
+```typescript
+✅ interface Alert {}
+✅ interface BankrollAlertsData {}
+✅ type ResponseData = {};
+```
+
+---
+
+## 📦 環境変数命名
+
+### パターン: `UPPER_SNAKE_CASE`
+
+**データパス**:
+```env
+✅ KEIBA_DATA_ROOT_DIR=C:\KEIBA-CICD\data2
+✅ JV_DATA_ROOT_DIR=C:\TFJV
+```
+
+**Python環境**:
+```env
+✅ PYTHON_PATH=python
+✅ PYTHONIOENCODING=utf-8
+```
+
+**Next.js公開変数**: `NEXT_PUBLIC_` プレフィックス
+
+```env
+✅ NEXT_PUBLIC_APP_NAME=KeibaCICD WebViewer
+✅ NEXT_PUBLIC_API_URL=http://localhost:3000
+```
+
+---
+
+## 🗃️ データファイル命名
+
+### JSONファイル
+
+**日付ベース**: `YYYYMMDD_JJRR.json`
+
+```
+✅ 20260208_0601.json  # 2026年2月8日 東京06R 1R
+```
+
+**機能ベース**: `snake_case.json`
+
+```
+✅ training_summary.json
+✅ horse_index.json
+✅ fund_history.json
+✅ config.json
+```
+
+### テキストファイル
+
+**TARGETコメント**: `YYYYMMDDJJ.txt`
+
+```
+✅ 2026020806.txt  # 2026年2月8日 東京（06）
+```
+
+---
+
+## 🎯 JRA-VAN関連命名
+
+### レースID: `16桁数値`
+
+**フォーマット**: `YYYYMMDDJJKKNNRR`
+
+```
+✅ 2026020806010208
+   ├─ 20260208: 日付
+   ├─ 06: 競馬場コード（東京）
+   ├─ 01: 開催回数
+   ├─ 02: 開催日数
+   └─ 08: レース番号
+```
+
+### 馬ID: `10桁数値`
+
+```
+✅ 2019103487  # ドウデュースのJRA-VAN ID
+```
+
+### データファイル（JRA-VAN提供）
+
+```
+✅ YYYYMMDD.CK  # 調教データ
+✅ YYYYMMDD.UM  # 馬マスタ
+✅ YYYYMMDD.SE  # 競走成績
+```
+
+---
+
+## 📝 ドキュメント命名
+
+### Markdownファイル: `UPPER_CASE.md` または `PascalCase.md`
+
+**主要ドキュメント**:
+```
+✅ README.md
+✅ ARCHITECTURE.md
+✅ MODULE_OVERVIEW.md
+✅ SETUP_GUIDE.md
+✅ ROADMAP.md
+✅ CLAUDE.md
+```
+
+**データ仕様**:
+```
+✅ CK_DATA.md  # 調教データ仕様
+✅ UM_DATA.md  # 馬マスタ仕様
+✅ SE_DATA.md  # 競走成績仕様
+```
+
+**ガイド文書**:
+```
+✅ USAGE_GUIDE.md
+✅ QUICK_REFERENCE.md
+✅ ID_MAPPING.md
+```
+
+---
+
+## 🔧 ライブラリ・モジュール命名
+
+### Pythonライブラリ: `snake_case`
+
+```python
+✅ from common.jravan import get_horse_id_by_name
+✅ from common.jravan import analyze_horse_training
+✅ from common.jravan import build_race_id
+```
+
+**NGパターン**:
+```python
+❌ from scripts.horse_id_mapper import HorseIdMapper  # 直接インポート禁止
+❌ from scripts.parse_ck_data import parse_ck_data   # 直接インポート禁止
+```
+
+**正しいパターン**: 必ず `common.jravan` 経由でインポート
+
+---
+
+## 🎭 AI エージェント命名
+
+### エージェント名: カタカナ（日本語）
+
+```
+✅ カカシ（相談役）
+✅ ベンゲル（司令官）
+✅ キバ（データ追跡）
+✅ アルテタ（ML予想）
+✅ シノ（期待値計算）
+✅ シカマル（購入戦略）
+✅ サイ（実行記録）
+✅ ひなた（分析）
+✅ ナルト（改善学習）
+```
+
+### ディレクトリ名: `lowercase`
+
+```
+✅ experts/commander/
+✅ experts/kiba/
+✅ experts/naruto/
+```
+
+### 設定ファイル: `UPPER_CASE.md`
+
+```
+✅ SYSTEM_PROMPT.md
+✅ TEAM_ROSTER.md
+```
+
+---
+
+## 🚫 禁止事項
+
+### 1. 古い命名パターンの使用
+
+```
+❌ keiba-ai/             → ✅ KeibaCICD.AI/
+❌ member/              → ✅ experts/
+❌ E:\share\...         → ✅ C:\KEIBA-CICD\...
+```
+
+### 2. 直接インポート
+
+```python
+❌ from scripts.parse_ck_data import TrainingRecord
+✅ from common.jravan import analyze_horse_training
+```
+
+### 3. 不明瞭な略語
+
+```
+❌ def get_hr_by_nm()   # 何のことか不明
+✅ def get_horse_id_by_name()
+
+❌ class TrRec:         # 不明瞭
+✅ class TrainingRecord:
+```
+
+### 4. 命名規則の混在
+
+```typescript
+❌ export function refresh_button() {}  // snake_case（NG）
+✅ export function RefreshButton() {}   // PascalCase（OK）
+
+❌ const CACHE_ttl = 60000;  // 混在（NG）
+✅ const CACHE_TTL = 60000;  // UPPER_SNAKE_CASE（OK）
+```
+
+---
+
+## ✅ チェックリスト
+
+新しいファイル・モジュールを作成する際は、以下を確認：
+
+- [ ] モジュール名は `KeibaCICD.*` パターンに従っているか
+- [ ] ファイル名は言語別の規約に従っているか（Python: snake_case, TS: PascalCase/camelCase）
+- [ ] 環境変数は `UPPER_SNAKE_CASE` か
+- [ ] データファイル名は日付・機能ベースの規約に従っているか
+- [ ] JRA-VANデータは `common.jravan` 経由でアクセスしているか
+- [ ] 略語を避け、意味が明確な名前になっているか
+
+---
+
+**最終更新**: 2026-02-07（カカシ）

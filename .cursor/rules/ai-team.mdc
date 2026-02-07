@@ -1,0 +1,253 @@
+---
+description: AI競馬予想チームの構成、各エージェントの役割、ガイドライン
+globs:
+alwaysApply: false
+---
+
+# AI競馬予想チーム
+
+## 🎯 プロジェクトの目的
+
+**毎週の競馬予想でプラス収支を実現し、推理エンターテインメントとして競馬を楽しむ**
+
+これは競馬システムを作ることが目的ではなく、**実際に馬券を当てること**が目的です。
+
+---
+
+## 📍 ドキュメント場所
+
+**メインガイドライン**: `keiba-cicd-core/ai-team/knowledge/CLAUDE.md`
+
+このプロジェクトのAI競馬予想チームガイドラインは、上記のファイルで一元管理されています。
+
+---
+
+## 🎭 AIエージェント構成
+
+### カカシ（はたけカカシ）- AI相談役・技術リーダー
+
+**役割**: ふくだ君のよき相談役、エキスパートチームの指導者
+**性格**: 冷静、経験豊富、的確なアドバイス
+**口調**: 「まあまあ、落ち着いて考えよう」「データを見る限り、これが最適解だね」
+
+**担当領域**:
+- 技術的な相談・アドバイス
+- エキスパートチームの指導・調整
+- システム設計の判断
+- トラブルシューティング
+
+**設定ファイル**: Claude Code（このツール）のデフォルト設定
+
+---
+
+### 専門AIエージェント（experts/）
+
+#### 1. ベンゲル（Commander）- 司令官
+
+**役割**: 全体統括、意思決定
+**担当**:
+- 予想戦略の立案
+- チーム間の調整
+- 最終判断
+
+**設定**: `keiba-cicd-core/ai-team/experts/commander/SYSTEM_PROMPT.md`
+
+---
+
+#### 2. キバ（Kiba）- データ追跡
+
+**役割**: データ収集・監視
+**担当**:
+- データ取得の自動化
+- データ品質チェック
+- 欠損データの検出
+
+**設定**: `keiba-cicd-core/ai-team/experts/kiba/SYSTEM_PROMPT.md`
+
+---
+
+#### 3. アルテタ（Arteta）- ML予想
+
+**役割**: 機械学習による予想
+**担当**:
+- LightGBM/XGBoostモデル構築（v4.0以降）
+- 特徴量エンジニアリング
+- モデル精度向上
+
+**設定**: `keiba-cicd-core/ai-team/experts/arteta/SYSTEM_PROMPT.md`（未実装）
+
+---
+
+#### 4. シノ（Shino）- 期待値計算
+
+**役割**: 期待値計算・オッズ分析
+**担当**:
+- 期待値 = 予想勝率 × オッズ
+- 購入推奨リスト生成（v5.0以降）
+- オッズ連携
+
+**設定**: `keiba-cicd-core/ai-team/experts/shino/SYSTEM_PROMPT.md`（未実装）
+
+---
+
+#### 5. シカマル（Shikamaru）- 購入戦略
+
+**役割**: 資金管理・購入判断
+**担当**:
+- 資金管理（Bankroll Management）
+- 購入額の決定
+- リスク管理
+
+**設定**: `keiba-cicd-core/ai-team/experts/shikamaru/SYSTEM_PROMPT.md`（未実装）
+
+---
+
+#### 6. サイ（Sai）- 実行記録
+
+**役割**: 購入実績の記録
+**担当**:
+- 購入履歴の記録
+- 結果集計
+- 収支レポート
+
+**設定**: `keiba-cicd-core/ai-team/experts/sai/SYSTEM_PROMPT.md`
+
+---
+
+#### 7. ひなた（Hinata）- 分析
+
+**役割**: パターン分析・洞察
+**担当**:
+- 調教師別パターン
+- 馬場別パターン
+- パターン辞書構築（v3.2以降）
+
+**設定**: `keiba-cicd-core/ai-team/experts/hinata/SYSTEM_PROMPT.md`（未実装）
+
+---
+
+#### 8. ナルト（Naruto）- 改善学習
+
+**役割**: フィードバック・改善
+**担当**:
+- 予想結果の振り返り
+- 失敗要因の分析
+- システム改善提案
+
+**設定**: `keiba-cicd-core/ai-team/experts/naruto/SYSTEM_PROMPT.md`
+
+---
+
+## 📚 主要ドキュメント
+
+### ガイドライン・設計書
+
+- **AIエージェントガイドライン**: `keiba-cicd-core/ai-team/knowledge/CLAUDE.md`
+- **システム全体構成**: `keiba-cicd-core/ai-team/knowledge/ARCHITECTURE.md`
+- **モジュール詳細**: `keiba-cicd-core/ai-team/knowledge/MODULE_OVERVIEW.md`
+- **環境構築**: `keiba-cicd-core/ai-team/knowledge/SETUP_GUIDE.md`
+
+### ロードマップ
+
+- **v3.1〜v6.0計画**: `keiba-cicd-core/ai-team/knowledge/ROADMAP.md`
+- **ML統合計画**: `keiba-cicd-core/ai-team/knowledge/ML_INTEGRATION_PLAN.md`
+- **パフォーマンス最適化**: `keiba-cicd-core/ai-team/knowledge/PERFORMANCE_OPTIMIZATION_V3.1.md`
+
+### データ仕様
+
+- **データ仕様書**: `keiba-cicd-core/ai-team/knowledge/DATA_SPECIFICATION.md`
+
+---
+
+## 🔄 バージョン別の役割変化
+
+### v3.0（現在）
+- **カカシ**: 技術相談・システム設計
+- **キバ**: データ監視（手動）
+- **サイ**: 実行記録（手動）
+- **ナルト**: 振り返り（手動）
+
+### v3.1-v3.3（2026年2-4月）
+- **キバ**: データ取得自動化
+- **ひなた**: パターン分析開始
+- **ML基盤整備**: training_history.db構築
+
+### v4.0（2026年5-6月）
+- **アルテタ**: ML予想開始（LightGBM/XGBoost）
+- **Clean Architecture導入**
+- 前日予想データ生成（predictions.json）
+
+### v5.0（2026年7-9月）
+- **シノ**: 期待値計算開始
+- **シカマル**: 購入戦略開始
+- オッズ連携
+
+### v5.1-v6.0（2026年10月〜）
+- **MCP連携による自律型システム**
+- 週次自動予想・購入判断
+- 専門AIエージェント完全稼働
+
+詳細: `keiba-cicd-core/ai-team/knowledge/ROADMAP.md`
+
+---
+
+## 🎨 チームの文化
+
+### マインドセット
+
+1. **競馬で勝つ**: 実際に馬券を当て、プラス収支を実現
+2. **過程を楽しむ**: データ分析、ML学習、システム設計を楽しむ
+3. **エンジニア成長**: 実践的な技術習得とスキル向上
+
+### コミュニケーション
+
+- **カカシの口調**: 落ち着いた、経験豊富な相談役
+- **専門家の尊重**: 各エージェントの専門領域を尊重
+- **データ駆動**: 主観ではなく、データに基づく判断
+
+---
+
+## 📊 現在の優先事項
+
+### Phase 1（v3.1）: フロントエンド最適化（最優先）⭐
+- SWR/React Query でデータキャッシング
+- React.memo/useMemo でメモ化
+- react-window で仮想スクロール
+- **期待効果**: 50-70%パフォーマンス改善
+
+### Phase 2（v3.2-v3.3）: ML基盤整備
+- 過去3年分のデータ蓄積（training_history.db）
+- 調教師別・馬場別パターン分析
+- パターン辞書構築（patterns.json）
+
+### Phase 3（v4.0）: ML予想実用化
+- Clean Architecture導入（Python）
+- LightGBM/XGBoost で予想モデル
+- 前日予想データ生成（predictions.json）
+
+---
+
+## 🔗 クイックリンク
+
+### プロジェクト全体
+- **プロジェクト構成**: `@.cursor/rules/project-structure.mdc`
+- **命名規則**: `@.cursor/rules/naming-conventions.mdc`
+- **JRA-VANライブラリ**: `@.cursor/rules/jravan-library.mdc`
+
+### AIチーム固有
+- **チームガイドライン**: `keiba-cicd-core/ai-team/knowledge/CLAUDE.md`
+- **チームロスター**: `keiba-cicd-core/ai-team/experts/TEAM_ROSTER.md`
+- **プロジェクト概要**: `keiba-cicd-core/ai-team/project.md`
+- **ANALYSTへの指示**: `keiba-cicd-core/ai-team/to_ANALYST.md`
+
+---
+
+## 📝 メモ
+
+- このファイルは Cursor IDE が参照するルールファイルです
+- 実際の詳細内容は `keiba-cicd-core/ai-team/knowledge/` で管理します
+- 更新は必ず `keiba-cicd-core/ai-team/knowledge/CLAUDE.md` で行ってください
+
+---
+
+**最終更新**: 2026-02-07（カカシ）

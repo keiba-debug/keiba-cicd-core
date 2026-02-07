@@ -1,0 +1,461 @@
+---
+description: JRA-VANデータライブラリ（common.jravan）の使用方法、ID変換、データ取得
+globs: *.py
+alwaysApply: false
+---
+
+# JRA-VANデータライブラリ（common.jravan）
+
+## 📍 場所
+
+- **ライブラリ**: `keiba-cicd-core/KeibaCICD.TARGET/common/jravan/`
+- **ドキュメント**: `keiba-cicd-core/KeibaCICD.TARGET/docs/jravan/`
+
+---
+
+## 🚨 重要なルール
+
+### ❌ 禁止事項
+
+**既存スクリプトを直接インポートしない**
+
+```python
+# ❌ NG: 直接インポート
+from scripts.horse_id_mapper import HorseIdMapper
+from scripts.parse_ck_data import TrainingRecord
+
+# ✅ OK: common.jravan経由
+from common.jravan import get_horse_id_by_name
+from common.jravan import analyze_horse_training
+```
+
+### ✅ 必須事項
+
+- **必ず `common.jravan` 統一インターフェースを使用**
+- **ID変換は必ずライブラリ経由で行う**
+- **新しいデータタイプを追加する場合は `docs/jravan/data-types/` にドキュメントを追加**
+
+---
+
+## 🔑 基本的な使い方
+
+### インポート
+
+```python
+from common.jravan import (
+    # ID変換（競馬ブック ⇔ JRA-VAN）
+    get_horse_id_by_name,      # 馬名 → JRA-VAN 10桁ID
+    get_horse_name_by_id,      # ID → 馬名
+    search_horses_by_name,     # 部分一致検索
+    get_track_code,            # 競馬場名 → コード
+    get_track_name,            # コード → 競馬場名
+
+    # データ取得
+    get_horse_info,            # 馬の基本情報
+    analyze_horse_training,    # 調教データ分析
+
+    # レースID操作
+    build_race_id,             # レースID構築
+    parse_race_id,             # レースIDパース
+)
+```
+
+---
+
+## 💡 よく使うパターン
+
+### 1. 馬名からJRA-VAN IDに変換
+
+```python
+horse_id = get_horse_id_by_name("ドウデュース")
+# => "2019103487"
+
+# エラーハンドリング
+try:
+    horse_id = get_horse_id_by_name("存在しない馬名")
+except ValueError as e:
+    print(f"馬名が見つかりません: {e}")
+```
+
+**注意**: 馬名は**完全一致**です。部分一致の場合は `search_horses_by_name()` を使用。
+
+### 2. 部分一致検索
+
+```python
+candidates = search_horses_by_name("ドウ")
+# => [
+#   {"horse_id": "2019103487", "name": "ドウデュース"},
+#   {"horse_id": "2018101234", "name": "ドウディ"},
+# ]
+
+if len(candidates) == 1:
+    horse_id = candidates[0]["horse_id"]
+elif len(candidates) > 1:
+    # 複数候補がある場合はユーザーに選択させる
+    print("複数の馬が見つかりました:")
+    for c in candidates:
+        print(f"  {c['name']} ({c['horse_id']})")
+```
+
+### 3. JRA-VAN IDから馬名に変換
+
+```python
+horse_name = get_horse_name_by_id("2019103487")
+# => "ドウデュース"
+```
+
+### 4. 調教データ取得・分析
+
+```python
+training = analyze_horse_training("ドウデュース", "20260125")
+
+# 最終追切情報
+if training["final"]:
+    final = training["final"]
+    print(f"最終追切: {final['time_4f']:.1f}s [{final['speed_class']}] {final['lap_class']}")
+    # => 最終追切: 52.3s [A] S+
+
+# 週末調教情報
+if training["weekend"]:
+    weekend = training["weekend"]
+    print(f"週末調教: {weekend['time_4f']:.1f}s [{weekend['speed_class']}]")
+
+# 1週前調教情報
+if training["week_ago"]:
+    week_ago = training["week_ago"]
+    print(f"1週前: {week_ago['time_4f']:.1f}s")
+```
+
+**返り値の構造**:
+
+```python
+{
+    "final": {
+        "date": "20260125",
+        "time_4f": 52.3,
+        "speed_class": "A",        # S/A/B/C/D
+        "lap_class": "S+",         # S+/A-/B=など（加速記号付き）
+        "upgraded_lap_class": "SS", # SS昇格判定後（v3.1以降）
+        "track_name": "栗東坂路",
+        "assistant_name": "助手A",
+        "count": 1,
+        "count_class": "普",       # 多/普/少
+    },
+    "weekend": {...},  # 同様の構造
+    "week_ago": {...}, # 同様の構造
+}
+```
+
+### 5. 馬の基本情報取得
+
+```python
+info = get_horse_info("ドウデュース")
+
+print(f"{info['name']} ({info['sex']}{info['age']}歳)")
+print(f"調教師: {info['trainer_name']}")
+print(f"馬主: {info['owner_name']}")
+print(f"生産者: {info['breeder_name']}")
+
+# => ドウデュース (牡5歳)
+#    調教師: 友道康夫
+#    馬主: ...
+```
+
+**返り値の構造**:
+
+```python
+{
+    "horse_id": "2019103487",
+    "name": "ドウデュース",
+    "sex": "牡",
+    "age": 5,
+    "coat_color": "鹿毛",
+    "trainer_name": "友道康夫",
+    "owner_name": "...",
+    "breeder_name": "...",
+    "sire_name": "ハーツクライ",
+    "dam_name": "...",
+}
+```
+
+### 6. 競馬場コード変換
+
+```python
+# 競馬場名 → コード
+track_code = get_track_code("東京")
+# => "06"
+
+# コード → 競馬場名
+track_name = get_track_name("06")
+# => "東京"
+```
+
+**競馬場コード一覧**:
+```
+01: 札幌
+02: 函館
+03: 福島
+04: 新潟
+05: 東京
+06: 中山
+07: 中京
+08: 京都
+09: 阪神
+10: 小倉
+```
+
+### 7. レースID構築・パース
+
+```python
+# レースID構築
+race_id = build_race_id(
+    year=2026,
+    month=2,
+    day=8,
+    track_code="06",  # 東京
+    kai=1,            # 1回
+    nichiji=2,        # 2日目
+    race_num=8        # 8R
+)
+# => "2026020806010208"
+
+# レースIDパース
+parsed = parse_race_id("2026020806010208")
+# => {
+#   "year": 2026,
+#   "month": 2,
+#   "day": 8,
+#   "date": "20260208",
+#   "track_code": "06",
+#   "track_name": "東京",
+#   "kai": 1,
+#   "nichiji": 2,
+#   "race_num": 8,
+# }
+```
+
+**レースIDフォーマット**: `YYYYMMDDJJKKNNRR`（16桁）
+- `YYYYMMDD`: 日付
+- `JJ`: 競馬場コード
+- `KK`: 開催回数
+- `NN`: 開催日数
+- `RR`: レース番号
+
+---
+
+## 🗂️ データ構造
+
+### JRA-VAN 馬ID
+
+**フォーマット**: 10桁数値（文字列）
+
+```python
+"2019103487"  # ドウデュース
+```
+
+### JRA-VAN レースID
+
+**フォーマット**: 16桁数値（文字列）
+
+```python
+"2026020806010208"
+# ├─ 20260208: 2026年2月8日
+# ├─ 06: 東京
+# ├─ 01: 1回
+# ├─ 02: 2日目
+# └─ 08: 8R
+```
+
+### 調教データ評価
+
+**スピード分類**: `S` / `A` / `B` / `C` / `D`
+- S: 優秀（基準値から-1.5秒以上）
+- A: 良好（-1.0秒以上）
+- B: 標準（-0.5秒以上）
+- C: やや遅い（-0.5秒未満）
+- D: 遅い（+1.0秒以上）
+
+**ラップ分類**: `S` / `A` / `B` / `C` / `D` + 加速記号
+
+加速記号:
+- `+`: 加速（前半より後半が速い）
+- `=`: 同タイム（前後半同じ）
+- `-`: 失速（前半より後半が遅い）
+
+例: `S+`, `A-`, `B=`
+
+**SS評価**（v3.1以降）:
+- 好タイム + S分類 + (加速or同タイム) → `SS`
+
+**本数評価**: `多` / `普` / `少`
+
+---
+
+## ⚙️ 初回セットアップ
+
+### 馬名インデックス構築（必須）
+
+```bash
+cd keiba-cicd-core/KeibaCICD.TARGET
+python scripts/horse_id_mapper.py --build-index
+```
+
+**出力先**: `C:\KEIBA-CICD\data2\horse_index.json`
+
+**構造**:
+```json
+{
+  "ドウデュース": {
+    "horse_id": "2019103487",
+    "name": "ドウデュース"
+  },
+  ...
+}
+```
+
+**再構築が必要な場合**:
+- 新しい馬がJRA-VAN UMデータに追加されたとき
+- `horse_index.json` が破損したとき
+
+---
+
+## 📚 参照ドキュメント
+
+### 全体ガイド
+
+- **全体概要**: `keiba-cicd-core/KeibaCICD.TARGET/docs/jravan/README.md`
+- **使用ガイド**: `keiba-cicd-core/KeibaCICD.TARGET/docs/jravan/USAGE_GUIDE.md`
+- **クイックリファレンス**: `keiba-cicd-core/KeibaCICD.TARGET/docs/jravan/QUICK_REFERENCE.md`
+- **ID変換ガイド**: `keiba-cicd-core/KeibaCICD.TARGET/docs/jravan/ID_MAPPING.md`
+
+### データタイプ別仕様
+
+- **CK_DATA**: 調教データ（`docs/jravan/data-types/CK_DATA.md`）
+- **UM_DATA**: 馬マスタ（`docs/jravan/data-types/UM_DATA.md`）
+- **SE_DATA**: 競走成績（`docs/jravan/data-types/SE_DATA.md`）
+
+---
+
+## 🐛 トラブルシューティング
+
+### エラー: `ModuleNotFoundError: No module named 'common.jravan'`
+
+**原因**: PYTHONPATHが設定されていない
+
+**解決**:
+
+```bash
+# Windows PowerShell
+$env:PYTHONPATH = "c:\KEIBA-CICD\_keiba\keiba-cicd-core\KeibaCICD.TARGET"
+
+# Linux/Mac
+export PYTHONPATH="${PYTHONPATH}:c:/KEIBA-CICD/_keiba/keiba-cicd-core/KeibaCICD.TARGET"
+```
+
+または、`.env`ファイルに追加:
+
+```env
+PYTHONPATH=c:\KEIBA-CICD\_keiba\keiba-cicd-core\KeibaCICD.TARGET
+```
+
+### エラー: `ValueError: 馬名が見つかりません`
+
+**原因**: `horse_index.json` にその馬名が存在しない
+
+**解決**:
+
+1. 馬名インデックスを再構築:
+   ```bash
+   python scripts/horse_id_mapper.py --build-index
+   ```
+
+2. 馬名のスペルを確認（完全一致が必要）
+
+3. 部分一致検索を使用:
+   ```python
+   candidates = search_horses_by_name("ドウ")
+   ```
+
+### エラー: `FileNotFoundError: C:\TFJV\...`
+
+**原因**: JRA-VANデータが存在しない、または環境変数が間違っている
+
+**解決**:
+
+1. 環境変数を確認:
+   ```env
+   JV_DATA_ROOT_DIR=C:\TFJV
+   ```
+
+2. JRA-VANデータが実際に存在するか確認:
+   ```bash
+   ls C:\TFJV\
+   ```
+
+3. JRA-VAN Data Lab.でデータをダウンロード
+
+---
+
+## 🎯 コーディングルール
+
+### 1. 必ず `common.jravan` を使用
+
+```python
+# ✅ OK
+from common.jravan import get_horse_id_by_name
+
+# ❌ NG
+from scripts.horse_id_mapper import HorseIdMapper
+```
+
+### 2. エラーハンドリングを実装
+
+```python
+try:
+    horse_id = get_horse_id_by_name(horse_name)
+except ValueError:
+    # 馬名が見つからない場合の処理
+    print(f"馬名が見つかりません: {horse_name}")
+    return None
+```
+
+### 3. 返り値のNoneチェック
+
+```python
+training = analyze_horse_training("馬名", "20260125")
+
+if training["final"]:  # Noneチェック
+    print(f"最終追切: {training['final']['time_4f']:.1f}s")
+else:
+    print("最終追切データなし")
+```
+
+### 4. 馬名は完全一致
+
+```python
+# ✅ OK: 完全一致
+horse_id = get_horse_id_by_name("ドウデュース")
+
+# ❌ NG: 部分一致（エラーになる）
+horse_id = get_horse_id_by_name("ドウ")
+
+# ✅ OK: 部分一致検索を使用
+candidates = search_horses_by_name("ドウ")
+```
+
+---
+
+## 📦 環境変数
+
+```env
+# データパス
+KEIBA_DATA_ROOT_DIR=C:\KEIBA-CICD\data2
+JV_DATA_ROOT_DIR=C:\TFJV
+
+# Python環境
+PYTHONPATH=c:\KEIBA-CICD\_keiba\keiba-cicd-core\KeibaCICD.TARGET
+```
+
+---
+
+**最終更新**: 2026-02-07（カカシ）

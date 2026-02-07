@@ -1,0 +1,317 @@
+---
+description: KeibaCICD プロジェクト全体の構成、各モジュールの役割、データフロー
+globs:
+alwaysApply: false
+---
+
+# KeibaCICD プロジェクト構成
+
+## 📌 プロジェクト概要
+
+**プロジェクト名**: KeibaCICD v3.0
+**目的**: 毎週の競馬予想でプラス収支を実現し、推理エンターテインメントとして競馬を楽しむ
+**リポジトリルート**: `c:\KEIBA-CICD\_keiba\`
+**Git管理**: `keiba-cicd-core\` フォルダのみ（他はローカル実行環境）
+
+---
+
+## 🗂️ ディレクトリ構造
+
+```
+c:\KEIBA-CICD\_keiba\
+├── .claude/                      # Claude Code設定（ローカル）
+│   ├── CLAUDE.md                # リダイレクト用
+│   └── agents/                  # エージェント設定
+│
+├── .cursor/                      # Cursor IDE設定（ローカル）
+│   └── rules/                   # このファイル群
+│       ├── globals.mdc          # グローバルルール
+│       ├── my-custom-rule.mdc   # カスタムルール
+│       ├── project-structure.mdc # この文書
+│       ├── naming-conventions.mdc
+│       ├── jravan-library.mdc
+│       ├── ai-team.mdc
+│       └── dev-rules/
+│           └── nextjs.mdc       # Next.jsルール
+│
+└── keiba-cicd-core/             # Git管理対象（メインコード）
+    ├── ai-team/                 # AI競馬予想チーム（2026-02-07移動）
+    │   ├── knowledge/           # ドキュメント・ガイドライン
+    │   │   ├── CLAUDE.md        # AIエージェントガイドライン
+    │   │   ├── ARCHITECTURE.md  # システム全体構成
+    │   │   ├── MODULE_OVERVIEW.md
+    │   │   ├── SETUP_GUIDE.md
+    │   │   ├── ROADMAP.md       # v3.1〜v6.0計画
+    │   │   └── ...
+    │   └── experts/             # 専門AIエージェント（member/統合済み）
+    │       ├── commander/       # ベンゲル（司令官）
+    │       ├── kiba/            # キバ（データ追跡）
+    │       ├── naruto/          # ナルト（改善学習）
+    │       └── ...
+    │
+    ├── KeibaCICD.keibabook/     # データスクレイピング（Python）
+    │   ├── scraper/
+    │   │   ├── keibabook.py     # 競馬ブックスクレイパー
+    │   │   └── netkeiba.py      # netkeiba.comスクレイパー
+    │   └── utils/
+    │
+    ├── KeibaCICD.TARGET/        # データ分析・加工（Python）
+    │   ├── common/
+    │   │   └── jravan/          # JRA-VANライブラリ
+    │   │       ├── __init__.py  # 統一インターフェース
+    │   │       ├── id_mapping.py
+    │   │       ├── training_analysis.py
+    │   │       └── ...
+    │   ├── scripts/
+    │   │   ├── parse_ck_data.py          # 調教データパーサー
+    │   │   ├── generate_training_summary.py  # WebViewer用JSON生成
+    │   │   ├── training_summary.py       # TARGET用CSV生成
+    │   │   └── horse_id_mapper.py        # 馬名⇔ID変換
+    │   └── docs/
+    │       └── jravan/                   # JRA-VANドキュメント
+    │           ├── README.md
+    │           ├── USAGE_GUIDE.md
+    │           ├── QUICK_REFERENCE.md
+    │           └── data-types/           # データタイプ別仕様
+    │               ├── CK_DATA.md        # 調教データ
+    │               ├── UM_DATA.md        # 馬マスタ
+    │               └── ...
+    │
+    ├── KeibaCICD.WebViewer/     # Web表示（Next.js 14 + TypeScript）
+    │   ├── src/
+    │   │   ├── app/
+    │   │   │   ├── api/                  # API Routes
+    │   │   │   │   ├── bankroll/         # 資金管理API
+    │   │   │   │   ├── predictions/      # 予想データAPI
+    │   │   │   │   └── purchases/        # 購入記録API
+    │   │   │   ├── race-v2/              # レース詳細ページ
+    │   │   │   └── ...
+    │   │   ├── components/
+    │   │   │   ├── bankroll/             # 資金管理コンポーネント
+    │   │   │   ├── race-v2/              # レース表示コンポーネント
+    │   │   │   └── ui/                   # 共通UIコンポーネント
+    │   │   └── hooks/
+    │   │       ├── useBankrollAlerts.ts  # SWRフック
+    │   │       └── ...
+    │   └── .env.local                    # 環境変数（WebViewer用）
+    │
+    └── KeibaCICD.AI/            # ML予想・期待値計算（Python）
+        ├── tools/
+        │   └── target_reader.py          # データ読み込み
+        ├── data/
+        │   └── bankroll/                 # 資金管理データ
+        │       ├── config.json
+        │       └── ...
+        └── .env                          # 環境変数（AI用）
+```
+
+---
+
+## 🔧 各モジュールの役割
+
+### 1. KeibaCICD.keibabook（データスクレイピング）
+
+**技術スタック**: Python
+**目的**: 競馬ブック、netkeiba.comからデータを取得
+
+**主要機能**:
+- レース情報スクレイピング
+- 馬情報スクレイピング
+- Cookie管理
+- HTMLパース
+
+**環境変数**: `.env`（keibabook用）
+
+**出力先**:
+```
+C:\KEIBA-CICD\data2\keibabook\
+├── YYYYMMDD_JJRR.json    # レースデータ
+└── ...
+```
+
+---
+
+### 2. KeibaCICD.TARGET（データ分析・加工）
+
+**技術スタック**: Python
+**目的**: JRA-VANデータを分析し、WebViewer用JSONを生成
+
+**主要機能**:
+- JRA-VANデータ解析
+- 調教データ評価（S/A/B/C/D分類）
+- WebViewer用JSON生成
+- 馬名⇔JRA-VAN ID変換
+
+**環境変数**: `.env`（TARGET用）
+
+**入力元**:
+```
+C:\TFJV\                    # JRA-VANデータ
+```
+
+**出力先**:
+```
+C:\KEIBA-CICD\data2\
+├── training_summary.json   # WebViewer用
+├── horse_index.json        # 馬名検索インデックス
+└── ...
+```
+
+**重要ライブラリ**: `common.jravan`（統一インターフェース）
+
+---
+
+### 3. KeibaCICD.WebViewer（Web表示）
+
+**技術スタック**: Next.js 14 + TypeScript + React 18
+**目的**: レース情報・予想結果を視覚的に表示
+
+**主要機能**:
+- レース詳細表示（調教情報、TARGETコメント等）
+- 資金管理ダッシュボード（Bankroll Alerts）
+- 予想データ表示
+- 購入記録管理
+
+**環境変数**: `.env.local`（WebViewer専用）
+
+**データ取得方法**:
+1. **JSON読み込み**: `C:\KEIBA-CICD\data2\training_summary.json`
+2. **Python連携**: `spawn()` で `KeibaCICD.AI/tools/target_reader.py` を実行
+
+**キャッシング**:
+- **SWR**: クライアントサイドキャッシュ（複数コンポーネント間で共有）
+- **サーバーキャッシュ**: API Route内で1分間キャッシュ
+
+---
+
+### 4. KeibaCICD.AI（ML予想・期待値計算）
+
+**技術スタック**: Python（将来LightGBM/XGBoost導入予定）
+**目的**: 機械学習による予想、期待値計算、購入戦略
+
+**主要機能**:
+- データ読み込み（target_reader.py）
+- 資金管理（bankroll）
+- ML予想（v4.0以降）
+- 期待値計算（v5.0以降）
+
+**環境変数**: `.env`（AI用）
+
+**データ入出力**:
+```
+C:\KEIBA-CICD\data2\
+├── userdata/
+│   └── fund_history.json   # 資金履歴
+└── predictions/            # 予想結果（v4.0以降）
+```
+
+---
+
+### 5. ai-team（AI競馬予想チーム）
+
+**目的**: AI専門エージェントの設定・ガイドライン・ドキュメント
+
+**主要ディレクトリ**:
+- `knowledge/`: システムドキュメント
+- `experts/`: 専門AIエージェント設定（8種類）
+
+**専門エージェント**:
+- カカシ（相談役・技術リーダー）
+- ベンゲル（司令官）
+- キバ（データ追跡）
+- アルテタ（ML予想）
+- シノ（期待値計算）
+- シカマル（購入戦略）
+- サイ（実行記録）
+- ひなた（分析）
+- ナルト（改善学習）
+
+詳細: `@.cursor/rules/ai-team.mdc`
+
+---
+
+## 📊 データフロー
+
+```
+┌─────────────────┐
+│ JRA-VAN         │
+│ (C:\TFJV)       │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│ KeibaCICD.TARGET            │
+│ - parse_ck_data.py          │
+│ - generate_training_summary │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│ C:\KEIBA-CICD\data2\        │
+│ - training_summary.json     │
+│ - horse_index.json          │
+└────────┬────────────────────┘
+         │
+         ├──────────────────────┐
+         │                      │
+         ▼                      ▼
+┌─────────────────┐    ┌─────────────────┐
+│ WebViewer       │    │ KeibaCICD.AI    │
+│ (Next.js)       │    │ (ML/期待値)     │
+│ - SWR Cache     │    │ - target_reader │
+│ - API Routes    │    │ - bankroll      │
+└─────────────────┘    └─────────────────┘
+```
+
+---
+
+## 🔐 環境変数の管理
+
+### WebViewer用（.env.local）
+```env
+KEIBA_DATA_ROOT_DIR=C:\KEIBA-CICD\data2
+JV_DATA_ROOT_DIR=C:\TFJV
+PYTHON_PATH=python
+```
+
+### keibabook/TARGET/AI用（.env）
+```env
+KEIBA_DATA_ROOT_DIR=C:\KEIBA-CICD\data2
+JV_DATA_ROOT_DIR=C:\TFJV
+```
+
+**重要**: WebViewerとPythonモジュールで環境変数ファイルが分かれています。
+
+---
+
+## 🚀 バージョン管理
+
+### v3.0（現在）
+- ドキュメント整理完了
+- データパス変更（E:\share → C:\）
+- ai-team、KeibaCICD.AI統合
+
+### v3.1（次期）
+- フロントエンド最適化（SWR、React.memo、react-window）
+- 期待効果: 50-70%パフォーマンス改善
+
+### v4.0以降
+- Clean Architecture導入
+- ML予想実用化（LightGBM/XGBoost）
+- 期待値計算システム
+
+詳細: `keiba-cicd-core/ai-team/knowledge/ROADMAP.md`
+
+---
+
+## 📚 参照ドキュメント
+
+- **システム全体構成**: `keiba-cicd-core/ai-team/knowledge/ARCHITECTURE.md`
+- **モジュール詳細**: `keiba-cicd-core/ai-team/knowledge/MODULE_OVERVIEW.md`
+- **環境構築**: `keiba-cicd-core/ai-team/knowledge/SETUP_GUIDE.md`
+- **JRA-VANライブラリ**: `keiba-cicd-core/KeibaCICD.TARGET/docs/jravan/`
+- **AIチームガイドライン**: `keiba-cicd-core/ai-team/knowledge/CLAUDE.md`
+
+---
+
+**最終更新**: 2026-02-07（カカシ）
