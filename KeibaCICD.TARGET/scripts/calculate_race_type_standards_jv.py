@@ -365,7 +365,7 @@ def calculate_standards(results_by_course: Dict[str, List[RaceInfo]],
     
     # Find similar courses
     print("\n[STEP 2c] Finding similar courses...")
-    similar = find_similar_courses(course_stats, threshold=0.8)
+    similar = find_similar_courses(course_stats, threshold=0.5)
     
     # Format similar courses for output
     for course, similar_list in similar.items():
@@ -381,11 +381,11 @@ def print_similar_courses_report(standards: Dict):
     courses = standards.get("courses", {})
     
     if not similar:
-        print("\n  No similar courses found (threshold 0.8)")
+        print("\n  No similar courses found (threshold 0.5)")
         return
     
     print("\n" + "=" * 70)
-    print("Similar Courses Report (RPCI diff <= 0.8)")
+    print("Similar Courses Report (RPCI diff <= 0.5)")
     print("=" * 70)
     
     # Group by surface type

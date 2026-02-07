@@ -5,11 +5,12 @@
  * コース別のレース特性（瞬発戦/持続戦）傾向を表示
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { RpciGauge, RpciBar, StatCard } from '@/components/ui/visualization';
+import { cn } from '@/lib/utils';
 
 // 型定義
 interface RpciStats {
@@ -96,12 +97,40 @@ function formatDistanceGroup(groupKey: string): string {
   return groupKey;
 }
 
+// コースキーをパース
+function parseCourseKey(courseKey: string): { venue: string; surface: string; distance: number } | null {
+  const parts = courseKey.split('_');
+  if (parts.length < 3) return null;
+  const distance = parseInt(parts.slice(2).join('').replace('m', ''), 10);
+  if (isNaN(distance)) return null;
+  return { venue: parts[0], surface: parts[1], distance };
+}
+
+// 距離帯を判定
+function getDistanceRange(distance: number): string {
+  if (distance <= 1200) return '1200';
+  if (distance <= 1600) return '1400-1600';
+  if (distance <= 2200) return '1800-2200';
+  return '2400';
+}
+
+const VENUE_LIST = [
+  { key: 'Tokyo', label: '東京' }, { key: 'Nakayama', label: '中山' },
+  { key: 'Hanshin', label: '阪神' }, { key: 'Kyoto', label: '京都' },
+  { key: 'Chukyo', label: '中京' }, { key: 'Niigata', label: '新潟' },
+  { key: 'Sapporo', label: '札幌' }, { key: 'Hakodate', label: '函館' },
+  { key: 'Kokura', label: '小倉' }, { key: 'Fukushima', label: '福島' },
+] as const;
+
 export default function RpciAnalysisPage() {
   const [data, setData] = useState<RpciStandardsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'distance' | 'course' | 'similar'>('distance');
   const [searchQuery, setSearchQuery] = useState('');
+  const [surfaceFilter, setSurfaceFilter] = useState<'all' | 'Turf' | 'Dirt'>('all');
+  const [distanceFilter, setDistanceFilter] = useState<string>('all');
+  const [venueFilter, setVenueFilter] = useState<string>('all');
 
   const fetchData = async () => {
     setLoading(true);
@@ -126,15 +155,91 @@ export default function RpciAnalysisPage() {
   }, []);
 
   // コースをフィルタリング
-  const filteredCourses = data?.courses
-    ? Object.entries(data.courses)
-        .filter(([key]) => 
-          searchQuery === '' || 
-          formatCourseName(key).includes(searchQuery) ||
-          key.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-        .sort((a, b) => b[1].rpci.mean - a[1].rpci.mean)
-    : [];
+  const filteredCourses = useMemo(() => {
+    if (!data?.courses) return [];
+    return Object.entries(data.courses)
+      .filter(([key]) => {
+        if (searchQuery !== '') {
+          const matches = formatCourseName(key).includes(searchQuery) ||
+            key.toLowerCase().includes(searchQuery.toLowerCase());
+          if (!matches) return false;
+        }
+        const parsed = parseCourseKey(key);
+        if (!parsed) return false;
+        if (surfaceFilter !== 'all' && parsed.surface !== surfaceFilter) return false;
+        if (distanceFilter !== 'all' && getDistanceRange(parsed.distance) !== distanceFilter) return false;
+        if (venueFilter !== 'all' && parsed.venue !== venueFilter) return false;
+        return true;
+      })
+      .sort((a, b) => b[1].rpci.mean - a[1].rpci.mean);
+  }, [data, searchQuery, surfaceFilter, distanceFilter, venueFilter]);
+
+  // フィルタされた類似コース
+  const filteredSimilarCourses = useMemo(() => {
+    if (!data?.similar_courses) return [];
+    const hasFilter = surfaceFilter !== 'all' || distanceFilter !== 'all' || venueFilter !== 'all';
+    return Object.entries(data.similar_courses)
+      .filter(([course, similar]) => {
+        if (similar.length === 0) return false;
+        if (!hasFilter) return true;
+        const parsed = parseCourseKey(course);
+        if (!parsed) return false;
+        if (surfaceFilter !== 'all' && parsed.surface !== surfaceFilter) return false;
+        if (distanceFilter !== 'all' && getDistanceRange(parsed.distance) !== distanceFilter) return false;
+        if (venueFilter !== 'all' && parsed.venue !== venueFilter) return false;
+        return true;
+      })
+      .sort((a, b) => b[1].length - a[1].length);
+  }, [data, surfaceFilter, distanceFilter, venueFilter]);
+
+  const hasActiveFilter = surfaceFilter !== 'all' || distanceFilter !== 'all' || venueFilter !== 'all';
+  const btnClass = (active: boolean) => cn(
+    'px-3 py-1 text-xs rounded-full border transition-colors',
+    active
+      ? 'bg-blue-500 text-white border-blue-500'
+      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600'
+  );
+  const resetFilters = () => { setSurfaceFilter('all'); setDistanceFilter('all'); setVenueFilter('all'); };
+
+  const renderFilters = (matchCount?: number) => (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">芝/ダート</span>
+        {(['all', 'Turf', 'Dirt'] as const).map((v) => (
+          <button key={v} onClick={() => setSurfaceFilter(v)} className={btnClass(surfaceFilter === v)}>
+            {v === 'all' ? '全て' : v === 'Turf' ? '芝' : 'ダート'}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">距離帯</span>
+        {[{ k: 'all', l: '全て' }, { k: '1200', l: '~1200m' }, { k: '1400-1600', l: '1400-1600m' }, { k: '1800-2200', l: '1800-2200m' }, { k: '2400', l: '2400m+' }].map(({ k, l }) => (
+          <button key={k} onClick={() => setDistanceFilter(k)} className={btnClass(distanceFilter === k)}>
+            {l}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">競馬場</span>
+        <button onClick={() => setVenueFilter('all')} className={btnClass(venueFilter === 'all')}>全て</button>
+        {VENUE_LIST.map(({ key, label }) => (
+          <button key={key} onClick={() => setVenueFilter(key)} className={btnClass(venueFilter === key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {hasActiveFilter && (
+        <div className="flex items-center gap-2 pt-1">
+          <button onClick={resetFilters} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+            フィルタをリセット
+          </button>
+          {matchCount !== undefined && (
+            <span className="text-xs text-muted-foreground">({matchCount}件)</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="container py-6 max-w-6xl">
@@ -345,6 +450,8 @@ export default function RpciAnalysisPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {renderFilters(filteredCourses.length)}
+
                 <input
                   type="text"
                   placeholder="コース名で検索（例: 東京芝2000）"
@@ -398,22 +505,27 @@ export default function RpciAnalysisPage() {
               <CardHeader>
                 <CardTitle className="text-lg">類似コース分析</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  RPCI差が0.8以下のコースを「類似」と判定しています
+                  RPCI差が0.5以下のコースを「類似」と判定しています
                 </p>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                {renderFilters(filteredSimilarCourses.length)}
+
                 <div className="max-h-[600px] overflow-y-auto space-y-3">
-                  {Object.entries(data.similar_courses)
-                    .filter(([_, similar]) => similar.length > 0)
-                    .sort((a, b) => b[1].length - a[1].length)
+                  {filteredSimilarCourses
                     .map(([course, similarCourses]) => {
                       const courseData = data.courses[course];
+                      const courseTrend = getRpciTrend(courseData?.rpci.mean ?? 50);
                       return (
-                        <div key={course} className="bg-slate-50 rounded-lg p-4">
+                        <div key={course} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4">
                           <div className="font-medium flex items-center gap-2">
                             {formatCourseName(course)}
                             <span className="text-xs font-mono text-muted-foreground">
                               RPCI: {courseData?.rpci.mean.toFixed(2)}
+                            </span>
+                            <span className={cn('flex items-center gap-1 text-xs', courseTrend.color)}>
+                              {courseTrend.icon}
+                              {courseTrend.label}
                             </span>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -422,14 +534,18 @@ export default function RpciAnalysisPage() {
                               const diff = similarData && courseData
                                 ? Math.abs(similarData.rpci.mean - courseData.rpci.mean)
                                 : 0;
+                              const similarTrend = getRpciTrend(similarData?.rpci.mean ?? 50);
                               return (
                                 <span
                                   key={similar}
-                                  className="inline-flex items-center gap-1 bg-white px-3 py-1.5 rounded text-sm border"
+                                  className="inline-flex items-center gap-1 bg-white dark:bg-slate-700 px-3 py-1.5 rounded text-sm border dark:border-slate-600"
                                 >
                                   {formatCourseName(similar)}
                                   <span className="text-muted-foreground text-xs">
                                     (差: {diff.toFixed(2)})
+                                  </span>
+                                  <span className={cn('ml-0.5', similarTrend.color)}>
+                                    {similarTrend.icon}
                                   </span>
                                 </span>
                               );
@@ -438,9 +554,9 @@ export default function RpciAnalysisPage() {
                         </div>
                       );
                     })}
-                  {Object.values(data.similar_courses).every(arr => arr.length === 0) && (
+                  {filteredSimilarCourses.length === 0 && (
                     <div className="py-8 text-center text-muted-foreground">
-                      類似コースのデータがありません
+                      {hasActiveFilter ? '該当する類似コースがありません' : '類似コースのデータがありません'}
                     </div>
                   )}
                 </div>
