@@ -6,6 +6,21 @@
 
 ---
 
+## 📑 目次
+
+- [システム構成](#-システム構成)
+- [モジュール概要](#-モジュール概要)
+- [ドキュメント](#-ドキュメント)
+- [クイックスタート](#-クイックスタート)
+- [WebViewer 起動・運用](#-webviewer-起動運用)
+- [環境変数](#-環境変数)
+- [データフロー](#-データフロー)
+- [プロジェクトの目的](#-プロジェクトの目的)
+- [サポート](#-サポート)
+- [バージョン履歴](#-バージョン履歴)
+
+---
+
 ## 🏗️ システム構成
 
 KeibaCICDは3つの独立モジュールで構成されています：
@@ -21,13 +36,13 @@ KeibaCICDは3つの独立モジュールで構成されています：
     │ 共有データストア │
     └──────┬───────┘
            │
-    ┌──────┴────────┬─────────────┐
-    ↓               ↓             ↓
-┌────────────┐ ┌────────────┐ ┌──────────────┐
-│ KeibaCICD  │ │ KeibaCICD  │ │  KeibaCICD   │
-│  .TARGET   │ │.WebViewer  │ │  .JraVanSync │
-│ 分析・ML   │ │ Web表示    │ │  補助ツール  │
-└────────────┘ └────────────┘ └──────────────┘
+    ┌──────┴────────┬─────────────┬─────────────┐
+    ↓               ↓             ↓             ↓
+┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────┐
+│ KeibaCICD  │ │ KeibaCICD  │ │ KeibaCICD  │ │  KeibaCICD   │
+│  .TARGET   │ │.WebViewer  │ │    .AI     │ │  .JraVanSync │
+│ 分析・ML   │ │ Web表示    │ │ ML予想     │ │  補助ツール  │
+└────────────┘ └────────────┘ └────────────┘ └──────────────┘
 ```
 
 ---
@@ -94,6 +109,26 @@ npm run dev
 
 ---
 
+### 4. [KeibaCICD.AI](./KeibaCICD.AI/) - ML予想・期待値計算層
+
+**役割**: 機械学習による予想・期待値計算・購入戦略
+
+**主要機能**:
+- データ読み込み（target_reader.py）
+- 資金管理（Bankroll Management）
+- ML予想（v4.0以降: LightGBM/XGBoost）
+- 期待値計算（v5.0以降）
+
+**技術**: Python 3.8+, LightGBM, XGBoost（将来）
+
+**クイックスタート**:
+```bash
+cd KeibaCICD.AI
+python tools/target_reader.py
+```
+
+---
+
 ## 📚 ドキュメント
 
 ### 🎯 はじめに読むドキュメント
@@ -106,11 +141,49 @@ npm run dev
 | **[CLAUDE.md](ai-team/knowledge/CLAUDE.md)** | AIエージェントチーム統合ガイドライン | AIエージェント |
 | **[DATA_SPECIFICATION.md](ai-team/knowledge/DATA_SPECIFICATION.md)** | データ仕様書 | 全員 |
 
-### 📖 詳細ドキュメント
+### 📖 目的別ガイド
 
-- **[プロジェクト計画](./docs/project/project-plan.md)** - 3年計画・フェーズ定義
-- **[開発ガイドライン](./docs/development/development-guidelines.md)** - コーディング規約
-- **[JRA-VAN使用ガイド](./KeibaCICD.TARGET/docs/jravan/USAGE_GUIDE.md)** - JRA-VANライブラリ
+<details>
+<summary>プロジェクト全体を理解したい</summary>
+
+→ [ai-team/knowledge/CLAUDE.md](ai-team/knowledge/CLAUDE.md) - チームガイドライン v1.0
+
+</details>
+
+<details>
+<summary>データ構造を知りたい</summary>
+
+→ [ai-team/knowledge/DATA_SPECIFICATION.md](ai-team/knowledge/DATA_SPECIFICATION.md) - データ仕様統一版
+
+</details>
+
+<details>
+<summary>WebViewer APIを使いたい</summary>
+
+→ [KeibaCICD.WebViewer/docs/api/WEBVIEWER_API_SPECIFICATION.md](./KeibaCICD.WebViewer/docs/api/WEBVIEWER_API_SPECIFICATION.md) - 全34API詳細
+
+</details>
+
+<details>
+<summary>JRA-VANデータを使いたい</summary>
+
+→ [KeibaCICD.TARGET/docs/jravan/](./KeibaCICD.TARGET/docs/jravan/) - JRA-VAN統一仕様書
+
+</details>
+
+<details>
+<summary>AIエージェントを実装したい</summary>
+
+→ [ai-team/knowledge/AI_DATA_ACCESS_GUIDE.md](ai-team/knowledge/AI_DATA_ACCESS_GUIDE.md) - AI実装完全ガイド
+
+</details>
+
+<details>
+<summary>ML戦略・投資フレームワークを知りたい</summary>
+
+→ [ai-team/ml/docs/BETTING_STRATEGY_FRAMEWORK.md](ai-team/ml/docs/BETTING_STRATEGY_FRAMEWORK.md) - 投資戦略フレームワーク
+
+</details>
 
 ---
 
@@ -174,6 +247,85 @@ npm run dev
 
 ---
 
+## 🖥️ WebViewer 起動・運用
+
+### 起動方法
+
+```powershell
+# 環境変数設定
+$env:KEIBA_DATA_ROOT_DIR = "C:\KEIBA-CICD\data2"
+$env:JV_DATA_ROOT_DIR = "C:\TFJV"
+
+cd .\keiba-cicd-core\KeibaCICD.WebViewer
+npm run dev
+```
+
+ブラウザで http://localhost:3000 を開きます。
+
+### 主要ページ
+
+| ページ | URL | 説明 |
+|:---|:---|:---|
+| トップ | http://localhost:3000 | 日付選択・レース一覧 |
+| 管理画面 | http://localhost:3000/admin | keibabookデータ取得・バッチ実行 |
+| 馬検索 | http://localhost:3000/horses | 馬名検索・プロファイル表示 |
+| マルチビュー | http://localhost:3000/multi-view | JRA映像並列表示（2画面/4画面） |
+
+### トラブルシューティング
+
+<details>
+<summary>馬場コンディション（クッション値・含水率）が表示されない場合</summary>
+
+レース結果分析画面で「馬場: クッション ○○ / G前 ○○% …」が出ないときは、次を確認してください。
+
+1. **JV_DATA_ROOT_DIR**
+   - BABA の CSV は `JV_DATA_ROOT_DIR/_BABA` を参照します
+   - 未設定時は `C:\TFJV` になります
+
+2. **race_info.json と kaisai_data**
+   - 該当日の `race_info.json` に `kaisai_data` があること
+   - kaisai_data から「回・日」を取得して BABA の RX_ID を組み立てます
+
+3. **BABA の CSV ファイル**
+   - `JV_DATA_ROOT_DIR/_BABA` の下に以下のファイルが必要:
+     - `cushion2026.csv`（クッション値）
+     - `moistureG_2026.csv`（ゴール前含水率）
+     - `moisture4_2026.csv`（4コーナー含水率）
+
+4. **デバッグAPI**
+   - `http://localhost:3000/api/debug/baba?date=2026-01-25&track=京都&raceId=202601250809`
+   - どこで止まっているか確認できます
+
+</details>
+
+<details>
+<summary>レース一覧が「この月にはレースデータがありません」となる場合</summary>
+
+- レース一覧は次のどちらかで「データあり」とみなします:
+  1. 競馬場フォルダ＋MD出走表（.md）がある日
+  2. `race_info.json`（`kaisai_data` あり）がある日
+- キャッシュ: `DATA_ROOT/cache/race_date_index.json`
+- 古いキャッシュは自動で再ビルドされます
+
+</details>
+
+<details>
+<summary>Turbopack FATAL エラーが出る場合</summary>
+
+Next.js 16では開発時にTurbopackがデフォルトで使われます。エラーが出る場合:
+
+```powershell
+cd .\keiba-cicd-core\KeibaCICD.WebViewer
+npm run dev  # webpack で起動（推奨）
+```
+
+- Node.js >=20.9.0 が必要です
+- `npm run dev` を使用（`next dev` を直接実行しない）
+
+</details>
+
+---
+
 ## 🔧 環境変数
 
 ### keibabook / TARGET
@@ -182,8 +334,8 @@ npm run dev
 
 ```ini
 # データディレクトリ
-KEIBA_DATA_ROOT_DIR=E:\share\KEIBA-CICD\data2
-JV_DATA_ROOT_DIR=E:\TFJV
+KEIBA_DATA_ROOT_DIR=C:\KEIBA-CICD\data2
+JV_DATA_ROOT_DIR=C:\TFJV
 
 # 競馬ブック認証（要手動設定）
 KEIBABOOK_SESSION=your_session_token
@@ -258,4 +410,4 @@ KeibaCICD.TARGET    KeibaCICD.WebViewer
 
 **プロジェクトオーナー**: ふくだ君
 **AI相談役**: カカシ
-**最終更新**: 2026-02-06
+**最終更新**: 2026-02-07
