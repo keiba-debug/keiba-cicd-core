@@ -8,9 +8,10 @@ import { Metadata } from 'next';
 import Link from 'next/link';
 import { getIntegratedHorseData } from '@/lib/data/integrated-horse-reader';
 import { getHorseCommentByName, getKettoNumByName, getHorseComment } from '@/lib/data/target-comment-reader';
-import { 
-  HorseHeader, 
-  HorsePastRacesTable, 
+import { findKettoNumFromRecentTraining } from '@/lib/data/training-summary-reader';
+import {
+  HorseHeader,
+  HorsePastRacesTable,
   HorseStatsSection,
   HorseCommentEditor,
   HorseAnalysisSection,
@@ -54,8 +55,8 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
 
   const { basic, pastRaces, stats } = horseData;
 
-  // 馬名からkettoNumを取得
-  const kettoNum = getKettoNumByName(basic.name) || '';
+  // 馬名からkettoNumを取得（初出走馬はtraining_summaryからフォールバック）
+  const kettoNum = getKettoNumByName(basic.name) || findKettoNumFromRecentTraining(basic.name) || '';
   
   // TARGETの馬コメントを取得
   const targetComment = kettoNum ? getHorseComment(kettoNum) : null;
@@ -118,15 +119,17 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
               <span className="text-sm">📊</span>
               調教履歴
             </a>
-            <a
-              href={`https://db.netkeiba.com/horse/ped/${id}/`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 text-green-800 dark:text-green-300 rounded transition-colors"
-            >
-              <span className="text-sm">🐴</span>
-              netkeiba
-            </a>
+            {kettoNum && (
+              <a
+                href={`https://db.netkeiba.com/horse/result/${kettoNum}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 text-green-800 dark:text-green-300 rounded transition-colors"
+              >
+                <span className="text-sm">🐴</span>
+                netkeiba
+              </a>
+            )}
             {basic.trainerLink && (
               <a
                 href={basic.trainerLink}
