@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
 import { BabaInputForm } from '@/components/baba/BabaInputForm';
-import { BabaSummaryBadges } from '@/components/baba/BabaSummaryBadges';
 import { ChevronLeft, ChevronRight, MessageCircle, TrendingUp } from 'lucide-react';
 import { RefreshButton } from '@/components/ui/refresh-button';
 
@@ -349,18 +348,13 @@ async function DateRaces({ date }: { date: string }) {
                     track={trackGroup.track}
                     kai={trackGroup.races[0]?.kai}
                     nichi={trackGroup.races[0]?.nichi}
+                    babaSummary={babaSummaryMap.get(trackGroup.track)}
                   />
                   <div className="text-xs font-mono text-muted-foreground">
                     12R
                   </div>
                 </div>
               </div>
-              {/* 馬場情報バッジ */}
-              {babaSummaryMap.get(trackGroup.track)?.hasData && (
-                <div className="mt-2 pt-2 border-t border-border/30">
-                  <BabaSummaryBadges summary={babaSummaryMap.get(trackGroup.track) ?? null} />
-                </div>
-              )}
             </CardHeader>
             
             <CardContent className="p-0">
