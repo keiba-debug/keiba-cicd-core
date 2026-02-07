@@ -18,6 +18,8 @@ import { getRatingStandards } from '@/lib/data/rating-standards-reader';
 import { getBabaCondition, trackToSurface } from '@/lib/data/baba-reader';
 import { getRaceAllComments, getHorseCommentsBatch, type RaceHorseComment, type HorseComment } from '@/lib/data/target-comment-reader';
 import { getRaceMarks, type RaceMarks } from '@/lib/data/target-mark-reader';
+import { getRecentFormBatch, type RecentFormData } from '@/lib/data/target-race-result-reader';
+import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -237,6 +239,43 @@ export default async function RaceDetailPage({ params }: PageParams) {
     .filter((id): id is string => !!id);
   const horseCommentsMap = getHorseCommentsBatch(kettoNumList);
 
+  // 直近戦績取得（SE_DATA）
+  // 馬番→kettoNumマッピングを構築
+  const horseNumToKettoNum = new Map<number, string>();
+  for (const e of raceData.entries) {
+    const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
+    const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
+    if (summary?.kettoNum) {
+      horseNumToKettoNum.set(e.horse_number, summary.kettoNum);
+    }
+  }
+  const beforeDate = date.replace(/-/g, ''); // YYYYMMDD
+  const recentFormRaw = getRecentFormBatch(
+    Array.from(horseNumToKettoNum.values()),
+    beforeDate,
+    5
+  );
+  // 馬番→RecentFormData[] に変換（リンクURL解決付き）
+  const recentFormMap: Record<number, RecentFormData[]> = {};
+  for (const [horseNum, kettoNum] of horseNumToKettoNum) {
+    const forms = recentFormRaw.get(kettoNum);
+    if (forms && forms.length > 0) {
+      // 各レースのリンクURLを解決
+      for (const form of forms) {
+        const d = form.raceDate;
+        const dayPath = `${process.env.DATA_ROOT || 'C:/KEIBA-CICD/data2'}/races/${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}`;
+        // JRA-VAN 16桁ID: YYYYMMDD + venueCode(2) + kai(2) + nichi(2) + raceNum(2)
+        const jraRaceId = `${d}${form.venueCode}${String(form.kai).padStart(2, '0')}${String(form.nichi).padStart(2, '0')}${String(form.raceNumber).padStart(2, '0')}`;
+        const keibabookId = resolveKeibabookRaceId(jraRaceId, dayPath);
+        if (keibabookId) {
+          const dateStr = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+          form.href = `/races-v2/${dateStr}/${encodeURIComponent(form.venue)}/${keibabookId}`;
+        }
+      }
+      recentFormMap[horseNum] = forms;
+    }
+  }
+
   // 外部リンクURL生成
   const [year, month, dayStr] = date.split('-');
   const keibabookUrl = `https://p.keibabook.co.jp/cyuou/syutsuba/${year}${month}${dayStr}${id.slice(-4, -2)}${id.slice(-2).padStart(2, '0')}`;
@@ -410,13 +449,14 @@ export default async function RaceDetailPage({ params }: PageParams) {
           }}
           kaisaiInfo={kaisaiInfoForEdit}
           targetMarks={
-            (targetMarks || targetMarks2) 
-              ? { 
-                  horseMarks: targetMarks?.horseMarks || {}, 
-                  horseMarks2: targetMarks2?.horseMarks || {} 
-                } 
+            (targetMarks || targetMarks2)
+              ? {
+                  horseMarks: targetMarks?.horseMarks || {},
+                  horseMarks2: targetMarks2?.horseMarks || {}
+                }
               : undefined
           }
+          recentFormMap={recentFormMap}
         />
 
         {/* データ情報（フッター） */}

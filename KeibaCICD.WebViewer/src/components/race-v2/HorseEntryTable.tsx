@@ -29,8 +29,10 @@ import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH,
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { MessageSquareText } from 'lucide-react';
+import { TrendIndicator, type RecentFormEntry } from '@/components/ui/visualization';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
+import type { RecentFormData } from '@/lib/data/target-race-result-reader';
 
 /** TARGETコメント（馬番→コメント） */
 interface TargetCommentsMap {
@@ -53,11 +55,30 @@ interface HorseEntryTableProps {
   targetComments?: TargetCommentsMap;
   /** TARGET馬印（My印） */
   targetMarks?: TargetMarksMap;
+  /** 直近戦績（馬番→RecentFormData[]） */
+  recentFormMap?: Record<number, RecentFormData[]>;
 }
 
 // =============================================================================
 // モジュールスコープのヘルパー関数（純粋関数・レンダリングごとの再生成なし）
 // =============================================================================
+
+// RecentFormData → RecentFormEntry 変換（リンク+ツールチップ付き着順ドット用）
+function toRecentFormEntries(forms: RecentFormData[]): RecentFormEntry[] {
+  return forms.map(f => {
+    const result = f.finishPosition === 1 ? '1st'
+      : f.finishPosition === 2 ? '2nd'
+      : f.finishPosition === 3 ? '3rd'
+      : 'out' as const;
+    const d = f.raceDate;
+    const dateLabel = `${d.slice(4, 6)}/${d.slice(6, 8)}`;
+    return {
+      result,
+      href: f.href,
+      label: `${f.finishPosition}着 ${f.venue}${f.raceNumber}R (${dateLabel})`,
+    };
+  });
+}
 
 // レイティング文字列を数値に変換するヘルパー
 function parseRating(rating: string | number | undefined | null): number {
@@ -126,15 +147,6 @@ function getPaddockMarkBgColor(mark?: string): string {
   }
 }
 
-// 調教矢印のセル背景色
-function getTrainingBgColor(arrow?: string): string {
-  if (!arrow) return '';
-  switch (arrow) {
-    case '↗': return 'bg-green-100 dark:bg-green-900/30';
-    case '↘': return 'bg-red-100 dark:bg-red-900/30';
-    default: return '';
-  }
-}
 
 // AI指数ランクのセル背景色（レース内順位ベース）
 function getAiIndexColor(aiIndex: string | number | undefined, rank: number, secondValue: number, totalCount: number): string {
@@ -350,6 +362,7 @@ interface HorseEntryRowProps {
   horseComment?: HorseComment;
   myMark?: string;
   myMark2?: string;
+  recentForm?: RecentFormData[];
 }
 
 const HorseEntryRow = React.memo(function HorseEntryRow({
@@ -368,6 +381,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   horseComment,
   myMark,
   myMark2,
+  recentForm,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
@@ -408,7 +422,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         {myMark2 || '-'}
       </td>
 
-      {/* 馬名 + TARGETコメント */}
+      {/* 馬名 + TARGETコメント + 直近戦績 */}
       <td className="px-2 py-1.5 border">
         <div className="flex items-center gap-1">
           <Link
@@ -440,6 +454,14 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
             </span>
           )}
         </div>
+        {recentForm && recentForm.length > 0 && (
+          <TrendIndicator
+            results={[]}
+            entries={toRecentFormEntries(recentForm)}
+            size="sm"
+            className="mt-0.5"
+          />
+        )}
       </td>
 
       {/* 性齢 */}
@@ -511,25 +533,6 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
       </td>
 
 
-      {/* 調教 */}
-      <td className={cn(
-        "px-2 py-1.5 text-center border",
-        getTrainingBgColor(training_data?.training_arrow)
-      )}>
-        <span className={cn(
-          "inline-flex items-center justify-center w-6 h-6 rounded-full text-sm font-bold",
-          training_data?.training_arrow === '↗' && "bg-green-500 text-white",
-          training_data?.training_arrow === '↘' && "bg-red-500 text-white",
-          training_data?.training_arrow === '→' && "bg-gray-300 text-gray-700 dark:bg-gray-600 dark:text-gray-300"
-        )}>
-          {training_data?.training_arrow || training_data?.evaluation || '-'}
-        </span>
-      </td>
-
-      {/* 調教短評 */}
-      <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
-        {training_data?.short_review || '-'}
-      </td>
 
       {/* パドック評価 */}
       <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getPaddockMarkBgColor(entry.paddock_info?.mark)}`}>
@@ -572,6 +575,7 @@ export default function HorseEntryTable({
   trainingSummaryMap = {},
   targetComments,
   targetMarks,
+  recentFormMap,
 }: HorseEntryTableProps) {
   // 馬番順にソート（useMemoでキャッシュ）
   const sortedEntries = useMemo(
@@ -637,8 +641,6 @@ export default function HorseEntryTable({
             <th className="px-2 py-2 text-center border w-12">レート</th>
             <th className="px-2 py-2 text-center border w-10">P</th>
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
-            <th className="px-2 py-2 text-center border w-10">調教</th>
-            <th className="px-2 py-2 text-left border min-w-28">調教短評</th>
             <th className="px-2 py-2 text-center border w-12">パ評価</th>
             <th className="px-2 py-2 text-left border min-w-24">パコメント</th>
             {showResult && (
@@ -669,6 +671,7 @@ export default function HorseEntryTable({
               horseComment={targetComments?.horseComments?.[entry.horse_number]}
               myMark={targetMarks?.horseMarks[entry.horse_number]}
               myMark2={targetMarks?.horseMarks2?.[entry.horse_number]}
+              recentForm={recentFormMap?.[entry.horse_number]}
             />
           ))}
         </tbody>

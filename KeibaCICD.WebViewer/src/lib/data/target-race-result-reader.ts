@@ -85,6 +85,17 @@ function venueCodeToName(code: string): string {
 }
 
 /**
+ * 競馬場名からコードに変換
+ */
+function venueNameToCode(name: string): string {
+  const codes: Record<string, string> = {
+    '札幌': '01', '函館': '02', '福島': '03', '新潟': '04', '東京': '05',
+    '中山': '06', '中京': '07', '京都': '08', '阪神': '09', '小倉': '10',
+  };
+  return codes[name] || '00';
+}
+
+/**
  * SE_DATAのSU*.DATファイル一覧を取得
  */
 function getSuDatFiles(years?: number[]): string[] {
@@ -364,4 +375,67 @@ export function preloadTargetRaceIndex(): void {
  */
 export function isTargetSeDataAvailable(): boolean {
   return fs.existsSync(SE_DATA_PATH);
+}
+
+/** 直近戦績エントリ（着順 + レースリンク情報） */
+export interface RecentFormData {
+  finishPosition: number;
+  raceDate: string;    // YYYYMMDD
+  venue: string;       // 競馬場名
+  venueCode: string;   // 競馬場コード（JRA-VAN 2桁）
+  kai: number;         // 回
+  nichi: number;       // 日
+  raceNumber: number;
+  raceId: string;      // TARGET形式のレースID
+  /** レース詳細ページへのリンク（Server Componentで解決） */
+  href?: string;
+}
+
+/**
+ * 複数馬の直近戦績を一括取得（レース日以前に限定）
+ * @param kettoNums kettoNum配列
+ * @param beforeDate 基準日 YYYYMMDD（この日より前のレースのみ）
+ * @param maxRaces 各馬の最大取得数
+ * @returns 馬番号 → RecentFormData[] のMap
+ */
+export function getRecentFormBatch(
+  kettoNums: string[],
+  beforeDate: string,
+  maxRaces: number = 5
+): Map<string, RecentFormData[]> {
+  buildHorseRaceIndexIfNeeded();
+
+  const result = new Map<string, RecentFormData[]>();
+
+  for (const kettoNum of kettoNums) {
+    const normalizedId = kettoNum.padStart(10, '0');
+    const entries = horseRaceIndexCache.get(normalizedId);
+    if (!entries || entries.length === 0) continue;
+
+    const races: TargetRaceResult[] = [];
+    for (const { file, offset } of entries) {
+      const buffer = getBufferCached(file);
+      if (!buffer) continue;
+      const record = parseSeRecord(buffer, offset);
+      if (record && record.raceDate < beforeDate && record.finishPosition > 0) {
+        races.push(record);
+      }
+    }
+
+    // 日付降順 → 直近N走
+    races.sort((a, b) => b.raceDate.localeCompare(a.raceDate));
+
+    result.set(kettoNum, races.slice(0, maxRaces).map(r => ({
+      finishPosition: r.finishPosition,
+      raceDate: r.raceDate,
+      venue: r.venue,
+      venueCode: venueNameToCode(r.venue),
+      kai: r.kai,
+      nichi: r.nichi,
+      raceNumber: r.raceNumber,
+      raceId: r.raceId,
+    })));
+  }
+
+  return result;
 }

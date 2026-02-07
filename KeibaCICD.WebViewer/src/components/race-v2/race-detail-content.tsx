@@ -55,6 +55,7 @@ import type { BabaCondition } from '@/lib/data/baba-reader';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
 import type { TargetMarksMap } from './HorseEntryTable';
+import type { RecentFormData } from '@/lib/data/target-race-result-reader';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
 import { POSITIVE_BG } from '@/lib/positive-colors';
 
@@ -95,11 +96,13 @@ interface RaceDetailContentProps {
   kaisaiInfo?: KaisaiInfo;
   /** TARGET馬印（My印） */
   targetMarks?: TargetMarksMap;
+  /** 直近戦績（馬番→RecentFormData[]） */
+  recentFormMap?: Record<number, RecentFormData[]>;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -240,12 +243,13 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                   <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} raceInfo={raceInfoForComments} trainingSummaryMap={trainingSummaryMap} onSaved={handleCommentSaved} />
                 </div>
               </div>
-              <HorseEntryTable 
+              <HorseEntryTable
                 entries={raceData.entries}
                 showResult={showResults}
                 trainingSummaryMap={trainingSummaryMap}
                 targetComments={targetComments}
                 targetMarks={targetMarks}
+                recentFormMap={recentFormMap}
               />
             </div>
           </TabsContent>
@@ -352,12 +356,13 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 <TargetCommentsModal entries={raceData.entries} targetComments={targetComments} raceInfo={raceInfoForComments} trainingSummaryMap={trainingSummaryMap} onSaved={handleCommentSaved} />
               </div>
             </div>
-            <HorseEntryTable 
+            <HorseEntryTable
               entries={raceData.entries}
               showResult={showResults}
               trainingSummaryMap={trainingSummaryMap}
               targetComments={targetComments}
               targetMarks={targetMarks}
+              recentFormMap={recentFormMap}
             />
           </div>
 

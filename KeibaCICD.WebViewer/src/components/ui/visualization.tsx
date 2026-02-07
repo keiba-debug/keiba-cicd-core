@@ -117,8 +117,19 @@ export function PerformanceBar({
 
 export type RaceResult = '1st' | '2nd' | '3rd' | 'out';
 
+/** 直近戦績の1走分（リンク情報付き） */
+export interface RecentFormEntry {
+  result: RaceResult;
+  /** レース詳細ページURL（例: /races-v2/2026-01-18/京都/202601080710） */
+  href?: string;
+  /** ツールチップ用ラベル（例: "1着 京都5R"） */
+  label?: string;
+}
+
 interface TrendIndicatorProps {
   results: RaceResult[];
+  /** リンク情報付きエントリ（resultsより優先） */
+  entries?: RecentFormEntry[];
   maxShow?: number;
   size?: 'sm' | 'md';
   className?: string;
@@ -131,34 +142,53 @@ const resultStyles: Record<RaceResult, { bg: string; label: string }> = {
   'out': { bg: 'bg-gray-300 dark:bg-gray-600', label: '×' },
 };
 
-export function TrendIndicator({ 
-  results, 
-  maxShow = 5, 
+export function TrendIndicator({
+  results,
+  entries,
+  maxShow = 5,
   size = 'sm',
-  className 
+  className
 }: TrendIndicatorProps) {
-  const displayResults = results.slice(0, maxShow);
+  // entries が提供されていればそちらを優先
+  const displayEntries: RecentFormEntry[] = entries
+    ? entries.slice(0, maxShow)
+    : results.slice(0, maxShow).map(r => ({ result: r }));
+  const allResults = entries ? entries.map(e => e.result) : results;
   const dotSize = size === 'sm' ? 'w-5 h-5 text-[10px]' : 'w-6 h-6 text-xs';
-  
+
   // 連勝/連敗カウント
-  const streak = calculateStreak(results);
-  
+  const streak = calculateStreak(allResults);
+
+  const defaultTitle = (idx: number, result: RaceResult) =>
+    `${allResults.length - idx}走前: ${result === '1st' ? '1着' : result === '2nd' ? '2着' : result === '3rd' ? '3着' : '着外'}`;
+
   return (
     <div className={cn('flex items-center gap-1', className)}>
       <div className="flex gap-0.5">
-        {displayResults.map((result, idx) => (
-          <div 
-            key={idx}
-            className={cn(
-              'rounded-full flex items-center justify-center font-bold text-white',
-              dotSize,
-              resultStyles[result].bg
-            )}
-            title={`${results.length - idx}走前: ${result === '1st' ? '1着' : result === '2nd' ? '2着' : result === '3rd' ? '3着' : '着外'}`}
-          >
-            {resultStyles[result].label}
-          </div>
-        ))}
+        {displayEntries.map((entry, idx) => {
+          const dot = (
+            <div
+              key={idx}
+              className={cn(
+                'rounded-full flex items-center justify-center font-bold text-white',
+                dotSize,
+                resultStyles[entry.result].bg,
+                entry.href && 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-400'
+              )}
+              title={entry.label || defaultTitle(idx, entry.result)}
+            >
+              {resultStyles[entry.result].label}
+            </div>
+          );
+          if (entry.href) {
+            return (
+              <a key={idx} href={entry.href} target="_blank" rel="noopener noreferrer">
+                {React.cloneElement(dot, { key: undefined })}
+              </a>
+            );
+          }
+          return dot;
+        })}
       </div>
       {streak && (
         <StreakBadge streak={streak} />
