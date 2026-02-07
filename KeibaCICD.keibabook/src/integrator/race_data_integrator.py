@@ -546,7 +546,7 @@ class RaceDataIntegrator:
         else:
             horse_data['paddock_info'] = None
         
-        # 
+        #
         horse_data['past_performances'] = {
             'total_races': 0,
             'wins': 0,
@@ -578,7 +578,7 @@ class RaceDataIntegrator:
                 self.logger.debug(f"Failed to load history features for horse {horse_id}: {e}")
         
         return None
-    
+
     def _analyze_race(self, entries: List[Dict]) -> Dict[str, Any]:
         """
         

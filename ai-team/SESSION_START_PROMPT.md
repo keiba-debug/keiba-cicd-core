@@ -76,87 +76,9 @@
 
 ---
 
-## 📊 現在の開発状況
-
-### ✅ 完成したもの
-
-1. **チーム編成完了**
-   - `ai-team/experts/TEAM_ROSTER.md`
-   - 全メンバーのプロフィール作成中
-
-2. **EVALUATOR（エバちゃん）完成**
-   - `keiba-cicd-core/KeibaCICD.TARGET/ml/betting/evaluator.py`
-   - 期待値計算エンジン
-   - テスト済み（期待値150%以上を検出）
-
-3. **オッズ管理システム**
-   - `ml/betting/odds_manager.py`
-   - `ml/docs/ODDS_MANAGEMENT.md`
-   - ファイルベース実装
-
-4. **戦略フレームワーク**
-   - `ml/docs/BETTING_STRATEGY_FRAMEWORK.md`
-   - 期待値、ケリー基準、リスク管理の理論
-
-5. **プロジェクト分離**
-   - `keiba-ai/` プロジェクト作成
-   - データ収集とAI予想を分離
-
-### ⏳ 次のタスク
-
-**STRATEGIST（シカマル）実装**
-- ケリー基準で最適賭け金計算
-- リスク管理（連敗上限、最大損失）
-- 購入推奨リストの生成
-
----
-
-## 📁 プロジェクト構成
-
-```
-E:\share\KEIBA-CICD\_keiba\
-  ├─ keiba-cicd-core\KeibaCICD.TARGET\  # データ収集
-  │   ├─ scripts/                       # WebViewerから呼ばれる
-  │   └─ common/jravan/                 # 共通ライブラリ
-  │
-  ├─ keiba-ai\                          # AI予想システム
-  │   ├─ ml/                            # 機械学習
-  │   ├─ betting/                       # 購入戦略
-  │   └─ analysis/                      # バックテスト
-  │
-  ├─ webviewer\                         # WebViewer
-  │
-  └─ ai-team\                           # AIチーム定義
-      └─ experts/
-```
-
----
-
-## 🔗 重要なドキュメント
-
-1. **チーム情報**
-   - `ai-team/experts/TEAM_ROSTER.md` - チーム名簿
-   - `ai-team/knowledge/EXPERT_SYSTEM_ARCHITECTURE.md` - システム設計
-
-2. **技術ドキュメント**
-   - `keiba-ai/README.md` - プロジェクト概要
-   - `ml/docs/BETTING_STRATEGY_FRAMEWORK.md` - 購入戦略
-   - `ml/docs/ODDS_MANAGEMENT.md` - オッズ管理
-   - `ml/LEARNING_PLAN.md` - 機械学習プラン
-
-3. **実装ファイル**
-   - `ml/betting/evaluator.py` - 期待値計算（完成）
-   - `ml/betting/odds_manager.py` - オッズ管理（完成）
-
----
-
 ## 💬 セッション開始
 
 今日も一緒に進めていこう、カカシ先生！
 
-**まずは前回の続きから：**
-[ここにふくだ君が具体的な質問や指示を書く]
-
----
-
-*このプロンプトを次回セッション開始時にコピペしてください*
+v3.2の開発に入る前に、マイナーアップートをいくつか対応したいと思います。
+よろしく。
