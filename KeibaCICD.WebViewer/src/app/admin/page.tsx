@@ -45,7 +45,6 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [raceFromInput, setRaceFromInput] = useState('');
   const [raceToInput, setRaceToInput] = useState('');
-  const [trackInput, setTrackInput] = useState('');
 
   // 日付範囲
   const getDefaultDateRange = () => {
@@ -66,8 +65,10 @@ export default function AdminPage() {
 
   // データ品質リフレッシュ用
   const [dataQualityRefreshKey, setDataQualityRefreshKey] = useState(0);
-  const [isDataQualityOpen, setIsDataQualityOpen] = useState(false);
-  const [isSystemHealthOpen, setIsSystemHealthOpen] = useState(false);
+
+  // 折りたたみ状態
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const [isSystemStatusOpen, setIsSystemStatusOpen] = useState(false);
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
     setLogs((prev) => [
@@ -133,17 +134,15 @@ export default function AdminPage() {
     const raceToRaw = dateMode === 'single' && raceToInput ? Number(raceToInput) : undefined;
     const raceFrom = raceFromRaw && raceToRaw && raceFromRaw > raceToRaw ? raceToRaw : raceFromRaw;
     const raceTo = raceFromRaw && raceToRaw && raceFromRaw > raceToRaw ? raceFromRaw : raceToRaw;
-    const track = dateMode === 'single' && trackInput ? trackInput : undefined;
     const shouldApplyRaceFilter = ['paddok', 'seiseki', 'batch_after_race'].includes(action);
     const raceInfo = shouldApplyRaceFilter && (raceFrom || raceTo)
       ? `, ${raceFrom ?? 1}R〜${raceTo ?? 12}R`
       : '';
-    const trackInfo = shouldApplyRaceFilter && track ? ` (${track})` : '';
     
     addLog({
       timestamp: new Date().toISOString(),
       level: 'info',
-      message: `${actionConfig.icon} ${actionConfig.label} 開始... (${dateInfo}${raceInfo}${trackInfo})`,
+      message: `${actionConfig.icon} ${actionConfig.label} 開始... (${dateInfo}${raceInfo})`,
     });
 
     try {
@@ -152,8 +151,8 @@ export default function AdminPage() {
         ? { action, date: selectedDate }
         : { action, startDate: rangeStartDate, endDate: rangeEndDate, isRangeAction: true };
 
-      if ((raceFrom || raceTo || track) && shouldApplyRaceFilter) {
-        Object.assign(requestBody, { raceFrom, raceTo, track });
+      if ((raceFrom || raceTo) && shouldApplyRaceFilter) {
+        Object.assign(requestBody, { raceFrom, raceTo });
       }
 
       const response = await fetch('/api/admin/execute', {
@@ -258,16 +257,15 @@ export default function AdminPage() {
 
   const isRunning = status === 'running';
 
-  // カテゴリ別にアクションを分類（updateカテゴリは統合されたため除外）
-  const fetchActions = ACTIONS.filter((a) => a.category === 'fetch');
-  const generateActions = ACTIONS.filter((a) => a.category === 'generate');
+  // カテゴリ別にアクションを分類
   const batchActions = ACTIONS.filter((a) => a.category === 'batch');
+  const generateActions = ACTIONS.filter((a) =>
+    ['training_summary'].includes(a.id)
+  );
+  const indexActions = ACTIONS.filter((a) =>
+    ['build_horse_name_index', 'build_trainer_index'].includes(a.id)
+  );
   const analysisActions = ACTIONS.filter((a) => a.category === 'analysis');
-
-  // 折りたたみ状態
-  const [isFetchOpen, setIsFetchOpen] = useState(false);
-  const [isGenerateOpen, setIsGenerateOpen] = useState(false);
-  const [isAnalysisOpen, setIsAnalysisOpen] = useState(false);
 
   return (
     <div className="container py-6 max-w-4xl">
@@ -369,22 +367,11 @@ export default function AdminPage() {
                 className="h-8 w-24 rounded-md border bg-background px-2 text-sm"
               />
               <span className="text-sm text-muted-foreground">R まで</span>
-              <label className="text-sm text-muted-foreground ml-2">競馬場</label>
-              <input
-                type="text"
-                placeholder="例: 中山"
-                value={trackInput}
-                onChange={(event) => setTrackInput(event.target.value)}
-                disabled={isRunning || dateMode === 'range'}
-                list="track-options"
-                className="h-8 w-32 rounded-md border bg-background px-2 text-sm"
-              />
               <button
                 type="button"
                 onClick={() => {
                   setRaceFromInput('');
                   setRaceToInput('');
-                  setTrackInput('');
                 }}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                 disabled={isRunning || dateMode === 'range'}
@@ -396,18 +383,6 @@ export default function AdminPage() {
               単一日付のみ有効。空欄の場合は全レースを取得します。
             </p>
           </div>
-          <datalist id="track-options">
-            <option value="札幌" />
-            <option value="函館" />
-            <option value="福島" />
-            <option value="新潟" />
-            <option value="東京" />
-            <option value="中山" />
-            <option value="中京" />
-            <option value="京都" />
-            <option value="阪神" />
-            <option value="小倉" />
-          </datalist>
         </CardContent>
       </Card>
 
@@ -440,19 +415,19 @@ export default function AdminPage() {
 
       <Separator className="my-6" />
 
-      {/* 詳細オプション - 折りたたみ可能 */}
+      {/* ツール・システム - 折りたたみ可能 */}
       <div className="space-y-4">
-        {/* データ取得 */}
-        <Collapsible open={isFetchOpen} onOpenChange={setIsFetchOpen}>
+        {/* ツール（個別実行） */}
+        <Collapsible open={isToolsOpen} onOpenChange={setIsToolsOpen}>
           <Card className="border-muted">
             <CollapsibleTrigger asChild>
               <CardHeader className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors">
                 <CardTitle className="text-lg flex items-center justify-between">
                   <span className="flex items-center gap-2">
-                    📥 データ取得
+                    🔧 ツール
                     <span className="text-xs font-normal text-muted-foreground">（個別実行）</span>
                   </span>
-                  {isFetchOpen ? (
+                  {isToolsOpen ? (
                     <ChevronUp className="h-5 w-5 text-muted-foreground" />
                   ) : (
                     <ChevronDown className="h-5 w-5 text-muted-foreground" />
@@ -462,116 +437,105 @@ export default function AdminPage() {
             </CollapsibleTrigger>
             <CollapsibleContent>
               <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {fetchActions.map((action) => (
-                    <ActionButton
-                      key={action.id}
-                      icon={action.icon}
-                      label={action.label}
-                      description={action.description}
-                      onClick={() => executeAction(action.id)}
-                      disabled={isRunning}
-                      loading={isRunning && currentAction === action.label}
-                      variant={action.id === 'paddok' || action.id === 'seiseki' ? 'primary' : 'default'}
-                    />
-                  ))}
-                </div>
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-
-        {/* データ統合・生成 */}
-        <Collapsible open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
-          <Card className="border-muted">
-            <CollapsibleTrigger asChild>
-              <CardHeader className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors">
-                <CardTitle className="text-lg flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    📝 データ統合・生成
-                    <span className="text-xs font-normal text-muted-foreground">（個別実行）</span>
-                  </span>
-                  {isGenerateOpen ? (
-                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                  )}
-                </CardTitle>
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {generateActions.map((action) => (
-                    <ActionButton
-                      key={action.id}
-                      icon={action.icon}
-                      label={action.label}
-                      description={action.description}
-                      onClick={() => executeAction(action.id)}
-                      disabled={isRunning}
-                      loading={isRunning && currentAction === action.label}
-                    />
-                  ))}
-                </div>
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-
-        {/* データ分析 */}
-        <Collapsible open={isAnalysisOpen} onOpenChange={setIsAnalysisOpen}>
-          <Card className="border-muted">
-            <CollapsibleTrigger asChild>
-              <CardHeader className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors">
-                <CardTitle className="text-lg flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    📊 データ分析
-                    <span className="text-xs font-normal text-muted-foreground">（基準値算出・統計分析）</span>
-                  </span>
-                  {isAnalysisOpen ? (
-                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                  )}
-                </CardTitle>
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="text-sm text-muted-foreground mb-2">
-                    JRA-VANデータから統計分析を実行し、基準値を更新します。
+                <div className="space-y-6">
+                  {/* データ生成 */}
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-3">
+                      データ生成
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {generateActions.map((action) => (
+                        <ActionButton
+                          key={action.id}
+                          icon={action.icon}
+                          label={action.label}
+                          description={action.description}
+                          onClick={() => executeAction(action.id)}
+                          disabled={isRunning}
+                          loading={isRunning && currentAction === action.label}
+                        />
+                      ))}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {analysisActions.map((action) => (
-                      <ActionButton
-                        key={action.id}
-                        icon={action.icon}
-                        label={action.label}
-                        description={action.description}
-                        onClick={() => executeAction(action.id)}
-                        disabled={isRunning}
-                        loading={isRunning && currentAction === action.label}
-                        variant="default"
-                      />
-                    ))}
+
+                  <Separator />
+
+                  {/* インデックス管理 */}
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-3">
+                      インデックス管理
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {indexActions.map((action) => (
+                        <ActionButton
+                          key={action.id}
+                          icon={action.icon}
+                          label={action.label}
+                          description={action.description}
+                          onClick={() => executeAction(action.id)}
+                          disabled={isRunning}
+                          loading={isRunning && currentAction === action.label}
+                        />
+                      ))}
+                      {/* レース日付インデックス再構築 */}
+                      <Button
+                        variant="outline"
+                        className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
+                        onClick={rebuildIndex}
+                        disabled={isRebuildingIndex || isRunning}
+                      >
+                        <div className="flex items-center gap-2 w-full">
+                          <RefreshCw className={`w-5 h-5 ${isRebuildingIndex ? 'animate-spin' : ''}`} />
+                          <span className="font-semibold text-sm">
+                            {isRebuildingIndex ? 'レース日付インデックス再構築中...' : 'レース日付インデックス再構築'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground mt-1">
+                          新しい日程データを登録した後に実行
+                        </span>
+                      </Button>
+                    </div>
                   </div>
-                  
-                  {/* 分析結果へのリンク */}
-                  <div className="mt-4 pt-4 border-t flex flex-wrap gap-4">
-                    <a
-                      href="/analysis/rpci"
-                      className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      📊 RPCI分析結果 →
-                    </a>
-                    <a
-                      href="/analysis/rating"
-                      className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      📈 レイティング分析結果 →
-                    </a>
+
+                  <Separator />
+
+                  {/* データ分析 */}
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-2">
+                      データ分析（基準値算出・統計分析）
+                    </div>
+                    <div className="text-sm text-muted-foreground mb-3">
+                      JRA-VANデータから統計分析を実行し、基準値を更新します。
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {analysisActions.map((action) => (
+                        <ActionButton
+                          key={action.id}
+                          icon={action.icon}
+                          label={action.label}
+                          description={action.description}
+                          onClick={() => executeAction(action.id)}
+                          disabled={isRunning}
+                          loading={isRunning && currentAction === action.label}
+                          variant="default"
+                        />
+                      ))}
+                    </div>
+                    {/* 分析結果へのリンク */}
+                    <div className="mt-4 pt-4 border-t flex flex-wrap gap-4">
+                      <a
+                        href="/analysis/rpci"
+                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        📊 RPCI分析結果 →
+                      </a>
+                      <a
+                        href="/analysis/rating"
+                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        📈 レイティング分析結果 →
+                      </a>
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -579,19 +543,19 @@ export default function AdminPage() {
           </Card>
         </Collapsible>
 
-        {/* データ品質セクション */}
-        <Collapsible open={isDataQualityOpen} onOpenChange={setIsDataQualityOpen}>
+        {/* システム状態（データ品質・ヘルスチェック） */}
+        <Collapsible open={isSystemStatusOpen} onOpenChange={setIsSystemStatusOpen}>
           <Card className="border-muted">
             <CollapsibleTrigger asChild>
               <CardHeader className="cursor-pointer pb-3 transition-colors hover:bg-muted/50">
                 <CardTitle className="flex items-center justify-between text-lg">
                   <span className="flex items-center gap-2">
-                    📊 データ品質
+                    💚 システム状態
                     <span className="text-xs font-normal text-muted-foreground">
-                      （データ状態確認）
+                      （データ品質・ヘルスチェック）
                     </span>
                   </span>
-                  {isDataQualityOpen ? (
+                  {isSystemStatusOpen ? (
                     <ChevronUp className="h-5 w-5 text-muted-foreground" />
                   ) : (
                     <ChevronDown className="h-5 w-5 text-muted-foreground" />
@@ -611,67 +575,14 @@ export default function AdminPage() {
                     selectedDate={selectedDate}
                     refreshKey={dataQualityRefreshKey}
                   />
+                  <Separator />
+                  <SystemHealthCard />
                 </div>
               </CardContent>
             </CollapsibleContent>
           </Card>
         </Collapsible>
-
-        {/* システム状態セクション */}
-        <Collapsible open={isSystemHealthOpen} onOpenChange={setIsSystemHealthOpen}>
-          <Card className="border-muted">
-            <CollapsibleTrigger asChild>
-              <CardHeader className="cursor-pointer pb-3 transition-colors hover:bg-muted/50">
-                <CardTitle className="flex items-center justify-between text-lg">
-                  <span className="flex items-center gap-2">
-                    💚 システム状態
-                    <span className="text-xs font-normal text-muted-foreground">
-                      （ヘルスチェック）
-                    </span>
-                  </span>
-                  {isSystemHealthOpen ? (
-                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                  )}
-                </CardTitle>
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent>
-                <SystemHealthCard />
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
       </div>
-
-      <Separator className="my-6" />
-
-      {/* システム管理 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            ⚙️ システム管理
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              variant="outline"
-              onClick={rebuildIndex}
-              disabled={isRebuildingIndex || isRunning}
-              className="gap-2"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRebuildingIndex ? 'animate-spin' : ''}`} />
-              {isRebuildingIndex ? 'インデックス再構築中...' : 'インデックス再構築'}
-            </Button>
-            <span className="text-sm text-muted-foreground self-center">
-              新しい日程データを登録した後に実行してください
-            </span>
-          </div>
-        </CardContent>
-      </Card>
 
       <Separator className="my-6" />
 
