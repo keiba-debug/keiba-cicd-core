@@ -47,8 +47,7 @@ interface DailyPurchases {
 const DATA_DIR = path.join(
   process.cwd(),
   '..',
-  '..',
-  'keiba-ai',
+  'KeibaCICD.AI',
   'data',
   'purchases'
 );

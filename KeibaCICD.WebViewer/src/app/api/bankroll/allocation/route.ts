@@ -87,8 +87,7 @@ export async function GET(request: NextRequest) {
       const scriptPath = path.join(
         process.cwd(),
         '..',
-        '..',
-        'keiba-ai',
+        'KeibaCICD.AI',
         'tools',
         'target_reader.py'
       );
@@ -118,7 +117,7 @@ export async function GET(request: NextRequest) {
       process.cwd(),
       '..',
       '..',
-      'keiba-ai',
+      'KeibaCICD.AI',
       'tools',
       'target_reader.py'
     );

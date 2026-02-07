@@ -1,0 +1,15 @@
+{
+  "total_bankroll": null,
+  "current_balance": null,
+  "total_invested": 0,
+  "total_return": 0,
+  "total_profit": 0,
+  "win_count": 0,
+  "loss_count": 0,
+  "win_rate": 0.0,
+  "roi": 0.0,
+  "max_drawdown": 0,
+  "consecutive_losses": 0,
+  "last_updated": "2026-01-31",
+  "history": []
+}

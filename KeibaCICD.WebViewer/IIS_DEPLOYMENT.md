@@ -62,9 +62,9 @@ const nextConfig: NextConfig = {
 
 1. **Pythonスクリプト**:
    ```
-   C:\inetpub\keiba-ai\tools\target_reader.py
+   C:\inetpub\KeibaCICD.AI\tools\target_reader.py
    ```
-   - 実際: `C:\KEIBA-CICD\_keiba\keiba-cicd-core\KeibaCICD.TARGET\tools\target_reader.py`
+   - 実際: `C:\KEIBA-CICD\_keiba\keiba-cicd-core\KeibaCICD.AI\tools\target_reader.py`
 
 2. **rating_standards.json**:
    ```

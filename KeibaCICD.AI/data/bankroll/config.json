@@ -1,0 +1,23 @@
+{
+  "created_at": "2026-01-31",
+  "updated_at": "2026-02-01",
+  "settings": {
+    "total_bankroll": 100000,
+    "daily_limit_percent": 30,
+    "today_budget_override": 20000,
+    "race_limit_percent": 5,
+    "consecutive_loss_limit": 3,
+    "kelly_fraction": 0.25,
+    "use_current_balance": true
+  },
+  "rules": {
+    "no_increase_after_loss": true,
+    "confidence_adjustment": true
+  },
+  "target_integration": {
+    "enabled": true,
+    "data_root": "E:\\TFJV",
+    "my_data_folder": "MY_DATA"
+  },
+  "notes": "TARGET連携を有効化。total_bankrollを設定してください"
+}

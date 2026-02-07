@@ -21,8 +21,7 @@ async function loadConfig(): Promise<any> {
     const configPath = path.join(
       process.cwd(),
       '..',
-      '..',
-      'keiba-ai',
+      'KeibaCICD.AI',
       'data',
       'bankroll',
       'config.json'
@@ -125,8 +124,7 @@ export async function POST(request: NextRequest) {
     const scriptPath = path.join(
       process.cwd(),
       '..',
-      '..',
-      'keiba-ai',
+      'KeibaCICD.AI',
       'tools',
       'target_reader.py'
     );

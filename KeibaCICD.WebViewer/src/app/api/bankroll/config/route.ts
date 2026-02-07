@@ -15,8 +15,7 @@ export const dynamic = 'force-dynamic';
 const CONFIG_PATH = path.join(
   process.cwd(),
   '..',
-  '..',
-  'keiba-ai',
+  'KeibaCICD.AI',
   'data',
   'bankroll',
   'config.json'
