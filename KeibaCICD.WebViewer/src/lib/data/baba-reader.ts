@@ -1,7 +1,6 @@
 /**
  * BABAデータ（クッション値・ゴール前含水率・4コーナー含水率）読み込み
- * 場所は常に JV_DATA_ROOT_DIR のサブディレクトリ _BABA 以下。
- * race_id + 開催回日 から RX_ID を組み立てて CSV を参照する。
+ * DATA_ROOT/baba 以下の CSV を参照する。
  */
 
 import fs from 'fs';
@@ -9,20 +8,9 @@ import path from 'path';
 import { BABA_DATA_PATH } from '../config';
 import { getCushionLabel, getMoistureConditionLabel } from './baba-utils';
 
-/** BABA ルート（参照するディレクトリ）。JV_DATA_ROOT_DIR/_BABA が無い場合は E:/TFJV/_BABA を試す */
+/** BABA ルート（参照するディレクトリ） */
 function getEffectiveBabaPath(): string {
-  const normalized = path.normalize(BABA_DATA_PATH);
-  if (fs.existsSync(normalized) && fs.statSync(normalized).isDirectory()) {
-    return normalized;
-  }
-  const fallbackCandidates = ['E:/TFJV/_BABA', path.join('E:', 'TFJV', '_BABA')];
-  for (const fallback of fallbackCandidates) {
-    const p = path.normalize(fallback);
-    if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
-      return p;
-    }
-  }
-  return normalized;
+  return path.normalize(BABA_DATA_PATH);
 }
 
 /** デバッグ用: BABA 参照パスと存在有無 */

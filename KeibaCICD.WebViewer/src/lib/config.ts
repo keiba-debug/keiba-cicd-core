@@ -11,8 +11,8 @@ export const KEIBA_DATA_ROOT_DIR = DATA_ROOT;
 /** JRA-VAN（JV）データのルート（環境変数 JV_DATA_ROOT_DIR） */
 export const JV_DATA_ROOT_DIR = process.env.JV_DATA_ROOT_DIR || 'C:/TFJV';
 
-/** BABAデータ（クッション値・含水率）は常に JV_DATA_ROOT_DIR のサブディレクトリ _BABA 以下 */
-export const BABA_DATA_PATH = path.join(JV_DATA_ROOT_DIR, '_BABA');
+/** BABAデータ（クッション値・含水率） */
+export const BABA_DATA_PATH = path.join(DATA_ROOT, 'baba');
 
 export const PATHS = {
   races: `${KEIBA_DATA_ROOT_DIR}/races`,
