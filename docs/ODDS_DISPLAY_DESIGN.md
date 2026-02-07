@@ -11,16 +11,16 @@
 
 | ソース | 場所 | 形式 | タイミング | 取得方法 |
 |--------|------|------|------------|----------|
-| **RT_DATA** | `E:\TFJV\RT_DATA\{年}\{MMDD}\` | RT*.DAT (固定長) | 当日リアルタイム | TARGET frontier JV 自動取得 |
-| **HY_DATA** | `E:\TFJV\HY_DATA\{年}\` | HY*.DAT | レース後確定 | JRA-VAN 蓄積系 |
+| **RT_DATA** | `C:\TFJV\RT_DATA\{年}\{MMDD}\` | RT*.DAT (固定長) | 当日リアルタイム | TARGET frontier JV 自動取得 |
+| **HY_DATA** | `C:\TFJV\HY_DATA\{年}\` | HY*.DAT | レース後確定 | JRA-VAN 蓄積系 |
 | **ODDS** (未整備) | `{JV_ROOT}/ODDS/` | O1_*.txt, O2_*.txt | 手動/JV-Link | JV-Link DIFF O1,O2 |
-| **SE_DATA** | `E:\TFJV\SE_DATA\{年}\` | SR*.DAT | レース後 | 着順・単勝オッズ(結果)含む |
+| **SE_DATA** | `C:\TFJV\SE_DATA\{年}\` | SR*.DAT | レース後 | 着順・単勝オッズ(結果)含む |
 
 ### 1.2 RT_DATA の実態
 
 **フォルダ構造**
 ```
-E:\TFJV\RT_DATA\
+C:\TFJV\RT_DATA\
 ├── 2026\
 │   ├── 0131\                    # MMDD
 │   │   ├── RT20260131050101011.DAT   # 東京1R 1番
@@ -57,7 +57,7 @@ E:\TFJV\RT_DATA\
 
 | コンポーネント | オッズ対応 | 備考 |
 |----------------|------------|------|
-| **OddsManager** (TARGET) | △ 未接続 | `{JV_ROOT}/ODDS/` を参照するが E:\TFJV に ODDS なし |
+| **OddsManager** (TARGET) | △ 未接続 | `{JV_ROOT}/ODDS/` を参照するが C:\TFJV に ODDS なし |
 | **WebViewer** | △ 型定義のみ | `単勝オッズ` 列あり、race_info.json の列から取得 |
 | **evaluator** | ○ オッズ入力想定 | 期待値計算でオッズを引数に受け取る |
 
@@ -77,13 +77,13 @@ E:\TFJV\RT_DATA\
 
 ```
 Phase 1（短期）: RT_DATA 直接参照
-  - E:\TFJV\RT_DATA をそのまま利用
+  - C:\TFJV\RT_DATA をそのまま利用
   - パーサー実装で「今あるデータ」からオッズ抽出
   - WebViewer にオッズ表示・API 追加
 
 Phase 2（中期）: ODDS フォルダ整備 + JV-Link
   - JV-Link で O1, O2 を定期取得
-  - OddsManager を E:\TFJV\ODDS に接続
+  - OddsManager を C:\TFJV\ODDS に接続
   - 朝オッズ・締切前オッズのスナップショット保存
 
 Phase 3（長期）: DB 化検討
@@ -99,7 +99,7 @@ Phase 3（長期）: DB 化検討
 
 **結論: 利用可能（要パーサー実装）**
 
-- **場所**: `E:\TFJV\RT_DATA` は既に存在し、当日レースの速報が格納されている
+- **場所**: `C:\TFJV\RT_DATA` は既に存在し、当日レースの速報が格納されている
 - **アクセス**: TARGET / WebViewer ともに `JV_DATA_ROOT_DIR` 経由で参照可能
 - **課題**:
   1. RT_DATA の固定長フォーマット仕様の確定（JV-Data仕様書_4.9.0.1 要確認）
@@ -122,8 +122,8 @@ Phase 3（長期）: DB 化検討
 
 ```
 [データソース]
-  E:\TFJV\RT_DATA      → RT_DATA パーサー
-  (将来) E:\TFJV\ODDS  → OddsManager (既存)
+  C:\TFJV\RT_DATA      → RT_DATA パーサー
+  (将来) C:\TFJV\ODDS  → OddsManager (既存)
 
 [TARGET]
   common/rt_data.py    ← 新規: RT_DATA パーサー
@@ -170,8 +170,8 @@ Response:
    - サンプルファイル数件をパースして検証
 
 2. **ODDS フォルダ有無の確認**
-   - `E:\TFJV\ODDS` を作成するか、既存の別パスを使うか決定
-   - OddsManager の `jv_data_root` を `E:\TFJV` に統一済みか確認
+   - `C:\TFJV\ODDS` を作成するか、既存の別パスを使うか決定
+   - OddsManager の `jv_data_root` を `C:\TFJV` に統一済みか確認
 
 ### 5.2 Phase 1 実装タスク
 
@@ -186,7 +186,7 @@ Response:
 ### 5.3 JV-Link 経由取得（Phase 2）
 
 - `JVLink.exe -dataspec "DIFF O1 O2"` で O1, O2 取得
-- 取得先を `E:\TFJV\ODDS\` に統一
+- 取得先を `C:\TFJV\ODDS\` に統一
 - タスクスケジューラで締切前に自動取得
 - 参照: `ml/docs/ODDS_MANAGEMENT.md`
 
@@ -198,7 +198,7 @@ Response:
 - RT*.DAT に複数レコード種別（O1/O2/O4）が連結されている場合のパース対応を検討
 
 #### 時系列オッズ（JI_2026）
-- **場所**: `E:\TFJV\RT_DATA\JI_2026\{MMDD}\`
+- **場所**: `C:\TFJV\RT_DATA\JI_2026\{MMDD}\`
 - **形式**: `JT{raceId}.DAT`（馬単）、`JU{raceId}.DAT`（馬連）
 - **構造**: **1 ファイル = 1 レース、1 行 = 1 時点のスナップショット**（約 180 行以上/レース）
 - **用途例**:

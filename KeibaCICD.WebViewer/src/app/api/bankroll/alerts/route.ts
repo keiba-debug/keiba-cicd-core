@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
+import { PATHS } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -123,8 +124,7 @@ async function loadConfig(): Promise<any> {
  */
 async function loadCurrentBalance(): Promise<number> {
   try {
-    const dataRoot = process.env.KEIBA_DATA_ROOT_DIR || 'C:\\KEIBA-CICD\\data2';
-    const fundHistoryPath = path.join(dataRoot, 'userdata', 'fund_history.json');
+    const fundHistoryPath = path.join(PATHS.userdata, 'fund_history.json');
     const content = await fs.readFile(fundHistoryPath, 'utf-8');
     const history = JSON.parse(content);
     

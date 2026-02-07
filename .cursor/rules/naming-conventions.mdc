@@ -77,7 +77,7 @@ alwaysApply: false
 **定数**: `UPPER_SNAKE_CASE`
 
 ```python
-✅ KEIBA_DATA_ROOT_DIR = "C:\\KEIBA-CICD\\data2"
+✅ DATA_ROOT= "C:\\KEIBA-CICD\\data2"
 ✅ JV_DATA_ROOT_DIR = "C:\\TFJV"
 ✅ CACHE_TTL = 60000
 ```

@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 import re
 
-SE_DATA_DIR = os.environ.get("JV_DATA_ROOT_DIR", r"E:\TFJV") + r"\SE_DATA"
+SE_DATA_DIR = os.environ.get("JV_DATA_ROOT_DIR", r"C:\TFJV") + r"\SE_DATA"
 
 
 @dataclass

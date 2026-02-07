@@ -31,7 +31,7 @@ pip install -r src/requirements.txt
 `.env` ファイルを作成：
 ```ini
 KEIBA_DATA_ROOT_DIR=E:\share\KEIBA-CICD\data2
-JV_DATA_ROOT_DIR=E:\TFJV
+JV_DATA_ROOT_DIR=C:\TFJV
 
 # 競馬ブック認証（要手動設定）
 KEIBABOOK_SESSION=your_session_token

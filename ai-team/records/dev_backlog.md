@@ -29,9 +29,9 @@ KeibaCICD の機能改善・追加要望リスト
 - **起票日**: 2026-01-31
 - **概要**: TARGETの馬コメント・レース結果コメント・予想コメントをWebViewerで参照・編集
 - **詳細**:
-  - `E:\TFJV\MY_DATA\UMA_COM` - 馬ごとの永続コメント
-  - `E:\TFJV\MY_DATA\KEK_COM\2026` - レース別馬別の結果コメント
-  - `E:\TFJV\MY_DATA\YOS_COM` - レース別馬別の予想コメント
+  - `C:\TFJV\MY_DATA\UMA_COM` - 馬ごとの永続コメント
+  - `C:\TFJV\MY_DATA\KEK_COM\2026` - レース別馬別の結果コメント
+  - `C:\TFJV\MY_DATA\YOS_COM` - レース別馬別の予想コメント
   - ~~Phase 1: 読み取り専用で表示~~ ✅ **完了 (2026-01-31)**
   - Phase 2-A: 全頭コメント一括表示（モーダル）← **次の作業**
   - Phase 2-B: 書き込み・編集機能

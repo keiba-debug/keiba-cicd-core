@@ -11,16 +11,16 @@ KeibaCICDプロジェクトのデータ管理を改善し、環境変数によ�
 #### 変更前
 ```powershell
 $env:LOG_DIR = "E:\share\KEIBA-CICD\logs"
-$env:KEIBA_DATA_ROOT_DIR = "E:\share\KEIBA-CICD\data2"
+$env:DATA_ROOT= "E:\share\KEIBA-CICD\data2"
 $env:DATA_ROOT = "E:\share\KEIBA-CICD\data2"          # 冗長
-$env:JV_DATA_ROOT_DIR = "E:\TFJV"
+$env:JV_DATA_ROOT_DIR = "C:\TFJV"
 ```
 
 #### 変更後
 ```powershell
 # 必要な環境変数は2つだけ
-$env:KEIBA_DATA_ROOT_DIR = "E:\share\KEIBA-CICD\data2"  # 競馬データ全般
-$env:JV_DATA_ROOT_DIR = "E:\TFJV"                       # JRA-VAN生データ
+$env:DATA_ROOT= "E:\share\KEIBA-CICD\data2"  # 競馬データ全般
+$env:JV_DATA_ROOT_DIR = "C:\TFJV"                       # JRA-VAN生データ
 ```
 
 **削除された環境変数**:
@@ -53,15 +53,15 @@ Remove-Item Env:DATA_ROOT -ErrorAction SilentlyContinue
 Remove-Item Env:LOG_DIR -ErrorAction SilentlyContinue
 
 # 新しい環境変数を設定
-$env:KEIBA_DATA_ROOT_DIR = "E:\share\KEIBA-CICD\data2"
-$env:JV_DATA_ROOT_DIR = "E:\TFJV"
+$env:DATA_ROOT= "E:\share\KEIBA-CICD\data2"
+$env:JV_DATA_ROOT_DIR = "C:\TFJV"
 ```
 
 永続化（システム環境変数に設定）:
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable("KEIBA_DATA_ROOT_DIR", "E:\share\KEIBA-CICD\data2", "User")
-[System.Environment]::SetEnvironmentVariable("JV_DATA_ROOT_DIR", "E:\TFJV", "User")
+[System.Environment]::SetEnvironmentVariable("JV_DATA_ROOT_DIR", "C:\TFJV", "User")
 ```
 
 ### 2. 既存データの移行
@@ -100,7 +100,7 @@ python common/config.py
 KeibaCICD.TARGET Configuration
 ============================================================
 KEIBA_DATA_ROOT_DIR: E:\share\KEIBA-CICD\data2
-JV_DATA_ROOT_DIR:    E:\TFJV
+JV_DATA_ROOT_DIR:    C:\TFJV
 
 Directories:
   - Target:  E:\share\KEIBA-CICD\data2\target
@@ -109,9 +109,9 @@ Directories:
   - Horses:  E:\share\KEIBA-CICD\data2\horses
 
 JRA-VAN Data:
-  - DE_DATA: E:\TFJV\DE_DATA
-  - SE_DATA: E:\TFJV\SE_DATA
-  - CK_DATA: E:\TFJV\CK_DATA
+  - DE_DATA: C:\TFJV\DE_DATA
+  - SE_DATA: C:\TFJV\SE_DATA
+  - CK_DATA: C:\TFJV\CK_DATA
 ============================================================
 ```
 

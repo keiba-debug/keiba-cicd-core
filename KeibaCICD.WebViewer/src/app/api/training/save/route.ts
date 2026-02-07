@@ -4,7 +4,7 @@
  * POST /api/training/save?date=YYYYMMDD
  * 
  * TARGETのCK_DATAから調教サマリーを生成し、
- * KEIBA_DATA_ROOT_DIR/races/{year}/{month}/{day}/temp/training_summary.json
+ * DATA_ROOT/races/{year}/{month}/{day}/temp/training_summary.json
  * として保存
  */
 
@@ -17,9 +17,7 @@ import {
   getTrainingDateRanges,
   TrainingSummary,
 } from '@/lib/data/target-training-reader';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
-
-const DATA_ROOT = KEIBA_DATA_ROOT_DIR;
+import { DATA_ROOT} from '@/lib/config';
 
 export async function POST(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;

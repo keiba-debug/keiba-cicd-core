@@ -181,7 +181,7 @@ python scripts/horse_id_mapper.py --build-index
 
 ```
 KEIBA_DATA_ROOT_DIR=E:\share\KEIBA-CICD\data2
-JV_DATA_ROOT_DIR=E:\TFJV
+JV_DATA_ROOT_DIR=C:\TFJV
 ```
 
 ## 📚 参考資料

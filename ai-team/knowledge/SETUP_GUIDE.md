@@ -135,7 +135,7 @@ pip install -r api/requirements.txt
 cat > .env << 'EOF'
 # データディレクトリ
 KEIBA_DATA_ROOT_DIR=E:\share\KEIBA-CICD\data2
-JV_DATA_ROOT_DIR=E:\TFJV
+JV_DATA_ROOT_DIR=C:\TFJV
 
 # 競馬ブック認証（要手動設定）
 KEIBABOOK_SESSION=your_session_token_here
@@ -202,7 +202,7 @@ keibabook の `.env` を共有、または新規作成：
 # .envファイル作成
 cat > .env << 'EOF'
 KEIBA_DATA_ROOT_DIR=E:\share\KEIBA-CICD\data2
-JV_DATA_ROOT_DIR=E:\TFJV
+JV_DATA_ROOT_DIR=C:\TFJV
 EOF
 ```
 

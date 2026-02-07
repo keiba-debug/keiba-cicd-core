@@ -14,7 +14,7 @@ import fs from 'fs';
 import path from 'path';
 
 // 環境変数からデータルートを取得
-const DATA_ROOT = process.env.KEIBA_DATA_ROOT_DIR || 'Z:/KEIBA-CICD/data2';
+const DATA_ROOT = process.env.DATA_ROOT|| 'Z:/KEIBA-CICD/data2';
 const RACES_PATH = path.join(DATA_ROOT, 'races');
 
 // 競馬場の順序

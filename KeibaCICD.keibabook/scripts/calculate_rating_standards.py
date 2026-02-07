@@ -543,7 +543,7 @@ def main():
         "--data-root",
         type=str,
         default=None,
-        help="Data root directory (default: KEIBA_DATA_ROOT_DIR env var)"
+        help="Data root directory (default: DATA_ROOTenv var)"
     )
     
     args = parser.parse_args()

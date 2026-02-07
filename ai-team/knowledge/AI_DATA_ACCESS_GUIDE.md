@@ -655,7 +655,7 @@ LEARNER → /api/bankroll/collection → 的中パターン
 ```bash
 # 必須環境変数
 export KEIBA_DATA_ROOT_DIR="E:\share\KEIBA-CICD\data2"
-export JV_DATA_ROOT_DIR="E:\TFJV"
+export JV_DATA_ROOT_DIR="C:\TFJV"
 export PYTHON_PATH="C:\path\to\python.exe"
 ```
 

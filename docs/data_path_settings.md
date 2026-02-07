@@ -15,7 +15,7 @@
 **変更例（PowerShell）**
 
 ```powershell
-$env:KEIBA_DATA_ROOT_DIR = "D:/MyData/KEIBA-CICD"
+$env:DATA_ROOT= "D:/MyData/KEIBA-CICD"
 $env:DATA_ROOT = "D:/MyData/KEIBA-CICD"
 $env:JV_DATA_ROOT_DIR = "D:/JV"   # Y:/ を変える場合
 ```

@@ -7,17 +7,17 @@ TARGETフロントエンド（JRA-VAN Data Lab.ビューア）で管理してい
 ## 📁 データソース
 
 ### 1. 馬コメント（UMA_COM）
-- **場所**: `E:\TFJV\MY_DATA\UMA_COM`
+- **場所**: `C:\TFJV\MY_DATA\UMA_COM`
 - **用途**: 馬ごとの永続的なメモ（「左回り苦手」「重馬場得意」など）
 - **ファイル形式**: 要調査（おそらくCSVまたは独自形式）
 
 ### 2. レース結果コメント（KEK_COM）
-- **場所**: `E:\TFJV\MY_DATA\KEK_COM\2026`
+- **場所**: `C:\TFJV\MY_DATA\KEK_COM\2026`
 - **用途**: レース別・馬別の結果コメント（「前走掛かった」「距離短縮◎」など）
 - **ファイル形式**: 要調査
 
 ### 3. レース別馬別予想コメント（YOS_COM）
-- **場所**: `E:\TFJV\MY_DATA\YOS_COM`
+- **場所**: `C:\TFJV\MY_DATA\YOS_COM`
 - **用途**: レース別・馬別の予想コメント（レース前に入力する予想メモ）
 - **ファイル形式**: 要調査
 
@@ -69,7 +69,7 @@ export function getRaceComment(raceId: string, horseId: string): TargetComment |
 
 ### 環境変数
 ```
-JV_DATA_ROOT_DIR=E:\TFJV
+JV_DATA_ROOT_DIR=C:\TFJV
 ```
 
 ### 注意点
@@ -80,7 +80,7 @@ JV_DATA_ROOT_DIR=E:\TFJV
 ## ❓ 相談事項
 
 1. **まずデータ形式を調査してほしい**
-   - `E:\TFJV\MY_DATA\UMA_COM` と `E:\TFJV\MY_DATA\KEK_COM\2026` の中身を確認
+   - `C:\TFJV\MY_DATA\UMA_COM` と `C:\TFJV\MY_DATA\KEK_COM\2026` の中身を確認
    - ファイル形式、エンコーディング、構造を報告
 
 2. **読み取り専用で実装開始**

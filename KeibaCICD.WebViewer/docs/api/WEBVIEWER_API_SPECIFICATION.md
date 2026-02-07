@@ -16,7 +16,7 @@ KeibaCICD.WebViewerは8つのカテゴリーにわたる**34個のAPIエンド�
 - **SSE対応**: `/api/admin/execute`でリアルタイム進捗通知
 - **環境変数依存**:
   - `KEIBA_DATA_ROOT_DIR` → レースデータ根（`E:\share\KEIBA-CICD\data2`）
-  - `JV_DATA_ROOT_DIR` → JV-VAN形式データ根（`E:\TFJV`）
+  - `JV_DATA_ROOT_DIR` → JV-VAN形式データ根（`C:\TFJV`）
   - `PYTHON_PATH` → Python実行パス
 
 ### カテゴリ分類
@@ -1347,7 +1347,7 @@ KeibaCICD.WebViewerは8つのカテゴリーにわたる**34個のAPIエンド�
 ## 🔗 データフロー図
 
 ```
-TARGETデータ (E:\TFJV)
+TARGETデータ (C:\TFJV)
   ├─ CK_DATA (調教)
   │   └→ /api/training/save → training_summary.json
   │   └→ /api/training/summary
@@ -1408,7 +1408,7 @@ const pythonProcess = spawn(pythonPath, [
 
 ### 4. 環境変数依存
 - `KEIBA_DATA_ROOT_DIR` → レースデータ根（`E:\share\KEIBA-CICD\data2`）
-- `JV_DATA_ROOT_DIR` → JV-VAN形式データ根（`E:\TFJV`）
+- `JV_DATA_ROOT_DIR` → JV-VAN形式データ根（`C:\TFJV`）
 - `PYTHON_PATH` → Python実行パス
 
 ### 5. エラーハンドリング

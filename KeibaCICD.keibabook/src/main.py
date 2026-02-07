@@ -106,7 +106,7 @@ def scrape_and_parse(race_id: str, save_html: bool = True, use_requests: bool = 
             logger.error("抽出されたデータが不正です")
             return False
         
-        # ステップ3: 結果の保存（保存先を KEIBA_DATA_ROOT_DIR に統一）
+        # ステップ3: 結果の保存（保存先を DATA_ROOTに統一）
         logger.info("=== 結果の保存 ===")
         output_path = Path(get_json_file_path('seiseki', race_id))
         parser.save_json(data, str(output_path))
@@ -351,7 +351,7 @@ def scrape_and_parse_multi_type(race_id: str, data_types: List[str],
                     results[data_type] = False
                     continue
                 
-                # 保存（保存先を KEIBA_DATA_ROOT_DIR に統一）
+                # 保存（保存先を DATA_ROOTに統一）
                 output_path = Path(get_json_file_path(data_type, race_id))
                 parser.save_json(data, str(output_path))
                 

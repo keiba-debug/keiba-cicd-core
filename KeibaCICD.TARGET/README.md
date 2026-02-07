@@ -31,7 +31,7 @@ pip install -r ml/requirements.txt
 `.env` ファイルを作成：
 ```ini
 KEIBA_DATA_ROOT_DIR=E:\share\KEIBA-CICD\data2
-JV_DATA_ROOT_DIR=E:\TFJV
+JV_DATA_ROOT_DIR=C:\TFJV
 ```
 
 ### 3. 馬名インデックス構築（初回のみ）

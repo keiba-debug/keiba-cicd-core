@@ -453,7 +453,7 @@ async function checkDataFreshness() {
 
 ### 環境変数
 ```typescript
-const KEIBA_DATA_ROOT_DIR = process.env.KEIBA_DATA_ROOT_DIR || 'E:\\share\\KEIBA-CICD\\data2';
+const DATA_ROOT= process.env.DATA_ROOT|| 'E:\\share\\KEIBA-CICD\\data2';
 const JV_DATA_ROOT_DIR = process.env.JV_DATA_ROOT_DIR || 'E:\\TFJV';
 ```
 

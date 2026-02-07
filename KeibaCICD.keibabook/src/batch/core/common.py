@@ -154,7 +154,7 @@ def get_base_directories() -> Dict[str, str]:
     Returns:
         Dict[str, str]:
     """
-    #  KEIBA_DATA_ROOT_DIR Config
+    #  DATA_ROOTConfig
     try:
         base_dir = Path(Config.get_data_root_dir())
     except Exception:

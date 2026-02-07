@@ -67,7 +67,7 @@ class Config:
         """
         データルートディレクトリを取得する
         
-        環境変数 KEIBA_DATA_ROOT_DIR で変更可能
+        環境変数 DATA_ROOTで変更可能
         
         Returns:
             Path: データルートディレクトリのパス

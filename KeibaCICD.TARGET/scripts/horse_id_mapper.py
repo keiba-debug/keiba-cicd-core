@@ -194,7 +194,7 @@ class HorseIdMapper:
     
     def _save_index(self) -> None:
         """インデックスをファイルに保存"""
-        INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        HORSE_NAME_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
         
         data = {
             'meta': {

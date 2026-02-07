@@ -39,7 +39,7 @@ from common.config import get_jv_se_data_path, get_keiba_data_root
 # 定数
 # =============================================================================
 
-# データルート（KEIBA_DATA_ROOT_DIR に従う）
+# データルート（DATA_ROOTに従う）
 DATA_ROOT = str(get_keiba_data_root())
 
 # SE_DATA パス

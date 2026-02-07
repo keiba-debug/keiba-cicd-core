@@ -102,7 +102,7 @@ bash scripts/your_script.sh --dry-run
 set -euo pipefail
 
 # ✅ Good: 環境変数チェック
-: "${KEIBA_DATA_ROOT_DIR:?KEIBA_DATA_ROOT_DIR not set}"
+: "${KEIBA_DATA_ROOT_DIR:?DATA_ROOTnot set}"
 
 # ✅ Good: 引数チェック
 if [ $# -lt 1 ]; then

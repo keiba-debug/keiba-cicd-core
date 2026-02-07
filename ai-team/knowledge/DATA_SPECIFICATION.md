@@ -20,8 +20,8 @@
 
 ```powershell
 # 必須の環境変数（2つだけ）
-$env:KEIBA_DATA_ROOT_DIR = "E:\share\KEIBA-CICD\data2"  # 競馬データ全般
-$env:JV_DATA_ROOT_DIR = "E:\TFJV"                       # JRA-VAN生データ
+$env:DATA_ROOT= "E:\share\KEIBA-CICD\data2"  # 競馬データ全般
+$env:JV_DATA_ROOT_DIR = "C:\TFJV"                       # JRA-VAN生データ
 ```
 
 ### ディレクトリ構造
@@ -45,7 +45,7 @@ E:\share\KEIBA-CICD\data2\
   │
   └─ predictions\             # 予測データ（今後追加予定）
 
-E:\TFJV\                      # JRA-VAN生データ
+C:\TFJV\                      # JRA-VAN生データ
   ├─ CK\                      # 調教データ
   ├─ UM\                      # 馬マスタ
   ├─ DE\                      # 騎手・調教師データ

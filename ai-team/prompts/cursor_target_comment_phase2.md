@@ -60,9 +60,9 @@ Phase 1（読み取り専用）が完了したので、Phase 2として以下を
 
 ### 書き込み先
 ```
-E:\TFJV\MY_DATA\YOS_COM\{年}\{レースID}.csv  # 予想コメント
-E:\TFJV\MY_DATA\KEK_COM\{年}\{レースID}.csv  # 結果コメント
-E:\TFJV\MY_DATA\UMA_COM\{馬ID}.csv           # 馬コメント
+C:\TFJV\MY_DATA\YOS_COM\{年}\{レースID}.csv  # 予想コメント
+C:\TFJV\MY_DATA\KEK_COM\{年}\{レースID}.csv  # 結果コメント
+C:\TFJV\MY_DATA\UMA_COM\{馬ID}.csv           # 馬コメント
 ```
 
 ---

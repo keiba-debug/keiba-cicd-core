@@ -316,7 +316,7 @@ print(f"JV_DATA_ROOT_DIR: {os.getenv('JV_DATA_ROOT_DIR')}")
 ファイル名の先頭2文字（`HC`, `WC`）で判定しています。ファイル名が正しいか確認:
 
 ```powershell
-ls E:\TFJV\CK_DATA\2026\202601\*.DAT
+ls C:\TFJV\CK_DATA\2026\202601\*.DAT
 ```
 
 ## 📚 関連リソース
@@ -337,7 +337,7 @@ python scripts/parse_ck_data.py --horse 2020104764 --date 20260125 --days 14
 python scripts/parse_ck_data.py --horse 2020104764 --date 20260125 --json
 
 # フォーマット解析（デバッグ用）
-python scripts/parse_ck_data.py --debug --file "E:\TFJV\CK_DATA\2026\202601\HC020260124.DAT"
+python scripts/parse_ck_data.py --debug --file "C:\TFJV\CK_DATA\2026\202601\HC020260124.DAT"
 ```
 
 ---

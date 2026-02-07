@@ -81,7 +81,7 @@ def get_keiba_data_root() -> Path:
     競馬データルートディレクトリを取得
 
     Returns:
-        KEIBA_DATA_ROOT_DIR の値（デフォルト: C:/KEIBA-CICD/data2）
+        DATA_ROOTの値（デフォルト: C:/KEIBA-CICD/data2）
     """
     return _get_env_path("KEIBA_DATA_ROOT_DIR", "C:/KEIBA-CICD/data2")
 

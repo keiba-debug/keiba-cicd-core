@@ -253,7 +253,7 @@ npm run dev
 
 ```powershell
 # 環境変数設定
-$env:KEIBA_DATA_ROOT_DIR = "C:\KEIBA-CICD\data2"
+$env:DATA_ROOT= "C:\KEIBA-CICD\data2"
 $env:JV_DATA_ROOT_DIR = "C:\TFJV"
 
 cd .\keiba-cicd-core\KeibaCICD.WebViewer

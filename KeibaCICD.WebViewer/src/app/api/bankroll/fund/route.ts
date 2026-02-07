@@ -9,17 +9,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import type { FundHistory, FundEntry, FundConfig } from '@/types/bankroll';
+import { PATHS } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// 資金履歴ファイルのパス（環境変数 KEIBA_DATA_ROOT_DIR から構築）
+// 資金履歴ファイルのパス
 const getFundHistoryPath = (): string => {
-  const dataRoot = process.env.KEIBA_DATA_ROOT_DIR;
-  if (!dataRoot) {
-    throw new Error('KEIBA_DATA_ROOT_DIR が設定されていません');
-  }
-  return path.join(dataRoot, 'userdata', 'fund_history.json');
+  return path.join(PATHS.userdata, 'fund_history.json');
 };
 
 // 初期データを作成
