@@ -2,14 +2,16 @@
 
 /**
  * 関係者コメント分析セクション
- * 
+ *
  * 厩舎・関係者からのコメント情報を表示
  * - 厩舎談話
  * - 前走インタビュー
  * - 次走へのメモ
+ *
+ * v3.1最適化: React.memo + useMemo
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { HorseEntry, getWakuColor, formatTrainerName } from '@/types/race-data';
 import { ChevronDown, ChevronUp, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,15 +27,21 @@ interface StakeholderCommentsSectionProps {
 
 export default function StakeholderCommentsSection({ entries }: StakeholderCommentsSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
-  
-  // 馬番順にソート
-  const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);
-  
-  // コメント情報があるエントリーのみフィルター
-  const entriesWithComments = sortedEntries.filter(entry => 
-    entry.stable_comment?.comment ||
-    entry.previous_race_interview?.interview ||
-    entry.previous_race_interview?.next_race_memo
+
+  // 馬番順にソート（useMemoでキャッシュ）
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => a.horse_number - b.horse_number),
+    [entries]
+  );
+
+  // コメント情報があるエントリーのみフィルター（useMemoでキャッシュ）
+  const entriesWithComments = useMemo(
+    () => sortedEntries.filter(entry =>
+      entry.stable_comment?.comment ||
+      entry.previous_race_interview?.interview ||
+      entry.previous_race_interview?.next_race_memo
+    ),
+    [sortedEntries]
   );
 
   if (entriesWithComments.length === 0) {
@@ -76,15 +84,15 @@ export default function StakeholderCommentsSection({ entries }: StakeholderComme
               </thead>
               <tbody>
                 {sortedEntries.map((entry) => (
-                  <StakeholderCommentRow 
-                    key={entry.horse_number} 
-                    entry={entry} 
+                  <StakeholderCommentRow
+                    key={entry.horse_number}
+                    entry={entry}
                   />
                 ))}
               </tbody>
             </table>
           </div>
-          
+
           {/* データ件数 */}
           <div className="p-3 border-t bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-400">
             <span>コメントあり: {entriesWithComments.length}頭 / 全{sortedEntries.length}頭</span>
@@ -99,18 +107,19 @@ interface StakeholderCommentRowProps {
   entry: HorseEntry;
 }
 
-function StakeholderCommentRow({ entry }: StakeholderCommentRowProps) {
+// React.memo: 親の状態変更時、entryが変わらない行のレンダリングをスキップ
+const StakeholderCommentRow = React.memo(function StakeholderCommentRow({ entry }: StakeholderCommentRowProps) {
   const { entry_data, stable_comment, previous_race_interview } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
-  
+
   // このエントリーにコメントがあるかどうか
-  const hasComment = stable_comment?.comment || 
-                     previous_race_interview?.interview || 
+  const hasComment = stable_comment?.comment ||
+                     previous_race_interview?.interview ||
                      previous_race_interview?.next_race_memo;
-  
+
   // コメントがない行は薄く表示
-  const rowClass = hasComment 
-    ? "hover:bg-gray-50 dark:hover:bg-gray-800/50" 
+  const rowClass = hasComment
+    ? "hover:bg-gray-50 dark:hover:bg-gray-800/50"
     : "hover:bg-gray-50 dark:hover:bg-gray-800/50 opacity-50";
 
   return (
@@ -119,58 +128,59 @@ function StakeholderCommentRow({ entry }: StakeholderCommentRowProps) {
       <td className={`px-2 py-1.5 text-center border ${wakuColorClass}`}>
         {entry_data.waku}
       </td>
-      
+
       {/* 馬番 */}
       <td className="px-2 py-1.5 text-center border font-bold">
         {entry.horse_number}
       </td>
-      
+
       {/* 馬名 */}
       <td className="px-2 py-1.5 border font-medium">
         {entry.horse_name}
       </td>
-      
+
       {/* 調教師 */}
-      <td 
+      <td
         className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
         title={entry_data.trainer_comment || undefined}
       >
         {formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}
       </td>
-      
+
       {/* 厩舎談話 */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
-        <ExpandableText 
-          text={stable_comment?.comment} 
+        <ExpandableText
+          text={stable_comment?.comment}
           maxLength={100}
         />
       </td>
-      
+
       {/* 前走インタビュー */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
-        <ExpandableText 
-          text={previous_race_interview?.interview} 
+        <ExpandableText
+          text={previous_race_interview?.interview}
           maxLength={100}
         />
       </td>
-      
+
       {/* 次走へのメモ */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
-        <ExpandableText 
-          text={previous_race_interview?.next_race_memo} 
+        <ExpandableText
+          text={previous_race_interview?.next_race_memo}
           maxLength={80}
         />
       </td>
     </tr>
   );
-}
+});
 
 interface ExpandableTextProps {
   text: string | undefined;
   maxLength: number;
 }
 
-function ExpandableText({ text, maxLength }: ExpandableTextProps) {
+// React.memo: テキスト内容が変わらない限り再レンダリングをスキップ
+const ExpandableText = React.memo(function ExpandableText({ text, maxLength }: ExpandableTextProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   
   if (!text) return <span className="text-gray-400">-</span>;
@@ -206,4 +216,4 @@ function ExpandableText({ text, maxLength }: ExpandableTextProps) {
       </button>
     </span>
   );
-}
+});

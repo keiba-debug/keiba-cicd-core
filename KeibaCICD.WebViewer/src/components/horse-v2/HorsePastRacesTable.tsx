@@ -2,20 +2,25 @@
 
 /**
  * 馬過去レース成績テーブルコンポーネント（v2）
+ *
+ * v3.1 パフォーマンス最適化:
+ * - RaceRow を React.memo でラップ（不要な再レンダリング防止）
+ * - toggleRow を useCallback 化（関数参照の安定化）
+ * - displayRaces を useMemo でキャッシュ
+ * - IntersectionObserver で段階的レンダリング（100件以上の過去レース対応）
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { HorseRaceResult } from '@/lib/data/integrated-horse-reader';
 
-interface HorsePastRacesTableProps {
-  races: HorseRaceResult[];
-}
+// =============================================================================
+// モジュールスコープのヘルパー関数
+// =============================================================================
 
-// 着順バッジの色
 function getPositionBadgeClass(position: string): string {
   const pos = parseInt(position, 10);
   if (pos === 1) return 'bg-yellow-400 text-yellow-900';
@@ -25,7 +30,6 @@ function getPositionBadgeClass(position: string): string {
   return 'bg-gray-100 text-gray-800';
 }
 
-// 本誌印の背景色
 function getMarkBgColor(mark: string): string {
   switch (mark) {
     case '◎': return 'bg-red-100 dark:bg-red-900/30';
@@ -36,7 +40,6 @@ function getMarkBgColor(mark: string): string {
   }
 }
 
-// コース種別バッジ
 function getCourseBadgeClass(distance: string): string {
   if (distance.includes('芝')) {
     return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300';
@@ -50,7 +53,6 @@ function getCourseBadgeClass(distance: string): string {
   return 'bg-gray-100 text-gray-800';
 }
 
-// 枠番の色
 function getFrameColor(frame: number): string {
   const colors: Record<number, string> = {
     1: 'bg-white text-gray-800 border border-gray-300',
@@ -65,26 +67,34 @@ function getFrameColor(frame: number): string {
   return colors[frame] || 'bg-gray-200 text-gray-800';
 }
 
-function RaceRow({ race, isExpanded, onToggle }: { 
-  race: HorseRaceResult; 
+// =============================================================================
+// メモ化されたサブコンポーネント
+// =============================================================================
+
+interface RaceRowProps {
+  race: HorseRaceResult;
   isExpanded: boolean;
-  onToggle: () => void;
-}) {
+  index: number;
+  onToggle: (index: number) => void;
+}
+
+const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle }: RaceRowProps) {
   const pos = parseInt(race.finishPosition, 10);
   const isGoodResult = !isNaN(pos) && pos <= 3;
 
-  // レースリンク生成
-  const raceLink = race.raceId 
+  const raceLink = race.raceId
     ? `/races-v2/${race.date.replace(/\//g, '-')}/${encodeURIComponent(race.track)}/${race.raceId}`
     : null;
 
+  const handleClick = useCallback(() => onToggle(index), [onToggle, index]);
+
   return (
     <>
-      <tr 
+      <tr
         className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer ${
           isGoodResult ? 'bg-amber-50/50 dark:bg-amber-900/10' : ''
         }`}
-        onClick={onToggle}
+        onClick={handleClick}
       >
         {/* 展開ボタン */}
         <td className="px-1 py-1.5 border text-center">
@@ -108,7 +118,7 @@ function RaceRow({ race, isExpanded, onToggle }: {
         {/* レース */}
         <td className="px-1 py-1.5 border text-xs">
           {raceLink ? (
-            <Link 
+            <Link
               href={raceLink}
               className="text-blue-600 hover:underline hover:text-blue-800 font-medium"
               onClick={(e) => e.stopPropagation()}
@@ -178,7 +188,7 @@ function RaceRow({ race, isExpanded, onToggle }: {
               {race.horseWeight}
               {race.horseWeightDiff && (
                 <span className={`text-[10px] ${
-                  race.horseWeightDiff.startsWith('+') ? 'text-red-500' : 
+                  race.horseWeightDiff.startsWith('+') ? 'text-red-500' :
                   race.horseWeightDiff.startsWith('-') ? 'text-blue-500' : ''
                 }`}>
                   ({race.horseWeightDiff})
@@ -246,7 +256,7 @@ function RaceRow({ race, isExpanded, onToggle }: {
         </td>
       </tr>
 
-      {/* 2行目: 要約情報（常時表示） - 寸評・調教短評のみ */}
+      {/* 2行目: 要約情報（常時表示） */}
       {(race.sunpyou || race.trainingComment) && (
         <tr className={`text-[10px] ${isGoodResult ? 'bg-amber-50/30 dark:bg-amber-900/5' : 'bg-gray-50/50 dark:bg-gray-800/20'}`}>
           <td className="border"></td>
@@ -278,7 +288,7 @@ function RaceRow({ race, isExpanded, onToggle }: {
         </tr>
       )}
 
-      {/* 展開時の詳細行 - 2行目にない詳細情報のみ */}
+      {/* 展開時の詳細行 */}
       {isExpanded && (
         <tr className="bg-gray-50 dark:bg-gray-800/30">
           <td colSpan={22} className="px-2 py-1.5 border">
@@ -342,13 +352,24 @@ function RaceRow({ race, isExpanded, onToggle }: {
       )}
     </>
   );
+});
+
+// =============================================================================
+// メインコンポーネント
+// =============================================================================
+
+interface HorsePastRacesTableProps {
+  races: HorseRaceResult[];
 }
 
 export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [showAll, setShowAll] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(10);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const toggleRow = (index: number) => {
+  // useCallback で安定した関数参照を作成（React.memo が効くようになる）
+  const toggleRow = useCallback((index: number) => {
     setExpandedRows(prev => {
       const newSet = new Set(prev);
       if (newSet.has(index)) {
@@ -358,9 +379,31 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
       }
       return newSet;
     });
-  };
+  }, []);
 
-  const displayRaces = showAll ? races : races.slice(0, 10);
+  // IntersectionObserver で段階的レンダリング
+  useEffect(() => {
+    if (!showAll) {
+      setVisibleCount(10);
+      return;
+    }
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && visibleCount < races.length) {
+        setVisibleCount(prev => Math.min(prev + 10, races.length));
+      }
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [showAll, visibleCount, races.length]);
+
+  // 表示するレースをメモ化
+  const displayRaces = useMemo(
+    () => showAll ? races.slice(0, visibleCount) : races.slice(0, 10),
+    [races, showAll, visibleCount]
+  );
 
   if (races.length === 0) {
     return (
@@ -374,7 +417,7 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
       <h2 className="text-lg font-semibold mb-4">📋 過去レース成績 ({races.length}戦)</h2>
-      
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse min-w-[1300px]">
           <thead>
@@ -405,21 +448,29 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
           </thead>
           <tbody>
             {displayRaces.map((race, index) => (
-              <RaceRow 
+              <RaceRow
                 key={`${race.raceId}-${index}`}
                 race={race}
                 isExpanded={expandedRows.has(index)}
-                onToggle={() => toggleRow(index)}
+                index={index}
+                onToggle={toggleRow}
               />
             ))}
           </tbody>
         </table>
       </div>
 
+      {/* 段階的レンダリング用のセンチネル要素 */}
+      {showAll && visibleCount < races.length && (
+        <div ref={sentinelRef} className="h-10 flex items-center justify-center text-sm text-muted-foreground">
+          読み込み中... ({visibleCount}/{races.length})
+        </div>
+      )}
+
       {races.length > 10 && (
         <div className="mt-4 text-center">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="sm"
             onClick={() => setShowAll(!showAll)}
           >

@@ -8,6 +8,7 @@ import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
 import { BabaInputForm } from '@/components/baba/BabaInputForm';
 import { BabaSummaryBadges } from '@/components/baba/BabaSummaryBadges';
 import { ChevronLeft, ChevronRight, MessageCircle, TrendingUp } from 'lucide-react';
+import { RefreshButton } from '@/components/ui/refresh-button';
 
 // 日付を年月でグループ化
 function groupDatesByYearMonth(dates: string[]): Map<string, string[]> {
@@ -101,7 +102,10 @@ export default async function HomePage({
 
   return (
     <div className="py-6">
-      <h1 className="text-3xl font-bold mb-6">レース一覧</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">レース一覧</h1>
+        <RefreshButton size="sm" />
+      </div>
 
       {/* 年月選択エリア */}
       <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-8 p-1">

@@ -2,9 +2,11 @@
 
 /**
  * 調教・厩舎情報コンポーネント（新方式）
+ *
+ * v3.1最適化: React.memo + useMemo + モジュールスコープ関数
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { HorseEntry, getWakuColor, normalizeHorseName } from '@/types/race-data';
 import { POSITIVE_BG, POSITIVE_BG_MUTED } from '@/lib/positive-colors';
 import { ChevronDown, ChevronUp } from 'lucide-react';
@@ -15,6 +17,33 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+
+// --- モジュールスコープの純粋関数（毎レンダリングの関数再生成を防止） ---
+
+function getArrowColor(arrow: string): string {
+  switch (arrow) {
+    case '↗': return 'text-green-600 dark:text-green-400 font-bold';
+    case '↘': return 'text-red-600 dark:text-red-400 font-bold';
+    default: return 'text-gray-500';
+  }
+}
+
+function getTimeRankBgColor(rank?: string): string {
+  if (!rank || rank === '-') return '';
+  switch (rank) {
+    case '両': return POSITIVE_BG;
+    case '坂':
+    case 'コ': return POSITIVE_BG_MUTED;
+    default: return '';
+  }
+}
+
+function getLapRankBgColor(rank?: string): string {
+  if (!rank) return '';
+  if (rank === 'S+' || rank === 'S=') return POSITIVE_BG;
+  if (rank === 'A+' || rank === 'A=') return POSITIVE_BG_MUTED;
+  return '';
+}
 
 // 調教サマリー型
 interface TrainingSummaryData {
@@ -31,17 +60,23 @@ interface TrainingInfoSectionProps {
 export default function TrainingInfoSection({ entries, trainingSummaryMap = {} }: TrainingInfoSectionProps) {
   // デフォルトは折りたたみ（初期レンダリング高速化）
   const [isOpen, setIsOpen] = useState(false);
-  
-  // 馬番順にソート
-  const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);
-  
-  // 調教または厩舎談話があるエントリーのみフィルター
-  const entriesWithInfo = sortedEntries.filter(entry => 
-    entry.training_data?.attack_explanation ||
-    entry.training_data?.short_review ||
-    entry.stable_comment?.comment ||
-    entry.previous_race_interview?.interview ||
-    entry.previous_race_interview?.next_race_memo
+
+  // 馬番順にソート（useMemoでキャッシュ）
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => a.horse_number - b.horse_number),
+    [entries]
+  );
+
+  // 調教または厩舎談話があるエントリーのみフィルター（useMemoでキャッシュ）
+  const entriesWithInfo = useMemo(
+    () => sortedEntries.filter(entry =>
+      entry.training_data?.attack_explanation ||
+      entry.training_data?.short_review ||
+      entry.stable_comment?.comment ||
+      entry.previous_race_interview?.interview ||
+      entry.previous_race_interview?.next_race_memo
+    ),
+    [sortedEntries]
   );
 
   if (entriesWithInfo.length === 0) {
@@ -106,46 +141,10 @@ interface TrainingInfoRowProps {
   trainingSummary?: TrainingSummaryData;
 }
 
-function TrainingInfoRow({ entry, trainingSummary }: TrainingInfoRowProps) {
+// React.memo: 親の状態変更時、entry/trainingSummaryが変わらない行のレンダリングをスキップ
+const TrainingInfoRow = React.memo(function TrainingInfoRow({ entry, trainingSummary }: TrainingInfoRowProps) {
   const { entry_data, training_data, stable_comment, previous_race_interview } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
-
-  // 調教矢印の色
-  const getArrowColor = (arrow: string) => {
-    switch (arrow) {
-      case '↗': return 'text-green-600 dark:text-green-400 font-bold';
-      case '↘': return 'text-red-600 dark:text-red-400 font-bold';
-      default: return 'text-gray-500';
-    }
-  };
-
-  // 調教タイム分類の背景色（プラス色で統一）
-  const getTimeRankBgColor = (rank?: string) => {
-    if (!rank || rank === '-') return '';
-    switch (rank) {
-      case '両': return POSITIVE_BG;
-      case '坂':
-      case 'コ': return POSITIVE_BG_MUTED;
-      default: return '';
-    }
-  };
-
-  // 調教ラップ分類の背景色（S+/A+ のみプラス色で強調）
-  const getLapRankBgColor = (rank?: string) => {
-    if (!rank) return '';
-    if (rank === 'S+' || rank === 'S=') return POSITIVE_BG;
-    if (rank === 'A+' || rank === 'A=') return POSITIVE_BG_MUTED;
-    return '';
-  };
-
-  // テキストを短縮
-  const truncateText = (text: string | undefined, maxLength: number): string => {
-    if (!text) return '-';
-    // 改行を空白に変換
-    const cleaned = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-    if (cleaned.length <= maxLength) return cleaned;
-    return cleaned.substring(0, maxLength) + '...';
-  };
 
   return (
     <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -222,14 +221,15 @@ function TrainingInfoRow({ entry, trainingSummary }: TrainingInfoRowProps) {
       </td>
     </tr>
   );
-}
+});
 
 interface ExpandableTextProps {
   text: string | undefined;
   maxLength: number;
 }
 
-function ExpandableText({ text, maxLength }: ExpandableTextProps) {
+// React.memo: テキスト内容が変わらない限り再レンダリングをスキップ
+const ExpandableText = React.memo(function ExpandableText({ text, maxLength }: ExpandableTextProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   
   if (!text) return <span className="text-gray-400">-</span>;
@@ -266,18 +266,22 @@ function ExpandableText({ text, maxLength }: ExpandableTextProps) {
       </button>
     </span>
   );
-}
+});
 
 /**
  * 簡易カード形式の調教情報表示（モバイル向け）
  */
 export function TrainingInfoCards({ entries }: TrainingInfoSectionProps) {
   const [expandedHorses, setExpandedHorses] = useState<Set<number>>(new Set());
-  
-  // 馬番順にソート
-  const sortedEntries = [...entries].sort((a, b) => a.horse_number - b.horse_number);
-  
-  const toggleExpand = (horseNumber: number) => {
+
+  // 馬番順にソート（useMemoでキャッシュ）
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => a.horse_number - b.horse_number),
+    [entries]
+  );
+
+  // useCallback: 安定した関数参照
+  const toggleExpand = useCallback((horseNumber: number) => {
     setExpandedHorses(prev => {
       const next = new Set(prev);
       if (next.has(horseNumber)) {
@@ -287,7 +291,7 @@ export function TrainingInfoCards({ entries }: TrainingInfoSectionProps) {
       }
       return next;
     });
-  };
+  }, []);
 
   return (
     <div className="space-y-2">

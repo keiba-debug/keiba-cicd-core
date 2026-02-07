@@ -17,6 +17,7 @@ import {
 } from '@/components/horse-v2';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { RefreshButton } from '@/components/ui/refresh-button';
 import { HorseRaceSelector } from '@/components/horse-race-selector';
 import { analyzeHorse } from '@/lib/horse-analyzer';
 
@@ -76,18 +77,21 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
   return (
     <div className="min-h-screen bg-background">
       <div className="container py-6 max-w-7xl">
-        {/* パンくずリスト */}
-        <nav className="flex items-center space-x-2 text-sm text-muted-foreground mb-4">
-          <Link href="/" className="hover:underline">
-            トップ
-          </Link>
-          <span>/</span>
-          <Link href="/horses" className="hover:underline">
-            馬検索
-          </Link>
-          <span>/</span>
-          <span className="text-foreground">{basic.name || `馬ID: ${id}`}</span>
-        </nav>
+        {/* パンくずリスト + データ更新 */}
+        <div className="flex items-center justify-between mb-4">
+          <nav className="flex items-center space-x-2 text-sm text-muted-foreground">
+            <Link href="/" className="hover:underline">
+              トップ
+            </Link>
+            <span>/</span>
+            <Link href="/horses" className="hover:underline">
+              馬検索
+            </Link>
+            <span>/</span>
+            <span className="text-foreground">{basic.name || `馬ID: ${id}`}</span>
+          </nav>
+          <RefreshButton size="sm" />
+        </div>
 
         {/* ヘッダー（トレンドインジケーター付き） */}
         <HorseHeader basic={basic} recentRaces={pastRaces.slice(0, 5)} />

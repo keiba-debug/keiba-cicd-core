@@ -22,6 +22,7 @@ import {
   RaceHeader,
   RaceDetailContent,
 } from '@/components/race-v2';
+import { RefreshButton } from '@/components/ui/refresh-button';
 import {
   generatePaddockUrl,
   generateRaceUrl,
@@ -349,6 +350,11 @@ export default async function RaceDetailPage({ params }: PageParams) {
           </div>
         </div>
       )}
+
+      {/* データ更新ボタン */}
+      <div className="flex justify-end mb-2">
+        <RefreshButton size="sm" />
+      </div>
 
       {/* レースヘッダー */}
       <RaceHeader
