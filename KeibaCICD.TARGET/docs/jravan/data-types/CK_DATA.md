@@ -342,4 +342,4 @@ python scripts/parse_ck_data.py --debug --file "E:\TFJV\CK_DATA\2026\202601\HC02
 
 ---
 
-*最終更新: 2026-01-30*
+*最終更新: 2026-02-07*
