@@ -74,11 +74,25 @@ interface RatingStandardsResponse {
   };
 }
 
-// グレード順序
-const GRADE_ORDER = ['G1', 'G2', 'G3', 'OP', '3勝クラス', '2勝クラス', '1勝クラス', '新馬', '未勝利'];
+// グレード順序（年齢別グレード対応）
+const GRADE_ORDER = [
+  'G1_古馬', 'G1_3歳', 'G1_2歳',
+  'G2_古馬', 'G2_3歳', 'G2_2歳',
+  'G3_古馬', 'G3_3歳', 'G3_2歳',
+  // 年齢未分類のフォールバック
+  'G1', 'G2', 'G3',
+  'OP', '3勝クラス', '2勝クラス', '1勝クラス', '新馬', '未勝利',
+];
+
+/** グレード文字列からベースグレード（G1/G2/G3/OP等）を取得 */
+function getBaseGrade(grade: string): string {
+  const base = grade.split('_')[0];
+  return base;
+}
 
 function getGradeColor(grade: string): string {
-  switch (grade) {
+  const base = getBaseGrade(grade);
+  switch (base) {
     case 'G1': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
     case 'G2': return 'bg-pink-100 text-pink-800 border-pink-300';
     case 'G3': return 'bg-orange-100 text-orange-800 border-orange-300';
@@ -88,7 +102,8 @@ function getGradeColor(grade: string): string {
 }
 
 function getStars(grade: string): number {
-  switch (grade) {
+  const base = getBaseGrade(grade);
+  switch (base) {
     case 'G1': return 5;
     case 'G2': return 4;
     case 'G3': return 4;
@@ -100,6 +115,11 @@ function getStars(grade: string): number {
     case '未勝利': return 1;
     default: return 1;
   }
+}
+
+/** グレード名を表示用にフォーマット（G1_古馬 → "G1 古馬"） */
+function formatGradeName(grade: string): string {
+  return grade.replace('_', ' ');
 }
 
 export default function RatingAnalysisPage() {
@@ -247,7 +267,7 @@ export default function RatingAnalysisPage() {
                       <tr key={grade} className="border-b hover:bg-slate-50">
                         <td className="py-3 px-4">
                           <span className={`inline-flex items-center gap-2 px-2 py-1 rounded border text-xs font-medium ${getGradeColor(grade)}`}>
-                            {grade}
+                            {formatGradeName(grade)}
                             <span className="flex">
                               {[...Array(getStars(grade))].map((_, i) => (
                                 <Star key={i} className="h-3 w-3 fill-current" />
@@ -286,12 +306,12 @@ export default function RatingAnalysisPage() {
 
           {/* 詳細カード */}
           <div className="grid md:grid-cols-2 gap-6">
-            {sortedGrades.slice(0, 6).map(([grade, value]) => (
+            {sortedGrades.slice(0, 10).map(([grade, value]) => (
               <Card key={grade}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center justify-between">
                     <span className={`px-3 py-1 rounded border ${getGradeColor(grade)}`}>
-                      {grade}
+                      {formatGradeName(grade)}
                     </span>
                     <span className="text-sm font-normal text-muted-foreground">
                       {value.sample_count}レース / {value.horse_count}頭

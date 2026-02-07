@@ -123,11 +123,18 @@ class RaceRatingInfo:
 
 
 def extract_age_class(race_condition: str) -> str:
-    """race_conditionから年齢クラスを抽出"""
+    """race_conditionから年齢クラスを抽出
+
+    Returns:
+        '2歳' / '3歳' / '古馬' / ''
+    """
     if not race_condition:
         return ""
     if '2歳' in race_condition:
         return '2歳'
+    # "3歳以上" / "4歳以上" → 古馬（3歳限定ではない）
+    if '3歳以上' in race_condition or '4歳以上' in race_condition:
+        return '古馬'
     if '3歳' in race_condition:
         return '3歳'
     return ""
@@ -351,13 +358,25 @@ def scan_integrated_files(data_root: Path, since_year: int, grade_matcher: Grade
     return results
 
 
+def make_grade_key(grade: str, age_class: str) -> str:
+    """グレードと年齢クラスを結合したキーを生成
+
+    G1/G2/G3は年齢別に分割: G1_2歳, G1_3歳, G1_古馬
+    それ以外はそのまま: OP, 3勝クラス, ...
+    """
+    if grade in ('G1', 'G2', 'G3') and age_class:
+        return f"{grade}_{age_class}"
+    return grade
+
+
 def calculate_grade_stats(races: List[RaceRatingInfo]) -> Dict:
     """クラス別の統計を算出"""
     by_grade = defaultdict(list)
-    
+
     for race in races:
-        by_grade[race.grade].append(race)
-    
+        key = make_grade_key(race.grade, race.age_class)
+        by_grade[key].append(race)
+
     stats = {}
     for grade, grade_races in sorted(by_grade.items(), key=lambda x: grade_sort_key(x[0])):
         all_ratings = []
@@ -406,9 +425,14 @@ def calculate_grade_stats(races: List[RaceRatingInfo]) -> Dict:
 def grade_sort_key(grade: str) -> int:
     """グレードのソート順"""
     order = {
-        'G1': 0, 'G2': 1, 'G3': 2, 'OP': 3,
-        '3勝クラス': 4, '2勝クラス': 5, '1勝クラス': 6,
-        '新馬': 7, '未勝利': 8, '未分類': 99,
+        'G1_古馬': 0, 'G1_3歳': 1, 'G1_2歳': 2,
+        'G2_古馬': 3, 'G2_3歳': 4, 'G2_2歳': 5,
+        'G3_古馬': 6, 'G3_3歳': 7, 'G3_2歳': 8,
+        # 年齢未分類のG1/G2/G3（フォールバック）
+        'G1': 2, 'G2': 5, 'G3': 8,
+        'OP': 9,
+        '3勝クラス': 10, '2勝クラス': 11, '1勝クラス': 12,
+        '新馬': 13, '未勝利': 14, '未分類': 99,
     }
     return order.get(grade, 50)
 
