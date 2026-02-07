@@ -141,9 +141,9 @@ KeibaCICD.TARGET/
 
 ### はじめに読むドキュメント
 
-- **[MODULE_OVERVIEW.md](../../../ai-team/knowledge/MODULE_OVERVIEW.md)** - TARGETモジュール詳細
-- **[SETUP_GUIDE.md](../../../ai-team/knowledge/SETUP_GUIDE.md)** - 環境構築手順
-- **[ARCHITECTURE.md](../../../ai-team/knowledge/ARCHITECTURE.md)** - システム全体構成
+- **[MODULE_OVERVIEW.md](../../ai-team/knowledge/MODULE_OVERVIEW.md)** - TARGETモジュール詳細
+- **[SETUP_GUIDE.md](../../ai-team/knowledge/SETUP_GUIDE.md)** - 環境構築手順
+- **[ARCHITECTURE.md](../../ai-team/knowledge/ARCHITECTURE.md)** - システム全体構成
 
 ### JRA-VANライブラリ
 

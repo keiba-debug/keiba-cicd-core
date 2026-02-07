@@ -100,11 +100,11 @@ npm run dev
 
 | ドキュメント | 内容 | 対象者 |
 |------------|------|--------|
-| **[ARCHITECTURE.md](../ai-team/knowledge/ARCHITECTURE.md)** | システム全体構成・データフロー | 全員 ⭐ |
-| **[SETUP_GUIDE.md](../ai-team/knowledge/SETUP_GUIDE.md)** | 環境構築手順 | 初回セットアップ時 ⭐ |
-| **[MODULE_OVERVIEW.md](../ai-team/knowledge/MODULE_OVERVIEW.md)** | 各モジュール詳細・API | 開発者 |
-| **[CLAUDE.md](../ai-team/knowledge/CLAUDE.md)** | AIエージェントチーム統合ガイドライン | AIエージェント |
-| **[DATA_SPECIFICATION.md](../ai-team/knowledge/DATA_SPECIFICATION.md)** | データ仕様書 | 全員 |
+| **[ARCHITECTURE.md](ai-team/knowledge/ARCHITECTURE.md)** | システム全体構成・データフロー | 全員 ⭐ |
+| **[SETUP_GUIDE.md](ai-team/knowledge/SETUP_GUIDE.md)** | 環境構築手順 | 初回セットアップ時 ⭐ |
+| **[MODULE_OVERVIEW.md](ai-team/knowledge/MODULE_OVERVIEW.md)** | 各モジュール詳細・API | 開発者 |
+| **[CLAUDE.md](ai-team/knowledge/CLAUDE.md)** | AIエージェントチーム統合ガイドライン | AIエージェント |
+| **[DATA_SPECIFICATION.md](ai-team/knowledge/DATA_SPECIFICATION.md)** | データ仕様書 | 全員 |
 
 ### 📖 詳細ドキュメント
 
@@ -127,7 +127,7 @@ cd c:/KEIBA-CICD/_keiba/keiba-cicd-core
 mkdir -p C:/KEIBA-CICD/data2
 ```
 
-詳細は **[SETUP_GUIDE.md](../ai-team/knowledge/SETUP_GUIDE.md)** を参照。
+詳細は **[SETUP_GUIDE.md](ai-team/knowledge/SETUP_GUIDE.md)** を参照。
 
 ---
 
@@ -218,7 +218,7 @@ KeibaCICD.TARGET    KeibaCICD.WebViewer
 予測結果JSON         ブラウザUI
 ```
 
-詳細は **[ARCHITECTURE.md](../ai-team/knowledge/ARCHITECTURE.md)** を参照。
+詳細は **[ARCHITECTURE.md](ai-team/knowledge/ARCHITECTURE.md)** を参照。
 
 ---
 
