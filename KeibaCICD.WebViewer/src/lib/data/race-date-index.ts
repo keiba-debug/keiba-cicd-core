@@ -43,13 +43,14 @@ interface RaceIndexEntry {
   winnerFirst3f?: number;  // 勝ち馬の前半3F
   winnerLast3f?: number;   // 勝ち馬の後半3F
   paceDiff?: number;       // 前半-後半の差（マイナス=瞬発戦）
+  rpci?: number;           // RPCI値 (前半3F/後半3F)*50
 }
 
 // ペース分類タイプをエクスポート
 export type PaceType = 'sprint' | 'average' | 'stamina';
 
-/** インデックス形式バージョン。2=race_info.jsonのみ対応、3=ペース分析情報追加 */
-const INDEX_VERSION = 3;
+/** インデックス形式バージョン。2=race_info.jsonのみ対応、3=ペース分析情報追加、4=RPCI比率方式に統一 */
+const INDEX_VERSION = 4;
 
 interface IndexMeta {
   builtAt: string;
@@ -210,6 +211,7 @@ function extractPaceInfo(dayPath: string, raceId: string): {
   winnerFirst3f?: number;
   winnerLast3f?: number;
   paceDiff?: number;
+  rpci?: number;
 } {
   const tempPath = path.join(dayPath, 'temp');
   
@@ -257,26 +259,29 @@ function extractPaceInfo(dayPath: string, raceId: string): {
     
     if (isNaN(first3f) || isNaN(last3f)) return {};
     
-    // ペース差（前半-後半）を計算
-    // マイナス = 瞬発戦（後半の方が速い）
-    // プラス = 持続戦（前半の方が速い）
+    // ペース差（参考値として保持）
     const paceDiff = Math.round((first3f - last3f) * 10) / 10;
-    
-    // ペース分類
+
+    // RPCI = (前半3F / 後半3F) × 50
+    // >50: スロー（瞬発戦）、<50: ハイ（持続戦）
+    const rpci = Math.round(((first3f / last3f) * 50) * 10) / 10;
+
+    // ペース分類（RPCI閾値で判定 - rpci-utils.tsと統一）
     let paceType: PaceType;
-    if (paceDiff <= -1.0) {
-      paceType = 'sprint';    // 瞬発戦（後半1秒以上速い）
-    } else if (paceDiff >= 1.0) {
-      paceType = 'stamina';   // 持続戦（前半1秒以上速い）
+    if (rpci >= 51) {
+      paceType = 'sprint';    // 瞬発戦（スローペース）
+    } else if (rpci <= 48) {
+      paceType = 'stamina';   // 持続戦（ハイペース）
     } else {
       paceType = 'average';   // 平均ペース
     }
-    
+
     return {
       paceType,
       winnerFirst3f: first3f,
       winnerLast3f: last3f,
       paceDiff,
+      rpci,
     };
   } catch {
     return {};

@@ -101,6 +101,7 @@ export async function getRacesByDate(date: string): Promise<DateGroup | null> {
             winnerFirst3f: r.winnerFirst3f,
             winnerLast3f: r.winnerLast3f,
             paceDiff: r.paceDiff,
+            rpci: r.rpci,
           };
         }),
       }));

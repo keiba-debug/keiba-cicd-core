@@ -17,6 +17,7 @@ export interface RaceSummary {
   winnerFirst3f?: number;  // 勝ち馬の前半3F
   winnerLast3f?: number;   // 勝ち馬の後半3F
   paceDiff?: number;       // 前半-後半の差（マイナス=瞬発戦）
+  rpci?: number;           // RPCI値 (前半3F/後半3F)*50
 }
 
 export interface RaceDetail extends RaceSummary {

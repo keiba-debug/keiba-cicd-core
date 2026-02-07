@@ -423,7 +423,7 @@ async function DateRaces({ date }: { date: string }) {
                                     ? 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-950' 
                                     : 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-800'
                               }`}
-                              title={`前半${race.winnerFirst3f ?? '-'}s / 後半${race.winnerLast3f ?? '-'}s (差: ${race.paceDiff != null ? (race.paceDiff > 0 ? '+' : '') + race.paceDiff : '-'}s)`}
+                              title={`RPCI: ${race.rpci ?? '-'} / 前半${race.winnerFirst3f ?? '-'}s / 後半${race.winnerLast3f ?? '-'}s`}
                             >
                               {race.paceType === 'sprint' ? '🔥瞬発' : race.paceType === 'stamina' ? '💪持続' : '⚖️平均'}
                             </span>
