@@ -151,9 +151,9 @@ class TrainingRecord:
     def acceleration(self) -> str:
         """加速評価（+/=/-)"""
         # 終い2Fのラップと終い1Fのラップを比較
-        if self.lap_1 < self.lap_2 - 0.3:
+        if self.lap_1 < self.lap_2:
             return "+"  # 加速
-        elif self.lap_1 > self.lap_2 + 0.3:
+        elif self.lap_1 > self.lap_2:
             return "-"  # 減速
         else:
             return "="  # 同じ
@@ -199,7 +199,23 @@ class TrainingRecord:
             letter = "D"
         
         return f"{letter}{self.acceleration}"
-    
+
+    @property
+    def upgraded_lap_class(self) -> str:
+        """
+        ラップ分類のSS昇格版
+        好タイム + S分類 + (加速or同タイム) → SS
+        """
+        # 好タイムでない場合は通常のlap_class
+        if not self.is_good_time:
+            return self.lap_class
+
+        # S+, S= の場合のみSS昇格
+        if self.lap_class in ("S+", "S="):
+            return "SS"
+
+        return self.lap_class
+
     def __str__(self):
         return (
             f"{self.date} {self.time} {self.center}{self.location} "
@@ -227,6 +243,7 @@ class TrainingRecord:
             "has_good_lap": self.has_good_lap,
             "speed_class": self.speed_class,
             "lap_class": self.lap_class,
+            "upgraded_lap_class": self.upgraded_lap_class,
             "acceleration": self.acceleration,
         }
 
@@ -265,10 +282,36 @@ def _make_record(
 
 def parse_hc_record(raw_line: str, center: str, location: str) -> Optional[TrainingRecord]:
     """
-    HC*.DAT（坂路・92バイト）をパース。
-    仕様: 0 RecordType, 1-8 Date, 9-12 Time, 13-22 KettoNum,
-    23-67 Reserved, 68-71 Time4F, 72-74 Lap4, 75-78 Time3F, 79-81 Lap3,
-    82-85 Time2F, 86-88 Lap2, 89-91 Lap1（0.1秒単位）
+    HC*.DAT（坂路・47バイト）をパース。
+    実際の仕様: 0 RecordType, 1-8 Date, 9-12 Time, 13-22 KettoNum,
+    23-26 Time4F(4桁), 27-29 Lap4(3桁), 30-33 Time3F(4桁), 34-36 Lap3(3桁),
+    37-40 Time2F(4桁), 41-43 Lap2(3桁), 44-46 Lap1(3桁)（0.1秒単位）
+    """
+    try:
+        if len(raw_line) < 47:
+            return None
+        time_4f = int(raw_line[23:27]) / 10.0
+        lap_4 = int(raw_line[27:30]) / 10.0
+        time_3f = int(raw_line[30:34]) / 10.0
+        lap_3 = int(raw_line[34:37]) / 10.0
+        time_2f = int(raw_line[37:41]) / 10.0
+        lap_2 = int(raw_line[41:44]) / 10.0
+        lap_1 = int(raw_line[44:47]) / 10.0
+        return _make_record(
+            raw_line, center, location,
+            time_4f, time_3f, time_2f, lap_4, lap_3, lap_2, lap_1,
+        )
+    except (ValueError, IndexError):
+        return None
+
+
+def parse_wc_record(raw_line: str, center: str, location: str) -> Optional[TrainingRecord]:
+    """
+    WC*.DAT（コース・92バイト）をパース。
+    実際の仕様: 0 RecordType, 1-8 Date, 9-12 Time, 13-22 KettoNum,
+    61-65 Time5F(4桁), 68-72 Time4F(4桁), 72-75 Lap4(3桁),
+    75-79 Time3F(4桁), 79-82 Lap3(3桁), 82-86 Time2F(4桁),
+    86-89 Lap2(3桁), 89-92 Lap1(3桁)（0.1秒単位）
     """
     try:
         if len(raw_line) < 92:
@@ -288,48 +331,26 @@ def parse_hc_record(raw_line: str, center: str, location: str) -> Optional[Train
         return None
 
 
-def parse_wc_record(raw_line: str, center: str, location: str) -> Optional[TrainingRecord]:
+def parse_hc_47_record(raw_line: str, center: str, location: str) -> Optional[TrainingRecord]:
     """
-    WC*.DAT（コース・47バイト）をパース。
-    仕様: 0 RecordType, 1-8 Date, 9-12 Time, 13-22 KettoNum,
-    23-26 Time5F, 27-30 Time4F, 31-34 Time3F, 35-37 不明, 38-40 Lap2, 41-43 Lap1。
-    Lap4/Lap3/Time2Fは無いため 0 で埋める。
+    HC*.DAT（坂路・47バイト）実データ用パース。
+    実際の仕様: 0 RecordType, 1-8 Date, 9-12 Time, 13-22 KettoNum,
+    23-26 Time4F(4桁), 27-29 Lap4(3桁), 30-33 Time3F(4桁), 34-36 Lap3(3桁),
+    37-40 Time2F(4桁), 41-43 Lap2(3桁), 44-46 Lap1(3桁)（0.1秒単位）
+    実サンプル: 12026020407522023106359054914504041380266136130
+    23-26=0549(54.9), 27-29=145(14.5), 30-33=0404(40.4), 34-36=138(13.8),
+    37-40=0266(26.6), 41-43=136(13.6), 44-46=130(13.0)
     """
     try:
         if len(raw_line) < 47:
             return None
-        time_4f = int(raw_line[27:31]) / 10.0
-        time_3f = int(raw_line[31:35]) / 10.0
-        lap_2 = int(raw_line[38:41]) / 10.0
-        lap_1 = int(raw_line[41:44]) / 10.0
-        time_2f = time_3f  # WCには2F単体なし
-        lap_4 = 0.0
-        lap_3 = 0.0
-        return _make_record(
-            raw_line, center, location,
-            time_4f, time_3f, time_2f, lap_4, lap_3, lap_2, lap_1,
-        )
-    except (ValueError, IndexError):
-        return None
-
-
-def parse_hc_47_record(raw_line: str, center: str, location: str) -> Optional[TrainingRecord]:
-    """
-    HC*.DAT（坂路・47バイト）実データ用パース。
-    実サンプル: 02026010206572020101174066316804951670328164164
-    先頭は共通(0-22)。タイムは 23-26=0663(66.3), 28-30=680(68.0)=4F, 31-33=495(49.5)=3F,
-    38-40=Lap2, 41-43=Lap1。WCとオフセットが異なるためHC専用。
-    """
-    try:
-        if len(raw_line) < 44:
-            return None
-        time_4f = int(raw_line[28:31]) / 10.0   # 3桁 68.0
-        time_3f = int(raw_line[31:34]) / 10.0  # 3桁 49.5
-        lap_2 = int(raw_line[38:41]) / 10.0
-        lap_1 = int(raw_line[41:44]) / 10.0
-        time_2f = time_3f
-        lap_4 = 0.0
-        lap_3 = 0.0
+        time_4f = int(raw_line[23:27]) / 10.0
+        lap_4 = int(raw_line[27:30]) / 10.0
+        time_3f = int(raw_line[30:34]) / 10.0
+        lap_3 = int(raw_line[34:37]) / 10.0
+        time_2f = int(raw_line[37:41]) / 10.0
+        lap_2 = int(raw_line[41:44]) / 10.0
+        lap_1 = int(raw_line[44:47]) / 10.0
         return _make_record(
             raw_line, center, location,
             time_4f, time_3f, time_2f, lap_4, lap_3, lap_2, lap_1,
@@ -362,7 +383,7 @@ def parse_ck_file(filepath: Path) -> List[TrainingRecord]:
         center = "不明"
     
     # 場所はファイル名のみで判定: HC*.DAT=坂路, WC*.DAT/WD*.DAT=コース
-    # パーサーはレコード長で切り替え（92バイト→長い形式, 47バイト→短い形式）、locationは常に上記
+    # パーサーはファイルタイプとレコード長で切り替え
     min_len = 47
 
     try:
@@ -371,18 +392,23 @@ def parse_ck_file(filepath: Path) -> List[TrainingRecord]:
                 line = line.strip()
                 if len(line) < min_len:
                     continue
-                if len(line) >= 92:
-                    record = parse_hc_record(line, center, location)
-                    if record is None and len(line) >= 47:
-                        record = parse_wc_record(line[:47], center, location)
-                elif len(line) >= 47:
-                    # HCは47バイトでWCとオフセットが違うため専用パーサを使用
-                    if file_type == "HC":
-                        record = parse_hc_47_record(line, center, location)
+
+                # ファイルタイプに応じて適切なパーサーを選択
+                if file_type == "HC":
+                    # HC_DATA（坂路）: 47バイト形式
+                    if len(line) >= 47:
+                        record = parse_hc_record(line, center, location)
                     else:
+                        record = None
+                elif file_type in ("WC", "WD"):
+                    # WC_DATA/WD_DATA（コース）: 92バイト形式
+                    if len(line) >= 92:
                         record = parse_wc_record(line, center, location)
+                    else:
+                        record = None
                 else:
                     record = None
+
                 if record:
                     records.append(record)
     except Exception as e:

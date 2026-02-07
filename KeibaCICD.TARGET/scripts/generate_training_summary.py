@@ -379,7 +379,7 @@ def generate_summary_for_date(date: str, days_back: int = DEFAULT_DAYS_BACK,
             if final:
                 summary['finalLocation'] = get_location_short(final.get('location', ''))
                 summary['finalSpeed'] = get_speed_label(final.get('is_good_time', False))
-                summary['finalLap'] = final.get('lap_class', '')
+                summary['finalLap'] = final.get('upgraded_lap_class', final.get('lap_class', ''))
                 summary['finalTime4F'] = final.get('time_4f', 0)
                 summary['finalLap1'] = final.get('lap_1', 0)
             else:
@@ -394,7 +394,7 @@ def generate_summary_for_date(date: str, days_back: int = DEFAULT_DAYS_BACK,
             if weekend:
                 summary['weekendLocation'] = get_location_short(weekend.get('location', ''))
                 summary['weekendSpeed'] = get_speed_label(weekend.get('is_good_time', False))
-                summary['weekendLap'] = weekend.get('lap_class', '')
+                summary['weekendLap'] = weekend.get('upgraded_lap_class', weekend.get('lap_class', ''))
                 summary['weekendTime4F'] = weekend.get('time_4f', 0)
                 summary['weekendLap1'] = weekend.get('lap_1', 0)
             else:
@@ -409,7 +409,7 @@ def generate_summary_for_date(date: str, days_back: int = DEFAULT_DAYS_BACK,
             if week_ago:
                 summary['weekAgoLocation'] = get_location_short(week_ago.get('location', ''))
                 summary['weekAgoSpeed'] = get_speed_label(week_ago.get('is_good_time', False))
-                summary['weekAgoLap'] = week_ago.get('lap_class', '')
+                summary['weekAgoLap'] = week_ago.get('upgraded_lap_class', week_ago.get('lap_class', ''))
                 summary['weekAgoTime4F'] = week_ago.get('time_4f', 0)
                 summary['weekAgoLap1'] = week_ago.get('lap_1', 0)
             else:
