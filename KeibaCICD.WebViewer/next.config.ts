@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // IISデプロイ用のスタンドアロンビルド設定
+  output: 'standalone',
+
   // 実験的機能による最適化
   experimental: {
     // 大きなパッケージのインポートを最適化（Tree Shaking強化）
@@ -48,15 +51,14 @@ const nextConfig: NextConfig = {
   // ページ単位のランタイム設定
   // experimental.ppr: true, // Partial Pre-Rendering（Next.js 15+）
 
-  // TypeScript/ESLint設定
+  // TypeScript設定
   typescript: {
     // ビルド時の型チェックをスキップ（CIで別途チェックする場合）
     // ignoreBuildErrors: true,
   },
-  eslint: {
-    // ビルド時のlintをスキップ（CIで別途チェックする場合）
-    // ignoreDuringBuilds: true,
-  },
+
+  // Note: Next.js 16ではeslint設定はnext.config.tsから削除されました
+  // ESLint設定は .eslintrc.json または package.json で行ってください
 };
 
 export default nextConfig;
