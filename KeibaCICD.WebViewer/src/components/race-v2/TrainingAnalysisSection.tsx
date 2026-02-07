@@ -25,6 +25,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
+import type { RecentFormData } from '@/lib/data/target-race-result-reader';
 
 interface PreviousTrainingEntry {
   date: string;
@@ -35,6 +36,7 @@ interface TrainingAnalysisSectionProps {
   entries: HorseEntry[];
   trainingSummaryMap?: Record<string, TrainingSummaryData>;
   previousTrainingMap?: Record<string, PreviousTrainingEntry>;
+  recentFormMap?: Record<number, RecentFormData[]>;
 }
 
 // =============================================================================
@@ -227,9 +229,10 @@ interface TrainingAnalysisRowProps {
   entry: HorseEntry;
   trainingSummary?: TrainingSummaryData;
   previousTraining?: PreviousTrainingEntry;
+  previousRaceForm?: RecentFormData;
 }
 
-const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, trainingSummary, previousTraining }: TrainingAnalysisRowProps) {
+const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, trainingSummary, previousTraining, previousRaceForm }: TrainingAnalysisRowProps) {
   const { entry_data, training_data } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
 
@@ -270,14 +273,27 @@ const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, tra
 
       {/* 前走調教 */}
       <td className="px-2 py-1.5 border">
-        {previousTraining?.training?.detail ? (
+        {(previousTraining?.training?.detail || previousRaceForm) ? (
           <div className="space-y-0.5">
-            {previousTraining.date && (
-              <div className="text-xs text-muted-foreground mb-1">
-                {previousTraining.date}
+            {(previousTraining?.date || previousRaceForm) && (
+              <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5">
+                {previousTraining?.date && <span>{previousTraining.date}</span>}
+                {previousRaceForm && (
+                  <>
+                    <span className={`font-bold ${
+                      previousRaceForm.finishPosition === 1 ? 'text-red-600 dark:text-red-400'
+                        : previousRaceForm.finishPosition === 2 ? 'text-blue-600 dark:text-blue-400'
+                        : previousRaceForm.finishPosition === 3 ? 'text-green-600 dark:text-green-400'
+                        : ''
+                    }`}>
+                      {previousRaceForm.finishPosition}着
+                    </span>
+                    <span>{previousRaceForm.venue}{previousRaceForm.raceNumber}R</span>
+                  </>
+                )}
               </div>
             )}
-            {formatTrainingDetail(
+            {previousTraining?.training?.detail && formatTrainingDetail(
               previousTraining.training.detail,
               previousTraining.training.finalLap,
               previousTraining.training.weekendLap,
@@ -330,7 +346,8 @@ const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, tra
 export default function TrainingAnalysisSection({
   entries,
   trainingSummaryMap = {},
-  previousTrainingMap = {}
+  previousTrainingMap = {},
+  recentFormMap = {}
 }: TrainingAnalysisSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
 
@@ -405,6 +422,7 @@ export default function TrainingAnalysisSection({
                     entry={entry}
                     trainingSummary={trainingSummaryMap[entry.horse_name] || trainingSummaryMap[normalizeHorseName(entry.horse_name)]}
                     previousTraining={previousTrainingMap[entry.horse_name] || previousTrainingMap[normalizeHorseName(entry.horse_name)]}
+                    previousRaceForm={recentFormMap[entry.horse_number]?.[0]}
                   />
                 ))}
               </tbody>

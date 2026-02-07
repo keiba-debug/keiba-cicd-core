@@ -294,10 +294,11 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
 
           {/* 調教・談話タブ */}
           <TabsContent value="training" className="mt-4 space-y-6">
-            <TrainingAnalysisSection 
-              entries={raceData.entries} 
+            <TrainingAnalysisSection
+              entries={raceData.entries}
               trainingSummaryMap={trainingSummaryMap}
               previousTrainingMap={previousTrainingMap}
+              recentFormMap={recentFormMap}
             />
             <StakeholderCommentsSection 
               entries={raceData.entries} 
@@ -414,10 +415,11 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
           )}
 
           {/* 調教分析 */}
-          <TrainingAnalysisSection 
-            entries={raceData.entries} 
+          <TrainingAnalysisSection
+            entries={raceData.entries}
             trainingSummaryMap={trainingSummaryMap}
             previousTrainingMap={previousTrainingMap}
+            recentFormMap={recentFormMap}
           />
 
           {/* 関係者コメント分析 */}
