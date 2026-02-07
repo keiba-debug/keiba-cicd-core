@@ -51,8 +51,16 @@ JV_DATA_ROOT = Path(os.getenv("JV_DATA_ROOT_DIR", "C:/TFJV"))
 UM_DATA_ROOT = JV_DATA_ROOT / "UM_DATA"
 
 # インデックスファイルパス
-INDEX_DIR = Path(__file__).parent.parent / "data"
-HORSE_NAME_INDEX_FILE = INDEX_DIR / "horse_name_index.json"
+try:
+    # 新しいデータディレクトリ構造を使用（推奨）
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from common.config import get_target_data_dir
+    HORSE_NAME_INDEX_FILE = get_target_data_dir() / "horse_name_index.json"
+except ImportError:
+    # フォールバック: 旧データディレクトリ（後方互換性）
+    INDEX_DIR = Path(__file__).parent.parent / "data"
+    HORSE_NAME_INDEX_FILE = INDEX_DIR / "horse_name_index.json"
 
 # UM_DATA レコード長（JV_UM_UMA 仕様: 1609バイト）
 UM_RECORD_LEN = 1609

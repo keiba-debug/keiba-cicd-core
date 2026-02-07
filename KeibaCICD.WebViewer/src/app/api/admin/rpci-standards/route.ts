@@ -43,19 +43,26 @@ interface RpciStandardsData {
  * - group: 距離グループ（例: Turf_1800-2200m）で特定グループのみ取得
  */
 export async function GET(request: NextRequest) {
+  console.log('[RPCI] ========== API CALLED ==========');
   try {
     const searchParams = request.nextUrl.searchParams;
     const course = searchParams.get('course');
     const group = searchParams.get('group');
+    console.log('[RPCI] Query params - course:', course, 'group:', group);
 
     // race_type_standards.jsonのパス
+    // 環境変数 DATA_ROOT が設定されていればそれを使用、なければフォールバック
+    const dataRoot = process.env.DATA_ROOT || path.join(process.cwd(), '..', '..', 'data2');
     const dataPath = path.join(
-      process.cwd(),
-      '..',
-      'KeibaCICD.TARGET',
-      'data',
+      dataRoot,
+      'target',
       'race_type_standards.json'
     );
+
+    // デバッグログ
+    console.log('[RPCI] DATA_ROOT env:', process.env.DATA_ROOT);
+    console.log('[RPCI] Resolved dataRoot:', dataRoot);
+    console.log('[RPCI] Full path:', dataPath);
 
     // ファイル存在チェック
     try {

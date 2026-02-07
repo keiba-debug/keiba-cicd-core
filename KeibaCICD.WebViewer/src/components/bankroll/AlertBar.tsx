@@ -1,41 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { AlertCircle, X } from 'lucide-react';
+import React from 'react';
+import { AlertCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-
-interface Alert {
-  type: 'warning' | 'error' | 'info';
-  message: string;
-  severity: 'low' | 'medium' | 'high';
-}
+import { useBankrollAlerts, type Alert } from '@/hooks/useBankrollAlerts';
 
 export function AlertBar() {
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, error, isLoading } = useBankrollAlerts();
 
-  useEffect(() => {
-    const fetchAlerts = async () => {
-      try {
-        const res = await fetch('/api/bankroll/alerts');
-        if (res.ok) {
-          const data = await res.json();
-          setAlerts(data.alerts || []);
-        }
-      } catch (error) {
-        console.error('アラート取得エラー:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  if (isLoading || !data || data.alerts.length === 0) {
+    return null;
+  }
 
-    fetchAlerts();
-    const interval = setInterval(fetchAlerts, 60000); // 1分ごとに更新
-
-    return () => clearInterval(interval);
-  }, []);
-
-  if (loading || alerts.length === 0) {
+  if (error) {
+    console.error('アラート取得エラー:', error);
     return null;
   }
 
@@ -61,7 +39,7 @@ export function AlertBar() {
 
   return (
     <div className="space-y-2 mb-6">
-      {alerts.map((alert, index) => (
+      {data.alerts.map((alert, index) => (
         <Card
           key={index}
           className={`border-2 ${getAlertColor(alert.type, alert.severity)}`}

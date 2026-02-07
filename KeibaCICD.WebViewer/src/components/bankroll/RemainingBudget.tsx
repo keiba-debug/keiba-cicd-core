@@ -1,46 +1,28 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Wallet, AlertTriangle } from 'lucide-react';
+import { useBankrollAlerts } from '@/hooks/useBankrollAlerts';
 
 export function RemainingBudget() {
-  const [remaining, setRemaining] = useState<number | null>(null);
-  const [dailyLimit, setDailyLimit] = useState<number | null>(null);
-  const [raceLimit, setRaceLimit] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, error, isLoading } = useBankrollAlerts();
 
-  useEffect(() => {
-    const fetchBudget = async () => {
-      try {
-        const res = await fetch('/api/bankroll/alerts');
-        if (res.ok) {
-          const data = await res.json();
-          setRemaining(data.remaining || 0);
-          setDailyLimit(data.dailyLimit || 0);
-          setRaceLimit(data.raceLimit || 0);
-        }
-      } catch (error) {
-        console.error('予算取得エラー:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchBudget();
-    const interval = setInterval(fetchBudget, 30000); // 30秒ごとに更新
-
-    return () => clearInterval(interval);
-  }, []);
-
-  if (loading || remaining === null) {
+  if (isLoading || !data) {
     return null;
   }
+
+  if (error) {
+    console.error('予算取得エラー:', error);
+    return null;
+  }
+
+  const { remaining, dailyLimit, raceLimit } = data;
 
   const formatCurrency = (amount: number) => {
     return `¥${amount.toLocaleString()}`;
   };
 
-  const isLow = remaining < (raceLimit || 0);
+  const isLow = remaining < raceLimit;
   const percentage = dailyLimit ? Math.floor((remaining / dailyLimit) * 100) : 0;
   const isWarning = percentage < 30 && percentage >= 0;
 

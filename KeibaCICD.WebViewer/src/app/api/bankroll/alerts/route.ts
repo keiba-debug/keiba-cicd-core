@@ -18,6 +18,15 @@ interface Alert {
   severity: 'low' | 'medium' | 'high';
 }
 
+// サーバー側キャッシュ（日付ベース、1分間保持）
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+const CACHE_TTL = 60000; // 1分間
+
 /**
  * Pythonスクリプトを実行してJSONを取得
  */
@@ -134,11 +143,24 @@ async function loadCurrentBalance(): Promise<number> {
 
 export async function GET(request: NextRequest) {
   try {
-    const config = await loadConfig();
     const today = new Date();
     const year = today.getFullYear();
     const month = today.getMonth() + 1;
     const dateStr = `${year}${String(month).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+
+    // キャッシュキー: 日付ベース（同じ日なら同じデータ）
+    const cacheKey = dateStr;
+    const cached = cache.get(cacheKey);
+
+    // キャッシュヒット（1分以内）
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      console.log(`[Bankroll Alerts] Cache hit for ${cacheKey}`);
+      return NextResponse.json(cached.data);
+    }
+
+    console.log(`[Bankroll Alerts] Cache miss for ${cacheKey}, fetching fresh data...`);
+
+    const config = await loadConfig();
 
     // 馬券種別統計を取得
     const scriptPath = path.join(
@@ -225,7 +247,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({
+    const responseData = {
       alerts,
       count: alerts.length,
       dailyLimit,
@@ -236,7 +258,21 @@ export async function GET(request: NextRequest) {
       baseAmount,
       currentBalance,
       useCurrentBalance,
+    };
+
+    // キャッシュに保存
+    cache.set(cacheKey, {
+      data: responseData,
+      timestamp: Date.now(),
     });
+
+    // 古いキャッシュエントリを削除（メモリリーク防止）
+    if (cache.size > 10) {
+      const oldestKey = Array.from(cache.keys())[0];
+      cache.delete(oldestKey);
+    }
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('[BankrollAlertsAPI] Error:', error);
     return NextResponse.json(

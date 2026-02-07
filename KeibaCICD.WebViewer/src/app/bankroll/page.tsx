@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { TrendingUp, TrendingDown, AlertCircle, Settings, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { AlertBar } from '@/components/bankroll/AlertBar';
+import { RefreshButton } from '@/components/bankroll/RefreshButton';
 import { BudgetForm } from '@/components/bankroll/BudgetForm';
 import { TodaySummary } from '@/components/bankroll/TodaySummary';
 import { DailyPurchaseList } from '@/components/bankroll/DailyPurchaseList';
@@ -185,6 +186,7 @@ export default function BankrollPage() {
           💰 資金管理
         </h1>
         <div className="flex items-center gap-2">
+          <RefreshButton />
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">
@@ -199,9 +201,6 @@ export default function BankrollPage() {
               <BudgetForm isModal />
             </DialogContent>
           </Dialog>
-          <Badge variant="outline" className="text-sm">
-            同期: 自動
-          </Badge>
         </div>
       </div>
 
