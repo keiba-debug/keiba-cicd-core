@@ -6,6 +6,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getWakuColor } from '@/types/race-data';
 
 // 競馬場コード（JRAビュアー形式 - 1桁）
 const TRACK_CODES: Record<string, number> = {
@@ -68,6 +69,7 @@ interface ViewSlot {
   nichi?: number;
   label?: string; // 追加: レース名など
   umaban?: string; // 馬番（出走番号）
+  waku?: string;   // 枠番
   result?: string; // 着順
   distance?: string; // 距離（例: 芝2000 / ダ・1200m など）
 }
@@ -82,6 +84,7 @@ interface RaceParam {
   kai?: number;
   nichi?: number;
   umaban?: string;  // 馬番（出走番号）
+  waku?: string;    // 枠番
   result?: string;  // 着順
   distance?: string; // 距離
 }
@@ -98,6 +101,7 @@ type MultiViewMessage = {
     kai?: string;
     nichi?: string;
     umaban?: string;
+    waku?: string;
     result?: string;
     distance?: string;
   };
@@ -312,6 +316,7 @@ function MultiViewPage() {
             url: null,
             label: race.raceName,
             umaban: race.umaban,
+            waku: race.waku,
             result: race.result,
             distance: race.distance,
           };
@@ -507,6 +512,7 @@ function MultiViewPage() {
         kai: addKai,
         nichi: addNichi,
         umaban: addUmaban,
+        waku: addWaku,
         result: addResult,
         distance: addDistance,
       } = data.payload;
@@ -563,6 +569,7 @@ function MultiViewPage() {
             url: null,
             label: addRaceName || undefined,
             umaban: addUmaban,
+            waku: addWaku,
             result: addResult,
             distance: addDistance,
           };
@@ -792,7 +799,7 @@ function MultiViewPage() {
                   </Badge>
                 )}
                 {slot.umaban && (
-                  <Badge className="bg-amber-500 text-white font-bold">
+                  <Badge className={`font-bold border ${slot.waku ? getWakuColor(slot.waku) : 'bg-amber-500 text-white'}`}>
                     🔍 {slot.umaban}番
                   </Badge>
                 )}

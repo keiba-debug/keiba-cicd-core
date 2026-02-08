@@ -73,6 +73,7 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
     result: race.finishPosition,
     distance: race.distance,
     umaban: String(race.horseNumber),
+    waku: race.frameNumber ? String(race.frameNumber) : undefined,
   }));
 
   return (

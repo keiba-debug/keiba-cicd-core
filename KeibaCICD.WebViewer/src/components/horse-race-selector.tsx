@@ -33,6 +33,7 @@ interface PastRace {
   result: string;     // 着順
   distance: string;   // 芝2000
   umaban?: string;    // 馬番（出走番号）- オプショナル
+  waku?: string;      // 枠番 - オプショナル
 }
 
 interface HorseRaceSelectorProps {
@@ -132,6 +133,7 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
       raceNumber: number;
       raceName: string;
       umaban?: string;
+      waku?: string;
       result?: string;
       distance?: string;
       videoType: VideoType;
@@ -153,6 +155,7 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
           raceNumber,
           raceName: race.raceName,
           umaban: race.umaban,
+          waku: race.waku,
           result: race.result,
           distance: race.distance,
           videoType,
@@ -183,6 +186,7 @@ export function HorseRaceSelector({ horseId, horseName, pastRaces }: HorseRaceSe
               videoType: race.videoType,
               raceName: race.raceName,
               umaban: race.umaban,
+              waku: race.waku,
               result: race.result,
               distance: race.distance,
             },
