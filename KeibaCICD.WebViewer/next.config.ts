@@ -15,6 +15,12 @@ const nextConfig: NextConfig = {
       '@radix-ui/react-popover',
       '@radix-ui/react-collapsible',
     ],
+    // Router Cacheの保持時間（タブ切り替え時の不要な再描画を抑制）
+    // 更新は各ページの更新ボタンで明示的に行う運用
+    staleTimes: {
+      dynamic: 180,  // 動的ページ: 3分保持
+      static: 300,   // 静的ページ: 5分保持
+    },
   },
 
   // コンパイラ最適化
