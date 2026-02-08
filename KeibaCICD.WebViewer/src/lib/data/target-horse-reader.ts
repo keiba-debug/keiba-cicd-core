@@ -120,8 +120,8 @@ function parseUmRecord(buffer: Buffer, offset: number): TargetHorseData | null {
     const nameKana = decodeShiftJis(buffer, offset + 82, 36);
     const nameEng = decodeShiftJis(buffer, offset + 118, 60);
     const sexCd = decodeShiftJis(buffer, offset + 200, 1);
-    const trainerCode = decodeShiftJis(buffer, offset + 850, 5);
-    const trainerName = decodeShiftJis(buffer, offset + 855, 8);
+    const trainerCode = decodeShiftJis(buffer, offset + 849, 5);
+    const trainerName = decodeShiftJis(buffer, offset + 854, 8);
     
     // 馬主名 (推定オフセット)
     let ownerName = '';
