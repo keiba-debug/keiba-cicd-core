@@ -279,9 +279,13 @@ export default async function RaceDetailPage({ params }: PageParams) {
   // 外部リンクURL生成
   const [year, month, dayStr] = date.split('-');
   const keibabookUrl = `https://p.keibabook.co.jp/cyuou/syutsuba/${year}${month}${dayStr}${id.slice(-4, -2)}${id.slice(-2).padStart(2, '0')}`;
-  const netkeibaRaceId = id;
-  const netkeibaUrl = `https://race.netkeiba.com/race/shutuba.html?race_id=${netkeibaRaceId}&rf=race_submenu`;
-  const netkeibaBbsUrl = `https://yoso.netkeiba.com/?pid=race_board&id=c${netkeibaRaceId}`;
+  // netkeiba race_id: YYYY + 場コード(2) + 回(2) + 日(2) + レース番号(2) = 12桁
+  const trackCode = trackCodes[track];
+  const netkeibaRaceId = kaisaiInfoForEdit && trackCode
+    ? `${year}${trackCode}${String(kaisaiInfoForEdit.kai).padStart(2, '0')}${String(kaisaiInfoForEdit.nichi).padStart(2, '0')}${String(currentRaceNumber).padStart(2, '0')}`
+    : null;
+  const netkeibaUrl = netkeibaRaceId ? `https://race.netkeiba.com/race/shutuba.html?race_id=${netkeibaRaceId}&rf=race_submenu` : null;
+  const netkeibaBbsUrl = netkeibaRaceId ? `https://yoso.netkeiba.com/?pid=race_board&id=c${netkeibaRaceId}` : null;
 
   // 競馬場切り替え時に同じレース番号を維持するためのヘルパー
   const getTrackRaceId = (targetTrack: string, raceNumber: number): string => {

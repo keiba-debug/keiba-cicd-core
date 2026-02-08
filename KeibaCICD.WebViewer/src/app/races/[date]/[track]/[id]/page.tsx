@@ -196,10 +196,14 @@ export default async function RaceDetailPage({ params }: PageProps) {
   let paddockUrl: string | null = null;
   let raceUrl: string | null = null;
   let patrolUrl: string | null = null;
-  
+  let kaisaiKai: number | undefined;
+  let kaisaiNichi: number | undefined;
+
   if (raceInfo) {
     const kaisaiInfo = getKaisaiInfoFromRaceInfo(raceInfo.kaisai_data, id);
     if (kaisaiInfo) {
+      kaisaiKai = kaisaiInfo.kai;
+      kaisaiNichi = kaisaiInfo.nichi;
       const [year, month, day] = date.split('-').map(Number);
       const urlParams = {
         year,
@@ -219,9 +223,17 @@ export default async function RaceDetailPage({ params }: PageProps) {
   // 外部リンクURL生成
   const [year, month, day] = date.split('-');
   const keibabookUrl = `https://p.keibabook.co.jp/cyuou/syutsuba/${year}${month}${day}${id.slice(-4, -2)}${id.slice(-2).padStart(2, '0')}`;
-  const netkeibaRaceId = id;
-  const netkeibaUrl = `https://race.netkeiba.com/race/shutuba.html?race_id=${netkeibaRaceId}&rf=race_submenu`;
-  const netkeibaBbsUrl = `https://yoso.netkeiba.com/?pid=race_board&id=c${netkeibaRaceId}`;
+  // netkeiba race_id: YYYY + 場コード(2) + 回(2) + 日(2) + レース番号(2) = 12桁
+  const trackCodesV1: Record<string, string> = {
+    '札幌': '01', '函館': '02', '福島': '03', '新潟': '04', '東京': '05',
+    '中山': '06', '中京': '07', '京都': '08', '阪神': '09', '小倉': '10',
+  };
+  const trackCodeV1 = trackCodesV1[track];
+  const netkeibaRaceId = kaisaiKai && kaisaiNichi && trackCodeV1
+    ? `${year}${trackCodeV1}${String(kaisaiKai).padStart(2, '0')}${String(kaisaiNichi).padStart(2, '0')}${String(currentRaceNumber).padStart(2, '0')}`
+    : null;
+  const netkeibaUrl = netkeibaRaceId ? `https://race.netkeiba.com/race/shutuba.html?race_id=${netkeibaRaceId}&rf=race_submenu` : null;
+  const netkeibaBbsUrl = netkeibaRaceId ? `https://yoso.netkeiba.com/?pid=race_board&id=c${netkeibaRaceId}` : null;
 
   // 競馬場切り替え時に同じレース番号を維持するためのヘルパー
   const getTrackRaceId = (targetTrack: string, raceNumber: number): string => {
@@ -416,24 +428,28 @@ export default async function RaceDetailPage({ params }: PageProps) {
               >
                 <Image src="/keibabook.ico" alt="競馬ブック" width={24} height={24} className="rounded" />
               </a>
-              <a
-                href={netkeibaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
-                title="netkeiba"
-              >
-                <Image src="/netkeiba.png" alt="netkeiba" width={24} height={24} className="rounded" />
-              </a>
-              <a
-                href={netkeibaBbsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
-                title="netkeiba BBS"
-              >
-                <MessageCircle className="w-5 h-5 text-blue-500" />
-              </a>
+              {netkeibaUrl && (
+                <a
+                  href={netkeibaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
+                  title="netkeiba"
+                >
+                  <Image src="/netkeiba.png" alt="netkeiba" width={24} height={24} className="rounded" />
+                </a>
+              )}
+              {netkeibaBbsUrl && (
+                <a
+                  href={netkeibaBbsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                  title="netkeiba BBS"
+                >
+                  <MessageCircle className="w-5 h-5 text-blue-500" />
+                </a>
+              )}
             </div>
 
             {/* 区切り線 */}

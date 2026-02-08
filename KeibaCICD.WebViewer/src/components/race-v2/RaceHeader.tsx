@@ -19,8 +19,8 @@ interface ExternalLinks {
   raceUrl: string | null;
   patrolUrl: string | null;
   keibabookUrl: string;
-  netkeibaUrl: string;
-  netkeibaBbsUrl: string;
+  netkeibaUrl: string | null;
+  netkeibaBbsUrl: string | null;
 }
 
 interface RaceHeaderProps {
@@ -195,24 +195,28 @@ export default function RaceHeader({
                 >
                   <Image src="/keibabook.ico" alt="競馬ブック" width={24} height={24} className="rounded" />
                 </a>
-                <a
-                  href={externalLinks.netkeibaUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
-                  title="netkeiba"
-                >
-                  <Image src="/netkeiba.png" alt="netkeiba" width={24} height={24} className="rounded" />
-                </a>
-                <a
-                  href={externalLinks.netkeibaBbsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center text-blue-600"
-                  title="netkeiba BBS"
-                >
-                  <MessageCircle className="w-5 h-5" />
-                </a>
+                {externalLinks.netkeibaUrl && (
+                  <a
+                    href={externalLinks.netkeibaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
+                    title="netkeiba"
+                  >
+                    <Image src="/netkeiba.png" alt="netkeiba" width={24} height={24} className="rounded" />
+                  </a>
+                )}
+                {externalLinks.netkeibaBbsUrl && (
+                  <a
+                    href={externalLinks.netkeibaBbsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center text-blue-600"
+                    title="netkeiba BBS"
+                  >
+                    <MessageCircle className="w-5 h-5" />
+                  </a>
+                )}
                 {/* オッズ分析リンク */}
                 {jraRaceId && (
                   <Link
