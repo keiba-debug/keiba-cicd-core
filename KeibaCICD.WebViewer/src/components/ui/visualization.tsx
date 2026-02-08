@@ -115,7 +115,7 @@ export function PerformanceBar({
 // TrendIndicator - 直近成績インジケーター
 // ============================================
 
-export type RaceResult = '1st' | '2nd' | '3rd' | 'out';
+export type RaceResult = '1st' | '2nd' | '3rd' | '4th' | '5th' | 'out';
 
 /** 直近戦績の1走分（リンク情報付き） */
 export interface RecentFormEntry {
@@ -139,6 +139,8 @@ const resultStyles: Record<RaceResult, { bg: string; label: string }> = {
   '1st': { bg: 'bg-emerald-500', label: '1' },
   '2nd': { bg: 'bg-blue-500', label: '2' },
   '3rd': { bg: 'bg-amber-500', label: '3' },
+  '4th': { bg: 'bg-purple-400', label: '4' },
+  '5th': { bg: 'bg-sky-400', label: '5' },
   'out': { bg: 'bg-gray-300 dark:bg-gray-600', label: '×' },
 };
 
@@ -159,8 +161,11 @@ export function TrendIndicator({
   // 連勝/連敗カウント
   const streak = calculateStreak(allResults);
 
+  const resultLabel: Record<RaceResult, string> = {
+    '1st': '1着', '2nd': '2着', '3rd': '3着', '4th': '4着', '5th': '5着', 'out': '着外',
+  };
   const defaultTitle = (idx: number, result: RaceResult) =>
-    `${allResults.length - idx}走前: ${result === '1st' ? '1着' : result === '2nd' ? '2着' : result === '3rd' ? '3着' : '着外'}`;
+    `${allResults.length - idx}走前: ${resultLabel[result]}`;
 
   return (
     <div className={cn('flex items-center gap-1', className)}>

@@ -28,6 +28,8 @@ function parseFinishPosition(position: string): RaceResult {
   if (pos === 1) return '1st';
   if (pos === 2) return '2nd';
   if (pos === 3) return '3rd';
+  if (pos === 4) return '4th';
+  if (pos === 5) return '5th';
   return 'out';
 }
 

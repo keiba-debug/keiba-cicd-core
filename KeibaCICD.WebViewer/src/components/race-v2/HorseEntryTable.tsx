@@ -69,6 +69,8 @@ function toRecentFormEntries(forms: RecentFormData[]): RecentFormEntry[] {
     const result = f.finishPosition === 1 ? '1st'
       : f.finishPosition === 2 ? '2nd'
       : f.finishPosition === 3 ? '3rd'
+      : f.finishPosition === 4 ? '4th'
+      : f.finishPosition === 5 ? '5th'
       : 'out' as const;
     const d = f.raceDate;
     const dateLabel = `${d.slice(4, 6)}/${d.slice(6, 8)}`;
