@@ -293,7 +293,7 @@ def generate_summary_for_date(date: str, days_back: int = DEFAULT_DAYS_BACK,
     # integrated_*.jsonファイルを検索
     integrated_files = find_integrated_files(date)
     if not integrated_files:
-        print(f"  [WARN] No integrated files found for {date}")
+        print(f"  [SKIP] レースデータなし（非開催日）")
         return {}
     
     print(f"  Found {len(integrated_files)} race files")
@@ -548,15 +548,49 @@ def main():
     
     # 各日付を処理
     success_count = 0
+    skip_count = 0
+    fail_count = 0
+    results = []  # (date, status, detail)
+
     for date in dates:
         summaries = generate_summary_for_date(date, args.days, horse_name_index)
         if summaries:
             if save_training_summary(date, summaries):
                 success_count += 1
+                results.append((date, 'OK', f'{len(summaries)}頭'))
+                print(f"  [OK] {date}: {len(summaries)}頭のサマリを保存")
+            else:
+                fail_count += 1
+                results.append((date, 'FAIL', '保存失敗'))
+                print(f"  [FAIL] {date}: 保存に失敗")
         else:
-            print(f"  [SKIP] No data for {date}")
-    
-    print(f"\n=== 完了: {success_count}/{len(dates)} 日 ===")
+            skip_count += 1
+            results.append((date, 'SKIP', '非開催日'))
+
+    # 最終サマリ
+    print(f"\n{'='*50}")
+    print(f"=== 調教サマリ生成 結果 ===")
+    print(f"  成功: {success_count} 日")
+    if skip_count > 0:
+        print(f"  スキップ（非開催日）: {skip_count} 日")
+    if fail_count > 0:
+        print(f"  失敗: {fail_count} 日")
+    print(f"  合計: {len(dates)} 日")
+
+    # 成功した日付の一覧
+    ok_dates = [r[0] for r in results if r[1] == 'OK']
+    if ok_dates:
+        print(f"\n  保存済み: {', '.join(ok_dates)}")
+
+    # 失敗があった場合は明示
+    fail_dates = [r[0] for r in results if r[1] == 'FAIL']
+    if fail_dates:
+        print(f"  失敗日: {', '.join(fail_dates)}")
+
+    if fail_count == 0:
+        print(f"\n=== 正常完了 ===")
+    else:
+        print(f"\n=== {fail_count}件のエラーあり ===")
 
 
 if __name__ == '__main__':
