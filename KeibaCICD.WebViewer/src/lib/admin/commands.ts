@@ -18,7 +18,8 @@ export type ActionType =
   | 'calc_rating_standards'      // レイティング基準値算出
   | 'training_summary'           // 調教サマリ生成
   | 'build_horse_name_index'     // 馬名インデックス作成
-  | 'build_trainer_index';       // 調教師インデックス作成
+  | 'build_trainer_index'        // 調教師インデックス作成
+  | 'analyze_trainer_patterns';  // 調教師パターン分析
 
 export interface ActionConfig {
   id: ActionType;
@@ -190,6 +191,14 @@ export const ACTIONS: ActionConfig[] = [
     description: '競馬ブック厩舎IDとJRA-VAN調教師コードの対応辞書を構築',
     icon: '👨‍🏫',
     category: 'generate',
+    noDateRequired: true,
+  },
+  {
+    id: 'analyze_trainer_patterns',
+    label: '調教師パターン分析',
+    description: '過去3年の調教×着順データから調教師別好走パターンを統計分析',
+    icon: '🔬',
+    category: 'analysis',
     noDateRequired: true,
   },
 ];
@@ -365,6 +374,11 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
       // Note: このアクションはAPIルートで特別に処理される
       return [];
 
+    case 'analyze_trainer_patterns':
+      // 調教師パターン分析（TARGETスクリプト）
+      // Note: このアクションはAPIルートで特別に処理される
+      return [];
+
     default:
       return [];
   }
@@ -527,6 +541,11 @@ export function getCommandArgsRange(
 
     case 'build_trainer_index':
       // 調教師インデックス作成（TARGETスクリプト）
+      // Note: このアクションはAPIルートで特別に処理される
+      return [];
+
+    case 'analyze_trainer_patterns':
+      // 調教師パターン分析（TARGETスクリプト）
       // Note: このアクションはAPIルートで特別に処理される
       return [];
 

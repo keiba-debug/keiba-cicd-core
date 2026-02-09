@@ -3,11 +3,12 @@
 /**
  * RPCI分析ページ
  * コース別のレース特性（瞬発戦/持続戦）傾向を表示
+ * v2: 馬場別比較 / 頭数別補正 / 年度重み付け対応
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { RefreshCw, TrendingUp, TrendingDown, Minus, ArrowLeft } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Minus, ArrowLeft, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import Link from 'next/link';
 import { RpciGauge, RpciBar, StatCard } from '@/components/ui/visualization';
 import { cn } from '@/lib/utils';
@@ -19,6 +20,7 @@ interface RpciStats {
   median: number;
   min: number;
   max: number;
+  weighted_mean?: number;
 }
 
 interface RpciThresholds {
@@ -32,6 +34,14 @@ interface CourseData {
   thresholds: RpciThresholds;
 }
 
+interface RunnerAdjustment {
+  rpci_offset: number;
+  rpci_mean: number;
+  sample_count: number;
+}
+
+type TabKey = 'distance' | 'course' | 'baba' | 'runners' | 'similar';
+
 interface RpciStandardsResponse {
   summary: {
     totalCourses: number;
@@ -42,6 +52,8 @@ interface RpciStandardsResponse {
   by_distance_group: Record<string, CourseData>;
   courses: Record<string, CourseData>;
   similar_courses: Record<string, string[]>;
+  by_distance_group_baba: Record<string, CourseData>;
+  runner_adjustments: Record<string, Record<string, RunnerAdjustment>>;
   metadata: {
     created_at: string;
     source: string;
@@ -122,11 +134,26 @@ const VENUE_LIST = [
   { key: 'Kokura', label: '小倉' }, { key: 'Fukushima', label: '福島' },
 ] as const;
 
+// オフセット値の色クラス
+function getOffsetColor(offset: number): string {
+  if (offset >= 1.0) return 'text-blue-600';
+  if (offset >= 0.3) return 'text-blue-400';
+  if (offset <= -0.5) return 'text-red-600';
+  if (offset <= -0.2) return 'text-red-400';
+  return 'text-gray-500';
+}
+
+// 差分の符号付き表示
+function formatDiff(diff: number): string {
+  if (diff > 0) return `+${diff.toFixed(2)}`;
+  return diff.toFixed(2);
+}
+
 export default function RpciAnalysisPage() {
   const [data, setData] = useState<RpciStandardsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'distance' | 'course' | 'similar'>('distance');
+  const [activeTab, setActiveTab] = useState<TabKey>('distance');
   const [searchQuery, setSearchQuery] = useState('');
   const [surfaceFilter, setSurfaceFilter] = useState<'all' | 'Turf' | 'Dirt'>('all');
   const [distanceFilter, setDistanceFilter] = useState<string>('all');
@@ -171,7 +198,11 @@ export default function RpciAnalysisPage() {
         if (venueFilter !== 'all' && parsed.venue !== venueFilter) return false;
         return true;
       })
-      .sort((a, b) => b[1].rpci.mean - a[1].rpci.mean);
+      .sort((a, b) => {
+        const meanA = a[1].rpci.weighted_mean ?? a[1].rpci.mean;
+        const meanB = b[1].rpci.weighted_mean ?? b[1].rpci.mean;
+        return meanB - meanA;
+      });
   }, [data, searchQuery, surfaceFilter, distanceFilter, venueFilter]);
 
   // フィルタされた類似コース
@@ -191,6 +222,58 @@ export default function RpciAnalysisPage() {
       })
       .sort((a, b) => b[1].length - a[1].length);
   }, [data, surfaceFilter, distanceFilter, venueFilter]);
+
+  // 馬場別比較データ（距離グループ単位）
+  const babaComparison = useMemo(() => {
+    if (!data?.by_distance_group_baba || !data?.by_distance_group) return [];
+    const groups = Object.keys(data.by_distance_group);
+    return groups
+      .filter(g => {
+        if (surfaceFilter !== 'all') {
+          return g.startsWith(surfaceFilter);
+        }
+        return true;
+      })
+      .map(groupKey => {
+        const overall = data.by_distance_group[groupKey];
+        const goodKey = `${groupKey}_良`;
+        const heavyKey = `${groupKey}_稍重以上`;
+        const good = data.by_distance_group_baba[goodKey];
+        const heavy = data.by_distance_group_baba[heavyKey];
+        return {
+          groupKey,
+          overall,
+          good,
+          heavy,
+          diff: good && heavy ? heavy.rpci.mean - good.rpci.mean : null,
+        };
+      })
+      .sort((a, b) => {
+        // 芝→ダートの順、距離昇順
+        const surfA = a.groupKey.startsWith('Turf') ? 0 : 1;
+        const surfB = b.groupKey.startsWith('Turf') ? 0 : 1;
+        if (surfA !== surfB) return surfA - surfB;
+        return a.groupKey.localeCompare(b.groupKey);
+      });
+  }, [data, surfaceFilter]);
+
+  // 頭数別補正データ
+  const runnerAdjData = useMemo(() => {
+    if (!data?.runner_adjustments) return [];
+    return Object.entries(data.runner_adjustments)
+      .filter(([key]) => {
+        if (surfaceFilter !== 'all') {
+          return key.startsWith(surfaceFilter);
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const surfA = a[0].startsWith('Turf') ? 0 : 1;
+        const surfB = b[0].startsWith('Turf') ? 0 : 1;
+        if (surfA !== surfB) return surfA - surfB;
+        return a[0].localeCompare(b[0]);
+      });
+  }, [data, surfaceFilter]);
 
   const hasActiveFilter = surfaceFilter !== 'all' || distanceFilter !== 'all' || venueFilter !== 'all';
   const btnClass = (active: boolean) => cn(
@@ -241,6 +324,26 @@ export default function RpciAnalysisPage() {
     </div>
   );
 
+  // 芝/ダートのみフィルタ（馬場別・頭数別タブ用）
+  const renderSurfaceFilter = () => (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">芝/ダート</span>
+      {(['all', 'Turf', 'Dirt'] as const).map((v) => (
+        <button key={v} onClick={() => setSurfaceFilter(v)} className={btnClass(surfaceFilter === v)}>
+          {v === 'all' ? '全て' : v === 'Turf' ? '芝' : 'ダート'}
+        </button>
+      ))}
+    </div>
+  );
+
+  const TABS: { key: TabKey; label: string }[] = [
+    { key: 'distance', label: '距離グループ別' },
+    { key: 'course', label: 'コース別' },
+    { key: 'baba', label: '馬場別比較' },
+    { key: 'runners', label: '頭数別補正' },
+    { key: 'similar', label: '類似コース' },
+  ];
+
   return (
     <div className="container py-6 max-w-6xl">
       {/* パンくずリスト */}
@@ -256,7 +359,7 @@ export default function RpciAnalysisPage() {
       {/* ヘッダー */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          📈 RPCI分析（レース特性）
+          RPCI分析（レース特性）
         </h1>
         <p className="text-muted-foreground mt-1">
           コース別の瞬発戦/持続戦傾向を分析。RPCI = (前3F / 後3F) × 50
@@ -317,8 +420,8 @@ export default function RpciAnalysisPage() {
           {/* メタデータ */}
           <div className="text-xs text-muted-foreground flex items-center justify-between">
             <span>
-              対象期間: <strong className="text-foreground">{data.metadata.years || '不明'}</strong> | 
-              更新: {new Date(data.metadata.created_at).toLocaleString('ja-JP')} | 
+              対象期間: <strong className="text-foreground">{data.metadata.years || '不明'}</strong> |
+              更新: {new Date(data.metadata.created_at).toLocaleString('ja-JP')} |
               ソース: {data.metadata.source}
             </span>
             <button
@@ -332,53 +435,36 @@ export default function RpciAnalysisPage() {
           </div>
 
           {/* タブ */}
-          <div className="flex border-b">
-            <button
-              onClick={() => setActiveTab('distance')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'distance'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              距離グループ別
-            </button>
-            <button
-              onClick={() => setActiveTab('course')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'course'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              コース別
-            </button>
-            <button
-              onClick={() => setActiveTab('similar')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'similar'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              類似コース
-            </button>
+          <div className="flex border-b overflow-x-auto">
+            {TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === key
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
-          {/* 距離グループ別タブ */}
+          {/* ===== 距離グループ別タブ ===== */}
           {activeTab === 'distance' && (
             <div className="space-y-6">
               {/* ゲージグリッド表示 */}
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                 {Object.entries(data.by_distance_group)
-                  .sort((a, b) => b[1].rpci.mean - a[1].rpci.mean)
+                  .sort((a, b) => (b[1].rpci.weighted_mean ?? b[1].rpci.mean) - (a[1].rpci.weighted_mean ?? a[1].rpci.mean))
                   .map(([key, value]) => (
                     <Card key={key} className="hover:shadow-md transition-shadow">
                       <CardContent className="pt-4 pb-3 flex flex-col items-center">
                         <div className="text-xs font-medium text-muted-foreground mb-2">
                           {formatDistanceGroup(key)}
                         </div>
-                        <RpciGauge value={value.rpci.mean} size="sm" />
+                        <RpciGauge value={value.rpci.weighted_mean ?? value.rpci.mean} size="sm" />
                         <div className="text-[10px] text-muted-foreground mt-1">
                           {value.sample_count.toLocaleString()}件
                         </div>
@@ -400,6 +486,7 @@ export default function RpciAnalysisPage() {
                           <th className="text-left py-3 px-4">カテゴリ</th>
                           <th className="text-right py-3 px-4">件数</th>
                           <th className="text-center py-3 px-4">RPCI</th>
+                          <th className="text-right py-3 px-4">重み付</th>
                           <th className="text-center py-3 px-4">傾向</th>
                           <th className="text-right py-3 px-4">瞬発閾値</th>
                           <th className="text-right py-3 px-4">持続閾値</th>
@@ -407,17 +494,34 @@ export default function RpciAnalysisPage() {
                       </thead>
                       <tbody>
                         {Object.entries(data.by_distance_group)
-                          .sort((a, b) => b[1].rpci.mean - a[1].rpci.mean)
+                          .sort((a, b) => (b[1].rpci.weighted_mean ?? b[1].rpci.mean) - (a[1].rpci.weighted_mean ?? a[1].rpci.mean))
                           .map(([key, value]) => {
-                            const trend = getRpciTrend(value.rpci.mean);
+                            const wm = value.rpci.weighted_mean;
+                            const rpci = wm ?? value.rpci.mean;
+                            const trend = getRpciTrend(rpci);
+                            const diff = wm != null ? wm - value.rpci.mean : null;
                             return (
                               <tr key={key} className="border-b hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                 <td className="py-3 px-4 font-medium">{formatDistanceGroup(key)}</td>
                                 <td className="text-right py-3 px-4">{value.sample_count.toLocaleString()}</td>
                                 <td className="py-3 px-4">
                                   <div className="flex justify-center">
-                                    <RpciGauge value={value.rpci.mean} size="sm" showLabel={false} />
+                                    <RpciGauge value={rpci} size="sm" showLabel={false} />
                                   </div>
+                                </td>
+                                <td className="text-right py-3 px-4 font-mono text-xs">
+                                  {wm != null ? (
+                                    <span title={`全体平均: ${value.rpci.mean.toFixed(2)}`}>
+                                      {wm.toFixed(2)}
+                                      {diff != null && Math.abs(diff) >= 0.01 && (
+                                        <span className={diff > 0 ? 'text-blue-500 ml-1' : 'text-red-500 ml-1'}>
+                                          ({formatDiff(diff)})
+                                        </span>
+                                      )}
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
                                 </td>
                                 <td className="text-center py-3 px-4">
                                   <span className={`flex items-center justify-center gap-1 ${trend.color}`}>
@@ -433,12 +537,15 @@ export default function RpciAnalysisPage() {
                       </tbody>
                     </table>
                   </div>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    重み付: 直近2年×2倍の重み付け平均。カッコ内は全体平均との差。
+                  </p>
                 </CardContent>
               </Card>
             </div>
           )}
 
-          {/* コース別タブ */}
+          {/* ===== コース別タブ ===== */}
           {activeTab === 'course' && (
             <Card>
               <CardHeader>
@@ -459,13 +566,13 @@ export default function RpciAnalysisPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full px-4 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
                 />
-                
+
                 {/* バーグラフ表示 */}
                 <div className="max-h-[600px] overflow-y-auto space-y-1">
                   {filteredCourses.map(([key, value], index) => (
                     <RpciBar
                       key={key}
-                      value={value.rpci.mean}
+                      value={value.rpci.weighted_mean ?? value.rpci.mean}
                       label={formatCourseName(key)}
                       rank={searchQuery === '' ? index + 1 : undefined}
                       sampleCount={value.sample_count}
@@ -499,7 +606,199 @@ export default function RpciAnalysisPage() {
             </Card>
           )}
 
-          {/* 類似コースタブ */}
+          {/* ===== 馬場別比較タブ ===== */}
+          {activeTab === 'baba' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">馬場状態別 RPCI 比較</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  良馬場 vs 稍重以上でRPCI傾向がどう変わるか。芝は稍重でペースが速まり（RPCI↓）、ダートは逆傾向。
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {renderSurfaceFilter()}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50 dark:bg-slate-800">
+                        <th className="text-left py-3 px-4">距離グループ</th>
+                        <th className="text-right py-3 px-3">
+                          <span className="text-green-600">良</span> RPCI
+                        </th>
+                        <th className="text-right py-3 px-2">n</th>
+                        <th className="text-right py-3 px-3">
+                          <span className="text-amber-600">稍重+</span> RPCI
+                        </th>
+                        <th className="text-right py-3 px-2">n</th>
+                        <th className="text-center py-3 px-3">差</th>
+                        <th className="text-center py-3 px-4">影響</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {babaComparison.map(({ groupKey, good, heavy, diff }) => {
+                        const isTurf = groupKey.startsWith('Turf');
+                        return (
+                          <tr key={groupKey} className="border-b hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td className="py-3 px-4 font-medium">{formatDistanceGroup(groupKey)}</td>
+                            <td className="text-right py-3 px-3 font-mono">
+                              {good ? (
+                                <span className="text-green-700 dark:text-green-400">{good.rpci.mean.toFixed(2)}</span>
+                              ) : '-'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-xs text-muted-foreground">
+                              {good ? good.sample_count.toLocaleString() : '-'}
+                            </td>
+                            <td className="text-right py-3 px-3 font-mono">
+                              {heavy ? (
+                                <span className="text-amber-700 dark:text-amber-400">{heavy.rpci.mean.toFixed(2)}</span>
+                              ) : '-'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-xs text-muted-foreground">
+                              {heavy ? heavy.sample_count.toLocaleString() : '-'}
+                            </td>
+                            <td className="text-center py-3 px-3">
+                              {diff != null ? (
+                                <span className={cn(
+                                  'font-mono font-medium text-sm',
+                                  diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-red-600' : 'text-gray-500'
+                                )}>
+                                  {formatDiff(diff)}
+                                </span>
+                              ) : '-'}
+                            </td>
+                            <td className="text-center py-3 px-4">
+                              {diff != null && (
+                                <span className="flex items-center justify-center gap-1 text-xs">
+                                  {isTurf ? (
+                                    diff < -0.3 ? (
+                                      <><ArrowDownRight className="h-3.5 w-3.5 text-red-500" /><span className="text-red-600">ペース速化</span></>
+                                    ) : diff > 0.3 ? (
+                                      <><ArrowUpRight className="h-3.5 w-3.5 text-blue-500" /><span className="text-blue-600">スロー化</span></>
+                                    ) : (
+                                      <span className="text-muted-foreground">変化小</span>
+                                    )
+                                  ) : (
+                                    diff > 0.1 ? (
+                                      <><ArrowUpRight className="h-3.5 w-3.5 text-blue-500" /><span className="text-blue-600">スロー化</span></>
+                                    ) : diff < -0.1 ? (
+                                      <><ArrowDownRight className="h-3.5 w-3.5 text-red-500" /><span className="text-red-600">ペース速化</span></>
+                                    ) : (
+                                      <span className="text-muted-foreground">変化小</span>
+                                    )
+                                  )}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="text-xs text-muted-foreground space-y-1 border-t pt-3">
+                  <p><strong>読み方:</strong> 差 = 稍重以上RPCI - 良RPCI。負の値 = 稍重でペースが速くなる。</p>
+                  <p>芝は馬場が悪化すると瞬発力が出にくくなり、持続戦寄りになる傾向。ダートは脚抜きが良くなり、ややスロー寄り。</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ===== 頭数別補正タブ ===== */}
+          {activeTab === 'runners' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">頭数別 RPCI 補正</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  出走頭数によるRPCIオフセット。少頭数はスロー傾向（+）、多頭数はハイペース傾向（-）。
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {renderSurfaceFilter()}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50 dark:bg-slate-800">
+                        <th className="text-left py-3 px-4">距離グループ</th>
+                        <th className="text-center py-3 px-3" colSpan={2}>
+                          <span className="text-blue-600">少頭数(~8)</span>
+                        </th>
+                        <th className="text-center py-3 px-3" colSpan={2}>
+                          <span className="text-gray-600">中頭数(9-13)</span>
+                        </th>
+                        <th className="text-center py-3 px-3" colSpan={2}>
+                          <span className="text-red-600">多頭数(14~)</span>
+                        </th>
+                      </tr>
+                      <tr className="border-b bg-slate-50/50 dark:bg-slate-800/50 text-xs text-muted-foreground">
+                        <th></th>
+                        <th className="py-1 px-2 text-right">offset</th>
+                        <th className="py-1 px-2 text-right">n</th>
+                        <th className="py-1 px-2 text-right">offset</th>
+                        <th className="py-1 px-2 text-right">n</th>
+                        <th className="py-1 px-2 text-right">offset</th>
+                        <th className="py-1 px-2 text-right">n</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runnerAdjData.map(([groupKey, bands]) => {
+                        const small = bands['少頭数(~8)'];
+                        const mid = bands['中頭数(9-13)'];
+                        const large = bands['多頭数(14~)'];
+                        return (
+                          <tr key={groupKey} className="border-b hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td className="py-3 px-4 font-medium">{formatDistanceGroup(groupKey)}</td>
+                            {/* 少頭数 */}
+                            <td className="text-right py-3 px-2">
+                              {small ? (
+                                <span className={cn('font-mono font-medium', getOffsetColor(small.rpci_offset))}>
+                                  {formatDiff(small.rpci_offset)}
+                                </span>
+                              ) : <span className="text-muted-foreground">-</span>}
+                            </td>
+                            <td className="text-right py-3 px-2 text-xs text-muted-foreground">
+                              {small ? small.sample_count : '-'}
+                            </td>
+                            {/* 中頭数 */}
+                            <td className="text-right py-3 px-2">
+                              {mid ? (
+                                <span className={cn('font-mono font-medium', getOffsetColor(mid.rpci_offset))}>
+                                  {formatDiff(mid.rpci_offset)}
+                                </span>
+                              ) : <span className="text-muted-foreground">-</span>}
+                            </td>
+                            <td className="text-right py-3 px-2 text-xs text-muted-foreground">
+                              {mid ? mid.sample_count : '-'}
+                            </td>
+                            {/* 多頭数 */}
+                            <td className="text-right py-3 px-2">
+                              {large ? (
+                                <span className={cn('font-mono font-medium', getOffsetColor(large.rpci_offset))}>
+                                  {formatDiff(large.rpci_offset)}
+                                </span>
+                              ) : <span className="text-muted-foreground">-</span>}
+                            </td>
+                            <td className="text-right py-3 px-2 text-xs text-muted-foreground">
+                              {large ? large.sample_count : '-'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="text-xs text-muted-foreground space-y-1 border-t pt-3">
+                  <p><strong>offset:</strong> 当該頭数帯のRPCI平均 - 距離グループ全体のRPCI平均</p>
+                  <p>正の値（<span className="text-blue-600">青</span>）= スロー傾向 → 瞬発力が問われやすい。負の値（<span className="text-red-600">赤</span>）= ハイペース傾向 → 持久力が問われやすい。</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ===== 類似コースタブ ===== */}
           {activeTab === 'similar' && (
             <Card>
               <CardHeader>
@@ -515,13 +814,14 @@ export default function RpciAnalysisPage() {
                   {filteredSimilarCourses
                     .map(([course, similarCourses]) => {
                       const courseData = data.courses[course];
-                      const courseTrend = getRpciTrend(courseData?.rpci.mean ?? 50);
+                      const rpci = courseData?.rpci.weighted_mean ?? courseData?.rpci.mean ?? 50;
+                      const courseTrend = getRpciTrend(rpci);
                       return (
                         <div key={course} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4">
                           <div className="font-medium flex items-center gap-2">
                             {formatCourseName(course)}
                             <span className="text-xs font-mono text-muted-foreground">
-                              RPCI: {courseData?.rpci.mean.toFixed(2)}
+                              RPCI: {rpci.toFixed(2)}
                             </span>
                             <span className={cn('flex items-center gap-1 text-xs', courseTrend.color)}>
                               {courseTrend.icon}
@@ -531,10 +831,9 @@ export default function RpciAnalysisPage() {
                           <div className="mt-2 flex flex-wrap gap-2">
                             {similarCourses.map((similar) => {
                               const similarData = data.courses[similar];
-                              const diff = similarData && courseData
-                                ? Math.abs(similarData.rpci.mean - courseData.rpci.mean)
-                                : 0;
-                              const similarTrend = getRpciTrend(similarData?.rpci.mean ?? 50);
+                              const similarRpci = similarData?.rpci.weighted_mean ?? similarData?.rpci.mean ?? 50;
+                              const diff = Math.abs(similarRpci - rpci);
+                              const similarTrend = getRpciTrend(similarRpci);
                               return (
                                 <span
                                   key={similar}
@@ -581,6 +880,14 @@ export default function RpciAnalysisPage() {
               <p className="mt-3">
                 瞬発戦では上がり3Fの切れ味が重要、持続戦では持久力とスタミナが重要になります。
               </p>
+              <div className="mt-3 border-t pt-3 space-y-1">
+                <p className="font-medium text-foreground">v2 改善点</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li><strong>馬場別分離:</strong> 良馬場 vs 稍重以上でRPCI傾向を分離分析</li>
+                  <li><strong>頭数別補正:</strong> 少頭数→スロー傾向、多頭数→ハイペース傾向のオフセット値</li>
+                  <li><strong>年度重み付け:</strong> 直近2年を×2倍で重み付けし、最新傾向を反映</li>
+                </ul>
+              </div>
             </CardContent>
           </Card>
         </div>

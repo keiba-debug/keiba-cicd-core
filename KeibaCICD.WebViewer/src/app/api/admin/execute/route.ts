@@ -137,6 +137,15 @@ export async function POST(request: NextRequest) {
           commandsList = [
             ['scripts/build_trainer_index.py', '--build-index']
           ];
+        } else if (action === 'analyze_trainer_patterns') {
+          // 調教師パターン分析 - 過去3年の調教×着順データから勝負パターンを統計分析（TARGETディレクトリで実行）
+          customCwd = ADMIN_CONFIG.targetPath;
+          const historyOutput = path.join(DATA_ROOT, 'target', 'trainer_training_history.json');
+          const patternsOutput = path.join(DATA_ROOT, 'target', 'trainer_patterns.json');
+          commandsList = [
+            ['scripts/collect_trainer_training_history.py', '--since', '2023', '--output', historyOutput],
+            ['scripts/analyze_trainer_patterns.py', '--input', historyOutput, '--output', patternsOutput],
+          ];
         } else {
           commandsList = isRangeAction && startDate && endDate
             ? getCommandArgsRange(action, startDate, endDate, options)

@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/collapsible';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RecentFormData } from '@/lib/data/target-race-result-reader';
+import type { TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
 
 interface PreviousTrainingEntry {
   date: string;
@@ -37,6 +38,7 @@ interface TrainingAnalysisSectionProps {
   trainingSummaryMap?: Record<string, TrainingSummaryData>;
   previousTrainingMap?: Record<string, PreviousTrainingEntry>;
   recentFormMap?: Record<number, RecentFormData[]>;
+  trainerPatternMatchMap?: Record<string, TrainerPatternMatch | null>;
 }
 
 // =============================================================================
@@ -230,9 +232,10 @@ interface TrainingAnalysisRowProps {
   trainingSummary?: TrainingSummaryData;
   previousTraining?: PreviousTrainingEntry;
   previousRaceForm?: RecentFormData;
+  patternMatch?: TrainerPatternMatch | null;
 }
 
-const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, trainingSummary, previousTraining, previousRaceForm }: TrainingAnalysisRowProps) {
+const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, trainingSummary, previousTraining, previousRaceForm, patternMatch }: TrainingAnalysisRowProps) {
   const { entry_data, training_data } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
 
@@ -254,8 +257,22 @@ const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, tra
       </td>
 
       {/* 調教師 */}
-      <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
-        {formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}
+      <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
+        <div className="whitespace-nowrap">{formatTrainerName(entry_data.trainer, entry_data.trainer_tozai)}</div>
+        {patternMatch && patternMatch.matchScore > 0.3 && (
+          <div
+            className="mt-0.5 text-[10px] leading-tight text-amber-700 dark:text-amber-400 font-medium whitespace-nowrap"
+            title={`${patternMatch.description}\n好走率: ${(patternMatch.stats.top3_rate * 100).toFixed(0)}% (${patternMatch.stats.sample_size}走)\n勝率: ${(patternMatch.stats.win_rate * 100).toFixed(0)}%`}
+          >
+            <span className="text-amber-500">★</span>
+            {patternMatch.humanLabel
+              ? `${patternMatch.humanLabel.length > 12 ? patternMatch.humanLabel.slice(0, 12) + '…' : patternMatch.humanLabel}`
+              : `${patternMatch.description.length > 12 ? patternMatch.description.slice(0, 12) + '…' : patternMatch.description}`}
+            <span className="text-[9px] ml-0.5 opacity-80">
+              ({(patternMatch.stats.top3_rate * 100).toFixed(0)}%)
+            </span>
+          </div>
+        )}
       </td>
 
       {/* 今走調教タイム詳細 */}
@@ -347,7 +364,8 @@ export default function TrainingAnalysisSection({
   entries,
   trainingSummaryMap = {},
   previousTrainingMap = {},
-  recentFormMap = {}
+  recentFormMap = {},
+  trainerPatternMatchMap = {},
 }: TrainingAnalysisSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
 
@@ -423,6 +441,7 @@ export default function TrainingAnalysisSection({
                     trainingSummary={trainingSummaryMap[entry.horse_name] || trainingSummaryMap[normalizeHorseName(entry.horse_name)]}
                     previousTraining={previousTrainingMap[entry.horse_name] || previousTrainingMap[normalizeHorseName(entry.horse_name)]}
                     previousRaceForm={recentFormMap[entry.horse_number]?.[0]}
+                    patternMatch={trainerPatternMatchMap[entry.horse_name] || trainerPatternMatchMap[normalizeHorseName(entry.horse_name)]}
                   />
                 ))}
               </tbody>
@@ -436,6 +455,7 @@ export default function TrainingAnalysisSection({
               <span><strong className="text-green-600">◎</strong>=好タイム（緑色表示）</span>
               <span><strong>ラップ:</strong> <strong className="text-yellow-600">SS</strong>=最高 / S=優秀 / A=良 / B=普通 / C=やや劣 / D=劣</span>
               <span><strong>加速:</strong> ↗=加速 / →=同タイム / ↘=減速</span>
+              <span><strong className="text-amber-500">★</strong>=調教師勝負パターン一致</span>
             </div>
           </div>
         </CollapsibleContent>

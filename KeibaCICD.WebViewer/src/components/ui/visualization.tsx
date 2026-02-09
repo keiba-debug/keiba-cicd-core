@@ -11,6 +11,8 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import type { RaceTrendType } from '@/lib/data/rpci-utils';
+import { RACE_TREND_LABELS, RACE_TREND_COLORS } from '@/lib/data/rpci-utils';
 
 // ============================================
 // HeatmapCell - ヒートマップカラーリングセル
@@ -124,6 +126,8 @@ export interface RecentFormEntry {
   href?: string;
   /** ツールチップ用ラベル（例: "1着 京都5R"） */
   label?: string;
+  /** レース傾向（v3: 5段階分類） */
+  raceTrend?: RaceTrendType;
 }
 
 interface TrendIndicatorProps {
@@ -167,32 +171,58 @@ export function TrendIndicator({
   const defaultTitle = (idx: number, result: RaceResult) =>
     `${allResults.length - idx}走前: ${resultLabel[result]}`;
 
+  // レース傾向の短縮ラベル（2文字以下）
+  const trendShortLabels: Record<string, string> = {
+    sprint_finish: '瞬',
+    long_sprint: 'ロ',
+    even_pace: '平',
+    front_loaded: 'H前',
+    front_loaded_strong: 'H後',
+  };
+
   return (
     <div className={cn('flex items-center gap-1', className)}>
       <div className="flex gap-0.5">
         {displayEntries.map((entry, idx) => {
-          const dot = (
-            <div
-              key={idx}
-              className={cn(
-                'rounded-full flex items-center justify-center font-bold text-white',
-                dotSize,
-                resultStyles[entry.result].bg,
-                entry.href && 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-400'
+          const trendLabel = entry.raceTrend ? RACE_TREND_LABELS[entry.raceTrend] : '';
+          const titleText = entry.label
+            ? (trendLabel ? `${entry.label} [${trendLabel}]` : entry.label)
+            : (trendLabel ? `${defaultTitle(idx, entry.result)} [${trendLabel}]` : defaultTitle(idx, entry.result));
+
+          const dotElement = (
+            <div key={idx} className="flex flex-col items-center gap-px">
+              <div
+                className={cn(
+                  'rounded-full flex items-center justify-center font-bold text-white',
+                  dotSize,
+                  resultStyles[entry.result].bg,
+                  entry.href && 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-400'
+                )}
+                title={titleText}
+              >
+                {resultStyles[entry.result].label}
+              </div>
+              {entry.raceTrend && (
+                <span
+                  className={cn(
+                    'text-[8px] leading-none font-medium rounded px-0.5',
+                    RACE_TREND_COLORS[entry.raceTrend]
+                  )}
+                  title={RACE_TREND_LABELS[entry.raceTrend]}
+                >
+                  {trendShortLabels[entry.raceTrend] || ''}
+                </span>
               )}
-              title={entry.label || defaultTitle(idx, entry.result)}
-            >
-              {resultStyles[entry.result].label}
             </div>
           );
           if (entry.href) {
             return (
               <a key={idx} href={entry.href} target="_blank" rel="noopener noreferrer">
-                {React.cloneElement(dot, { key: undefined })}
+                {React.cloneElement(dotElement, { key: undefined })}
               </a>
             );
           }
-          return dot;
+          return dotElement;
         })}
       </div>
       {streak && (

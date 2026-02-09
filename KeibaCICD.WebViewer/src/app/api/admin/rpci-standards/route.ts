@@ -9,6 +9,7 @@ interface RpciStats {
   median: number;
   min: number;
   max: number;
+  weighted_mean?: number;
 }
 
 interface RpciThresholds {
@@ -22,6 +23,12 @@ interface CourseData {
   thresholds: RpciThresholds;
 }
 
+interface RunnerAdjustment {
+  rpci_offset: number;
+  rpci_mean: number;
+  sample_count: number;
+}
+
 interface RpciStandardsData {
   metadata: {
     created_at: string;
@@ -32,6 +39,9 @@ interface RpciStandardsData {
   by_distance_group: Record<string, CourseData>;
   courses: Record<string, CourseData>;
   similar_courses: Record<string, string[]>;
+  by_baba?: Record<string, CourseData>;
+  by_distance_group_baba?: Record<string, CourseData>;
+  runner_adjustments?: Record<string, Record<string, RunnerAdjustment>>;
 }
 
 /**
@@ -129,6 +139,8 @@ export async function GET(request: NextRequest) {
       by_distance_group: data.by_distance_group,
       courses: data.courses,
       similar_courses: data.similar_courses,
+      by_distance_group_baba: data.by_distance_group_baba || {},
+      runner_adjustments: data.runner_adjustments || {},
       metadata: data.metadata
     });
 

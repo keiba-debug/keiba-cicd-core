@@ -51,6 +51,7 @@ export interface TargetRaceResult {
   finishPosition: number;  // 確定着順
   time: string;            // 走破タイム
   last3f: string;          // 上がり3F
+  last4f: string;          // 上がり4F
   odds: number;            // 単勝オッズ
   popularity: number;      // 単勝人気
   
@@ -235,6 +236,10 @@ function parseSeRecord(buffer: Buffer, offset: number): TargetRaceResult | null 
     const odds = parseFloat(oddsStr) / 10 || 0;
     const popularity = parseInt(decodeShiftJis(record, 363, 2), 10) || 0;
     
+    // 上がり4F
+    // HaronTimeL4 = MidB2S(388,3) → offset 387-389
+    const last4f = decodeShiftJis(record, 387, 3);
+
     // 上がり3F
     // HaronTimeL3 = MidB2S(391,3) → offset 390-392
     const last3f = decodeShiftJis(record, 390, 3);
@@ -264,6 +269,7 @@ function parseSeRecord(buffer: Buffer, offset: number): TargetRaceResult | null 
       finishPosition,
       time: formatTime(time),
       last3f: formatLast3f(last3f),
+      last4f: formatLast3f(last4f),
       odds,
       popularity,
       corner1,
@@ -389,6 +395,12 @@ export interface RecentFormData {
   raceId: string;      // TARGET形式のレースID
   /** レース詳細ページへのリンク（Server Componentで解決） */
   href?: string;
+  // v3: 走破・上がりデータ
+  last3f?: string;     // 上がり3F（例: "34.5"）
+  last4f?: string;     // 上がり4F（例: "46.2"）
+  time?: string;       // 走破タイム（例: "1:59.8"）
+  // v3: レース傾向（race_trend_index.jsonからServer Componentで付与）
+  raceTrend?: import('./rpci-utils').RaceTrendType;
 }
 
 /**
@@ -434,6 +446,9 @@ export function getRecentFormBatch(
       nichi: r.nichi,
       raceNumber: r.raceNumber,
       raceId: r.raceId,
+      last3f: r.last3f || undefined,
+      last4f: r.last4f || undefined,
+      time: r.time || undefined,
     })));
   }
 

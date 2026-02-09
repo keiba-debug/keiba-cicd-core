@@ -20,12 +20,18 @@ export interface RpciStats {
   median: number;
   min: number;
   max: number;
+  weighted_mean?: number;  // 年度重み付け平均（直近2年×2倍）
 }
 
 export interface CourseRpciData {
   sample_count: number;
   rpci: RpciStats;
   thresholds: RpciThresholds;
+}
+
+export interface RunnerAdjustment {
+  rpci_offset: number;
+  sample_count: number;
 }
 
 export interface RpciStandardsData {
@@ -38,6 +44,9 @@ export interface RpciStandardsData {
   by_distance_group: Record<string, CourseRpciData>;
   courses: Record<string, CourseRpciData>;
   similar_courses: Record<string, string[]>;
+  by_baba?: Record<string, CourseRpciData>;                          // 馬場別コース統計
+  by_distance_group_baba?: Record<string, CourseRpciData>;           // 馬場別距離グループ
+  runner_adjustments?: Record<string, Record<string, RunnerAdjustment>>;  // 頭数別RPCI補正
 }
 
 // 共通型を再エクスポート
@@ -151,46 +160,97 @@ function getDistanceGroup(distance: number): string {
 }
 
 /**
+ * 頭数帯を分類
+ */
+function classifyRunners(n: number): string {
+  if (n <= 8) return '少頭数(~8)';
+  if (n <= 13) return '中頭数(9-13)';
+  return '多頭数(14~)';
+}
+
+/**
  * レース情報からRPCI基準値情報を取得
  * @param venue 競馬場名（日本語）
  * @param track 芝/ダート
  * @param distance 距離（m）
+ * @param babaCondition 馬場状態（"良" or "稍重以上"）、省略時は全体データ
+ * @param numRunners 出走頭数（頭数別補正に使用）、省略時は補正なし
  */
 export async function getCourseRpciInfo(
   venue: string,
   track: string,
-  distance: number
+  distance: number,
+  babaCondition?: string,
+  numRunners?: number,
 ): Promise<CourseRpciInfo | null> {
   const data = await getRpciStandards();
   if (!data) return null;
 
   const courseKey = buildCourseKey(venue, track, distance);
-  
-  // まずコース別データを探す
-  let courseData = data.courses[courseKey];
-  
-  // 見つからない場合は距離グループから取得
+  const surfaceEn = track.includes('ダ') ? 'Dirt' : 'Turf';
+  const distanceGroup = getDistanceGroup(distance);
+
+  // 馬場別データを優先的に探す
+  let courseData: CourseRpciData | undefined;
+  let usedBaba: string | undefined;
+
+  if (babaCondition && data.by_baba) {
+    const babaKey = `${courseKey}_${babaCondition}`;
+    courseData = data.by_baba[babaKey];
+    if (courseData) {
+      usedBaba = babaCondition;
+    } else if (data.by_distance_group_baba) {
+      // コース別馬場データがなければ距離グループ×馬場にフォールバック
+      const groupBabaKey = `${surfaceEn}_${distanceGroup}_${babaCondition}`;
+      courseData = data.by_distance_group_baba[groupBabaKey];
+      if (courseData) usedBaba = babaCondition;
+    }
+  }
+
+  // 馬場別データが見つからない場合は従来の全体データにフォールバック
   if (!courseData) {
-    const surfaceEn = track.includes('ダ') ? 'Dirt' : 'Turf';
-    const distanceGroup = getDistanceGroup(distance);
+    courseData = data.courses[courseKey];
+  }
+  if (!courseData) {
     const groupKey = `${surfaceEn}_${distanceGroup}`;
     courseData = data.by_distance_group[groupKey];
-    
     if (!courseData) return null;
   }
 
-  const { trend, label } = getRpciTrend(courseData.rpci.mean);
+  // weighted_mean があればそちらを優先
+  const rpciMean = courseData.rpci.weighted_mean ?? courseData.rpci.mean;
+  const { trend, label } = getRpciTrend(rpciMean);
   const similarCourses = data.similar_courses[courseKey] || [];
+
+  // 頭数別RPCI補正
+  let runnerAdjustment: CourseRpciInfo['runnerAdjustment'];
+  if (numRunners && numRunners > 0 && data.runner_adjustments) {
+    const groupKey = `${surfaceEn}_${distanceGroup}`;
+    const adjustments = data.runner_adjustments[groupKey];
+    if (adjustments) {
+      const band = classifyRunners(numRunners);
+      const adj = adjustments[band];
+      if (adj && adj.sample_count >= 30) {
+        runnerAdjustment = {
+          rpciOffset: adj.rpci_offset,
+          sampleCount: adj.sample_count,
+          runnerBand: band,
+        };
+      }
+    }
+  }
 
   return {
     courseKey,
     courseName: formatCourseNameJa(courseKey),
-    rpciMean: courseData.rpci.mean,
+    rpciMean,
     trend,
     trendLabel: label,
     thresholds: courseData.thresholds,
     similarCourses: similarCourses.map(formatCourseNameJa),
     sampleCount: courseData.sample_count,
+    runnerAdjustment,
+    babaCondition: usedBaba,
   };
 }
 

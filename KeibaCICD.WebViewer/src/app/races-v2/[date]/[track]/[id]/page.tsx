@@ -19,6 +19,9 @@ import { getBabaCondition, trackToSurface } from '@/lib/data/baba-reader';
 import { getRaceAllComments, getHorseCommentsBatch, type RaceHorseComment, type HorseComment } from '@/lib/data/target-comment-reader';
 import { getRaceMarks, type RaceMarks } from '@/lib/data/target-mark-reader';
 import { getRecentFormBatch, type RecentFormData } from '@/lib/data/target-race-result-reader';
+import { getRaceTrendIndex, lookupRaceTrend } from '@/lib/data/race-trend-reader';
+import { loadTrainerPatterns, evaluatePatternMatch, type TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
+import { getTrainerInfo } from '@/lib/data/trainer-index';
 import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
 import {
   RaceHeader,
@@ -87,12 +90,13 @@ export default async function RaceDetailPage({ params }: PageParams) {
   const currentRaceNumber = parseInt(id.slice(-2), 10);
 
   // データ取得（1段階目: 依存関係のないデータを並列取得）
-  const [raceData, navigation, raceInfo, trainingSummaryMap, ratingStandards] = await Promise.all([
+  const [raceData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
     getTrainingSummaryMap(date),
     getRatingStandards(),  // 依存なし → 1段階目に移動
+    loadTrainerPatterns(),
   ]);
   
   if (!raceData) {
@@ -107,12 +111,19 @@ export default async function RaceDetailPage({ params }: PageParams) {
       kettoNum: data.kettoNum!
     }));
   
+  // 馬場状態をRPCI基準値用に変換（"良" → "良", それ以外 → "稍重以上"）
+  const trackCondition = raceData.race_info.track_condition || '';
+  const rpcibabaCondition = trackCondition === '良' ? '良' : trackCondition ? '稍重以上' : undefined;
+  const numRunners = raceData.entries.length;
+
   const [rpciInfo, previousTrainingMap] = await Promise.all([
     // RPCI基準値情報（raceDataに依存）
     getCourseRpciInfo(
       track,
       raceData.race_info.track || '',
-      raceData.race_info.distance || 0
+      raceData.race_info.distance || 0,
+      rpcibabaCondition,
+      numRunners,
     ),
     // 前走調教データ（trainingSummaryMapに依存）
     horsesForPrevTraining.length > 0
@@ -273,6 +284,31 @@ export default async function RaceDetailPage({ params }: PageParams) {
         }
       }
       recentFormMap[horseNum] = forms;
+    }
+  }
+
+  // レース傾向インデックスを読み込んで近走データに付与
+  const raceTrendIndex = await getRaceTrendIndex();
+  if (raceTrendIndex) {
+    for (const forms of Object.values(recentFormMap)) {
+      for (const form of forms) {
+        form.raceTrend = lookupRaceTrend(raceTrendIndex, form.raceId);
+      }
+    }
+  }
+
+  // 調教師パターンマッチング（各馬の調教データ × 調教師の勝負パターン）
+  const trainerPatternMatchMap: Record<string, TrainerPatternMatch | null> = {};
+  if (trainerPatterns.size > 0) {
+    for (const entry of raceData.entries) {
+      const normalizedName = entry.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
+      const summary = trainingSummaryMap[entry.horse_name] || trainingSummaryMap[normalizedName];
+      if (summary && entry.entry_data?.trainer_id) {
+        const match = evaluatePatternMatch(entry.entry_data.trainer_id, summary);
+        if (match) {
+          trainerPatternMatchMap[entry.horse_name] = match;
+        }
+      }
     }
   }
 
@@ -461,6 +497,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
               : undefined
           }
           recentFormMap={recentFormMap}
+          trainerPatternMatchMap={trainerPatternMatchMap}
         />
 
         {/* データ情報（フッター） */}

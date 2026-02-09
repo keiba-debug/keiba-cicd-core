@@ -3,8 +3,32 @@
  * fsを使用しないため、クライアントコンポーネントからも利用可能
  */
 
-// RPCI傾向タイプ
+// RPCI傾向タイプ（3段階 - 後方互換）
 export type RpciTrend = 'instantaneous' | 'sustained' | 'neutral';
+
+// レース傾向タイプ（5段階 - v3新規）
+export type RaceTrendType =
+  | 'sprint_finish'        // 瞬発戦
+  | 'long_sprint'          // ロンスパ戦
+  | 'even_pace'            // 平均ペース
+  | 'front_loaded'         // Hペース前傾
+  | 'front_loaded_strong'; // Hペース後傾
+
+export const RACE_TREND_LABELS: Record<RaceTrendType, string> = {
+  sprint_finish: '瞬発',
+  long_sprint: 'ロンスパ',
+  even_pace: '平均',
+  front_loaded: 'H前傾',
+  front_loaded_strong: 'H後傾',
+};
+
+export const RACE_TREND_COLORS: Record<RaceTrendType, string> = {
+  sprint_finish: 'bg-blue-100 text-blue-700',
+  long_sprint: 'bg-indigo-100 text-indigo-700',
+  even_pace: 'bg-gray-100 text-gray-700',
+  front_loaded: 'bg-red-100 text-red-700',
+  front_loaded_strong: 'bg-orange-100 text-orange-700',
+};
 
 export interface RpciThresholds {
   instantaneous: number;  // 瞬発戦閾値
@@ -20,6 +44,12 @@ export interface CourseRpciInfo {
   thresholds: RpciThresholds;
   similarCourses: string[];
   sampleCount: number;
+  runnerAdjustment?: {         // 頭数別RPCI補正
+    rpciOffset: number;
+    sampleCount: number;
+    runnerBand: string;        // "少頭数(~8)" / "中頭数(9-13)" / "多頭数(14~)"
+  };
+  babaCondition?: string;      // "良" / "稍重以上"（馬場別データ使用時）
 }
 
 export interface RaceRpciAnalysis {

@@ -56,6 +56,7 @@ import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
 import type { TargetMarksMap } from './HorseEntryTable';
 import type { RecentFormData } from '@/lib/data/target-race-result-reader';
+import type { TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
 import { POSITIVE_BG } from '@/lib/positive-colors';
 
@@ -98,11 +99,13 @@ interface RaceDetailContentProps {
   targetMarks?: TargetMarksMap;
   /** 直近戦績（馬番→RecentFormData[]） */
   recentFormMap?: Record<number, RecentFormData[]>;
+  /** 調教師パターンマッチ結果（馬名→マッチ結果） */
+  trainerPatternMatchMap?: Record<string, TrainerPatternMatch | null>;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -299,6 +302,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               trainingSummaryMap={trainingSummaryMap}
               previousTrainingMap={previousTrainingMap}
               recentFormMap={recentFormMap}
+              trainerPatternMatchMap={trainerPatternMatchMap}
             />
             <StakeholderCommentsSection 
               entries={raceData.entries} 
