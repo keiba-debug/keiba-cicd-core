@@ -40,7 +40,12 @@ interface RunnerAdjustment {
   sample_count: number;
 }
 
-type TabKey = 'distance' | 'course' | 'baba' | 'runners' | 'similar';
+interface TrendDistEntry {
+  count: number;
+  pct: number;
+}
+
+type TabKey = 'distance' | 'course' | 'trend' | 'baba' | 'runners' | 'similar';
 
 interface RpciStandardsResponse {
   summary: {
@@ -54,6 +59,7 @@ interface RpciStandardsResponse {
   similar_courses: Record<string, string[]>;
   by_distance_group_baba: Record<string, CourseData>;
   runner_adjustments: Record<string, Record<string, RunnerAdjustment>>;
+  race_trend_distribution: Record<string, Record<string, TrendDistEntry>>;
   metadata: {
     created_at: string;
     source: string;
@@ -147,6 +153,50 @@ function getOffsetColor(offset: number): string {
 function formatDiff(diff: number): string {
   if (diff > 0) return `+${diff.toFixed(2)}`;
   return diff.toFixed(2);
+}
+
+// 5段階傾向の定義
+const TREND_KEYS = ['sprint_finish', 'long_sprint', 'even_pace', 'front_loaded', 'front_loaded_strong'] as const;
+const TREND_LABELS: Record<string, string> = {
+  sprint_finish: '瞬発',
+  long_sprint: 'ロンスパ',
+  even_pace: '平均',
+  front_loaded: 'H前傾',
+  front_loaded_strong: 'H後傾',
+};
+const TREND_COLORS: Record<string, string> = {
+  sprint_finish: 'bg-blue-500',
+  long_sprint: 'bg-indigo-500',
+  even_pace: 'bg-gray-400',
+  front_loaded: 'bg-red-500',
+  front_loaded_strong: 'bg-orange-500',
+};
+const TREND_TEXT_COLORS: Record<string, string> = {
+  sprint_finish: 'text-blue-600',
+  long_sprint: 'text-indigo-600',
+  even_pace: 'text-gray-600',
+  front_loaded: 'text-red-600',
+  front_loaded_strong: 'text-orange-600',
+};
+const TREND_BADGE_COLORS: Record<string, string> = {
+  sprint_finish: 'bg-blue-100 text-blue-700',
+  long_sprint: 'bg-indigo-100 text-indigo-700',
+  even_pace: 'bg-gray-100 text-gray-700',
+  front_loaded: 'bg-red-100 text-red-700',
+  front_loaded_strong: 'bg-orange-100 text-orange-700',
+};
+
+// 最多傾向を取得
+function getDominantTrend(dist: Record<string, TrendDistEntry>): { key: string; pct: number } | null {
+  let maxKey = '';
+  let maxPct = 0;
+  for (const [key, entry] of Object.entries(dist)) {
+    if (entry.pct > maxPct) {
+      maxPct = entry.pct;
+      maxKey = key;
+    }
+  }
+  return maxKey ? { key: maxKey, pct: maxPct } : null;
 }
 
 export default function RpciAnalysisPage() {
@@ -275,6 +325,26 @@ export default function RpciAnalysisPage() {
       });
   }, [data, surfaceFilter]);
 
+  // 傾向分布データ（フィルタ適用済み）
+  const filteredTrendDist = useMemo(() => {
+    if (!data?.race_trend_distribution) return [];
+    return Object.entries(data.race_trend_distribution)
+      .filter(([key]) => {
+        const parsed = parseCourseKey(key);
+        if (!parsed) return false;
+        if (surfaceFilter !== 'all' && parsed.surface !== surfaceFilter) return false;
+        if (distanceFilter !== 'all' && getDistanceRange(parsed.distance) !== distanceFilter) return false;
+        if (venueFilter !== 'all' && parsed.venue !== venueFilter) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        // 瞬発戦%降順でソート
+        const pctA = a[1]?.sprint_finish?.pct ?? 0;
+        const pctB = b[1]?.sprint_finish?.pct ?? 0;
+        return pctB - pctA;
+      });
+  }, [data, surfaceFilter, distanceFilter, venueFilter]);
+
   const hasActiveFilter = surfaceFilter !== 'all' || distanceFilter !== 'all' || venueFilter !== 'all';
   const btnClass = (active: boolean) => cn(
     'px-3 py-1 text-xs rounded-full border transition-colors',
@@ -339,6 +409,7 @@ export default function RpciAnalysisPage() {
   const TABS: { key: TabKey; label: string }[] = [
     { key: 'distance', label: '距離グループ別' },
     { key: 'course', label: 'コース別' },
+    { key: 'trend', label: '傾向分布' },
     { key: 'baba', label: '馬場別比較' },
     { key: 'runners', label: '頭数別補正' },
     { key: 'similar', label: '類似コース' },
@@ -569,17 +640,32 @@ export default function RpciAnalysisPage() {
 
                 {/* バーグラフ表示 */}
                 <div className="max-h-[600px] overflow-y-auto space-y-1">
-                  {filteredCourses.map(([key, value], index) => (
-                    <RpciBar
-                      key={key}
-                      value={value.rpci.weighted_mean ?? value.rpci.mean}
-                      label={formatCourseName(key)}
-                      rank={searchQuery === '' ? index + 1 : undefined}
-                      sampleCount={value.sample_count}
-                      animate={true}
-                      delay={index * 30}
-                    />
-                  ))}
+                  {filteredCourses.map(([key, value], index) => {
+                    const trendDist = data.race_trend_distribution?.[key];
+                    const dominant = trendDist ? getDominantTrend(trendDist) : null;
+                    return (
+                      <div key={key} className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <RpciBar
+                            value={value.rpci.weighted_mean ?? value.rpci.mean}
+                            label={formatCourseName(key)}
+                            rank={searchQuery === '' ? index + 1 : undefined}
+                            sampleCount={value.sample_count}
+                            animate={true}
+                            delay={index * 30}
+                          />
+                        </div>
+                        {dominant && (
+                          <span className={cn(
+                            'text-[10px] font-medium rounded px-1.5 py-0.5 whitespace-nowrap shrink-0',
+                            TREND_BADGE_COLORS[dominant.key] || 'bg-gray-100 text-gray-700'
+                          )}>
+                            {TREND_LABELS[dominant.key]} {dominant.pct.toFixed(0)}%
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                   {filteredCourses.length === 0 && (
                     <div className="py-8 text-center text-muted-foreground">
                       該当するコースがありません
@@ -601,6 +687,78 @@ export default function RpciAnalysisPage() {
                     <span className="w-4 h-4 rounded bg-red-500"></span>
                     <span>持続戦（RPCI &lt; 50）</span>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ===== 傾向分布タブ ===== */}
+          {activeTab === 'trend' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <span>コース別 レース傾向分布</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {filteredTrendDist.length}コース
+                  </span>
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  各コースで過去レースがどの傾向タイプに分類されたかの割合
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {renderFilters(filteredTrendDist.length)}
+
+                {/* 凡例 */}
+                <div className="flex flex-wrap gap-3 text-xs">
+                  {TREND_KEYS.map((key) => (
+                    <div key={key} className="flex items-center gap-1.5">
+                      <span className={cn('w-3 h-3 rounded-sm', TREND_COLORS[key])}></span>
+                      <span>{TREND_LABELS[key]}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* スタックドバー一覧 */}
+                <div className="max-h-[600px] overflow-y-auto space-y-1.5">
+                  {filteredTrendDist.map(([courseKey, dist]) => {
+                    const totalCount = Object.values(dist).reduce((s, e) => s + e.count, 0);
+                    return (
+                      <div key={courseKey} className="flex items-center gap-3">
+                        <div className="w-28 shrink-0 text-xs font-medium truncate" title={courseKey}>
+                          {formatCourseName(courseKey)}
+                        </div>
+                        <div className="flex-1 flex h-5 rounded overflow-hidden bg-gray-100 dark:bg-gray-800">
+                          {TREND_KEYS.map((tKey) => {
+                            const entry = dist[tKey];
+                            if (!entry || entry.pct === 0) return null;
+                            return (
+                              <div
+                                key={tKey}
+                                className={cn('h-full transition-all', TREND_COLORS[tKey])}
+                                style={{ width: `${entry.pct}%` }}
+                                title={`${TREND_LABELS[tKey]}: ${entry.count}件 (${entry.pct}%)`}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div className="w-10 shrink-0 text-[10px] text-muted-foreground text-right">
+                          {totalCount}件
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {filteredTrendDist.length === 0 && (
+                    <div className="py-8 text-center text-muted-foreground">
+                      傾向分布データがありません。管理画面で「レース特性基準値算出」を再実行してください。
+                    </div>
+                  )}
+                </div>
+
+                {/* 注釈 */}
+                <div className="text-xs text-muted-foreground border-t pt-3 space-y-1">
+                  <p><strong>瞬発:</strong> RPCI≧51, L3で一気加速 / <strong>ロンスパ:</strong> RPCI≧50, 残4Fから持続加速</p>
+                  <p><strong>平均:</strong> 48&lt;RPCI&lt;51 / <strong>H前傾:</strong> RPCI≦48, L3遅め / <strong>H後傾:</strong> RPCI≦48, L3速い</p>
                 </div>
               </CardContent>
             </Card>
@@ -880,6 +1038,34 @@ export default function RpciAnalysisPage() {
               <p className="mt-3">
                 瞬発戦では上がり3Fの切れ味が重要、持続戦では持久力とスタミナが重要になります。
               </p>
+
+              <div className="mt-3 border-t pt-3 space-y-1">
+                <p className="font-medium text-foreground">v3 5段階レース傾向分類</p>
+                <p>前3F/後3Fに加え、前4F(S4)/後4F(L4)を活用し、レースを5段階に細分化:</p>
+                <ul className="list-none space-y-1.5 ml-2 mt-2">
+                  <li className="flex items-start gap-2">
+                    <span className="bg-blue-100 text-blue-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">瞬発</span>
+                    <span>RPCI≧51。最後3Fで一気加速するレース。切れ味勝負。</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="bg-indigo-100 text-indigo-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">ロンスパ</span>
+                    <span>RPCI≧50かつ残り4F目も速い。残4F〜持続的に加速するロングスパート戦。</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="bg-gray-100 text-gray-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">平均</span>
+                    <span>48&lt;RPCI&lt;51。前後半バランスが取れた平均的なレース。</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="bg-red-100 text-red-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">H前傾</span>
+                    <span>RPCI≦48かつL3遅め。前半で消耗し後半失速するハイペース。</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="bg-orange-100 text-orange-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">H後傾</span>
+                    <span>RPCI≦48かつL3速い。ハイペースでも上がりが速い、強い競馬。</span>
+                  </li>
+                </ul>
+              </div>
+
               <div className="mt-3 border-t pt-3 space-y-1">
                 <p className="font-medium text-foreground">v2 改善点</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">

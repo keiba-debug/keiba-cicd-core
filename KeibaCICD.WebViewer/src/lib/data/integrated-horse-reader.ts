@@ -326,6 +326,10 @@ export interface HorseRaceResult {
   trainingDetail?: string;     // 調教タイム詳細
   trainingLapRank?: string;    // ラップランク
   trainingFinalSpeed?: string; // 最終追切の好タイムフラグ
+  // TARGET形式のレースID（12桁、race_trend_index.jsonのキーと一致）
+  targetRaceId?: string;
+  // レース傾向（race_trend_index.jsonから付与）
+  raceTrend?: string;          // 'sprint_finish' | 'long_sprint' | 'even_pace' | 'front_loaded' | 'front_loaded_strong'
 }
 
 /**
@@ -339,6 +343,7 @@ export interface HorseStats {
   byCondition: Record<string, StatGroup>;
   byFrame: Record<string, StatGroup>;     // 枠順別 (内枠/中枠/外枠)
   byFieldSize: Record<string, StatGroup>; // 頭数別 (少頭数/中頭数/多頭数)
+  byTrend?: Record<string, StatGroup>;    // レース傾向別 (瞬発/ロンスパ/平均/H前傾/H後傾)
 }
 
 export interface StatGroup {
@@ -554,6 +559,7 @@ function targetResultToHorseRaceResult(target: TargetRaceResult): HorseRaceResul
     raceId: target.raceId,
     raceNumber: target.raceNumber,
     raceName: '',  // TARGET SE_DATAにはレース名がない（後でマージ）
+    targetRaceId: target.raceId, // TARGET形式のraceIdを保持（race_trend_index用）
     raceClass: '',
     distance: '',  // TARGET SE_DATAには距離情報がない（後でマージ）
     condition: '',

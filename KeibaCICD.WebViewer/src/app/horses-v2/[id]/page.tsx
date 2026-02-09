@@ -6,9 +6,10 @@
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { getIntegratedHorseData } from '@/lib/data/integrated-horse-reader';
+import { getIntegratedHorseData, type StatGroup } from '@/lib/data/integrated-horse-reader';
 import { getHorseCommentByName, getKettoNumByName, getHorseComment } from '@/lib/data/target-comment-reader';
 import { findKettoNumFromRecentTraining } from '@/lib/data/training-summary-reader';
+import { getRaceTrendIndex, lookupRaceTrend } from '@/lib/data/race-trend-reader';
 import {
   HorseHeader,
   HorsePastRacesTable,
@@ -54,6 +55,44 @@ export default async function HorseProfileV2Page({ params }: PageParams) {
   }
 
   const { basic, pastRaces, stats } = horseData;
+
+  // レース傾向をpastRacesに付与 + stats.byTrendを計算
+  const raceTrendIndex = await getRaceTrendIndex();
+  if (raceTrendIndex) {
+    const byTrend: Record<string, StatGroup> = {};
+    const createEmpty = (): StatGroup => ({
+      races: 0, wins: 0, seconds: 0, thirds: 0, winRate: 0, placeRate: 0, showRate: 0,
+    });
+
+    for (const race of pastRaces) {
+      const lookupId = race.targetRaceId || race.raceId;
+      const trend = lookupRaceTrend(raceTrendIndex, lookupId);
+      if (trend) {
+        race.raceTrend = trend;
+        const pos = parseInt(race.finishPosition, 10);
+        if (!isNaN(pos)) {
+          if (!byTrend[trend]) byTrend[trend] = createEmpty();
+          byTrend[trend].races++;
+          if (pos === 1) byTrend[trend].wins++;
+          if (pos <= 2) byTrend[trend].seconds++;
+          if (pos <= 3) byTrend[trend].thirds++;
+        }
+      }
+    }
+
+    // 率を計算
+    for (const group of Object.values(byTrend)) {
+      if (group.races > 0) {
+        group.winRate = Math.round((group.wins / group.races) * 1000) / 10;
+        group.placeRate = Math.round((group.seconds / group.races) * 1000) / 10;
+        group.showRate = Math.round((group.thirds / group.races) * 1000) / 10;
+      }
+    }
+
+    if (Object.keys(byTrend).length > 0) {
+      stats.byTrend = byTrend;
+    }
+  }
 
   // 馬名からkettoNumを取得（初出走馬はtraining_summaryからフォールバック）
   const kettoNum = getKettoNumByName(basic.name) || findKettoNumFromRecentTraining(basic.name) || '';

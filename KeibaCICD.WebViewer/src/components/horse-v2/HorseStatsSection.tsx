@@ -28,8 +28,8 @@ function getAptitudeType(group: StatGroup): 'strong' | 'weak' | 'neutral' {
 }
 
 // 統計行コンポーネント（ヒートマップ対応）
-function StatRow({ label, group, showAptitude = false }: { 
-  label: string; 
+function StatRow({ label, group, showAptitude = false }: {
+  label: React.ReactNode;
   group: StatGroup;
   showAptitude?: boolean;
 }) {
@@ -142,11 +142,21 @@ function StatsSummary({ stats }: { stats: HorseStats }) {
   );
 }
 
+// レース傾向の定義
+const TREND_ORDER = [
+  { key: 'sprint_finish', label: '瞬発', badge: 'bg-blue-100 text-blue-700' },
+  { key: 'long_sprint', label: 'ロンスパ', badge: 'bg-indigo-100 text-indigo-700' },
+  { key: 'even_pace', label: '平均', badge: 'bg-gray-100 text-gray-700' },
+  { key: 'front_loaded', label: 'H前傾', badge: 'bg-red-100 text-red-700' },
+  { key: 'front_loaded_strong', label: 'H後傾', badge: 'bg-orange-100 text-orange-700' },
+];
+
 export function HorseStatsSection({ stats }: HorseStatsSectionProps) {
   const hasDistanceData = Object.keys(stats.byDistance).length > 0;
   const hasConditionData = Object.keys(stats.byCondition).length > 0;
   const hasFrameData = Object.keys(stats.byFrame || {}).length > 0;
   const hasFieldSizeData = Object.keys(stats.byFieldSize || {}).length > 0;
+  const hasTrendData = Object.keys(stats.byTrend || {}).length > 0;
 
   return (
     <div className="space-y-6">
@@ -310,6 +320,51 @@ export function HorseStatsSection({ stats }: HorseStatsSectionProps) {
                 const group = stats.byFieldSize[fieldSize];
                 if (!group) return null;
                 return <StatRow key={fieldSize} label={fieldSize} group={group} showAptitude />;
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* レース傾向別統計 */}
+      {hasTrendData && (
+        <div className="overflow-x-auto">
+          <h3 className="text-sm font-medium mb-2 text-muted-foreground flex items-center gap-2">
+            <span>レース傾向別</span>
+            <span className="text-[10px] bg-muted px-2 py-0.5 rounded">
+              適性判定あり
+            </span>
+          </h3>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="bg-gray-100 dark:bg-gray-800">
+                <th className="px-3 py-2 border text-left">傾向</th>
+                <th className="px-3 py-2 border text-center">出走</th>
+                <th className="px-3 py-2 border text-center">1着</th>
+                <th className="px-3 py-2 border text-center">2着</th>
+                <th className="px-3 py-2 border text-center">3着</th>
+                <th className="px-3 py-2 border text-center">着外</th>
+                <th className="px-3 py-2 border text-center">勝率</th>
+                <th className="px-3 py-2 border text-center">複勝率</th>
+                <th className="px-3 py-2 border text-center">適性</th>
+              </tr>
+            </thead>
+            <tbody>
+              {TREND_ORDER.map(({ key, label, badge }) => {
+                const group = stats.byTrend?.[key];
+                if (!group) return null;
+                return (
+                  <StatRow
+                    key={key}
+                    label={
+                      <span className={cn('px-1.5 py-0.5 rounded text-xs font-medium', badge)}>
+                        {label}
+                      </span>
+                    }
+                    group={group}
+                    showAptitude
+                  />
+                );
               })}
             </tbody>
           </table>

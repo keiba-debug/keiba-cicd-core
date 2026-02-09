@@ -29,6 +29,11 @@ interface RunnerAdjustment {
   sample_count: number;
 }
 
+interface TrendDistEntry {
+  count: number;
+  pct: number;
+}
+
 interface RpciStandardsData {
   metadata: {
     created_at: string;
@@ -42,6 +47,7 @@ interface RpciStandardsData {
   by_baba?: Record<string, CourseData>;
   by_distance_group_baba?: Record<string, CourseData>;
   runner_adjustments?: Record<string, Record<string, RunnerAdjustment>>;
+  race_trend_distribution?: Record<string, Record<string, TrendDistEntry>>;
 }
 
 /**
@@ -141,6 +147,7 @@ export async function GET(request: NextRequest) {
       similar_courses: data.similar_courses,
       by_distance_group_baba: data.by_distance_group_baba || {},
       runner_adjustments: data.runner_adjustments || {},
+      race_trend_distribution: data.race_trend_distribution || {},
       metadata: data.metadata
     });
 

@@ -53,6 +53,14 @@ function getCourseBadgeClass(distance: string): string {
   return 'bg-gray-100 text-gray-800';
 }
 
+const TREND_BADGE: Record<string, { label: string; className: string }> = {
+  sprint_finish: { label: '瞬発', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+  long_sprint: { label: 'ロンスパ', className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
+  even_pace: { label: '平均', className: 'bg-gray-100 text-gray-700 dark:bg-gray-700/30 dark:text-gray-300' },
+  front_loaded: { label: 'H前傾', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+  front_loaded_strong: { label: 'H後傾', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+};
+
 function getFrameColor(frame: number): string {
   const colors: Record<number, string> = {
     1: 'bg-white text-gray-800 border border-gray-300',
@@ -147,6 +155,17 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
               {race.distance}
             </span>
           ) : '-'}
+        </td>
+
+        {/* 傾向 */}
+        <td className="px-1 py-1.5 border text-center">
+          {race.raceTrend && TREND_BADGE[race.raceTrend] ? (
+            <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${TREND_BADGE[race.raceTrend].className}`}>
+              {TREND_BADGE[race.raceTrend].label}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          )}
         </td>
 
         {/* 頭数 */}
@@ -260,7 +279,7 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
       {(race.sunpyou || race.trainingComment) && (
         <tr className={`text-[10px] ${isGoodResult ? 'bg-amber-50/30 dark:bg-amber-900/5' : 'bg-gray-50/50 dark:bg-gray-800/20'}`}>
           <td className="border"></td>
-          <td colSpan={21} className="px-1 py-0.5 border">
+          <td colSpan={22} className="px-1 py-0.5 border">
             <div className="flex flex-wrap gap-x-4 gap-y-0.5">
               {race.sunpyou && (
                 <span className="inline-flex items-center gap-0.5">
@@ -291,7 +310,7 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
       {/* 展開時の詳細行 */}
       {isExpanded && (
         <tr className="bg-gray-50 dark:bg-gray-800/30">
-          <td colSpan={22} className="px-2 py-1.5 border">
+          <td colSpan={23} className="px-2 py-1.5 border">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-1 text-xs">
               {race.trainingDetail && (
                 <div className="lg:col-span-2">
@@ -419,7 +438,7 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
       <h2 className="text-lg font-semibold mb-4">📋 過去レース成績 ({races.length}戦)</h2>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm border-collapse min-w-[1300px]">
+        <table className="w-full text-sm border-collapse min-w-[1350px]">
           <thead>
             <tr className="bg-gray-100 dark:bg-gray-800 text-[10px]">
               <th className="px-1 py-1.5 border w-5"></th>
@@ -427,6 +446,7 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
               <th className="px-1 py-1.5 border text-center w-8">場</th>
               <th className="px-1 py-1.5 border text-left w-24">レース</th>
               <th className="px-1 py-1.5 border text-center w-16">距離</th>
+              <th className="px-1 py-1.5 border text-center w-12">傾向</th>
               <th className="px-1 py-1.5 border text-center w-6">頭</th>
               <th className="px-1 py-1.5 border text-center w-6">馬場</th>
               <th className="px-1 py-1.5 border text-center w-6">枠</th>
