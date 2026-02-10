@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Calendar, Search, Wrench, ShieldCheck, MapPin, DollarSign } from 'lucide-react';
+import { Calendar, Search, Wrench, ShieldCheck, MapPin, DollarSign, ListFilter } from 'lucide-react';
 import { RemainingBudget } from '@/components/bankroll/RemainingBudget';
 import { useEffect, useRef } from 'react';
 
@@ -49,6 +49,7 @@ export function Header() {
 
   const navItems = [
     { href: '/', label: 'レース', icon: Calendar },
+    { href: '/races-search', label: 'レース検索', icon: ListFilter },
     { href: '/horses', label: '馬', icon: Search },
     { href: '/bankroll', label: '資金管理', icon: DollarSign, newTab: true },
     { href: '/admin', label: '管理', icon: ShieldCheck },
