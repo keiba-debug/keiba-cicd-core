@@ -62,6 +62,12 @@
 | [ML学習ロードマップ](insights/ml_learning_roadmap.md) | 競馬AI開発に必要なML知識の体系的整理。Level 0〜5の段階的学習計画 |
 | [馬券市場の構造的非効率性](insights/market_structural_inefficiencies.md) | 均等配分バイアス・Favorite-Longshot・条件付き確率の無視等、AIが突ける9つの歪み |
 | [特徴量設計とハイパラ: 人間 vs AI](insights/human_vs_ai_in_model_design.md) | 特徴量の「発想」は人間、ハイパラ調整はAI。7工程の分業設計 |
+| [運用アーキテクチャ設計指針](insights/operations_architecture_principles.md) | 松風8モジュール構成から学ぶシステム設計。Themisの「目隠し」原則、運用ミスの教訓集、KeibaCICDへの適用 |
+| [バンクロール管理の原則](insights/bankroll_management_principles.md) | 複利の二面性、追い下げ方式、EV閾値、破産確率、馬券種ポートフォリオ、税引後EVの横断整理 |
+| [仮説検証計画マスター](insights/hypothesis_verification_master.md) | 全20仮説の統合管理。検証優先度マトリクス、全アクションアイテムの仮説への紐付け、Phase別実行計画 |
+| [モデル分離戦略](insights/model_separation_strategy.md) | 芝/ダート/障害のモデル分離判断。分離基準、サンプルサイズ閾値、005の過学習教訓との整合 |
+| [組合せ馬券の確率計算](insights/combination_ticket_probability.md) | 単勝確率→組合せ馬券確率の変換。Harville公式、Henery補正、着順の条件付き確率、馬券種別の実装優先度 |
+| [展開シミュレーションと条件付き着順予測](insights/race_scenario_simulation.md) | 脚質相互作用・出遅れ・ペース変動が着順を変える構造。レベル0〜3の段階的アプローチ |
 
 ## 考察ドキュメント一覧
 
