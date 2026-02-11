@@ -27,6 +27,9 @@ from ml.features.base_features import extract_base_features
 from ml.features.past_features import compute_past_features
 from ml.features.trainer_features import get_trainer_features, build_trainer_index
 from ml.features.jockey_features import get_jockey_features, build_jockey_index
+from ml.features.running_style_features import compute_running_style_features
+from ml.features.rotation_features import compute_rotation_features
+from ml.features.pace_features import compute_pace_features
 
 
 def load_model_and_meta():
@@ -63,7 +66,14 @@ def load_master_data():
         jockeys_list = json.load(f)
     jockey_index = build_jockey_index(jockeys_list)
 
-    return history_cache, trainer_index, jockey_index
+    # Pace index
+    from ml.experiment_v3 import build_pace_index
+    di_path = config.indexes_dir() / "race_date_index.json"
+    with open(di_path, encoding='utf-8') as f:
+        date_index = json.load(f)
+    pace_index = build_pace_index(date_index)
+
+    return history_cache, trainer_index, jockey_index, pace_index
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -114,6 +124,7 @@ def predict_race(
     history_cache: dict,
     trainer_index: dict,
     jockey_index: dict,
+    pace_index: dict,
 ) -> dict:
     """1レースの予測を実行"""
     features_all = meta['features_all']
@@ -159,6 +170,36 @@ def predict_race(
         jc = entry.get('jockey_code', '')
         jockey_feat = get_jockey_features(jc, venue_code, jockey_index)
         feat.update(jockey_feat)
+
+        # 脚質特徴量 (v3.1)
+        rs_feat = compute_running_style_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            entry_count=entry_count,
+            history_cache=history_cache,
+        )
+        feat.update(rs_feat)
+
+        # ローテ・コンディション特徴量 (v3.1)
+        rot_feat = compute_rotation_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            futan=entry.get('futan', 0.0),
+            horse_weight=entry.get('horse_weight', 0),
+            popularity=entry.get('popularity', 0),
+            history_cache=history_cache,
+        )
+        feat.update(rot_feat)
+
+        # ペース特徴量 (v3.1)
+        pace_feat = compute_pace_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            days_since_last_race=past.get('days_since_last_race', -1),
+            history_cache=history_cache,
+            pace_index=pace_index,
+        )
+        feat.update(pace_feat)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = 0  # placeholder
@@ -304,10 +345,11 @@ def main():
 
     # マスタデータロード
     print("[Load] Loading master data...")
-    history_cache, trainer_index, jockey_index = load_master_data()
+    history_cache, trainer_index, jockey_index, pace_index = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
+    print(f"  Pace index: {len(pace_index):,} races")
 
     # 対象レース決定
     if args.race_id:
@@ -348,7 +390,7 @@ def main():
         pred = predict_race(
             race, kb_ext,
             model_a, model_b, meta,
-            history_cache, trainer_index, jockey_index
+            history_cache, trainer_index, jockey_index, pace_index
         )
         all_predictions.append(pred)
 
@@ -367,7 +409,7 @@ def main():
 
     # 結果保存
     output = {
-        'version': '3.0',
+        'version': '3.1',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'date': date,
         'model_version': meta.get('version', '?'),

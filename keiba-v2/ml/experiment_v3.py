@@ -1,16 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-ML Experiment v3: JRA-VANネイティブ・デュアルモデル
+ML Experiment v3.1: JRA-VANネイティブ・デュアルモデル
 
-v2からの改善:
-  - trainer_top3_rate: 100%マッチ (v2は0.5%)
-  - jockey特徴量: 新規追加
-  - 過去走カバレッジ: 36,008頭 (v2は17,335頭)
-  - rating/mark_point: keibabookなしで動作（Phase3で追加予定）
+v3.1改善:
+  - 脚質特徴量 (8個): コーナー通過順からの先行力・末脚力
+  - ローテ特徴量 (5個): 斤量差・馬体重変化・前走人気
+  - ペース特徴量 (6個): RPCI・消耗フラグ・急坂適性
+  - ハイパーパラメータ: Model A/B別に最適化
+
+v3.0:
+  - trainer_top3_rate: 100%マッチ
+  - jockey特徴量
+  - 過去走カバレッジ: 36,008頭
 
 特徴量構成:
-  Model A (全特徴量): JRA-VAN基本 + 過去走 + trainer + jockey + 市場系(odds,popularity)
+  Model A (全特徴量): 基本 + 過去走 + trainer + jockey + 脚質 + ローテ + ペース + 市場系
   Model B (Value):     Model Aから市場系特徴量を除外
 
 Usage:
@@ -54,13 +59,32 @@ TRAINER_FEATURES = [
     'trainer_win_rate', 'trainer_top3_rate', 'trainer_venue_top3_rate',
 ]
 
-# 騎手特徴量（新規）
+# 騎手特徴量
 JOCKEY_FEATURES = [
     'jockey_win_rate', 'jockey_top3_rate', 'jockey_venue_top3_rate',
 ]
 
+# 脚質特徴量 (v3.1)
+RUNNING_STYLE_FEATURES = [
+    'avg_first_corner_ratio', 'avg_last_corner_ratio', 'position_gain_last5',
+    'front_runner_rate', 'pace_sensitivity', 'closing_strength',
+    'running_style_consistency', 'last_race_corner1_ratio',
+]
+
+# ローテ・コンディション特徴量 (v3.1)
+ROTATION_FEATURES = [
+    'futan_diff', 'futan_diff_ratio', 'weight_change_ratio',
+    'prev_race_popularity',
+]
+
+# ペース特徴量 (v3.1)
+PACE_FEATURES = [
+    'avg_race_rpci_last3', 'prev_race_rpci', 'consumption_flag',
+    'last3f_vs_race_l3_last3', 'steep_course_experience', 'steep_course_top3_rate',
+]
+
 # 市場系特徴量（Model Bでは除外）
-MARKET_FEATURES = {'odds', 'popularity', 'odds_rank'}
+MARKET_FEATURES = {'odds', 'popularity', 'odds_rank', 'popularity_trend'}
 
 # 派生特徴量
 DERIVED_FEATURES = ['odds_rank']
@@ -68,14 +92,84 @@ DERIVED_FEATURES = ['odds_rank']
 # 全特徴量（Model A）
 FEATURE_COLS_ALL = (
     BASE_FEATURES + ['odds', 'popularity'] + DERIVED_FEATURES +
-    PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES
+    PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
+    RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
+    PACE_FEATURES
 )
 
 # Value特徴量（Model B = 市場系除外）
 FEATURE_COLS_VALUE = [f for f in FEATURE_COLS_ALL if f not in MARKET_FEATURES]
 
+# ハイパーパラメータ（Model A/B別）
+PARAMS_A = {
+    'objective': 'binary',
+    'metric': 'auc',
+    'num_leaves': 63,
+    'learning_rate': 0.03,
+    'feature_fraction': 0.8,
+    'bagging_fraction': 0.8,
+    'bagging_freq': 5,
+    'min_child_samples': 30,
+    'reg_alpha': 0.1,
+    'reg_lambda': 1.0,
+    'max_depth': 7,
+    'verbose': -1,
+}
 
-def load_data() -> Tuple[dict, dict, dict, dict]:
+PARAMS_B = {
+    'objective': 'binary',
+    'metric': 'auc',
+    'num_leaves': 127,
+    'learning_rate': 0.03,
+    'feature_fraction': 0.8,
+    'bagging_fraction': 0.8,
+    'bagging_freq': 5,
+    'min_child_samples': 50,
+    'reg_alpha': 0.1,
+    'reg_lambda': 1.5,
+    'max_depth': 8,
+    'verbose': -1,
+}
+
+
+def load_race_json(race_id: str, date: str) -> dict:
+    """レースJSONを読み込む"""
+    parts = date.split('-')
+    path = config.races_dir() / parts[0] / parts[1] / parts[2] / f"race_{race_id}.json"
+    with open(path, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def build_pace_index(date_index: dict) -> dict:
+    """全レースJSONからペースデータを抽出して辞書化"""
+    print("[Load] Building pace index...")
+    pace_index = {}
+    count = 0
+    errors = 0
+
+    for date_str, race_ids in date_index.items():
+        for race_id in race_ids:
+            try:
+                race = load_race_json(race_id, date_str)
+                pace = race.get('pace') or {}
+                if pace.get('rpci'):
+                    pace_index[race_id] = {
+                        'rpci': pace.get('rpci'),
+                        's3': pace.get('s3'),
+                        'l3': pace.get('l3'),
+                        's4': pace.get('s4'),
+                        'l4': pace.get('l4'),
+                    }
+                count += 1
+            except Exception:
+                errors += 1
+
+    print(f"  Pace index: {len(pace_index):,} races with pace data "
+          f"(of {count:,} total, {errors} errors)")
+    return pace_index
+
+
+def load_data() -> Tuple[dict, dict, dict, dict, dict]:
     """data3からデータをロード"""
     print("[Load] Loading data3...")
 
@@ -105,15 +199,10 @@ def load_data() -> Tuple[dict, dict, dict, dict]:
         date_index = json.load(f)
     print(f"  Date index: {len(date_index):,} dates")
 
-    return history_cache, trainer_index, jockey_index, date_index
+    # Pace index
+    pace_index = build_pace_index(date_index)
 
-
-def load_race_json(race_id: str, date: str) -> dict:
-    """レースJSONを読み込む"""
-    parts = date.split('-')
-    path = config.races_dir() / parts[0] / parts[1] / parts[2] / f"race_{race_id}.json"
-    with open(path, encoding='utf-8') as f:
-        return json.load(f)
+    return history_cache, trainer_index, jockey_index, date_index, pace_index
 
 
 def compute_features_for_race(
@@ -121,12 +210,16 @@ def compute_features_for_race(
     history_cache: dict,
     trainer_index: dict,
     jockey_index: dict,
+    pace_index: dict,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算"""
     from ml.features.base_features import extract_base_features
     from ml.features.past_features import compute_past_features
     from ml.features.trainer_features import get_trainer_features
     from ml.features.jockey_features import get_jockey_features
+    from ml.features.running_style_features import compute_running_style_features
+    from ml.features.rotation_features import compute_rotation_features
+    from ml.features.pace_features import compute_pace_features
 
     race_date = race['date']
     venue_code = race['venue_code']
@@ -140,12 +233,14 @@ def compute_features_for_race(
         if fp <= 0:
             continue
 
+        ketto_num = entry['ketto_num']
+
         # 基本特徴量
         feat = extract_base_features(entry, race)
 
         # 過去走特徴量
         past = compute_past_features(
-            ketto_num=entry['ketto_num'],
+            ketto_num=ketto_num,
             race_date=race_date,
             venue_code=venue_code,
             track_type=track_type,
@@ -165,10 +260,40 @@ def compute_features_for_race(
         jockey_feat = get_jockey_features(jc, venue_code, jockey_index)
         feat.update(jockey_feat)
 
+        # 脚質特徴量 (v3.1)
+        rs_feat = compute_running_style_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            entry_count=entry_count,
+            history_cache=history_cache,
+        )
+        feat.update(rs_feat)
+
+        # ローテ・コンディション特徴量 (v3.1)
+        rot_feat = compute_rotation_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            futan=entry.get('futan', 0.0),
+            horse_weight=entry.get('horse_weight', 0),
+            popularity=entry.get('popularity', 0),
+            history_cache=history_cache,
+        )
+        feat.update(rot_feat)
+
+        # ペース特徴量 (v3.1)
+        pace_feat = compute_pace_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            days_since_last_race=past.get('days_since_last_race', -1),
+            history_cache=history_cache,
+            pace_index=pace_index,
+        )
+        feat.update(pace_feat)
+
         # メタ情報（学習には使わないが分析用）
         feat['race_id'] = race['race_id']
         feat['date'] = race_date
-        feat['ketto_num'] = entry['ketto_num']
+        feat['ketto_num'] = ketto_num
         feat['horse_name'] = entry.get('horse_name', '')
         feat['finish_position'] = fp
         feat['is_top3'] = 1 if fp <= 3 else 0
@@ -184,6 +309,7 @@ def build_dataset(
     history_cache: dict,
     trainer_index: dict,
     jockey_index: dict,
+    pace_index: dict,
     min_year: int,
     max_year: int,
 ) -> pd.DataFrame:
@@ -203,7 +329,7 @@ def build_dataset(
             try:
                 race = load_race_json(race_id, date_str)
                 rows = compute_features_for_race(
-                    race, history_cache, trainer_index, jockey_index
+                    race, history_cache, trainer_index, jockey_index, pace_index
                 )
                 all_rows.extend(rows)
                 race_count += 1
@@ -229,6 +355,7 @@ def train_model(
     df_train: pd.DataFrame,
     df_test: pd.DataFrame,
     feature_cols: List[str],
+    params: dict,
     label_col: str = 'is_top3',
     model_name: str = 'model',
 ) -> Tuple:
@@ -239,21 +366,6 @@ def train_model(
     y_train = df_train[label_col]
     X_test = df_test[feature_cols].fillna(-1)
     y_test = df_test[label_col]
-
-    params = {
-        'objective': 'binary',
-        'metric': 'auc',
-        'num_leaves': 63,
-        'learning_rate': 0.03,
-        'feature_fraction': 0.7,
-        'bagging_fraction': 0.8,
-        'bagging_freq': 5,
-        'min_child_samples': 30,
-        'reg_alpha': 0.1,
-        'reg_lambda': 1.0,
-        'max_depth': 7,
-        'verbose': -1,
-    }
 
     train_data = lgb.Dataset(X_train, label=y_train)
     valid_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
@@ -398,7 +510,7 @@ def main():
     test_min, test_max = parse_year_range(args.test_years)
 
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD v4 - ML Experiment v3")
+    print(f"  KeibaCICD v4 - ML Experiment v3.1")
     print(f"  Train: {train_min}-{train_max}")
     print(f"  Test:  {test_min}-{test_max}")
     print(f"  Model A features: {len(FEATURE_COLS_ALL)}")
@@ -408,15 +520,15 @@ def main():
     t0 = time.time()
 
     # データロード
-    history_cache, trainer_index, jockey_index, date_index = load_data()
+    history_cache, trainer_index, jockey_index, date_index, pace_index = load_data()
 
     # データセット構築
     df_train = build_dataset(
-        date_index, history_cache, trainer_index, jockey_index,
+        date_index, history_cache, trainer_index, jockey_index, pace_index,
         train_min, train_max,
     )
     df_test = build_dataset(
-        date_index, history_cache, trainer_index, jockey_index,
+        date_index, history_cache, trainer_index, jockey_index, pace_index,
         test_min, test_max,
     )
 
@@ -427,12 +539,12 @@ def main():
 
     # Model A: 全特徴量
     model_a, metrics_a, importance_a, pred_a = train_model(
-        df_train, df_test, FEATURE_COLS_ALL, 'is_top3', 'Model_A'
+        df_train, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Model_A'
     )
 
     # Model B: Value特徴量（市場系除外）
     model_b, metrics_b, importance_b, pred_b = train_model(
-        df_train, df_test, FEATURE_COLS_VALUE, 'is_top3', 'Model_B'
+        df_train, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Model_B'
     )
 
     # 予測結果をDataFrameに追加
@@ -498,7 +610,7 @@ def main():
     model_b.save_model(str(model_dir / "model_b.txt"))
 
     meta = {
-        'version': '3.0',
+        'version': '3.1',
         'features_all': FEATURE_COLS_ALL,
         'features_value': FEATURE_COLS_VALUE,
         'market_features': list(MARKET_FEATURES),
@@ -510,7 +622,7 @@ def main():
 
     # 結果JSON保存
     result = {
-        'version': '3.0',
+        'version': '3.1',
         'experiment': 'ml_experiment_v3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {

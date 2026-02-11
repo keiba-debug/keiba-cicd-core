@@ -70,6 +70,7 @@
 | [展開シミュレーションと条件付き着順予測](insights/race_scenario_simulation.md) | 脚質相互作用・出遅れ・ペース変動が着順を変える構造。レベル0〜3の段階的アプローチ |
 | [馬主情報の特徴量化](insights/owner_as_feature.md) | 馬主名・馬主成績の2つの意味（能力の代理変数 vs オッズ歪み指標）。過学習リスク、実用的な特徴量設計 |
 | [馬の着順分布の形状](insights/horse_performance_distribution.md) | 安定強者/安定好走/一発型の3類型。Harvilleが見落とす「分散」の影響、馬券種別の戦略的含意 |
+| [予測根拠のインタビュー機能](insights/prediction_interview_feature.md) | SHAP値で馬ごとの好材料・懸念材料を提示。推理エンターテインメント×モデルデバッグ×人間との対話 |
 
 ## 考察ドキュメント一覧
 
