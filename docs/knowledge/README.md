@@ -68,6 +68,8 @@
 | [モデル分離戦略](insights/model_separation_strategy.md) | 芝/ダート/障害のモデル分離判断。分離基準、サンプルサイズ閾値、005の過学習教訓との整合 |
 | [組合せ馬券の確率計算](insights/combination_ticket_probability.md) | 単勝確率→組合せ馬券確率の変換。Harville公式、Henery補正、着順の条件付き確率、馬券種別の実装優先度 |
 | [展開シミュレーションと条件付き着順予測](insights/race_scenario_simulation.md) | 脚質相互作用・出遅れ・ペース変動が着順を変える構造。レベル0〜3の段階的アプローチ |
+| [馬主情報の特徴量化](insights/owner_as_feature.md) | 馬主名・馬主成績の2つの意味（能力の代理変数 vs オッズ歪み指標）。過学習リスク、実用的な特徴量設計 |
+| [馬の着順分布の形状](insights/horse_performance_distribution.md) | 安定強者/安定好走/一発型の3類型。Harvilleが見落とす「分散」の影響、馬券種別の戦略的含意 |
 
 ## 考察ドキュメント一覧
 
