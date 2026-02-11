@@ -79,6 +79,14 @@
 | [着順以外の評価基準](insights/beyond_finishing_position.md) | スピード指数、着差、上がり3Fギャップ、レーティング、負けの質分析。8つのアプローチ |
 | [環境物理学](insights/environmental_physics.md) | 空気抵抗・気温・風・含水率の物理計算。馬体重×風速、馬体重×気温×距離の定量分析 |
 | [着順以外の目的変数](insights/alternative_target_variables.md) | パフォーマンススコア設計。三層構造（自動計算/ルール補正/人間判断）。「結果」でなく「能力」を予測する |
+| [スムーズな走りと展開予測の必要性](insights/smooth_trip_without_simulation.md) | 展開・隊列予測は不可欠か？不利の4類型、特徴量で8割捕捉可、「予測より回避」の戦略 |
+| [ポジショニングコストと出たなりの優位性](insights/positioning_cost_and_natural_running.md) | 逃げ馬の外は恵まれるか？出たなり vs ポジション争いのエネルギー差。JRA-VANデータからの推定方法 |
+| [1コーナーまでの距離と枠順バイアス](insights/start_to_first_corner_gate_bias.md) | 距離が短い→漏斗効果で内枠有利。頭数×脚質構成×芝ダートの交互作用。コース定数テーブルの設計 |
+| [マクリ・ペースクラッシャーの影響](insights/pace_crasher_and_makuri.md) | マクリの検出方法、ペースクラッシャーの3類型、先行馬への道連れ効果、被害馬の次走戦略 |
+| [差し馬のサブタイプ: スロー捲り型 vs ハイペース追込型](insights/closer_subtypes_slow_vs_highpace.md) | 差し馬の中の根本的な2タイプ。ペース適性×仕掛け早さの4象限分類、展開との交互作用 |
+| [着順バイアス: 着順 vs 着差の評価ギャップ](insights/finishing_position_vs_margin_bias.md) | 0.5秒差5着 vs 0.2秒差6着。序数思考バイアス、接戦レースの着順の無意味さ、着差weight導入 |
+| [盛り返しパターンと充実度](insights/rally_after_dropping_position.md) | 位置取りを下げてから盛り返す馬は充実の証拠。盛り返し強度の定量化、戦意喪失の反対指標 |
+| [能力はスカラーではなくベクトル](insights/ability_is_not_scalar.md) | 「能力の方向性は一定ではない」の統合理論。能力ベクトル×条件ベクトル＝適合度。穴馬の構造的説明 |
 
 ## 考察ドキュメント一覧
 
