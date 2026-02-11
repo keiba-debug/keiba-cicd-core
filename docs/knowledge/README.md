@@ -60,6 +60,7 @@
 |---|---|
 | [松風ブログ核心知見](insights/matsukaze_core_insights.md) | 001-012の横断整理。17の核心知見を重要度順に整理 + 優先実装リスト |
 | [ML学習ロードマップ](insights/ml_learning_roadmap.md) | 競馬AI開発に必要なML知識の体系的整理。Level 0〜5の段階的学習計画 |
+| [ML用語集](insights/ml_glossary.md) | エンコーディング・評価指標・キャリブレーション等の用語定義。ロードマップの補足 |
 | [馬券市場の構造的非効率性](insights/market_structural_inefficiencies.md) | 均等配分バイアス・Favorite-Longshot・条件付き確率の無視等、AIが突ける9つの歪み |
 | [特徴量設計とハイパラ: 人間 vs AI](insights/human_vs_ai_in_model_design.md) | 特徴量の「発想」は人間、ハイパラ調整はAI。7工程の分業設計 |
 | [運用アーキテクチャ設計指針](insights/operations_architecture_principles.md) | 松風8モジュール構成から学ぶシステム設計。Themisの「目隠し」原則、運用ミスの教訓集、KeibaCICDへの適用 |
@@ -71,6 +72,8 @@
 | [馬主情報の特徴量化](insights/owner_as_feature.md) | 馬主名・馬主成績の2つの意味（能力の代理変数 vs オッズ歪み指標）。過学習リスク、実用的な特徴量設計 |
 | [馬の着順分布の形状](insights/horse_performance_distribution.md) | 安定強者/安定好走/一発型の3類型。Harvilleが見落とす「分散」の影響、馬券種別の戦略的含意 |
 | [予測根拠のインタビュー機能](insights/prediction_interview_feature.md) | SHAP値で馬ごとの好材料・懸念材料を提示。推理エンターテインメント×モデルデバッグ×人間との対話 |
+| [回収率と購入量のトレードオフ](insights/roi_volume_tradeoff.md) | 「あえて回収率を下げる」戦略の数理。EV閾値の最適化、115%は結果であって目標ではない、分散ドラッグ |
+| [ランダムネスの認知錯誤](insights/randomness_cognitive_errors.md) | 逆正弦法則・ギャンブラーの誤謬・ホットハンド・モンテカルロの誤謬の家系図。連敗時の判断、パラメータ変更の指針 |
 
 ## 考察ドキュメント一覧
 
