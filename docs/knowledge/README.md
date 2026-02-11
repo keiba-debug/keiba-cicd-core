@@ -74,6 +74,11 @@
 | [予測根拠のインタビュー機能](insights/prediction_interview_feature.md) | SHAP値で馬ごとの好材料・懸念材料を提示。推理エンターテインメント×モデルデバッグ×人間との対話 |
 | [回収率と購入量のトレードオフ](insights/roi_volume_tradeoff.md) | 「あえて回収率を下げる」戦略の数理。EV閾値の最適化、115%は結果であって目標ではない、分散ドラッグ |
 | [ランダムネスの認知錯誤](insights/randomness_cognitive_errors.md) | 逆正弦法則・ギャンブラーの誤謬・ホットハンド・モンテカルロの誤謬の家系図。連敗時の判断、パラメータ変更の指針 |
+| [HarvilleのIIA批判](insights/harville_iia_critique.md) | 「スライドではなく再計算すべき」の数理的根拠。Thurstoneモデル、馬ごとのγ、IIA仮定の限界と段階的改善 |
+| [ローテーション分析](insights/rotation_interval_analysis.md) | レース間隔の多次元構造。叩き2戦目、厩舎別傾向、消耗度、臨戦過程の特徴量化 |
+| [着順以外の評価基準](insights/beyond_finishing_position.md) | スピード指数、着差、上がり3Fギャップ、レーティング、負けの質分析。8つのアプローチ |
+| [環境物理学](insights/environmental_physics.md) | 空気抵抗・気温・風・含水率の物理計算。馬体重×風速、馬体重×気温×距離の定量分析 |
+| [着順以外の目的変数](insights/alternative_target_variables.md) | パフォーマンススコア設計。三層構造（自動計算/ルール補正/人間判断）。「結果」でなく「能力」を予測する |
 
 ## 考察ドキュメント一覧
 
