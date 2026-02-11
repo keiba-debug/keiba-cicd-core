@@ -30,6 +30,7 @@ from ml.features.jockey_features import get_jockey_features, build_jockey_index
 from ml.features.running_style_features import compute_running_style_features
 from ml.features.rotation_features import compute_rotation_features
 from ml.features.pace_features import compute_pace_features
+from ml.features.training_features import compute_training_features
 
 
 def load_model_and_meta():
@@ -201,11 +202,18 @@ def predict_race(
         )
         feat.update(pace_feat)
 
+        # 調教特徴量 (v3.3)
+        kb_e = kb_entries.get(str(umaban))
+        train_feat = compute_training_features(
+            umaban=str(umaban),
+            kb_ext=kb_ext,
+        )
+        feat.update(train_feat)
+
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = 0  # placeholder
 
         # keibabook拡張（あれば）
-        kb_e = kb_entries.get(str(umaban))
         kb_feat = get_keibabook_features(kb_e)
 
         # keibabookのratingをフィーチャに (もし特徴量リストに含まれていれば)
@@ -409,7 +417,7 @@ def main():
 
     # 結果保存
     output = {
-        'version': '3.1',
+        'version': '3.3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'date': date,
         'model_version': meta.get('version', '?'),

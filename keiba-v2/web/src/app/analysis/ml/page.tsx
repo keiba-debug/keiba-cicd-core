@@ -856,7 +856,7 @@ export default function MlAnalysisPage() {
     fetch('/api/ml/result')
       .then((res) => { if (!res.ok) throw new Error('ML結果が見つかりません'); return res.json(); })
       .then((d) => {
-        if (!['2.0', '3.0'].includes(d.version)) throw new Error(`対応バージョン: 2.0 or 3.0 (got: ${d.version})`);
+        if (!d.version?.startsWith('2.') && !d.version?.startsWith('3.')) throw new Error(`対応バージョン: 2.x or 3.x (got: ${d.version})`);
         setData(normalizeResult(d));
       })
       .catch((e) => setError(e.message))

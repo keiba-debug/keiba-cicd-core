@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-ML Experiment v3.1: JRA-VANネイティブ・デュアルモデル
+ML Experiment v3.3: JRA-VANネイティブ・デュアルモデル
+
+v3.3改善:
+  - 詳細調教特徴量 (9個): 追い切りタイム・脚色・併せ馬・セッション数・休養週数・坂路
+
+v3.2改善:
+  - 調教特徴量 (1個): keibabook training_arrow_value (-2〜+2)
 
 v3.1改善:
   - 脚質特徴量 (8個): コーナー通過順からの先行力・末脚力
@@ -15,7 +21,7 @@ v3.0:
   - 過去走カバレッジ: 36,008頭
 
 特徴量構成:
-  Model A (全特徴量): 基本 + 過去走 + trainer + jockey + 脚質 + ローテ + ペース + 市場系
+  Model A (全特徴量): 基本 + 過去走 + trainer + jockey + 脚質 + ローテ + ペース + 調教 + 市場系
   Model B (Value):     Model Aから市場系特徴量を除外
 
 Usage:
@@ -83,6 +89,14 @@ PACE_FEATURES = [
     'last3f_vs_race_l3_last3', 'steep_course_experience', 'steep_course_top3_rate',
 ]
 
+# 調教特徴量 (v3.3)
+TRAINING_FEATURES = [
+    'training_arrow_value',
+    'oikiri_5f', 'oikiri_3f', 'oikiri_1f',
+    'oikiri_intensity_code', 'oikiri_has_awase',
+    'training_session_count', 'rest_weeks', 'oikiri_is_slope',
+]
+
 # 市場系特徴量（Model Bでは除外）
 MARKET_FEATURES = {'odds', 'popularity', 'odds_rank', 'popularity_trend'}
 
@@ -94,7 +108,7 @@ FEATURE_COLS_ALL = (
     BASE_FEATURES + ['odds', 'popularity'] + DERIVED_FEATURES +
     PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
-    PACE_FEATURES
+    PACE_FEATURES + TRAINING_FEATURES
 )
 
 # Value特徴量（Model B = 市場系除外）
@@ -169,7 +183,37 @@ def build_pace_index(date_index: dict) -> dict:
     return pace_index
 
 
-def load_data() -> Tuple[dict, dict, dict, dict, dict]:
+def build_kb_ext_index(date_index: dict) -> dict:
+    """kb_ext JSONからレース単位の調教データインデックスを構築
+
+    Returns:
+        dict: race_id_16 -> kb_ext JSONの内容
+    """
+    print("[Load] Building keibabook ext index...")
+    kb_dir = config.keibabook_dir()
+    kb_index = {}
+    errors = 0
+
+    for date_str, race_ids in date_index.items():
+        parts = date_str.split('-')
+        day_dir = kb_dir / parts[0] / parts[1] / parts[2]
+        if not day_dir.exists():
+            continue
+
+        for race_id in race_ids:
+            kb_path = day_dir / f"kb_ext_{race_id}.json"
+            if kb_path.exists():
+                try:
+                    with open(kb_path, encoding='utf-8') as f:
+                        kb_index[race_id] = json.load(f)
+                except Exception:
+                    errors += 1
+
+    print(f"  KB ext index: {len(kb_index):,} races (errors={errors})")
+    return kb_index
+
+
+def load_data() -> Tuple[dict, dict, dict, dict, dict, dict]:
     """data3からデータをロード"""
     print("[Load] Loading data3...")
 
@@ -202,7 +246,10 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict]:
     # Pace index
     pace_index = build_pace_index(date_index)
 
-    return history_cache, trainer_index, jockey_index, date_index, pace_index
+    # Keibabook ext index
+    kb_ext_index = build_kb_ext_index(date_index)
+
+    return history_cache, trainer_index, jockey_index, date_index, pace_index, kb_ext_index
 
 
 def compute_features_for_race(
@@ -211,6 +258,7 @@ def compute_features_for_race(
     trainer_index: dict,
     jockey_index: dict,
     pace_index: dict,
+    kb_ext_index: dict,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算"""
     from ml.features.base_features import extract_base_features
@@ -220,12 +268,17 @@ def compute_features_for_race(
     from ml.features.running_style_features import compute_running_style_features
     from ml.features.rotation_features import compute_rotation_features
     from ml.features.pace_features import compute_pace_features
+    from ml.features.training_features import compute_training_features
 
     race_date = race['date']
+    race_id = race['race_id']
     venue_code = race['venue_code']
     track_type = race.get('track_type', '')
     distance = race.get('distance', 0)
     entry_count = race.get('num_runners', 0)
+
+    # kb_ext（調教データ等）
+    kb_ext = kb_ext_index.get(race_id)
 
     rows = []
     for entry in race.get('entries', []):
@@ -290,8 +343,15 @@ def compute_features_for_race(
         )
         feat.update(pace_feat)
 
+        # 調教特徴量 (v3.3)
+        train_feat = compute_training_features(
+            umaban=str(entry.get('umaban', '')),
+            kb_ext=kb_ext,
+        )
+        feat.update(train_feat)
+
         # メタ情報（学習には使わないが分析用）
-        feat['race_id'] = race['race_id']
+        feat['race_id'] = race_id
         feat['date'] = race_date
         feat['ketto_num'] = ketto_num
         feat['horse_name'] = entry.get('horse_name', '')
@@ -310,6 +370,7 @@ def build_dataset(
     trainer_index: dict,
     jockey_index: dict,
     pace_index: dict,
+    kb_ext_index: dict,
     min_year: int,
     max_year: int,
 ) -> pd.DataFrame:
@@ -329,7 +390,8 @@ def build_dataset(
             try:
                 race = load_race_json(race_id, date_str)
                 rows = compute_features_for_race(
-                    race, history_cache, trainer_index, jockey_index, pace_index
+                    race, history_cache, trainer_index, jockey_index,
+                    pace_index, kb_ext_index,
                 )
                 all_rows.extend(rows)
                 race_count += 1
@@ -510,7 +572,7 @@ def main():
     test_min, test_max = parse_year_range(args.test_years)
 
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD v4 - ML Experiment v3.1")
+    print(f"  KeibaCICD v4 - ML Experiment v3.3")
     print(f"  Train: {train_min}-{train_max}")
     print(f"  Test:  {test_min}-{test_max}")
     print(f"  Model A features: {len(FEATURE_COLS_ALL)}")
@@ -520,16 +582,16 @@ def main():
     t0 = time.time()
 
     # データロード
-    history_cache, trainer_index, jockey_index, date_index, pace_index = load_data()
+    history_cache, trainer_index, jockey_index, date_index, pace_index, kb_ext_index = load_data()
 
     # データセット構築
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
-        train_min, train_max,
+        kb_ext_index, train_min, train_max,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
-        test_min, test_max,
+        kb_ext_index, test_min, test_max,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
@@ -610,7 +672,7 @@ def main():
     model_b.save_model(str(model_dir / "model_b.txt"))
 
     meta = {
-        'version': '3.1',
+        'version': '3.3',
         'features_all': FEATURE_COLS_ALL,
         'features_value': FEATURE_COLS_VALUE,
         'market_features': list(MARKET_FEATURES),
@@ -622,7 +684,7 @@ def main():
 
     # 結果JSON保存
     result = {
-        'version': '3.1',
+        'version': '3.3',
         'experiment': 'ml_experiment_v3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {

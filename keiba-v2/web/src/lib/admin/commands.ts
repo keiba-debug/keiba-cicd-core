@@ -22,8 +22,9 @@ export type ActionType =
   | 'analyze_trainer_patterns'   // 調教師パターン分析
   | 'v4_build_race'              // v4 JRA-VAN → data3/races/
   | 'v4_build_kbext'             // v4 data2 integrated → data3/keibabook/
+  | 'v4_cyokyo_enrich'           // v4 調教詳細データをkb_extに補強
   | 'v4_predict'                 // v4 ML v3予測 → data3/ml/predictions_live.json
-  | 'v4_pipeline';               // v4 上記3つを連結実行
+  | 'v4_pipeline';               // v4 上記4つを連結実行
 
 export interface ActionConfig {
   id: ActionType;
@@ -221,6 +222,13 @@ export const ACTIONS: ActionConfig[] = [
     category: 'generate',
   },
   {
+    id: 'v4_cyokyo_enrich',
+    label: 'v4 調教詳細補強',
+    description: 'debug HTMLから調教詳細データをkb_extに補強',
+    icon: '🏋️',
+    category: 'generate',
+  },
+  {
     id: 'v4_predict',
     label: 'v4 ML予測',
     description: 'ML v3モデルで当日レースのValue Bet予測',
@@ -230,7 +238,7 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'v4_pipeline',
     label: 'v4 パイプライン',
-    description: 'レース構築 → KB拡張変換 → ML予測 を一括実行',
+    description: 'レース構築 → KB拡張変換 → 調教詳細補強 → ML予測 を一括実行',
     icon: '🚀',
     category: 'batch',
   },
@@ -414,6 +422,7 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
 
     case 'v4_build_race':
     case 'v4_build_kbext':
+    case 'v4_cyokyo_enrich':
     case 'v4_predict':
     case 'v4_pipeline':
       // v4パイプライン: APIルートで特別に処理される
@@ -591,6 +600,7 @@ export function getCommandArgsRange(
 
     case 'v4_build_race':
     case 'v4_build_kbext':
+    case 'v4_cyokyo_enrich':
     case 'v4_predict':
     case 'v4_pipeline':
       // v4パイプライン: APIルートで特別に処理される

@@ -267,7 +267,7 @@ export default function AdminPage() {
   );
   const v4PipelineAction = ACTIONS.find((a) => a.id === 'v4_pipeline');
   const v4IndividualActions = ACTIONS.filter((a) =>
-    ['v4_build_race', 'v4_build_kbext', 'v4_predict'].includes(a.id)
+    ['v4_build_race', 'v4_build_kbext', 'v4_cyokyo_enrich', 'v4_predict'].includes(a.id)
   );
   const analysisActions = ACTIONS.filter((a) => a.category === 'analysis');
 

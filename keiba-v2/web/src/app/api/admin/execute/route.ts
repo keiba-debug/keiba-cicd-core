@@ -160,6 +160,13 @@ export async function POST(request: NextRequest) {
           commandsList = dateArg
             ? [['-m', 'keibabook.ext_builder', '--date', dateArg]]
             : [['-m', 'keibabook.ext_builder']];
+        } else if (action === 'v4_cyokyo_enrich') {
+          // v4 調教詳細補強 - debug HTMLから調教詳細データをkb_extに補強 (keiba-v2ディレクトリで実行)
+          customCwd = ADMIN_CONFIG.v2Path;
+          const dateArg = date || '';
+          commandsList = dateArg
+            ? [['-m', 'keibabook.cyokyo_enricher', '--date', dateArg]]
+            : [['-m', 'keibabook.cyokyo_enricher']];
         } else if (action === 'v4_predict') {
           // v4 ML予測 - ML v3モデルでValue Bet予測 (keiba-v2ディレクトリで実行)
           customCwd = ADMIN_CONFIG.v2Path;
@@ -168,19 +175,21 @@ export async function POST(request: NextRequest) {
             ? [['-m', 'ml.predict', '--date', dateArg]]
             : [['-m', 'ml.predict']];
         } else if (action === 'v4_pipeline') {
-          // v4 パイプライン - レース構築 → KB拡張変換 → ML予測 を一括実行 (keiba-v2ディレクトリで実行)
+          // v4 パイプライン - レース構築 → KB拡張変換 → 調教詳細補強 → ML予測 を一括実行 (keiba-v2ディレクトリで実行)
           customCwd = ADMIN_CONFIG.v2Path;
           const dateArg = date || '';
           if (dateArg) {
             commandsList = [
               ['-m', 'builders.build_race_master', '--date', dateArg],
               ['-m', 'keibabook.ext_builder', '--date', dateArg],
+              ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg],
               ['-m', 'ml.predict', '--date', dateArg],
             ];
           } else {
             commandsList = [
               ['-m', 'builders.build_race_master'],
               ['-m', 'keibabook.ext_builder'],
+              ['-m', 'keibabook.cyokyo_enricher'],
               ['-m', 'ml.predict'],
             ];
           }
