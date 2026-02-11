@@ -47,6 +47,17 @@ export interface TargetMarksMap {
   horseMarks2?: Record<number, string>;  // 馬印2
 }
 
+/** ML予測データ（馬単位） */
+export interface MlPredictionEntry {
+  horse_number: number;
+  pred_proba_accuracy: number;
+  pred_proba_value: number;
+  value_rank: number;
+  odds_rank: number | null;
+  gap: number | null;
+  is_value_bet: boolean;
+}
+
 interface HorseEntryTableProps {
   entries: HorseEntry[];
   showResult?: boolean;
@@ -57,6 +68,8 @@ interface HorseEntryTableProps {
   targetMarks?: TargetMarksMap;
   /** 直近戦績（馬番→RecentFormData[]） */
   recentFormMap?: Record<number, RecentFormData[]>;
+  /** ML予測（馬番→予測データ） */
+  mlPredictions?: Record<number, MlPredictionEntry>;
 }
 
 // =============================================================================
@@ -366,6 +379,7 @@ interface HorseEntryRowProps {
   myMark?: string;
   myMark2?: string;
   recentForm?: RecentFormData[];
+  mlPrediction?: MlPredictionEntry;
 }
 
 const HorseEntryRow = React.memo(function HorseEntryRow({
@@ -385,6 +399,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   myMark,
   myMark2,
   recentForm,
+  mlPrediction,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
@@ -424,6 +439,38 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
       <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getMyMark2BgColor(myMark2)}`}>
         {myMark2 || '-'}
       </td>
+
+      {/* ML Value Bet */}
+      {mlPrediction !== undefined && (
+        <td className={cn(
+          "px-1 py-1.5 text-center border",
+          mlPrediction.is_value_bet && "bg-amber-50 dark:bg-amber-900/20"
+        )}>
+          <div className="flex flex-col items-center gap-0.5">
+            {mlPrediction.is_value_bet ? (
+              <span className={cn(
+                "inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold",
+                mlPrediction.gap !== null && mlPrediction.gap >= 5
+                  ? "bg-gradient-to-r from-red-500 to-red-400 text-white"
+                  : mlPrediction.gap !== null && mlPrediction.gap >= 4
+                    ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white"
+                    : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white"
+              )}
+                title={`VR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\nModel A: ${(mlPrediction.pred_proba_accuracy * 100).toFixed(1)}%\nModel B: ${(mlPrediction.pred_proba_value * 100).toFixed(1)}%`}
+              >
+                VB
+              </span>
+            ) : (
+              <span className="text-[10px] text-gray-400">-</span>
+            )}
+            {mlPrediction.value_rank <= 3 && (
+              <span className="text-[9px] text-gray-500 dark:text-gray-400">
+                VR{mlPrediction.value_rank}
+              </span>
+            )}
+          </div>
+        </td>
+      )}
 
       {/* 馬名 + TARGETコメント + 直近戦績 */}
       <td className="px-2 py-1.5 border">
@@ -579,7 +626,9 @@ export default function HorseEntryTable({
   targetComments,
   targetMarks,
   recentFormMap,
+  mlPredictions,
 }: HorseEntryTableProps) {
+  const hasMlPredictions = mlPredictions && Object.keys(mlPredictions).length > 0;
   // 馬番順にソート（useMemoでキャッシュ）
   const sortedEntries = useMemo(
     () => [...entries].sort((a, b) => a.horse_number - b.horse_number),
@@ -635,6 +684,9 @@ export default function HorseEntryTable({
             <th className="px-2 py-2 text-center border w-10">本紙</th>
             <th className="px-2 py-2 text-center border w-10">My印</th>
             <th className="px-2 py-2 text-center border w-10">My2</th>
+            {hasMlPredictions && (
+              <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
+            )}
             <th className="px-2 py-2 text-left border min-w-32">馬名</th>
             <th className="px-2 py-2 text-center border w-16">性齢</th>
             <th className="px-2 py-2 text-left border min-w-20">騎手</th>
@@ -675,6 +727,7 @@ export default function HorseEntryTable({
               myMark={targetMarks?.horseMarks[entry.horse_number]}
               myMark2={targetMarks?.horseMarks2?.[entry.horse_number]}
               recentForm={recentFormMap?.[entry.horse_number]}
+              mlPrediction={hasMlPredictions ? mlPredictions[entry.horse_number] : undefined}
             />
           ))}
         </tbody>

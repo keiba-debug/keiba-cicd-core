@@ -23,6 +23,7 @@ import { getRaceTrendIndex, lookupRaceTrend } from '@/lib/data/race-trend-reader
 import { loadTrainerPatterns, evaluatePatternMatch, type TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
 import { getTrainerInfo } from '@/lib/data/trainer-index';
 import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
+import { getMlPredictions } from '@/lib/data/ml-prediction-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -90,13 +91,14 @@ export default async function RaceDetailPage({ params }: PageParams) {
   const currentRaceNumber = parseInt(id.slice(-2), 10);
 
   // データ取得（1段階目: 依存関係のないデータを並列取得）
-  const [raceData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns] = await Promise.all([
+  const [raceData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
     getTrainingSummaryMap(date),
     getRatingStandards(),  // 依存なし → 1段階目に移動
     loadTrainerPatterns(),
+    getMlPredictions(id),
   ]);
   
   if (!raceData) {
@@ -498,6 +500,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
           }
           recentFormMap={recentFormMap}
           trainerPatternMatchMap={trainerPatternMatchMap}
+          mlPredictions={mlPredictions ?? undefined}
         />
 
         {/* データ情報（フッター） */}

@@ -54,7 +54,7 @@ import type { RatingStandards } from '@/lib/data/rating-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
-import type { TargetMarksMap } from './HorseEntryTable';
+import type { TargetMarksMap, MlPredictionEntry } from './HorseEntryTable';
 import type { RecentFormData } from '@/lib/data/target-race-result-reader';
 import type { TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
@@ -101,11 +101,13 @@ interface RaceDetailContentProps {
   recentFormMap?: Record<number, RecentFormData[]>;
   /** 調教師パターンマッチ結果（馬名→マッチ結果） */
   trainerPatternMatchMap?: Record<string, TrainerPatternMatch | null>;
+  /** ML予測（馬番→予測データ） */
+  mlPredictions?: Record<number, MlPredictionEntry>;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -253,6 +255,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 targetComments={targetComments}
                 targetMarks={targetMarks}
                 recentFormMap={recentFormMap}
+                mlPredictions={mlPredictions}
               />
             </div>
           </TabsContent>
@@ -368,6 +371,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               targetComments={targetComments}
               targetMarks={targetMarks}
               recentFormMap={recentFormMap}
+              mlPredictions={mlPredictions}
             />
           </div>
 
