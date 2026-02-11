@@ -61,6 +61,7 @@
 | [松風ブログ核心知見](insights/matsukaze_core_insights.md) | 001-012の横断整理。17の核心知見を重要度順に整理 + 優先実装リスト |
 | [ML学習ロードマップ](insights/ml_learning_roadmap.md) | 競馬AI開発に必要なML知識の体系的整理。Level 0〜5の段階的学習計画 |
 | [馬券市場の構造的非効率性](insights/market_structural_inefficiencies.md) | 均等配分バイアス・Favorite-Longshot・条件付き確率の無視等、AIが突ける9つの歪み |
+| [特徴量設計とハイパラ: 人間 vs AI](insights/human_vs_ai_in_model_design.md) | 特徴量の「発想」は人間、ハイパラ調整はAI。7工程の分業設計 |
 
 ## 考察ドキュメント一覧
 
