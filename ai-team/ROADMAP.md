@@ -14,233 +14,198 @@
 
 ### アーキテクチャ戦略
 
-**重要な決定事項（2026-02-07）**：
+**確定した設計方針**：
 
-✅ **Backend API分離は不要**（v3.x〜v4.0）
-- ML予測はバッチ処理で事前生成
-- JSONファイル経由で十分高速
-- ネットワークレイテンシー不要
-
-✅ **v4.0の目的は「設計品質」**（パフォーマンスではない）
-- Clean Architecture導入
-- 保守性・テスト容易性向上
-- 将来の機能追加が楽に
-
-✅ **段階的な進化**
-- 各バージョンで明確な価値を提供
-- 学習と実用を両立
-- 技術的負債を最小化
+- **Backend API分離は不要** — ML予測はバッチ処理で事前生成、JSONファイル経由で十分高速
+- **JRA-VAN直接パース** — ketto_num/trainer_cd等のネイティブIDで100%マッチ
+- **Server Components優先** — メインページはfs直接読み込み、SWRは使わない
+- **段階的な進化** — 各バージョンで明確な価値を提供、技術的負債を最小化
 
 ---
 
 ## 🎯 バージョン別ロードマップ
 
-### v3.1：フロントエンド最適化（2026年2月）⭐ 最優先
+---
 
-**目的**: 画面描画パフォーマンス改善
+### v3.1：フロントエンド最適化（2026年2月） ✅ 完了
+
+**成果**:
+- Server Components導入によるページ高速化
+- レース詳細ページのデータ読み込み最適化
+- SWR不使用の方針確定（fs直接読み込みで十分）
+
+---
+
+### v3.2：レース検索機能（2026年2月） ✅ 完了
+
+**成果**:
+- レース名・馬名検索のAPI Route実装
+- 検索ページUI構築
+
+---
+
+### v3.3：ML v2 デュアルモデル導入（2026年2月） ✅ 完了
+
+**成果**:
+- Model A（全特徴量・精度重視）+ Model B（市場系除外・Value重視）のデュアルモデル設計
+- 前走成績特徴量15個追加
+- Value Bet戦略の基盤構築（odds_rank vs Model B rankの乖離）
+
+---
+
+### v4.0：JRA-VANネイティブ移行 + ML v3（2026年2月） ✅ 完了
+
+**成果**:
+- JRA-VANバイナリ直接パーサー（SE/SR/UM/KS）構築
+- data3/配下にレース19,404件・馬211,681頭のマスタJSON生成
+- trainer_id/jockey_idの100%マッチ達成（旧0.5%→100%）
+- ML v3.0: Model B AUC 0.7746（+0.0111）
+- ML v3.1: 脚質/ローテ/ペース特徴量19個追加、Model B AUC 0.7777
+- ML v3.3: 調教詳細特徴量8個追加、Model B AUC 0.7823、VB gap>=5 ROI 139.0%
+- WebViewer v4対応、管理画面統合
+
+**セッション詳細**:
+| Session | 内容 |
+|---------|------|
+| 1-2 | JRA-VANパーサー + マスタビルダー |
+| 3 | ML v3（JRA-VANネイティブ特徴量） |
+| 4 | keibabook拡張データ統合 |
+| 5 | WebViewer v4対応 |
+| 6 | パイプライン統合 + WebViewer移動 |
+| 7-8 | ML v3.1（脚質/ローテ/ペース）+ v3.3（調教詳細） |
+
+---
+
+### v4.1：v1基盤整理（2026年2月） ✅ 完了
+
+**成果**:
+- 分析スクリプト（rating_standards, race_type_standards, trainer_patterns）のv2ネイティブ化
+- 管理画面更新
+
+---
+
+### v4.2：Python data2依存解消（2026年2月） ✅ 完了
+
+**成果**:
+- SR_DATA GradeCD/RaceName/JyokenCD バイトオフセット解析
+- Python側のdata2参照を完全排除
+
+---
+
+### v4.3：WebViewer data2→data3完全移行（2026年2月） ✅ 完了
+
+**成果**:
+- TypeScript側のdata2参照を完全排除
+- config.tsからdata2パスを削除
+
+---
+
+### v4.4：v1スクレイパー→v2ネイティブ移行（2026年2月） ✅ 完了
+
+**成果**:
+- keibabook scraper/parser/batchを全てkeiba-v2/keibabook/に統合
+- v1 KeibaCICD.keibabook/ への依存を解消
+
+---
+
+### v4.5：管理画面リネーム + レース表示バグ修正（2026年2月） ✅ 完了
+
+**成果**:
+- ボタンリネーム（前日準備→基本情報構築、レース後更新→直前情報・結果情報構築）
+- 16桁race_idの直接使用対応（レース詳細ページ）
+- race_info.json生成によるレース名・発走時刻の補完
+- batch_scraper + race-reader.ts + race-date-index.tsの連携修正
+
+---
+
+## 📊 現在の成果サマリ（v4.5時点）
+
+### ML v3.3 成果
+| 指標 | v2初期 | v3.3最新 | 変化 |
+|------|--------|----------|------|
+| Model A AUC | 0.7944 | **0.8247** | +0.0303 |
+| Model B AUC | 0.7635 | **0.7823** | +0.0188 |
+| VB gap>=2 ROI | - | **103.2%** | - |
+| VB gap>=4 ROI | - | **127.2%** | - |
+| VB gap>=5 ROI | 99.9% | **139.0%** | +39.1pt |
+| 特徴量数 A/B | 32/27 | **60/56** | +28/+29 |
+
+### 実績（2026-02-08時点）
+- **月間**: +57,310（180.9% ROI）
+- **通算**: +56,010（166.8%）
+
+---
+
+## 🔮 今後のロードマップ（2026-02-12合意）
+
+> **方針**: 実収支への直結度で優先順位を決定。アイデアは `docs/IDEAS_BACKLOG.md` に蓄積。
+
+---
+
+### v4.6：オッズ最新化 + 調教分析強化（次回〜）
+
+**目的**: Value Bet判定精度の向上、予想根拠の可視化
 
 **主要施策**:
-- SWR/React Query でデータキャッシング
-- React.memo/useMemo でコンポーネントメモ化
-- react-window で仮想スクロール
-- Server Components 導入検討
-
-**期待効果**: 50-70%のパフォーマンス改善
-
-**成果物**:
-- レース詳細ページの高速化
-- 馬プロファイルページの高速化
-- キャッシング戦略ドキュメント
-
-**詳細**: `PERFORMANCE_OPTIMIZATION_V3.1.md`
+1. **TARGETからの最新オッズ反映** — SE_DATA確定オッズではなく、レース前の最新オッズを取得・表示
+2. **調教分析バージョンアップ** — cyokyo_detailの追い切りタイム・ラップを活用した評価方法
+3. **WebViewer出走表に調教詳細表示** — 追い切りサマリ（タイム・脚色・併せ馬）の可視化
+4. 開催情報のJRA-VAN化（レース名・発走時刻をTARGET/SR_DATAから取得）
 
 ---
 
-### v3.2：ML基盤整備 Phase 1（2026年3月）
+### v4.7：馬プロフィール + コース分析
 
-**目的**: 過去データ蓄積とパターン分析基盤
+**目的**: data3資産の活用、情報の網羅性向上
 
 **主要施策**:
-- 過去3年分のレース結果 + 調教データ統合
-- データベース設計（training_history.db）
-- 調教師別・馬場別・ラップ別の基礎分析
-- パターン抽出スクリプト
-
-**成果物**:
-- `training_history.db`（過去データ）
-- `scripts/collect_training_data.py`（データ収集）
-- `scripts/analyze_basic_patterns.py`（基礎分析）
-- パターン分析レポート
-
-**技術選定**:
-- データベース: SQLite（軽量、ファイルベース）
-- 分析: Pandas + Matplotlib
-- 統計: SciPy
+1. **馬プロフィールページ新規作成** — data3/masters 211K馬の過去走・適性・調教履歴を表示
+2. **コース・馬場分析ページ更新** — 全コースのラップ情報（RPCI分布・有利脚質）を整理
+3. 馬名クリック → プロフィール遷移の導線整備
 
 ---
 
-### v3.3：パターン分析 Phase 2（2026年4月）
+### v4.8：ML v3+ 改善 + 分析機能
 
-**目的**: 好走パターンの発見と検証
+**目的**: 予測精度とROIの更なる向上
 
 **主要施策**:
-- 調教師別好走パターン分析
-  - 「藤沢厩舎 × 坂路S評価 → 勝率28%」
-- 馬場 × メンバー × ラップ傾向の相関分析
-  - 「良馬場 × ハイペース × 差し脚質 → 期待値1.5倍」
-- パターンの統計的検証（サンプルサイズ、信頼度）
-- パターン辞書の構築
-
-**成果物**:
-- `patterns.json`（好走パターン辞書）
-- `scripts/find_winning_patterns.py`（パターン発見）
-- パターン検証レポート
-- WebViewerでのパターン表示（簡易版）
-
-**分析例**:
-```json
-{
-  "trainer_training_pattern": {
-    "藤沢和雄_坂路S評価": {
-      "win_rate": 0.28,
-      "sample_size": 45,
-      "confidence": 0.82,
-      "conditions": {
-        "trainer": "藤沢和雄",
-        "training_location": "坂路",
-        "training_class": "S"
-      }
-    }
-  }
-}
-```
+- 降格ローテ検出（レイティング基準値で「相手が楽になる馬」検出）
+- 追い切りタイムのコース別・馬場別正規化
+- Optunaによるハイパーパラメータ体系的探索
+- 特徴量選択（重要度低の特徴量削除による過学習削減）
+- point-in-time調教師・騎手統計（時間的リーク解消）
 
 ---
 
-### v4.0：Clean Architecture + ML予想（2026年5-6月）
-
-**目的**: 設計品質向上とML予想の実用化
-
-#### 4.1 Clean Architecture導入
-
-**Pythonバッチ処理のレイヤー構成**:
-```
-Infrastructure Layer（データ取得・永続化）
-  ├─ CK_DATA Parser
-  ├─ Database Access (SQLite)
-  └─ External API Client (競馬ブック等)
-       ↓
-Domain Layer（ビジネスロジック）
-  ├─ Training（調教エンティティ）
-  ├─ Horse（馬エンティティ）
-  ├─ Race（レースエンティティ）
-  └─ Prediction（予想エンティティ）
-       ↓
-Application Layer（ユースケース）
-  ├─ TrainingAnalysisService
-  ├─ RacePredictionService
-  └─ WeeklyBatchOrchestrator
-       ↓
-JSON出力
-```
-
-**詳細**: `ARCHITECTURE_V4.md`, `REFACTORING_PLAN.md`, `DOMAIN_MODEL.md`
-
-#### 4.2 ML予想モデル
-
-**手法**:
-- LightGBM / XGBoost
-- 特徴量: 調教データ、血統、馬場、ペース、メンバー構成等
-- 目的変数: 着順、勝率
-
-**データフロー**:
-```
-【金曜夜：バッチ処理】
-過去データ + 今週のレースデータ
-  ↓
-特徴量エンジニアリング
-  ↓
-MLモデル予測
-  ↓
-predictions/YYYYMMDD/*.json 生成
-
-【土日：レース当日】
-Next.js → predictions.json 読み込み
-  ↓
-出走表に予想スコア表示
-```
-
-**成果物**:
-- `ml/prediction_model.py`（MLモデル）
-- `predictions/YYYYMMDD/*.json`（予想データ）
-- WebViewer予想セクション
-- モデル評価レポート
-
-**詳細**: `ML_INTEGRATION_PLAN.md`
-
----
-
-### v5.0：期待値計算と購入判断（2026年7-9月）
+### v5.0：期待値計算と購入判断（2026年中盤〜）
 
 **目的**: オッズ連携と購入戦略の自動化
 
 **主要施策**:
-- オッズデータ取得（競馬ブックAPI等）
-- 期待値計算エンジン
-  - 期待値 = 予想勝率 × オッズ
-  - 期待値 > 1.0 の馬券のみ購入推奨
+- 最新オッズ × ML予測勝率 → 期待値計算エンジン
 - 資金配分戦略（ケリー基準等）
-- 購入推奨リスト生成
+- 購入推奨リスト自動生成
+- 収支レポート自動生成
 
 **データフロー**:
 ```
-【金曜夜】
-ML予想生成（v4.0）
+ML予想生成（v4系）
   ↓
-オッズデータ取得
+TARGETから最新オッズ取得
   ↓
-期待値計算
+期待値計算（予測勝率 × オッズ）
   ↓
 購入推奨リスト生成
   ↓
-betting_recommendations.json
-
-【土日】
 WebViewerで購入推奨表示
   ↓
-ふくだ君が最終判断
-  ↓
-購入記録
-```
-
-**成果物**:
-- `betting_recommendations.json`
-- 期待値計算エンジン
-- 資金配分ロジック
-- 購入履歴データベース
-- 収支レポート
-
-**期待値計算例**:
-```json
-{
-  "race_id": "2026020806010208",
-  "recommendations": [
-    {
-      "horse_name": "カゼノハゴロモ",
-      "bet_type": "単勝",
-      "predicted_win_rate": 0.23,
-      "current_odds": 4.5,
-      "expected_value": 1.04,
-      "recommended_amount": 500,
-      "confidence": 0.82
-    }
-  ]
-}
+ふくだ君が最終判断 → 購入記録
 ```
 
 ---
 
-### v5.1-v6.0：AIエージェント自律化（2026年10月〜）
+### v5.1-v6.0：AIエージェント自律化（2026年後半〜）
 
 **目的**: MCP連携による自律型競馬予想システム
 
@@ -248,7 +213,7 @@ WebViewerで購入推奨表示
 
 | エージェント | 役割 | 主要機能 |
 |------------|------|---------|
-| **キバ**（データ追跡） | 調教データ収集・異常検知 | CK_DATA取得、異常パターン検出 |
+| **キバ**（データ追跡） | 調教データ収集・異常検知 | データ取得、異常パターン検出 |
 | **アルテタ**（ML予想） | パターン分析・評価指数計算 | ML予測、類似レース検索 |
 | **ひなた**（前走分析） | 各馬の前走パフォーマンス分析 | 前走調教比較、信頼度評価 |
 | **シノ**（期待値計算） | オッズ × 勝率 → 期待値判定 | 期待値計算、購入候補抽出 |
@@ -263,138 +228,81 @@ WebViewerで購入推奨表示
 Claude Desktop (MCP Client)
   ↓ MCP Protocol
 ベンゲル（Orchestrator MCP Server）
-  ├─ → キバ（Data Tracker MCP Server）
-  ├─ → アルテタ（ML Predictor MCP Server）
-  ├─ → ひなた（Previous Race Analyzer MCP Server）
-  ├─ → シノ（Expected Value Calculator MCP Server）
-  ├─ → シカマル（Betting Strategy MCP Server）
-  ├─ → サイ（Record Keeper MCP Server）
-  └─ → ナルト（Continuous Learner MCP Server）
+  ├─ → キバ（Data Tracker）
+  ├─ → アルテタ（ML Predictor）
+  ├─ → ひなた（Race Analyzer）
+  ├─ → シノ（Expected Value Calculator）
+  ├─ → シカマル（Betting Strategist）
+  ├─ → サイ（Record Keeper）
+  └─ → ナルト（Continuous Learner）
   ↓
-統合レポート生成
-  ↓
-ふくだ君に提示
+統合レポート → ふくだ君に提示
 ```
-
-**実装例**:
-```python
-# ai-agents/kiba_data_tracker.py (MCP Server)
-@mcp.tool()
-async def collect_training_data(race_date: str) -> dict:
-    """調教データ収集＋異常検知"""
-    data = await fetch_ck_data(race_date)
-    anomalies = detect_anomalies(data)
-    return create_report(data, anomalies)
-
-# ai-agents/arteta_ml_predictor.py (MCP Server)
-@mcp.tool()
-async def predict_race(race_id: str) -> dict:
-    """ML予想スコア算出"""
-    features = extract_features(race_id)
-    score = ml_model.predict(features)
-    patterns = find_similar_patterns(features)
-    return create_prediction_report(score, patterns)
-
-# ai-agents/bengel_commander.py (Orchestrator)
-async def orchestrate_weekly_prediction():
-    """各エージェントを統合指揮"""
-    training_report = await kiba.collect_training_data(race_date)
-    predictions = await arteta.predict_race(race_id)
-    recommendations = await shino.calculate_expected_value(predictions, odds)
-    final_decision = make_final_decision(training_report, predictions, recommendations)
-    return final_decision
-```
-
-**成果物**:
-- 各エージェントのMCPサーバー実装
-- Orchestratorロジック
-- Claude Desktop統合
-- 自律実行スケジューラー
-- エージェント間通信ログ
 
 ---
 
 ## 📊 技術スタック
 
-### フロントエンド（継続）
+### フロントエンド
 - Next.js 14+ (App Router)
-- React 18+
-- TypeScript
+- React 18+ / TypeScript
 - Tailwind CSS
-- SWR / React Query（v3.1で導入）
+- Server Components（fs直接読み込み）
 
 ### バックエンド（Pythonバッチ処理）
 - Python 3.11+
-- Pandas（データ分析）
-- LightGBM / XGBoost（ML）
-- SQLite（データベース）
-- FastAPI（v6.0でMCPサーバー用に導入検討）
+- LightGBM（デュアルモデル）
+- Pandas / NumPy
+- Requests + BeautifulSoup4（スクレイピング）
 
-### インフラ
-- ファイルシステム（JSON）: v3.x〜v4.0
-- SQLite（データベース）: v3.2〜
-- MCP (Model Context Protocol): v5.1〜
+### データ
+- JSONファイル（data3/配下）
+- JRA-VANバイナリ直接パース
 
 ### AI/ML
-- scikit-learn（前処理）
-- LightGBM / XGBoost（予測モデル）
-- Matplotlib / Seaborn（可視化）
-- Claude Desktop + MCP（v5.1〜）
+- LightGBM（予測モデル）
+- scikit-learn（前処理・評価）
+- Matplotlib（可視化）
+- Claude Desktop + MCP（v5.1〜予定）
 
 ---
 
 ## 🎓 学習ポイント
 
-各バージョンで習得できる技術：
+各バージョンで習得した/する技術：
 
-### v3.1-v3.2
-- Reactパフォーマンス最適化
-- データキャッシング戦略
-- データベース設計
-- データ分析（Pandas）
+### v3.1-v3.3（完了）
+- Reactパフォーマンス最適化、Server Components
+- LightGBMデュアルモデル、特徴量エンジニアリング
+- Value Bet戦略設計
 
-### v3.3-v4.0
-- 機械学習（LightGBM/XGBoost）
-- 特徴量エンジニアリング
-- Clean Architecture
-- Domain-Driven Design
+### v4.0-v4.5（完了）
+- JRA-VANバイナリパース（Shift-JIS、固定長レコード）
+- 大規模データパイプライン（211K馬、19K+レース）
+- keibabook Webスクレイピング + 調教HTML構造化パース
 
-### v5.0-v6.0
-- 統計的意思決定（期待値計算）
-- 資金管理（ケリー基準）
-- AIエージェント設計
-- MCP (Model Context Protocol)
+### v4.6-v4.8（次）
+- Optunaハイパーパラメータ探索
+- 特徴量正規化・選択手法
 
----
-
-## 📅 スケジュール（目安）
-
-| バージョン | 期間 | 主要マイルストーン |
-|-----------|------|------------------|
-| v3.1 | 2026年2月 | フロントエンド最適化完了 |
-| v3.2 | 2026年3月 | 過去データ蓄積完了 |
-| v3.3 | 2026年4月 | パターン分析完了 |
-| v4.0 | 2026年5-6月 | ML予想実用化 |
-| v5.0 | 2026年7-9月 | 期待値計算実装 |
-| v5.1-v6.0 | 2026年10月〜 | AIエージェント自律化 |
-
-**注**: 各バージョンは並行して進める可能性あり。学習と実装を楽しみながら、柔軟に調整。
+### v5.0-v6.0（将来）
+- 統計的意思決定（期待値計算、ケリー基準）
+- AIエージェント設計（MCP Protocol）
 
 ---
 
 ## 🎯 成功基準
 
-### v3.1
-- レース詳細ページの初回表示 < 1秒
-- スクロール時のフレームレート 60fps
+### v4系（完了分）
+- ✅ ML予想のValue Bet ROI > 100%（達成: gap>=2で103.2%）
+- ✅ JRA-VAN IDで100%マッチ
+- ✅ data2依存の完全解消
+- ✅ 月次プラス収支達成（+57,310）
 
-### v3.2-v3.3
-- 過去3年分のデータ蓄積完了
-- 10個以上の有意な好走パターン発見
-
-### v4.0
-- ML予想の的中率 > 30%（単勝）
-- 予想生成時間 < 5分/日
+### v4.6-v4.8
+- 追い切りタイム正規化でModel B AUC > 0.79
+- 馬プロフィールページ完成
+- keibabook依存の開催情報をJRA-VAN化
 
 ### v5.0
 - 期待値 > 1.0 の馬券抽出精度 > 70%
@@ -402,9 +310,9 @@ async def orchestrate_weekly_prediction():
 
 ### v5.1-v6.0
 - AIエージェントによる自律予想
-- 月次プラス収支達成
+- 通算ROI 150%以上の維持
 
 ---
 
-**最終更新**: 2026-02-07（カカシ）
+**最終更新**: 2026-02-12（カカシ）
 **承認**: ふくだ君
