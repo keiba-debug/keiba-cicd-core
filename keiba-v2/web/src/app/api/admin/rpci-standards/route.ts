@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { DATA_ROOT } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 
 // RPCI基準値データの型定義
 interface RpciStats {
@@ -67,17 +67,15 @@ export async function GET(request: NextRequest) {
     const group = searchParams.get('group');
     console.log('[RPCI] Query params - course:', course, 'group:', group);
 
-    // race_type_standards.jsonのパス
-    const dataRoot = DATA_ROOT;
+    // race_type_standards.jsonのパス（v2: data3/analysis/）
     const dataPath = path.join(
-      dataRoot,
-      'target',
+      DATA3_ROOT,
+      'analysis',
       'race_type_standards.json'
     );
 
     // デバッグログ
-    console.log('[RPCI] DATA_ROOT env:', process.env.DATA_ROOT);
-    console.log('[RPCI] Resolved dataRoot:', dataRoot);
+    console.log('[RPCI] DATA3_ROOT:', DATA3_ROOT);
     console.log('[RPCI] Full path:', dataPath);
 
     // ファイル存在チェック

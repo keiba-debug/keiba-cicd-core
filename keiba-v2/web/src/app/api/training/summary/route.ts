@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   if (!isTrainingDataAvailable()) {
     return NextResponse.json({
       error: 'Training data not available',
-      path: process.env.JV_DATA_ROOT_DIR || 'Y:/',
+      path: process.env.JV_DATA_ROOT || 'Y:/',
     }, { status: 500 });
   }
 

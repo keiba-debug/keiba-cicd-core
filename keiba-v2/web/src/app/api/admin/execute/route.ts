@@ -1,14 +1,13 @@
 /**
  * 管理画面用API: コマンド実行
  * POST /api/admin/execute
+ * 全コマンドがv2(keiba-v2/)ネイティブ — v1依存なし
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
-import path from 'path';
 import { ActionType, getCommandArgs, getCommandArgsRange, getAction, type CommandOptions } from '@/lib/admin/commands';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
-import { DATA_ROOT } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     const actionConfig = getAction(action);
-    
+
     // 日付不要アクション以外は日付バリデーション
     if (!actionConfig?.noDateRequired) {
       // 日付範囲アクションの場合
@@ -73,7 +72,7 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         let isClosed = false;
-        
+
         const sendEvent = (type: string, data: object) => {
           // コントローラーが閉じられている場合は何もしない
           if (isClosed) return;
@@ -93,129 +92,124 @@ export async function POST(request: NextRequest) {
           track,
         };
 
-        // 特別なアクションのコマンドを生成
-        let commandsList: string[][] = [];
-        let customCwd: string | undefined;
-        
-        if (action === 'calc_race_type_standards') {
-          // レース特性基準値算出 - JRA-VANデータから算出（TARGETディレクトリで実行）
-          // --since 2020: 2020年以降〜現在年まですべて計算対象
-          customCwd = ADMIN_CONFIG.targetPath;
-          const raceTypeOutput = path.join(DATA_ROOT, 'target', 'race_type_standards.json');
-          commandsList = [
-            ['scripts/calculate_race_type_standards_jv.py', '--since', '2020', '--output', raceTypeOutput]
-          ];
-        } else if (action === 'calc_rating_standards') {
-          // レイティング基準値算出 - 競馬ブックデータから算出（keibabookディレクトリで実行）
-          // --since 2023: 2023年以降のデータを対象
-          customCwd = ADMIN_CONFIG.keibabookPath;
-          const ratingOutput = path.join(DATA_ROOT, 'keibabook', 'rating_standards.json');
-          commandsList = [
-            ['scripts/calculate_rating_standards.py', '--since', '2023', '--output', ratingOutput]
-          ];
-        } else if (action === 'training_summary') {
-          // 調教サマリ生成 - CK_DATAから調教サマリJSONを生成（TARGETディレクトリで実行）
-          customCwd = ADMIN_CONFIG.targetPath;
-          if (isRangeAction && startDate && endDate) {
-            commandsList = [
-              ['scripts/generate_training_summary.py', '--start', startDate, '--end', endDate]
-            ];
-          } else if (date) {
-            commandsList = [
-              ['scripts/generate_training_summary.py', '--date', date]
-            ];
+        // v4パイプラインのコマンド生成ヘルパー（スクレイピング後用）
+        // batch_scraperがkb_extを直接構築するため、ext_builderは不要
+        const buildV4AfterScrapeCommands = (dateArg: string, includeRaceBuild: boolean): string[][] => {
+          const cmds: string[][] = [];
+          if (includeRaceBuild) {
+            cmds.push(dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']);
           }
-        } else if (action === 'build_horse_name_index') {
-          // 馬名インデックス作成 - UM_DATAから馬名→血統番号の辞書を再構築（TARGETディレクトリで実行）
-          customCwd = ADMIN_CONFIG.targetPath;
-          commandsList = [
-            ['scripts/horse_id_mapper.py', '--build-index']
-          ];
-        } else if (action === 'build_trainer_index') {
-          // 調教師インデックス作成 - 競馬ブック厩舎IDとJRA-VAN調教師コードの対応辞書を構築（TARGETディレクトリで実行）
-          customCwd = ADMIN_CONFIG.targetPath;
-          commandsList = [
-            ['scripts/build_trainer_index.py', '--build-index']
-          ];
-        } else if (action === 'analyze_trainer_patterns') {
-          // 調教師パターン分析 - 過去3年の調教×着順データから勝負パターンを統計分析（TARGETディレクトリで実行）
-          customCwd = ADMIN_CONFIG.targetPath;
-          const historyOutput = path.join(DATA_ROOT, 'target', 'trainer_training_history.json');
-          const patternsOutput = path.join(DATA_ROOT, 'target', 'trainer_patterns.json');
-          commandsList = [
-            ['scripts/collect_trainer_training_history.py', '--since', '2023', '--output', historyOutput],
-            ['scripts/analyze_trainer_patterns.py', '--input', historyOutput, '--output', patternsOutput],
-          ];
-        } else if (action === 'v4_build_race') {
-          // v4 レース構築 - JRA-VAN SE/SR → data3/races/ (keiba-v2ディレクトリで実行)
-          customCwd = ADMIN_CONFIG.v2Path;
+          cmds.push(dateArg ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg] : ['-m', 'keibabook.cyokyo_enricher']);
+          cmds.push(dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']);
+          return cmds;
+        };
+
+        // レガシーv4パイプライン（v4_pipelineアクション用 — ext_builder含む）
+        const buildV4PipelineCommands = (dateArg: string, includeRaceBuild: boolean): string[][] => {
+          const cmds: string[][] = [];
+          if (includeRaceBuild) {
+            cmds.push(dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']);
+          }
+          cmds.push(dateArg ? ['-m', 'keibabook.ext_builder', '--date', dateArg] : ['-m', 'keibabook.ext_builder']);
+          cmds.push(dateArg ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg] : ['-m', 'keibabook.cyokyo_enricher']);
+          cmds.push(dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']);
+          return cmds;
+        };
+
+        // コマンドリストを構築（全てv2Pathで実行）
+        let commands: string[][] = [];
+
+        if (action === 'batch_prepare') {
+          // 前日準備: スクレイピング(basic) → v4パイプライン(race_build→cyokyo_enrich→predict)
           const dateArg = date || '';
-          commandsList = dateArg
-            ? [['-m', 'builders.build_race_master', '--date', dateArg]]
-            : [['-m', 'builders.build_race_master']];
-        } else if (action === 'v4_build_kbext') {
-          // v4 KB拡張変換 - data2 integrated → data3/keibabook/ (keiba-v2ディレクトリで実行)
-          customCwd = ADMIN_CONFIG.v2Path;
-          const dateArg = date || '';
-          commandsList = dateArg
-            ? [['-m', 'keibabook.ext_builder', '--date', dateArg]]
-            : [['-m', 'keibabook.ext_builder']];
-        } else if (action === 'v4_cyokyo_enrich') {
-          // v4 調教詳細補強 - debug HTMLから調教詳細データをkb_extに補強 (keiba-v2ディレクトリで実行)
-          customCwd = ADMIN_CONFIG.v2Path;
-          const dateArg = date || '';
-          commandsList = dateArg
-            ? [['-m', 'keibabook.cyokyo_enricher', '--date', dateArg]]
-            : [['-m', 'keibabook.cyokyo_enricher']];
-        } else if (action === 'v4_predict') {
-          // v4 ML予測 - ML v3モデルでValue Bet予測 (keiba-v2ディレクトリで実行)
-          customCwd = ADMIN_CONFIG.v2Path;
-          const dateArg = date || '';
-          commandsList = dateArg
-            ? [['-m', 'ml.predict', '--date', dateArg]]
-            : [['-m', 'ml.predict']];
-        } else if (action === 'v4_pipeline') {
-          // v4 パイプライン - レース構築 → KB拡張変換 → 調教詳細補強 → ML予測 を一括実行 (keiba-v2ディレクトリで実行)
-          customCwd = ADMIN_CONFIG.v2Path;
-          const dateArg = date || '';
-          if (dateArg) {
-            commandsList = [
-              ['-m', 'builders.build_race_master', '--date', dateArg],
-              ['-m', 'keibabook.ext_builder', '--date', dateArg],
-              ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg],
-              ['-m', 'ml.predict', '--date', dateArg],
+          if (isRangeAction && startDate && endDate) {
+            commands = [
+              ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'basic'],
+              ...buildV4AfterScrapeCommands(dateArg, true),
             ];
           } else {
-            commandsList = [
-              ['-m', 'builders.build_race_master'],
-              ['-m', 'keibabook.ext_builder'],
-              ['-m', 'keibabook.cyokyo_enricher'],
-              ['-m', 'ml.predict'],
+            commands = [
+              ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'basic'],
+              ...buildV4AfterScrapeCommands(dateArg, true),
             ];
           }
+        } else if (action === 'batch_after_race') {
+          // レース後更新: paddok → seiseki → cyokyo_enrich → predict
+          const dateArg = date || '';
+          if (isRangeAction && startDate && endDate) {
+            commands = [
+              ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'paddok'],
+              ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
+              ...buildV4AfterScrapeCommands(dateArg, false),
+            ];
+          } else {
+            commands = [
+              ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'paddok'],
+              ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'seiseki'],
+              ...buildV4AfterScrapeCommands(dateArg, false),
+            ];
+          }
+        } else if (action === 'sunpyo_update') {
+          // 寸評更新: seiseki再取得 → cyokyo_enrich
+          if (isRangeAction && startDate && endDate) {
+            commands = [
+              ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
+            ];
+          }
+        } else if (action === 'calc_race_type_standards') {
+          commands = [['-m', 'analysis.race_type_standards', '--since', '2020']];
+        } else if (action === 'calc_rating_standards') {
+          commands = [['-m', 'analysis.rating_standards', '--since', '2023']];
+        } else if (action === 'training_summary') {
+          const dateArg = date || '';
+          commands = [dateArg
+            ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg]
+            : ['-m', 'keibabook.cyokyo_enricher']];
+        } else if (action === 'build_horse_name_index') {
+          commands = [['-m', 'builders.build_horse_name_index']];
+        } else if (action === 'build_trainer_index') {
+          commands = [['-m', 'builders.build_trainer_kb_index']];
+        } else if (action === 'analyze_trainer_patterns') {
+          commands = [['-m', 'analysis.trainer_patterns', '--since', '2023']];
+        } else if (action === 'v4_build_race') {
+          const dateArg = date || '';
+          commands = [dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']];
+        } else if (action === 'v4_build_kbext') {
+          const dateArg = date || '';
+          commands = [dateArg ? ['-m', 'keibabook.ext_builder', '--date', dateArg] : ['-m', 'keibabook.ext_builder']];
+        } else if (action === 'v4_cyokyo_enrich') {
+          const dateArg = date || '';
+          commands = [dateArg ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg] : ['-m', 'keibabook.cyokyo_enricher']];
+        } else if (action === 'v4_predict') {
+          const dateArg = date || '';
+          commands = [dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']];
+        } else if (action === 'v4_pipeline') {
+          const dateArg = date || '';
+          commands = buildV4PipelineCommands(dateArg, true);
         } else {
-          commandsList = isRangeAction && startDate && endDate
+          commands = isRangeAction && startDate && endDate
             ? getCommandArgsRange(action, startDate, endDate, options)
             : getCommandArgs(action, date || '', options);
         }
-        
+
+        const totalCommands = commands.length;
         const startTime = Date.now();
 
         sendEvent('start', {
           action,
           label: actionConfig.label,
           icon: actionConfig.icon,
-          totalCommands: commandsList.length,
+          totalCommands,
           timestamp: new Date().toISOString(),
         });
 
         try {
-          for (let i = 0; i < commandsList.length; i++) {
-            const args = commandsList[i];
+          for (let i = 0; i < commands.length; i++) {
+            const args = commands[i];
 
             sendEvent('progress', {
               current: i + 1,
-              total: commandsList.length,
+              total: totalCommands,
               command: `python ${args.join(' ')}`,
             });
 
@@ -227,8 +221,7 @@ export async function POST(request: NextRequest) {
                   level,
                   timestamp: new Date().toISOString(),
                 });
-              },
-              customCwd
+              }
             );
           }
 
@@ -241,11 +234,11 @@ export async function POST(request: NextRequest) {
         } catch (error) {
           const duration = Date.now() - startTime;
           const errorMessage = error instanceof Error ? error.message : String(error);
-          
+
           sendEvent('error', {
             success: false,
             duration,
-            message: `❌ ${actionConfig.label} エラー: ${errorMessage}`,
+            message: `${actionConfig.label} エラー: ${errorMessage}`,
           });
         }
 
@@ -271,15 +264,14 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * 単一のコマンドを実行
+ * 単一のコマンドを実行（全てv2Pathで実行）
  */
 function executeCommand(
   args: string[],
   onLog: (message: string, level: 'info' | 'warning' | 'error') => void,
-  customCwd?: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const cwd = customCwd || ADMIN_CONFIG.keibabookPath;
+    const cwd = ADMIN_CONFIG.v2Path;
     const pythonPath = ADMIN_CONFIG.pythonPath;
 
     onLog(`実行: python ${args.join(' ')}`, 'info');

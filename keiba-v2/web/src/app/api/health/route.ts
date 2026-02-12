@@ -6,7 +6,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { PATHS, DATA_ROOT, JV_DATA_ROOT_DIR } from '@/lib/config';
+import { DATA3_ROOT, JV_DATA_ROOT } from '@/lib/config';
 import type {
   HealthResponse,
   IndexHealthCheck,
@@ -14,6 +14,9 @@ import type {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const RACES_DIR = path.join(DATA3_ROOT, 'races');
+const INDEXES_DIR = path.join(DATA3_ROOT, 'indexes');
 
 export async function GET() {
   try {
@@ -26,13 +29,13 @@ export async function GET() {
     // ============================================
 
     const keibaDataRoot = {
-      path: DATA_ROOT,
-      exists: fs.existsSync(DATA_ROOT),
+      path: DATA3_ROOT,
+      exists: fs.existsSync(DATA3_ROOT),
       writable: false,
     };
 
     if (keibaDataRoot.exists) {
-      keibaDataRoot.writable = await checkWritable(DATA_ROOT);
+      keibaDataRoot.writable = await checkWritable(DATA3_ROOT);
       if (!keibaDataRoot.writable) {
         warnings.push('競馬データルートディレクトリに書き込み権限がありません');
       }
@@ -41,14 +44,14 @@ export async function GET() {
     }
 
     const jvDataRoot = {
-      path: JV_DATA_ROOT_DIR,
-      exists: fs.existsSync(JV_DATA_ROOT_DIR),
+      path: JV_DATA_ROOT,
+      exists: fs.existsSync(JV_DATA_ROOT),
       accessible: false,
     };
 
     if (jvDataRoot.exists) {
       try {
-        fs.readdirSync(JV_DATA_ROOT_DIR);
+        fs.readdirSync(JV_DATA_ROOT);
         jvDataRoot.accessible = true;
       } catch {
         jvDataRoot.accessible = false;
@@ -61,8 +64,8 @@ export async function GET() {
     }
 
     const racesDir = {
-      path: PATHS.races,
-      exists: fs.existsSync(PATHS.races),
+      path: RACES_DIR,
+      exists: fs.existsSync(RACES_DIR),
       dateCount: 0,
     };
 
@@ -72,17 +75,17 @@ export async function GET() {
       errors.push('レースデータディレクトリが存在しません');
     }
 
-    const cacheDirPath = path.join(DATA_ROOT, 'cache');
-    const cacheDir = {
-      path: cacheDirPath,
-      exists: fs.existsSync(cacheDirPath),
+    const indexesDirPath = INDEXES_DIR;
+    const indexesDir = {
+      path: indexesDirPath,
+      exists: fs.existsSync(indexesDirPath),
       sizeMB: 0,
     };
 
-    if (cacheDir.exists) {
-      cacheDir.sizeMB = await getDirSize(cacheDirPath);
+    if (indexesDir.exists) {
+      indexesDir.sizeMB = await getDirSize(indexesDirPath);
     } else {
-      warnings.push('キャッシュディレクトリが存在しません');
+      warnings.push('インデックスディレクトリが存在しません');
     }
 
     const directoriesStatus = errors.length === 0 ? 'ok' : 'error';
@@ -95,11 +98,11 @@ export async function GET() {
     let cacheSizeMB = 0;
 
     if (racesDir.exists) {
-      racesDataSizeMB = await getDirSize(PATHS.races);
+      racesDataSizeMB = await getDirSize(RACES_DIR);
     }
 
-    if (cacheDir.exists) {
-      cacheSizeMB = await getDirSize(cacheDirPath);
+    if (indexesDir.exists) {
+      cacheSizeMB = await getDirSize(indexesDirPath);
     }
 
     const totalSizeMB = racesDataSizeMB + cacheSizeMB;
@@ -121,8 +124,8 @@ export async function GET() {
     // 3. インデックスヘルスチェック
     // ============================================
 
-    const indexPath = path.join(DATA_ROOT, 'cache', 'race_date_index.json');
-    const metaPath = path.join(DATA_ROOT, 'cache', 'race_date_index_meta.json');
+    const indexPath = path.join(INDEXES_DIR, 'race_date_index.json');
+    const metaPath = path.join(INDEXES_DIR, 'race_date_index_meta.json');
 
     let indexHealth: IndexHealthCheck = {
       status: 'missing',
@@ -203,7 +206,7 @@ export async function GET() {
             keibaDataRoot,
             jvDataRoot,
             racesDir,
-            cacheDir,
+            cacheDir: indexesDir,
           },
         },
         diskSpace: {
@@ -254,7 +257,7 @@ async function checkWritable(dirPath: string): Promise<boolean> {
 }
 
 async function countAvailableDates(): Promise<number> {
-  const indexPath = path.join(DATA_ROOT, 'cache', 'race_date_index.json');
+  const indexPath = path.join(INDEXES_DIR, 'race_date_index.json');
   if (!fs.existsSync(indexPath)) return 0;
 
   try {

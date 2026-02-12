@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
         },
         target_integration: {
           enabled: true,
-          data_root: process.env.JV_DATA_ROOT_DIR ?? '',
+          data_root: process.env.JV_DATA_ROOT ?? '',
           my_data_folder: 'MY_DATA',
         },
       };

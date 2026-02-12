@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from ..config import jv_se_data_path  # SR_DATAもSE_DATA配下にある
-from ..constants import SR_RECORD_LEN, VENUE_CODES, TRACK_TYPES, BABA_CODES
+from ..constants import SR_RECORD_LEN, VENUE_CODES, TRACK_TYPES, BABA_CODES, GRADE_CODES
 from . import race_id as rid
 
 
@@ -39,6 +39,9 @@ class SrRecord:
     last_3f: Optional[float]
     last_4f: Optional[float]
     rpci: Optional[float]
+    grade: str = ''         # G1/G2/G3/Listed/OP/3勝クラス/2勝クラス/1勝クラス/未勝利/新馬
+    race_name: str = ''     # レース名（重賞・特別のみ）
+    race_class: str = ''    # 条件クラス名（年齢+クラス統合: "3歳新馬" 等）
 
     def to_pace_dict(self) -> Dict:
         """pace情報を辞書で返す"""
@@ -71,6 +74,57 @@ class SrRecord:
         if l3 < 35.5:
             return 'front_loaded_strong'
         return 'front_loaded'
+
+
+def _classify_grade(grade_cd: str, jyoken_cds: list) -> str:
+    """GradeCDとJyokenCDからグレード/クラスを判定"""
+    # GradeCDで直接判定できるもの
+    if grade_cd in GRADE_CODES:
+        return GRADE_CODES[grade_cd]
+
+    # GradeCD空 or スペース → JyokenCDで条件クラスを判定
+    if not jyoken_cds:
+        return ''
+
+    # JyokenCD5: 各3桁 (JY1, JY2, JY3, JY4, JY5)
+    # JY2とJY3で主要クラス判定
+    jy2 = jyoken_cds[1] if len(jyoken_cds) > 1 else ''
+    jy3 = jyoken_cds[2] if len(jyoken_cds) > 2 else ''
+
+    # 新馬: JY2末尾が'7' (337等) かつ JY3が030/010
+    if len(jy2) == 3 and jy2[2] == '7' and jy3 in ('030', '010'):
+        return '新馬'
+    # 未勝利: JY3='007'
+    if jy3 == '007':
+        return '未勝利'
+    # 1勝クラス: JY2='340'
+    if jy2 == '340':
+        return '1勝クラス'
+    # 2勝クラス: JY2='440'
+    if jy2 == '440':
+        return '2勝クラス'
+    # 3勝クラス/OP: JY2 in (430, 410, 420)
+    if jy2 in ('430', '410', '420'):
+        return '3勝クラス'
+
+    return ''
+
+
+def _classify_age_class(jyoken_cds: list) -> str:
+    """JyokenCDから年齢クラスを判定"""
+    if not jyoken_cds:
+        return ''
+    jy1 = jyoken_cds[0] if len(jyoken_cds) > 0 else ''
+    if not jy1:
+        return ''
+    first = jy1[0]
+    if first == '1':
+        return '2歳'
+    elif first == '2':
+        return '3歳'
+    elif first in ('3', '4'):
+        return '古馬'
+    return ''
 
 
 def _decode(data: bytes, start: int, length: int) -> str:
@@ -112,6 +166,9 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
       21-22:   Kai (2)
       23-24:   Nichi (2)
       25-26:   RaceNumber (2)
+      32-93:   RaceName (62, Shift-JIS)
+      614:     GradeCD (1)
+      617-631: JyokenCD5 (5×3=15)
       697-700: Distance (4)
       705-706: TrackCode (2)
       883-884: NumRunners (2)
@@ -191,6 +248,23 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
 
     rpci = _calculate_rpci(first_3f, last_3f)
 
+    # GradeCD (@614, 1バイト)
+    grade_cd = _decode(record, 614, 1)
+
+    # RaceName (@32-93, 62バイト Shift-JIS)
+    race_name = _decode(record, 32, 62)
+
+    # JyokenCD5 (@617-631, 5×3=15バイト)
+    jyoken_cds = []
+    for j in range(5):
+        jc = _decode(record, 617 + j * 3, 3)
+        jyoken_cds.append(jc)
+
+    # グレード/クラス判定
+    grade = _classify_grade(grade_cd, jyoken_cds)
+    age_class = _classify_age_class(jyoken_cds)
+    race_class = f"{age_class}{grade}" if age_class and grade else grade
+
     date_str = f"{year_str}-{month_day[:2]}-{month_day[2:]}"
     venue_name = VENUE_CODES.get(venue_code, f"?({venue_code})")
 
@@ -213,6 +287,9 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
         last_3f=last_3f,
         last_4f=last_4f,
         rpci=rpci,
+        grade=grade,
+        race_name=race_name,
+        race_class=race_class,
     )
 
 

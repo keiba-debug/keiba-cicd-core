@@ -25,6 +25,12 @@ BABA_CODES = {"1": "良", "2": "稍重", "3": "重", "4": "不良"}
 # トラックコード（先頭1桁）
 TRACK_TYPES = {"1": "turf", "2": "dirt"}
 
+# グレードコード（SR_DATA GradeCD @614）
+GRADE_CODES = {
+    "A": "G1", "B": "G2", "C": "G3",
+    "L": "Listed", "E": "OP",
+}
+
 # SE_DATA レコード長
 SE_RECORD_LEN = 555
 

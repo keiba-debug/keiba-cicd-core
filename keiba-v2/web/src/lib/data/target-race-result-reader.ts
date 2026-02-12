@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import iconv from 'iconv-lite';
 
-const JV_DATA_ROOT = process.env.JV_DATA_ROOT_DIR || 'Y:/';
+const JV_DATA_ROOT = process.env.JV_DATA_ROOT || 'Y:/';
 const SE_DATA_PATH = path.join(JV_DATA_ROOT, 'SE_DATA');
 const SE_RECORD_LEN = 555;
 

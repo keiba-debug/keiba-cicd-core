@@ -7,13 +7,12 @@
 
 import fs from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 
 // データルートディレクトリ
-const DATA_ROOT = KEIBA_DATA_ROOT_DIR;
-const RACES_DIR = path.join(DATA_ROOT, 'races');
-const INDEX_FILE = path.join(DATA_ROOT, 'cache', 'horse_race_index.json');
-const INDEX_META_FILE = path.join(DATA_ROOT, 'cache', 'horse_race_index_meta.json');
+const RACES_DIR = path.join(DATA3_ROOT, 'races');
+const INDEX_FILE = path.join(DATA3_ROOT, 'indexes', 'horse_race_index.json');
+const INDEX_META_FILE = path.join(DATA3_ROOT, 'indexes', 'horse_race_index_meta.json');
 
 // インメモリキャッシュ
 let horseRaceIndex: Map<string, string[]> = new Map();
@@ -129,24 +128,26 @@ export async function buildHorseRaceIndex(): Promise<void> {
           .filter(d => /^\d{2}$/.test(d));
 
         for (const day of days) {
-          const tempDir = path.join(monthPath, day, 'temp');
-          if (!fs.existsSync(tempDir)) continue;
+          const dayDir = path.join(monthPath, day);
 
-          // integrated_*.json を検索
-          const integratedFiles = fs.readdirSync(tempDir)
-            .filter(f => f.startsWith('integrated_') && f.endsWith('.json'));
+          // v4 race JSONを検索
+          let raceFiles: string[];
+          try {
+            raceFiles = fs.readdirSync(dayDir)
+              .filter(f => f.startsWith('race_') && f.endsWith('.json'));
+          } catch { continue; }
 
-          for (const file of integratedFiles) {
+          for (const file of raceFiles) {
             try {
-              const filePath = path.join(tempDir, file);
+              const filePath = path.join(dayDir, file);
               const content = fs.readFileSync(filePath, 'utf-8');
               const data = JSON.parse(content);
 
               raceCount++;
 
-              // entriesから馬IDを抽出
+              // entriesから馬ID(ketto_num)を抽出
               for (const entry of data.entries || []) {
-                const horseId = String(entry.horse_id || entry.horse_profile_id || '');
+                const horseId = String(entry.ketto_num || entry.horse_id || '');
                 if (!horseId) continue;
 
                 if (!horseRaceIndex.has(horseId)) {
@@ -154,7 +155,7 @@ export async function buildHorseRaceIndex(): Promise<void> {
                 }
                 horseRaceIndex.get(horseId)!.push(filePath);
               }
-            } catch (e) {
+            } catch {
               // ファイル読み込みエラーは無視
             }
           }

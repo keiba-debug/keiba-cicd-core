@@ -5,7 +5,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR, DATA3_ROOT } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 
 // --- 共通型定義 ---
 
@@ -190,8 +190,6 @@ export function isV2Result(result: MlResult): result is MlExperimentResultV2 {
 
 const ML_RESULT_PATHS = [
   path.join(DATA3_ROOT, 'ml', 'ml_experiment_v3_result.json'),
-  path.join(KEIBA_DATA_ROOT_DIR, 'target', 'ml', 'ml_experiment_v2_result.json'),
-  path.join(KEIBA_DATA_ROOT_DIR, 'target', 'ml', 'ml_experiment_v1_result.json'),
 ];
 
 let cachedResult: MlResult | null = null;

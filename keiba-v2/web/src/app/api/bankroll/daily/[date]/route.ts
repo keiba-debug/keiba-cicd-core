@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
-import { DATA_ROOT } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
 
 export const runtime = 'nodejs';
@@ -58,7 +58,7 @@ const VENUE_TO_JV_CODE: Record<string, string> = {
  */
 async function loadRaceInfoMap(dateStr: string): Promise<Map<string, RaceInfo>> {
   const raceInfoMap = new Map<string, RaceInfo>();
-  const dataRoot = DATA_ROOT;
+  const dataRoot = DATA3_ROOT;
   const year = dateStr.slice(0, 4);
   const month = dateStr.slice(4, 6);
   const day = dateStr.slice(6, 8);

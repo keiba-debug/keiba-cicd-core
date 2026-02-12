@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
-import { AI_DATA_PATH, PATHS } from '@/lib/config';
+import { AI_DATA_PATH } from '@/lib/config';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
 
 export const runtime = 'nodejs';
@@ -118,7 +118,7 @@ async function loadConfig(): Promise<any> {
  */
 async function loadCurrentBalance(): Promise<number> {
   try {
-    const fundHistoryPath = path.join(PATHS.userdata, 'fund_history.json');
+    const fundHistoryPath = path.join(AI_DATA_PATH, 'fund_history.json');
     const content = await fs.readFile(fundHistoryPath, 'utf-8');
     const history = JSON.parse(content);
     

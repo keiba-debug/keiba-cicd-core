@@ -7,7 +7,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { PATHS, TRACKS } from '@/lib/config';
+import { DATA3_ROOT, TRACKS } from '@/lib/config';
+
+const RACES_DIR = path.join(DATA3_ROOT, 'races');
 import type { DataStatusResponse, DateStatus, TrackStatus } from '@/types/data-quality';
 
 export const runtime = 'nodejs';
@@ -125,7 +127,7 @@ function getDateRange(start: string, end: string): string[] {
 
 async function getDateStatus(date: string): Promise<DateStatus> {
   const [year, month, day] = date.split('-');
-  const dayPath = path.join(PATHS.races, year, month, day);
+  const dayPath = path.join(RACES_DIR, year, month, day);
 
   // ディスプレイ用日付
   const displayDate = `${year}年${parseInt(month)}月${parseInt(day)}日`;
@@ -202,7 +204,7 @@ async function calculateDiskUsage(
 
   for (const date of dates) {
     const [year, month, day] = date.split('-');
-    const dayPath = path.join(PATHS.races, year, month, day);
+    const dayPath = path.join(RACES_DIR, year, month, day);
 
     if (!fs.existsSync(dayPath)) continue;
 

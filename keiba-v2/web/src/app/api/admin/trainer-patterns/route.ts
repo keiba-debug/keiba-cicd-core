@@ -7,21 +7,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
+import { DATA3_ROOT, AI_DATA_PATH } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const TRAINER_PATTERNS_PATH = path.join(
-  KEIBA_DATA_ROOT_DIR,
-  'target',
+  DATA3_ROOT,
+  'analysis',
   'trainer_patterns.json'
 );
 
-const TRAINER_INDEX_PATH = path.join(
-  KEIBA_DATA_ROOT_DIR,
-  'target',
-  'trainer_id_index.json'
+// 調教師コメントはユーザーデータとして保存
+const TRAINER_COMMENTS_PATH = path.join(
+  AI_DATA_PATH,
+  'trainer_comments.json'
 );
 
 interface TrainerEntry {
@@ -111,7 +111,7 @@ export async function GET(_request: NextRequest) {
 }
 
 /**
- * 調教師コメント更新
+ * 調教師コメント更新（data3/userdata/trainer_comments.json に保存）
  */
 export async function POST(request: NextRequest) {
   try {
@@ -125,30 +125,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // trainer_id_index.json 読み込み
-    const content = await fs.readFile(TRAINER_INDEX_PATH, 'utf-8');
-    const index = JSON.parse(content) as Record<string, { jvn_code: string; comment?: string }>;
-
-    // jvnCode に対応するエントリを全て更新
-    let updated = 0;
-    for (const [, info] of Object.entries(index)) {
-      if (info.jvn_code === jvnCode) {
-        info.comment = comment;
-        updated++;
-      }
+    // trainer_comments.json 読み込み（なければ空オブジェクト）
+    let comments: Record<string, string> = {};
+    try {
+      const content = await fs.readFile(TRAINER_COMMENTS_PATH, 'utf-8');
+      comments = JSON.parse(content);
+    } catch {
+      // ファイルが存在しない場合は空で開始
     }
 
-    if (updated === 0) {
-      return NextResponse.json(
-        { error: `jvnCode ${jvnCode} に対応する調教師が見つかりません` },
-        { status: 404 }
-      );
+    // コメント更新
+    if (comment) {
+      comments[jvnCode] = comment;
+    } else {
+      delete comments[jvnCode];
     }
 
-    // 保存
-    await fs.writeFile(TRAINER_INDEX_PATH, JSON.stringify(index, null, 2), 'utf-8');
+    // userdata ディレクトリ確保 & 保存
+    await fs.mkdir(path.dirname(TRAINER_COMMENTS_PATH), { recursive: true });
+    await fs.writeFile(TRAINER_COMMENTS_PATH, JSON.stringify(comments, null, 2), 'utf-8');
 
-    return NextResponse.json({ success: true, updated });
+    return NextResponse.json({ success: true, jvnCode });
   } catch (error) {
     console.error('Trainer comment update error:', error);
     return NextResponse.json(

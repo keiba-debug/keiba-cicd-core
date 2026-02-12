@@ -3,10 +3,13 @@
 """
 keibabook拡張データ変換スクリプト
 
-data2のintegrated JSONからkeibabook固有フィールドを抽出し、
-data3/keibabook/ にkb_ext JSONとして保存する。
+2つのモード:
+  1. v2ネイティブ: スクレイピング済みパースデータから直接kb_ext JSON構築
+     → build_kb_ext_from_scraped() (batch_scraper.pyから呼ばれる)
+  2. レガシー: data2/integrated JSONからkb_ext JSON変換（過去データ一括変換用）
+     → build_keibabook_ext() (CLI --year/--date)
 
-12桁race_id → 16桁race_idの変換はintegrated JSONのdate + venue情報で行う。
+12桁race_id → 16桁race_idの変換はvenue_name（日本語）で行う。
 
 Usage:
     python -m keibabook.ext_builder [--year 2025] [--dry-run]
@@ -147,6 +150,285 @@ def extract_keibabook_entry(entry: dict) -> dict:
 
     return ext
 
+
+# ============================================================
+# v2ネイティブ: パース済みデータから直接kb_ext構築
+# ============================================================
+
+def _safe_float(val, default=None):
+    """文字列をfloatに安全変換"""
+    if val is None or val == '' or val == '-':
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def _safe_int(val, default=0):
+    """文字列をintに安全変換"""
+    if val is None or val == '' or val == '-':
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def _build_entry_from_scraped(
+    horse: dict,
+    cyokyo_horse: Optional[dict] = None,
+    danwa_entry: Optional[dict] = None,
+    syoin_entry: Optional[dict] = None,
+    paddok_entry: Optional[dict] = None,
+    seiseki_entry: Optional[dict] = None,
+) -> dict:
+    """パース済みデータから1馬分のkb_extエントリを構築。
+
+    出力フィールドはextract_keibabook_entry()と同一形式。
+    """
+    # 出馬表から
+    rating = _safe_float(horse.get('レイティング'))
+    ai_index = _safe_float(horse.get('AI指数'))
+    odds_rank = _safe_int(horse.get('人気'))
+
+    # 調教データ（v2 cyokyo_parser出力）
+    training_arrow = ""
+    short_review = ""
+    attack_explanation = ""
+    if cyokyo_horse:
+        training_arrow = cyokyo_horse.get('training_arrow', '')
+        short_review = cyokyo_horse.get('short_review', '')
+        attack_explanation = cyokyo_horse.get('attack_explanation', '')
+
+    # 談話
+    stable_comment = ""
+    if danwa_entry:
+        stable_comment = danwa_entry.get('厩舎の話', '') or danwa_entry.get('談話', '') or danwa_entry.get('コメント', '')
+
+    # 前走インタビュー
+    interview = ""
+    next_race_memo = ""
+    if syoin_entry:
+        interview = syoin_entry.get('interview', '')
+        next_race_memo = syoin_entry.get('next_race_memo', '')
+
+    # 成績（寸評）
+    sunpyo = ""
+    if seiseki_entry:
+        sunpyo = seiseki_entry.get('sunpyo', '')
+
+    ext = {
+        # マーク系
+        'honshi_mark': horse.get('本誌印', ''),
+        'mark_point': horse.get('本誌印ポイント', 0),
+        'marks_by_person': horse.get('marks_by_person', {}),
+        'aggregate_mark_point': horse.get('総合印ポイント', 0),
+        # AI/オッズ
+        'ai_index': ai_index,
+        'ai_rank': horse.get('AI指数ランク', ''),
+        'odds_rank': odds_rank,
+        # レーティング
+        'rating': rating,
+        # コメント
+        'short_comment': horse.get('短評', ''),
+        # 調教
+        'training_arrow': training_arrow,
+        'training_arrow_value': extract_training_arrow_value(training_arrow),
+        'training_data': {
+            'short_review': short_review,
+            'attack_explanation': attack_explanation,
+            'evaluation': '',
+            'training_load': '',
+            'training_rank': '',
+        },
+        # 厩舎コメント
+        'stable_comment': {
+            'comment': stable_comment,
+        },
+        # 寸評（結果）
+        'sunpyo': sunpyo,
+        # 前走インタビュー
+        'previous_race_interview': {
+            'interview': interview,
+            'next_race_memo': next_race_memo,
+        },
+    }
+
+    return ext
+
+
+def build_kb_ext_from_scraped(
+    race_id_12: str,
+    venue_name: str,
+    date_str: str,
+    syutuba: dict,
+    cyokyo_detail: Optional[dict] = None,
+    danwa: Optional[dict] = None,
+    syoin: Optional[dict] = None,
+    paddok: Optional[dict] = None,
+    seiseki: Optional[dict] = None,
+) -> Optional[Tuple[str, dict]]:
+    """パース済みデータからkb_ext JSONを構築。
+
+    Args:
+        race_id_12: 12桁race_id
+        venue_name: 日本語場所名（nitteiのkaisaiキーから抽出）
+        date_str: YYYY-MM-DD
+        syutuba: parse_syutuba_html()の出力
+        cyokyo_detail: parse_cyokyo_html()の出力（v2詳細版）
+        danwa: parse_danwa_html()の出力
+        syoin: parse_syoin_html()の出力
+        paddok: parse_paddok_html()の出力
+        seiseki: parse_seiseki_html()の出力
+
+    Returns:
+        (race_id_16, kb_ext_dict) or None
+    """
+    race_id_16 = convert_race_id_12_to_16(race_id_12, date_str, venue_name)
+    if not race_id_16:
+        return None
+
+    horses = syutuba.get('horses', [])
+    if not horses:
+        return None
+
+    # 調教データを馬番→dictのマップに
+    cyokyo_map: Dict[int, dict] = {}
+    if cyokyo_detail:
+        for h in cyokyo_detail.get('horses', []):
+            num = h.get('horse_number')
+            if num:
+                cyokyo_map[int(num)] = h
+
+    # 談話を馬番マップに
+    danwa_map: Dict[str, dict] = {}
+    if danwa:
+        for d in danwa.get('danwa_data', []):
+            bano = d.get('馬番', '')
+            if bano:
+                danwa_map[str(bano)] = d
+
+    # 前走インタビューを馬番マップに
+    syoin_map: Dict[int, dict] = {}
+    if syoin:
+        for iv in syoin.get('interviews', []):
+            num = iv.get('horse_number')
+            if num:
+                syoin_map[int(num)] = iv
+
+    # パドックを馬番マップに
+    paddok_map: Dict[int, dict] = {}
+    if paddok:
+        for pe in paddok.get('paddock_evaluations', []):
+            num = pe.get('horse_number')
+            if num:
+                paddok_map[int(num)] = pe
+
+    # 成績を馬番マップに（着順から馬番を推定）
+    seiseki_map: Dict[str, dict] = {}
+    if seiseki:
+        for r in seiseki.get('results', []):
+            bano = r.get('馬番', '')
+            if bano:
+                seiseki_map[str(bano)] = r
+
+    # エントリ構築
+    entries: Dict[str, dict] = {}
+    for horse in horses:
+        umaban = str(horse.get('馬番', ''))
+        if not umaban or not umaban.isdigit():
+            continue
+
+        umaban_int = int(umaban)
+        entries[umaban] = _build_entry_from_scraped(
+            horse=horse,
+            cyokyo_horse=cyokyo_map.get(umaban_int),
+            danwa_entry=danwa_map.get(umaban),
+            syoin_entry=syoin_map.get(umaban_int),
+            paddok_entry=paddok_map.get(umaban_int),
+            seiseki_entry=seiseki_map.get(umaban),
+        )
+
+    # 展開データ
+    tenkai = syutuba.get('tenkai_data')
+    pace = ""
+    if tenkai and tenkai.get('pace'):
+        pace = tenkai['pace']
+
+    kb_ext = {
+        'race_id': race_id_16,
+        'race_id_12': race_id_12,
+        'date': date_str,
+        'entries': entries,
+        'analysis': {
+            'expected_pace': pace,
+        },
+        'tenkai_data': tenkai if tenkai else None,
+        'race_comment': syutuba.get('race_comment', ''),
+    }
+
+    return race_id_16, kb_ext
+
+
+def save_kb_ext(race_id_16: str, kb_ext: dict, date_str: str) -> Path:
+    """kb_ext JSONをdata3/keibabook/に保存。
+
+    Returns:
+        保存先Path
+    """
+    parts = date_str.split('-')
+    out_dir = config.keibabook_dir() / parts[0] / parts[1] / parts[2]
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    out_path = out_dir / f"kb_ext_{race_id_16}.json"
+    out_path.write_text(
+        json.dumps(kb_ext, ensure_ascii=False, indent=2),
+        encoding='utf-8',
+    )
+    return out_path
+
+
+def update_kb_ext_field(race_id_16: str, date_str: str, updates: dict) -> bool:
+    """既存kb_extの特定フィールドを更新（paddok/seiseki後の部分更新用）。
+
+    Args:
+        race_id_16: 16桁race_id
+        date_str: YYYY-MM-DD
+        updates: {umaban: {field: value, ...}, ...}
+
+    Returns:
+        更新成功かどうか
+    """
+    parts = date_str.split('-')
+    kb_path = config.keibabook_dir() / parts[0] / parts[1] / parts[2] / f"kb_ext_{race_id_16}.json"
+
+    if not kb_path.exists():
+        return False
+
+    with open(kb_path, encoding='utf-8') as f:
+        kb_ext = json.load(f)
+
+    entries = kb_ext.get('entries', {})
+    updated = False
+
+    for umaban, fields in updates.items():
+        if umaban in entries:
+            entries[umaban].update(fields)
+            updated = True
+
+    if updated:
+        kb_path.write_text(
+            json.dumps(kb_ext, ensure_ascii=False, indent=2),
+            encoding='utf-8',
+        )
+
+    return updated
+
+
+# ============================================================
+# レガシー: data2 integrated JSONからの変換（後方互換）
+# ============================================================
 
 def convert_integrated_json(integrated_path: Path) -> Optional[Tuple[str, dict]]:
     """1つのintegrated JSONをkb_ext JSONに変換"""

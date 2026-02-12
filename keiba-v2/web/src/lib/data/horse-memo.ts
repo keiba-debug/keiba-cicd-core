@@ -5,13 +5,13 @@
 
 import fs from 'fs';
 import path from 'path';
-import { PATHS } from '../config';
+import { DATA3_ROOT } from '../config';
 
 /**
  * 馬プロファイルファイルのパスを取得
  */
 export function getHorseProfilePath(horseId: string): string | null {
-  const profilesDir = PATHS.horses;
+  const profilesDir = path.join(DATA3_ROOT, 'horses', 'profiles');
   
   if (!fs.existsSync(profilesDir)) {
     return null;

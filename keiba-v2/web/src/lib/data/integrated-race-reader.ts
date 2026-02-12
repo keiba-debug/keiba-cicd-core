@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { IntegratedRaceData, HorseEntry, parseFinishPosition } from '@/types/race-data';
-import { DATA_ROOT } from '../config';
+import { DATA3_ROOT } from '../config';
 
 // Re-export types for convenience
 export type { IntegratedRaceData, HorseEntry } from '@/types/race-data';
@@ -36,7 +36,7 @@ export async function getIntegratedRaceData(
 
     // 統合JSONファイルのパス
     const jsonPath = path.join(
-      DATA_ROOT,
+      DATA3_ROOT,
       'races',
       year,
       month,
@@ -79,7 +79,7 @@ export async function getAllIntegratedRacesByDate(
       day = date.substring(6, 8);
     }
 
-    const tempDir = path.join(DATA_ROOT, 'races', year, month, day, 'temp');
+    const tempDir = path.join(DATA3_ROOT, 'races', year, month, day, 'temp');
     
     if (!fs.existsSync(tempDir)) {
       console.warn(`[IntegratedRaceReader] ディレクトリが見つかりません: ${tempDir}`);

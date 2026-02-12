@@ -232,9 +232,7 @@ export default function AdminPage() {
           message: data.message as string,
         });
         setStatus('success');
-        if (
-          ['batch_prepare', 'batch_after_race', 'integrate'].includes(actionId)
-        ) {
+        if (dataRefreshActions.includes(actionId)) {
           refreshDataQuality();
         }
         break;
@@ -270,6 +268,8 @@ export default function AdminPage() {
     ['v4_build_race', 'v4_build_kbext', 'v4_cyokyo_enrich', 'v4_predict'].includes(a.id)
   );
   const analysisActions = ACTIONS.filter((a) => a.category === 'analysis');
+  // データリフレッシュが必要なアクション
+  const dataRefreshActions: ActionType[] = ['batch_prepare', 'batch_after_race', 'v4_pipeline', 'v4_build_race', 'v4_build_kbext'];
 
   return (
     <div className="container py-6 max-w-4xl">
@@ -345,7 +345,7 @@ export default function AdminPage() {
           <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
             <div className="text-sm font-medium flex items-center gap-2">
               ⏱ 当日取得オプション
-              <span className="text-xs font-normal text-muted-foreground">（パドック/成績/レース後更新）</span>
+              <span className="text-xs font-normal text-muted-foreground">（パドック/成績/直前情報・結果情報構築）</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-sm text-muted-foreground">開始レース</label>
@@ -396,10 +396,10 @@ export default function AdminPage() {
           <CardTitle className="text-xl flex items-center gap-2">
             <span className="text-2xl">🚀</span>
             <span>一括実行</span>
-            <span className="ml-auto text-xs font-normal text-muted-foreground">よく使う機能</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">1クリックで全自動</span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-6">
+        <CardContent className="pt-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {batchActions.map((action) => (
               <ActionButton
@@ -414,33 +414,37 @@ export default function AdminPage() {
               />
             ))}
           </div>
+          {/* v4パイプラインのみ再実行 */}
+          {v4PipelineAction && (
+            <>
+              <Separator />
+              <div className="text-sm text-muted-foreground mb-2">
+                v4パイプラインのみ再実行（スクレイピング済みの場合）
+              </div>
+              <ActionButton
+                icon={v4PipelineAction.icon}
+                label={v4PipelineAction.label}
+                description={v4PipelineAction.description}
+                onClick={() => executeAction(v4PipelineAction.id)}
+                disabled={isRunning}
+                loading={isRunning && currentAction === v4PipelineAction.label}
+              />
+            </>
+          )}
         </CardContent>
       </Card>
 
-      {/* v4パイプライン（JRA-VAN基盤） */}
-      <Card className="mb-6 border-2 border-emerald-200 dark:border-emerald-800 shadow-lg">
-        <CardHeader className="pb-3 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950 dark:to-teal-950">
-          <CardTitle className="text-xl flex items-center gap-2">
-            <span className="text-2xl">🏗️</span>
-            <span>v4 パイプライン</span>
-            <span className="ml-auto text-xs font-normal text-muted-foreground">JRA-VAN基盤 → data3</span>
+      {/* v4パイプライン個別ステップ（デバッグ・部分再実行用） */}
+      <Card className="mb-6 border-emerald-200 dark:border-emerald-800">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <span className="text-xl">🏗️</span>
+            <span>v4 個別ステップ</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">デバッグ・部分再実行用</span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-6 space-y-4">
-          {/* メインボタン: v4パイプライン一括 */}
-          {v4PipelineAction && (
-            <ActionButton
-              icon={v4PipelineAction.icon}
-              label={v4PipelineAction.label}
-              description={v4PipelineAction.description}
-              onClick={() => executeAction(v4PipelineAction.id)}
-              disabled={isRunning}
-              loading={isRunning && currentAction === v4PipelineAction.label}
-              variant="batch"
-            />
-          )}
-          {/* 個別ボタン */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {v4IndividualActions.map((action) => (
               <ActionButton
                 key={action.id}

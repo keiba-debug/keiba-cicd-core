@@ -10,10 +10,10 @@
 import fs from 'fs';
 import path from 'path';
 import iconv from 'iconv-lite';
-import { JV_DATA_ROOT_DIR } from '../config';
+import { JV_DATA_ROOT } from '../config';
 
 // MY_DATAディレクトリのパス
-const MY_DATA_PATH = path.join(JV_DATA_ROOT_DIR, 'MY_DATA');
+const MY_DATA_PATH = path.join(JV_DATA_ROOT, 'MY_DATA');
 
 // 場コード対応表
 const VENUE_CODE_MAP: Record<string, string> = {
@@ -390,7 +390,7 @@ export function getMyDataPath(): string {
 // 馬名インデックス関連
 // ============================================================
 
-import { KEIBA_DATA_ROOT_DIR } from '../config';
+import { DATA3_ROOT } from '../config';
 
 // 馬名→kettoNumインデックスのキャッシュ
 let horseNameIndexCache: Record<string, string> | null = null;
@@ -400,8 +400,8 @@ let horseNameIndexCache: Record<string, string> | null = null;
  */
 function loadHorseNameIndex(): Record<string, string> {
   if (horseNameIndexCache) return horseNameIndexCache;
-  
-  const indexPath = path.join(KEIBA_DATA_ROOT_DIR, 'target', 'horse_name_index.json');
+
+  const indexPath = path.join(DATA3_ROOT, 'indexes', 'horse_name_index.json');
   if (!fs.existsSync(indexPath)) {
     console.warn('[TargetCommentReader] horse_name_index.json not found:', indexPath);
     return {};

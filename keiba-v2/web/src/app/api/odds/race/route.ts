@@ -25,7 +25,7 @@ import {
 } from '@/lib/data/race-horse-names';
 import { analyzeOddsPattern } from '@/lib/data/rt-data-types';
 import path from 'path';
-import { DATA_ROOT } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 
 function normalizeDate(dateStr: string): string | null {
   const m1 = dateStr.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'RT_DATA not available',
-        hint: '環境変数 JV_DATA_ROOT_DIR を設定し、RT_DATA フォルダが存在するか確認してください',
+        hint: '環境変数 JV_DATA_ROOT を設定し、RT_DATA フォルダが存在するか確認してください',
       },
       { status: 503 }
     );
@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
   const year = targetRaceId.substring(0, 4);
   const month = targetRaceId.substring(4, 6);
   const day = targetRaceId.substring(6, 8);
-  const dayPath = path.join(DATA_ROOT, 'races', year, month, day);
+  const dayPath = path.join(DATA3_ROOT, 'races', year, month, day);
   const keibabookRaceId = resolveKeibabookRaceId(targetRaceId, dayPath);
 
   // レース条件情報を取得

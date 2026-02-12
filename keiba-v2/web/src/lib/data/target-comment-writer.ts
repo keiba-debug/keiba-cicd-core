@@ -12,10 +12,10 @@
 import fs from 'fs';
 import path from 'path';
 import iconv from 'iconv-lite';
-import { JV_DATA_ROOT_DIR } from '../config';
+import { JV_DATA_ROOT } from '../config';
 
 // MY_DATAディレクトリのパス
-const MY_DATA_PATH = path.join(JV_DATA_ROOT_DIR, 'MY_DATA');
+const MY_DATA_PATH = path.join(JV_DATA_ROOT, 'MY_DATA');
 
 // 場コード対応表
 const VENUE_CODE_MAP: Record<string, string> = {

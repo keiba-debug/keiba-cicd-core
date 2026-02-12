@@ -5,10 +5,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import { PATHS } from '../config';
+import { DATA3_ROOT } from '../config';
 
 // メモ保存先ディレクトリ
-const NOTES_DIR = path.join(PATHS.races, '..', 'user_notes');
+const NOTES_DIR = path.join(DATA3_ROOT, 'userdata', 'user_notes');
 
 /**
  * レースメモの型定義

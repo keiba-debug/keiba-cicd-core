@@ -304,8 +304,8 @@ npm run dev
 - レース一覧は次のどちらかで「データあり」とみなします:
   1. 競馬場フォルダ＋MD出走表（.md）がある日
   2. `race_info.json`（`kaisai_data` あり）がある日
-- キャッシュ: `DATA_ROOT/cache/race_date_index.json`
-- 古いキャッシュは自動で再ビルドされます
+- 日付一覧はキャッシュ `DATA_ROOT/cache/race_date_index.json` を参照します。データを追加した場合は **インデックス再構築**（`POST /api/admin/rebuild-index` または管理画面）が必要です。
+- 詳しい原因と確認手順: [keiba-v2/web/docs/トラブルシュート_レース一覧.md](keiba-v2/web/docs/トラブルシュート_レース一覧.md)
 
 </details>
 

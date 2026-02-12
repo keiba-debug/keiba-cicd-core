@@ -5,7 +5,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 import type { RaceTrendType } from './rpci-utils';
 
 // レース傾向インデックスの型定義
@@ -45,8 +45,8 @@ export async function getRaceTrendIndex(): Promise<RaceTrendIndex | null> {
 
   try {
     const dataPath = path.join(
-      KEIBA_DATA_ROOT_DIR,
-      'target',
+      DATA3_ROOT,
+      'analysis',
       'race_trend_index.json'
     );
 

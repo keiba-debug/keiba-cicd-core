@@ -9,14 +9,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import type { FundHistory, FundEntry, FundConfig } from '@/types/bankroll';
-import { PATHS } from '@/lib/config';
+import { AI_DATA_PATH } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 // 資金履歴ファイルのパス
 const getFundHistoryPath = (): string => {
-  return path.join(PATHS.userdata, 'fund_history.json');
+  return path.join(AI_DATA_PATH, 'fund_history.json');
 };
 
 // 初期データを作成

@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import iconv from 'iconv-lite';
 
-const JV_DATA_ROOT = process.env.JV_DATA_ROOT_DIR || 'Y:/';
+const JV_DATA_ROOT = process.env.JV_DATA_ROOT || 'Y:/';
 const UM_DATA_PATH = path.join(JV_DATA_ROOT, 'UM_DATA');
 const UM_RECORD_LEN = 1609;
 

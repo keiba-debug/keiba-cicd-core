@@ -7,7 +7,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { DATA_ROOT } from '../config';
+import { DATA3_ROOT } from '../config';
 
 const JRA_TRACK_CODES: Record<string, string> = {
   '01': '札幌',
@@ -243,15 +243,59 @@ function loadHorseNamesFromTemp(
 }
 
 /**
+ * v4レースJSONから馬番→HorseInfoマップを取得
+ */
+function loadHorseInfoFromV4(jraRaceId: string): Record<string, HorseInfo> {
+  const year = jraRaceId.substring(0, 4);
+  const month = jraRaceId.substring(4, 6);
+  const day = jraRaceId.substring(6, 8);
+  const filePath = path.join(DATA3_ROOT, 'races', year, month, day, `race_${jraRaceId}.json`);
+
+  if (!fs.existsSync(filePath)) return {};
+
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const map: Record<string, HorseInfo> = {};
+    for (const entry of data.entries || []) {
+      const ub = String(entry.umaban || '');
+      if (!ub || !entry.horse_name) continue;
+      map[ub] = {
+        horseName: entry.horse_name,
+        waku: String(entry.wakuban || ''),
+        jockey: entry.jockey_name || undefined,
+        finishPosition: entry.finish_position > 0 ? String(entry.finish_position) : undefined,
+        finishTime: entry.time || undefined,
+        finalOdds: entry.odds > 0 ? entry.odds : undefined,
+        finalNinki: entry.popularity > 0 ? entry.popularity : undefined,
+      };
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * JRA 16桁 race_id から馬番→馬名マップを取得
  */
 export function getHorseNamesByUmaban(jraRaceId: string): Record<string, string> {
   if (jraRaceId.length !== 16) return {};
 
+  // v4 race JSONから直接取得
+  const info = loadHorseInfoFromV4(jraRaceId);
+  if (Object.keys(info).length > 0) {
+    const map: Record<string, string> = {};
+    for (const [ub, data] of Object.entries(info)) {
+      map[ub] = data.horseName;
+    }
+    return map;
+  }
+
+  // レガシーフォールバック（data2）
   const year = jraRaceId.substring(0, 4);
   const month = jraRaceId.substring(4, 6);
   const day = jraRaceId.substring(6, 8);
-  const dayPath = path.join(DATA_ROOT, 'races', year, month, day);
+  const dayPath = path.join(DATA3_ROOT, 'races', year, month, day);
 
   const keibabookId = resolveKeibabookRaceId(jraRaceId, dayPath);
   if (!keibabookId) return {};
@@ -282,10 +326,15 @@ export function lookupHorseName(
 export function getHorseInfoByUmaban(jraRaceId: string): Record<string, HorseInfo> {
   if (jraRaceId.length !== 16) return {};
 
+  // v4 race JSONから直接取得
+  const v4Info = loadHorseInfoFromV4(jraRaceId);
+  if (Object.keys(v4Info).length > 0) return v4Info;
+
+  // レガシーフォールバック
   const year = jraRaceId.substring(0, 4);
   const month = jraRaceId.substring(4, 6);
   const day = jraRaceId.substring(6, 8);
-  const dayPath = path.join(DATA_ROOT, 'races', year, month, day);
+  const dayPath = path.join(DATA3_ROOT, 'races', year, month, day);
 
   const keibabookId = resolveKeibabookRaceId(jraRaceId, dayPath);
   if (!keibabookId) return {};
@@ -355,11 +404,26 @@ function loadRaceConditionFromTemp(
 export function getRaceConditionInfo(jraRaceId: string): RaceConditionInfo | null {
   if (jraRaceId.length !== 16) return null;
 
+  // v4 race JSONから直接取得
   const year = jraRaceId.substring(0, 4);
   const month = jraRaceId.substring(4, 6);
   const day = jraRaceId.substring(6, 8);
-  const dayPath = path.join(DATA_ROOT, 'races', year, month, day);
+  const filePath = path.join(DATA3_ROOT, 'races', year, month, day, `race_${jraRaceId}.json`);
 
+  if (fs.existsSync(filePath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      const trackMap: Record<string, string> = { turf: '芝', dirt: 'ダ' };
+      return {
+        raceCondition: data.grade || '',
+        track: trackMap[data.track_type] || data.track_type || '',
+        distance: data.distance || 0,
+      };
+    } catch { /* fall through */ }
+  }
+
+  // レガシーフォールバック
+  const dayPath = path.join(DATA3_ROOT, 'races', year, month, day);
   const keibabookId = resolveKeibabookRaceId(jraRaceId, dayPath);
   if (!keibabookId) return null;
 

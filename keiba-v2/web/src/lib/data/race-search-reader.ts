@@ -7,9 +7,9 @@
 
 import fs from 'fs';
 import path from 'path';
-import { DATA_ROOT } from '../config';
+import { DATA3_ROOT } from '../config';
 
-const INDEX_FILE = path.join(DATA_ROOT, 'cache', 'race_search_index.json');
+const INDEX_FILE = path.join(DATA3_ROOT, 'indexes', 'race_search_index.json');
 
 // ── 型定義 ──
 

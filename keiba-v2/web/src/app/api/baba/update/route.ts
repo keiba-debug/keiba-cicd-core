@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { BABA_DATA_PATH } from '@/lib/config';
 
 // 競馬場名 → 場コード
 const TRACK_TO_VENUE: Record<string, string> = {
@@ -26,10 +27,9 @@ const TRACK_TO_VENUE: Record<string, string> = {
   '中山': '06', '中京': '07', '京都': '08', '阪神': '09', '小倉': '10',
 };
 
-// BABAデータディレクトリ（DATA_ROOT/baba）
+// BABAデータディレクトリ（data3/analysis/baba）
 function getBabaDir(): string {
-  const dataRoot = process.env.DATA_ROOT || 'C:/KEIBA-CICD/data2';
-  return path.join(dataRoot, 'baba');
+  return path.normalize(BABA_DATA_PATH);
 }
 
 interface BabaUpdateRequest {

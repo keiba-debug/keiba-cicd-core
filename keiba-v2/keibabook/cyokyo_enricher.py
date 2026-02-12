@@ -32,7 +32,7 @@ from core import config
 from keibabook.cyokyo_parser import parse_cyokyo_html, extract_oikiri_summary
 
 # debug HTMLの場所
-DEBUG_DIR = Path("C:/KEIBA-CICD/data2/debug")
+DEBUG_DIR = config.debug_dir()
 
 
 def build_debug_html_index(year: Optional[int] = None) -> dict:

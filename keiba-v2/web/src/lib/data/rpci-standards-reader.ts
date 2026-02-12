@@ -5,12 +5,12 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
-import { 
+import { DATA3_ROOT } from '@/lib/config';
+import {
   getRpciTrend,
-  type RpciTrend, 
-  type RpciThresholds, 
-  type CourseRpciInfo 
+  type RpciTrend,
+  type RpciThresholds,
+  type CourseRpciInfo
 } from './rpci-utils';
 
 // 型定義（サーバー側専用）
@@ -98,8 +98,8 @@ export async function getRpciStandards(): Promise<RpciStandardsData | null> {
 
   try {
     const dataPath = path.join(
-      KEIBA_DATA_ROOT_DIR,
-      'target',
+      DATA3_ROOT,
+      'analysis',
       'race_type_standards.json'
     );
 

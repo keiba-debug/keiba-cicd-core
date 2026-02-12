@@ -14,7 +14,7 @@ import { findHorseFromTarget, calculateHorseAge, isTargetDataAvailable, type Tar
 import { getHorseRaceResultsFromTarget, isTargetSeDataAvailable, type TargetRaceResult } from './target-race-result-reader';
 import { getRaceFilesForHorse, isIndexAvailable } from './horse-race-index';
 import { getTrainerInfo } from './trainer-index';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 
 // ディレクトリ一覧キャッシュ（1分間有効）
 const dirCache = new Map<string, { entries: string[]; timestamp: number }>();
@@ -42,7 +42,7 @@ function loadTrainingSummary(datePath: string): Map<string, TrainingSummaryEntry
   try {
     const [year, month, day] = datePath.split('/');
     const filePath = path.join(
-      KEIBA_DATA_ROOT_DIR,
+      DATA3_ROOT,
       'races', year, month, day, 'temp', 'training_summary.json'
     );
     
@@ -118,7 +118,7 @@ function getTrackFromRaceInfo(integratedFilePath: string, raceId: string): strin
 
     // race_info.jsonを読み込み
     const raceInfoPath = path.join(
-      KEIBA_DATA_ROOT_DIR,
+      DATA3_ROOT,
       'races', year, month, day, 'race_info.json'
     );
     
@@ -168,7 +168,7 @@ function getRaceInfoFromCache(datePath: string, raceId: string): { track: string
   try {
     const [year, month, day] = datePath.split('/');
     const raceInfoPath = path.join(
-      KEIBA_DATA_ROOT_DIR,
+      DATA3_ROOT,
       'races', year, month, day, 'race_info.json'
     );
     
@@ -207,7 +207,7 @@ function getRaceInfoFromCache(datePath: string, raceId: string): { track: string
  * 初出走馬で他のソースに情報がない場合のフォールバック
  */
 function findHorseNameFromRecentRaces(horseId: string): { horseName: string; kettoNum: string } | null {
-  const racesDir = path.join(KEIBA_DATA_ROOT_DIR, 'races');
+  const racesDir = path.join(DATA3_ROOT, 'races');
   try {
     const years = fs.readdirSync(racesDir).filter(d => /^\d{4}$/.test(d)).sort().reverse();
     let daysChecked = 0;
@@ -254,7 +254,7 @@ function findHorseNameFromRecentRaces(horseId: string): { horseName: string; ket
 }
 
 // データルートディレクトリ
-const DATA_ROOT = KEIBA_DATA_ROOT_DIR;
+const DATA_ROOT = DATA3_ROOT;
 
 // 馬プロフィールディレクトリ
 const HORSES_DIR = path.join(DATA_ROOT, 'horses', 'profiles');
@@ -751,7 +751,7 @@ async function collectPastRaces(
         const [year, month, day] = dateForPath.split('/');
         if (year && month && day) {
           const raceInfoPath = path.join(
-            KEIBA_DATA_ROOT_DIR,
+            DATA3_ROOT,
             'races', year, month, day, 'race_info.json'
           );
           

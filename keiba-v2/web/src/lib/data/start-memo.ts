@@ -2,12 +2,12 @@
  * スタートメモ管理ライブラリ
  * レースごとの馬のスタート評価を保存・取得
  * 
- * 保存先: ${KEIBA_DATA_ROOT_DIR}/userdata/start-memos.json
+ * 保存先: data3/userdata/start-memos.json
  */
 
 import fs from 'fs/promises';
 import path from 'path';
-import { USER_DATA_DIR } from '@/lib/config';
+import { AI_DATA_PATH } from '@/lib/config';
 
 // スタートメモのプリセットラベル
 export const START_MEMO_PRESETS = [
@@ -40,8 +40,8 @@ export interface RaceStartMemo {
   updatedAt: string;
 }
 
-// データ保存ディレクトリ（KEIBA_DATA_ROOT_DIR/userdata）
-const DATA_DIR = USER_DATA_DIR;
+// データ保存ディレクトリ（data3/userdata）
+const DATA_DIR = AI_DATA_PATH;
 const START_MEMO_FILE = path.join(DATA_DIR, 'start-memos.json');
 
 // 全スタートメモデータ

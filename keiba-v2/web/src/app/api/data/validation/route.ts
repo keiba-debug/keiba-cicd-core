@@ -7,7 +7,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { PATHS, DATA_ROOT, TRACKS } from '@/lib/config';
+import { DATA3_ROOT, TRACKS } from '@/lib/config';
+
+const RACES_DIR = path.join(DATA3_ROOT, 'races');
+const INDEXES_DIR = path.join(DATA3_ROOT, 'indexes');
 import type { ValidationResponse, DateValidation, ValidationIssue } from '@/types/data-quality';
 
 export const runtime = 'nodejs';
@@ -131,7 +134,7 @@ function getDateRange(start: string, end: string): string[] {
 
 async function validateDate(date: string, deep: boolean): Promise<DateValidation> {
   const [year, month, day] = date.split('-');
-  const dayPath = path.join(PATHS.races, year, month, day);
+  const dayPath = path.join(RACES_DIR, year, month, day);
 
   const issues: ValidationIssue[] = [];
   const checks = {
@@ -325,7 +328,7 @@ async function validateDate(date: string, deep: boolean): Promise<DateValidation
 }
 
 async function checkCacheHasDate(date: string): Promise<boolean> {
-  const indexPath = path.join(DATA_ROOT, 'cache', 'race_date_index.json');
+  const indexPath = path.join(INDEXES_DIR, 'race_date_index.json');
   if (!fs.existsSync(indexPath)) return false;
 
   try {
@@ -338,7 +341,7 @@ async function checkCacheHasDate(date: string): Promise<boolean> {
 }
 
 async function isCacheUpToDate(_date: string): Promise<boolean> {
-  const metaPath = path.join(DATA_ROOT, 'cache', 'race_date_index_meta.json');
+  const metaPath = path.join(INDEXES_DIR, 'race_date_index_meta.json');
   if (!fs.existsSync(metaPath)) return false;
 
   try {

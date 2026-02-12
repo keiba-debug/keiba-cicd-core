@@ -13,6 +13,7 @@ import {
 } from '@/lib/data/integrated-race-reader';
 import { getV4RaceData } from '@/lib/data/v4-race-reader';
 import { getKbExtData } from '@/lib/data/v4-keibabook-reader';
+import { DATA3_ROOT } from '@/lib/config';
 import { adaptV4ToIntegrated } from '@/lib/data/v4-race-adapter';
 import { getRaceNavigation, getRaceInfo } from '@/lib/data';
 import { getTrainingSummaryMap, getPreviousTrainingBatch } from '@/lib/data/training-summary-reader';
@@ -93,20 +94,25 @@ export default async function RaceDetailPage({ params }: PageParams) {
   // レースIDからレース番号を抽出
   const currentRaceNumber = parseInt(id.slice(-2), 10);
 
-  // 12桁→16桁race_id変換
-  // 12桁: YYYY KK JJ NN RR (JJ=keibabook場所コード)
-  // 16桁: YYYYMMDD VV KK NN RR (VV=JRA-VAN場所コード)
-  // keibabookとJRA-VANの場所コードは異なるため、track名からJRA-VAN場所コードに変換する
+  // race_id判定: 16桁ならそのまま使用、12桁なら変換
   const venueToJvCode: Record<string, string> = {
     '札幌': '01', '函館': '02', '福島': '03', '新潟': '04', '東京': '05',
     '中山': '06', '中京': '07', '京都': '08', '阪神': '09', '小倉': '10',
   };
   const dateCompact = date.replace(/-/g, '');
-  const jvVenueCode = venueToJvCode[track] || id.slice(6, 8);
-  const kai = id.slice(4, 6);
-  const nichi = id.slice(8, 10);
-  const raceNum = id.slice(10, 12);
-  const raceId16 = `${dateCompact}${jvVenueCode}${kai}${nichi}${raceNum}`;
+  let raceId16: string;
+  if (id.length === 16 && id.startsWith(dateCompact)) {
+    // 既に16桁のv4形式 (YYYYMMDD + VV + KK + NN + RR)
+    raceId16 = id;
+  } else {
+    // 12桁keibabook形式 → 16桁変換
+    // 12桁: YYYY + KK(2) + JJ(2) + NN(2) + RR(2)
+    const jvVenueCode = venueToJvCode[track] || id.slice(6, 8);
+    const kai = id.slice(4, 6);
+    const nichi = id.slice(8, 10);
+    const raceNum = id.slice(10, 12);
+    raceId16 = `${dateCompact}${jvVenueCode}${kai}${nichi}${raceNum}`;
+  }
 
   // データ取得（1段階目: 依存関係のないデータを並列取得）
   const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions] = await Promise.all([
@@ -304,7 +310,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
       // 各レースのリンクURLを解決
       for (const form of forms) {
         const d = form.raceDate;
-        const dayPath = `${process.env.DATA_ROOT || 'C:/KEIBA-CICD/data2'}/races/${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}`;
+        const dayPath = `${DATA3_ROOT}/races/${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}`;
         // JRA-VAN 16桁ID: YYYYMMDD + venueCode(2) + kai(2) + nichi(2) + raceNum(2)
         const jraRaceId = `${d}${form.venueCode}${String(form.kai).padStart(2, '0')}${String(form.nichi).padStart(2, '0')}${String(form.raceNumber).padStart(2, '0')}`;
         const keibabookId = resolveKeibabookRaceId(jraRaceId, dayPath);

@@ -7,7 +7,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { DATA_ROOT } from '../config';
+import { DATA3_ROOT } from '../config';
 
 export interface RaceInfoResult {
   date: string;           // YYYYMMDD
@@ -84,12 +84,53 @@ function normalizeDate(dateStr: string): { year: string; month: string; day: str
 /**
  * race_info.json を読み込む
  */
+// JRA-VAN venue_code → 競馬場名
+const JRA_VENUE_CODES: Record<string, string> = {
+  '01': '札幌', '02': '函館', '03': '福島', '04': '新潟', '05': '東京',
+  '06': '中山', '07': '中京', '08': '京都', '09': '阪神', '10': '小倉',
+};
+
+/**
+ * race_info.json を読み込む（data3のv4 JSONからkaisai_data互換形式を構築）
+ */
 async function loadRaceInfo(year: string, month: string, day: string): Promise<Record<string, unknown> | null> {
-  const raceInfoPath = path.join(DATA_ROOT, 'races', year, month, day, 'race_info.json');
-  
+  // data3のrace_info.jsonを試す（存在すればそのまま使う）
+  const raceInfoPath = path.join(DATA3_ROOT, 'races', year, month, day, 'race_info.json');
   try {
     const content = await fs.readFile(raceInfoPath, 'utf-8');
     return JSON.parse(content);
+  } catch { /* fall through */ }
+
+  // v4 race JSONからkaisai_data互換形式を構築
+  const dayDir = path.join(DATA3_ROOT, 'races', year, month, day);
+  try {
+    const { readdir, readFile } = await import('fs/promises');
+    const files = await readdir(dayDir);
+    const raceFiles = files.filter(f => f.startsWith('race_') && f.endsWith('.json'));
+    if (raceFiles.length === 0) return null;
+
+    const kaisaiData: Record<string, Array<{ race_no: string; race_name: string; course: string; race_id: string; start_time?: string }>> = {};
+
+    for (const file of raceFiles) {
+      try {
+        const data = JSON.parse(await readFile(path.join(dayDir, file), 'utf-8'));
+        const venueName = data.venue_name || JRA_VENUE_CODES[data.venue_code] || '';
+        const kai = data.kai || 0;
+        const nichi = data.nichi || 0;
+        const kaisaiKey = `${kai}回${venueName}${nichi}日目`;
+
+        if (!kaisaiData[kaisaiKey]) kaisaiData[kaisaiKey] = [];
+        const trackType = data.track_type === 'turf' ? '芝' : data.track_type === 'dirt' ? 'ダ' : '';
+        kaisaiData[kaisaiKey].push({
+          race_no: `${data.race_number}R`,
+          race_name: data.race_name || `${data.race_number}R`,
+          course: data.distance ? `${trackType}${data.distance}m` : '',
+          race_id: data.race_id,
+        });
+      } catch { /* skip */ }
+    }
+
+    return { kaisai_data: kaisaiData };
   } catch {
     return null;
   }

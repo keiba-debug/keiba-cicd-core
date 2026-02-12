@@ -4,7 +4,7 @@
  * POST /api/training/save?date=YYYYMMDD
  * 
  * TARGETのCK_DATAから調教サマリーを生成し、
- * DATA_ROOT/races/{year}/{month}/{day}/temp/training_summary.json
+ * data3/races/{year}/{month}/{day}/temp/training_summary.json
  * として保存
  */
 
@@ -17,7 +17,7 @@ import {
   getTrainingDateRanges,
   TrainingSummary,
 } from '@/lib/data/target-training-reader';
-import { DATA_ROOT} from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 
 export async function POST(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   if (!isTrainingDataAvailable()) {
     return NextResponse.json({
       error: 'Training data not available',
-      path: process.env.JV_DATA_ROOT_DIR || 'C:/TFJV',
+      path: process.env.JV_DATA_ROOT || 'C:/TFJV',
     }, { status: 500 });
   }
 
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     const year = dateStr.substring(0, 4);
     const month = dateStr.substring(4, 6);
     const day = dateStr.substring(6, 8);
-    const targetDir = path.join(DATA_ROOT, 'races', year, month, day, 'temp');
+    const targetDir = path.join(DATA3_ROOT, 'races', year, month, day, 'temp');
     const targetFile = path.join(targetDir, 'training_summary.json');
 
     // ディレクトリがなければ作成

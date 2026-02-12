@@ -7,10 +7,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 import { getHorseRaceResultsFromTarget } from './target-race-result-reader';
 
-const DATA_ROOT = KEIBA_DATA_ROOT_DIR;
+const DATA_ROOT = DATA3_ROOT;
 
 // 前走調教キャッシュ（日付 -> 馬名 -> 調教データ）
 const previousTrainingCache = new Map<string, Record<string, TrainingSummaryData>>();

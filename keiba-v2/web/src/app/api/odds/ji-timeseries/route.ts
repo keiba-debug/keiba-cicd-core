@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'RT_DATA not available',
-        hint: '環境変数 JV_DATA_ROOT_DIR を設定し、RT_DATA が参照できるようにしてください',
+        hint: '環境変数 JV_DATA_ROOT を設定し、RT_DATA が参照できるようにしてください',
       },
       { status: 503 }
     );

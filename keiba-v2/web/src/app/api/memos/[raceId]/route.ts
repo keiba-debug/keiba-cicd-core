@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
-import { USER_DATA_DIR } from '@/lib/config';
+import { AI_DATA_PATH } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,7 +58,7 @@ function getMemoFilePath(raceId: string, dateOverride?: string): string {
     dateDir = formatDateDir(raceDate);
   }
   
-  return path.join(USER_DATA_DIR, 'memos', dateDir, `${raceId}.json`);
+  return path.join(AI_DATA_PATH, 'memos', dateDir, `${raceId}.json`);
 }
 
 /**

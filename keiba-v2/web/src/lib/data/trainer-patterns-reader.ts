@@ -9,7 +9,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 import type { TrainingSummaryData } from './training-summary-reader';
 
 // =============================================
@@ -85,7 +85,7 @@ export function loadTrainerPatterns(): Map<string, TrainerPatternInfo> {
   keibabookIdToJvnCache = new Map();
 
   try {
-    const filePath = path.join(KEIBA_DATA_ROOT_DIR, 'target', 'trainer_patterns.json');
+    const filePath = path.join(DATA3_ROOT, 'analysis', 'trainer_patterns.json');
 
     if (!fs.existsSync(filePath)) {
       // ファイルがなければ空のまま（まだ分析未実行）

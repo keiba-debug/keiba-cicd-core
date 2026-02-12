@@ -142,6 +142,8 @@ def create_race_master(
             track_type=sr.track_type,
             track_condition=sr.baba_name,
             num_runners=len(entries),
+            grade=sr.grade,
+            race_name=sr.race_name,
             pace=pace,
             entries=entries,
             meta={

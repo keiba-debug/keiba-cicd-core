@@ -3,8 +3,10 @@ import path from 'path';
 import { remark } from 'remark';
 import html from 'remark-html';
 import gfm from 'remark-gfm';
-import { PATHS, TRACKS } from '../config';
+import { TRACKS, DATA3_ROOT } from '../config';
 import type { RaceSummary, RaceDetail, DateGroup, TrackGroup } from '@/types';
+
+const RACES_DIR = path.join(DATA3_ROOT, 'races');
 import { 
   getAvailableDatesFromIndex, 
   getRacesByDateFromIndex, 
@@ -23,7 +25,7 @@ export async function getAvailableDates(): Promise<string[]> {
 
   // フォールバック: ディレクトリ走査
   const dates: string[] = [];
-  const racesPath = PATHS.races;
+  const racesPath = RACES_DIR;
 
   if (!fs.existsSync(racesPath)) {
     return dates;
@@ -76,7 +78,7 @@ export async function getRacesByDate(date: string): Promise<DateGroup | null> {
       // レース一覧からのレーシングビュアーURLが「間違って見える」原因になる。
       // ここでは、日付単位で race_info.json を読み直してインデックス値を上書きする。
       const [year, month, day] = date.split('-');
-      const dayPath = path.join(PATHS.races, year, month, day);
+      const dayPath = path.join(RACES_DIR, year, month, day);
       const infoByRaceId = loadRaceInfoByRaceId(dayPath);
 
       // インデックスデータをRaceSummary形式に変換
@@ -89,7 +91,7 @@ export async function getRacesByDate(date: string): Promise<DateGroup | null> {
             date,
             track: t.track,
             raceNumber: r.raceNumber,
-            raceName: r.raceName,
+            raceName: info?.raceName || r.raceName,
             className: r.className,
             distance: info?.course || r.distance,
             startTime: info?.startTime || r.startTime,
@@ -116,7 +118,7 @@ export async function getRacesByDate(date: string): Promise<DateGroup | null> {
 
   // フォールバック: ファイル走査
   const [year, month, day] = date.split('-');
-  const dayPath = path.join(PATHS.races, year, month, day);
+  const dayPath = path.join(RACES_DIR, year, month, day);
 
   if (!fs.existsSync(dayPath)) {
     return null;
@@ -244,8 +246,8 @@ function parseRaceSummary(
   };
 }
 
-function loadRaceInfoByRaceId(dayPath: string): Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string }> {
-  const infoMap = new Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string }>();
+function loadRaceInfoByRaceId(dayPath: string): Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string; raceName?: string }> {
+  const infoMap = new Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string; raceName?: string }>();
   const raceInfoPath = path.join(dayPath, 'race_info.json');
 
   if (!fs.existsSync(raceInfoPath)) {
@@ -255,20 +257,26 @@ function loadRaceInfoByRaceId(dayPath: string): Map<string, { course?: string; k
   try {
     const content = fs.readFileSync(raceInfoPath, 'utf-8');
     const data = JSON.parse(content) as {
-      kaisai_data?: Record<string, Array<{ race_id?: string; course?: string; race_no?: string; start_time?: string }>>;
+      kaisai_data?: Record<string, Array<{ race_id?: string; race_id_16?: string; course?: string; race_no?: string; race_name?: string; start_time?: string }>>;
     };
     const kaisaiData = data.kaisai_data || {};
     for (const [kaisaiKey, raceList] of Object.entries(kaisaiData)) {
       const kaisaiInfo = parseKaisaiKey(kaisaiKey);
       for (const race of raceList) {
         if (!race.race_id) continue;
-        infoMap.set(race.race_id, {
+        const info = {
           course: race.course,
           kai: kaisaiInfo?.kai,
           nichi: kaisaiInfo?.nichi,
           track: kaisaiInfo?.track,
           startTime: race.start_time,
-        });
+          raceName: race.race_name,
+        };
+        // 12桁IDと16桁IDの両方でマッチできるように登録
+        infoMap.set(race.race_id, info);
+        if (race.race_id_16) {
+          infoMap.set(race.race_id_16, info);
+        }
       }
     }
   } catch {
@@ -312,7 +320,7 @@ function hasRaceInfoWithKaisai(dayPath: string): boolean {
 function buildDateGroupFromRaceInfoOnly(dayPath: string, date: string): DateGroup | null {
   const raceInfoPath = path.join(dayPath, 'race_info.json');
   if (!fs.existsSync(raceInfoPath)) return null;
-  let data: { kaisai_data?: Record<string, Array<{ race_id?: string; race_no?: string; race_name?: string; course?: string; start_time?: string }>> };
+  let data: { kaisai_data?: Record<string, Array<{ race_id?: string; race_id_16?: string; race_no?: string; race_name?: string; course?: string; start_time?: string }>> };
   try {
     data = JSON.parse(fs.readFileSync(raceInfoPath, 'utf-8'));
   } catch {
@@ -331,7 +339,7 @@ function buildDateGroupFromRaceInfoOnly(dayPath: string, date: string): DateGrou
       if (!r.race_id) continue;
       const raceNumber = parseInt(r.race_no || '0', 10);
       trackMap.get(track)!.push({
-        id: r.race_id,
+        id: r.race_id_16 || r.race_id,
         date,
         track,
         raceNumber,
@@ -372,8 +380,8 @@ export async function getRaceDetail(
   raceId: string
 ): Promise<RaceDetail | null> {
   const [year, month, day] = date.split('-');
-  const filePath = path.join(PATHS.races, year, month, day, track, `${raceId}.md`);
-  const infoByRaceId = loadRaceInfoByRaceId(path.join(PATHS.races, year, month, day));
+  const filePath = path.join(RACES_DIR, year, month, day, track, `${raceId}.md`);
+  const infoByRaceId = loadRaceInfoByRaceId(path.join(RACES_DIR, year, month, day));
 
   if (!fs.existsSync(filePath)) {
     return null;
@@ -446,7 +454,7 @@ export async function getRaceNavigation(
   nextRace: { track: string; raceId: string } | null;
 } | null> {
   const [year, month, day] = date.split('-');
-  const dayPath = path.join(PATHS.races, year, month, day);
+  const dayPath = path.join(RACES_DIR, year, month, day);
 
   if (!fs.existsSync(dayPath)) {
     return null;
@@ -464,8 +472,8 @@ export async function getRaceNavigation(
     return jsonResult;
   }
 
-  // 3. フォールバック: MDファイルからナビゲーション構築
-  return getRaceNavigationFromMd(date, currentTrack, currentRaceNumber, dayPath);
+  // 3. フォールバック: v4レースJSONからナビゲーション構築
+  return getRaceNavigationFromV4(date, currentTrack, currentRaceNumber, dayPath);
 }
 
 /**
@@ -563,6 +571,7 @@ async function getRaceNavigationFromJson(
     race_name: string;
     course: string;
     race_id: string;
+    race_id_16?: string;
     start_time?: string;
   }>> | null = null;
 
@@ -610,23 +619,24 @@ async function getRaceNavigationFromJson(
     for (const race of races) {
       const raceNumber = parseInt(race.race_no.replace('R', ''), 10);
       const startTime = race.start_time || '99:99';
-      
+      const raceId = race.race_id_16 || race.race_id;
+
       allRaces.push({
         track: trackName,
         raceNumber,
-        raceId: race.race_id,
+        raceId,
         startTime,
       });
 
       // トラック別データを蓄積
       if (!trackMap.has(trackName)) {
-        trackMap.set(trackName, { raceByNumber: {}, firstRaceId: race.race_id });
+        trackMap.set(trackName, { raceByNumber: {}, firstRaceId: raceId });
       }
       const trackData = trackMap.get(trackName)!;
-      trackData.raceByNumber[raceNumber] = race.race_id;
+      trackData.raceByNumber[raceNumber] = raceId;
       // 最小レース番号のIDをfirstRaceIdに
       if (raceNumber === 1) {
-        trackData.firstRaceId = race.race_id;
+        trackData.firstRaceId = raceId;
       }
     }
   }
@@ -689,7 +699,7 @@ async function getRaceNavigationFromJson(
       const raceNumber = parseInt(race.race_no.replace('R', ''), 10);
       races.push({
         raceNumber,
-        raceId: race.race_id,
+        raceId: race.race_id_16 || race.race_id,
         raceName: race.race_name || `${raceNumber}R`,
         startTime: race.start_time || '',
       });
@@ -840,6 +850,97 @@ async function getRaceNavigationFromMd(
   return { tracks, races, allRacesByTime: allRaces, prevRace, nextRace };
 }
 
+// JRA-VAN venue_code → 競馬場名
+const VENUE_CODE_MAP: Record<string, string> = {
+  '01': '札幌', '02': '函館', '03': '福島', '04': '新潟', '05': '東京',
+  '06': '中山', '07': '中京', '08': '京都', '09': '阪神', '10': '小倉',
+};
+
+/**
+ * v4レースJSON（data3/races/）からナビゲーション情報を構築
+ */
+async function getRaceNavigationFromV4(
+  date: string,
+  currentTrack: string,
+  currentRaceNumber: number | undefined,
+  dayPath: string
+): Promise<{
+  tracks: { name: string; firstRaceId: string; raceByNumber: Record<number, string> }[];
+  races: { raceNumber: number; raceId: string; raceName: string; startTime: string }[];
+  allRacesByTime: { track: string; raceNumber: number; raceId: string; startTime: string }[];
+  prevRace: { track: string; raceId: string } | null;
+  nextRace: { track: string; raceId: string } | null;
+} | null> {
+  let raceFiles: string[];
+  try {
+    raceFiles = fs.readdirSync(dayPath)
+      .filter(f => f.startsWith('race_') && f.endsWith('.json'));
+  } catch {
+    return null;
+  }
+  if (raceFiles.length === 0) return null;
+
+  const allRaces: { track: string; raceNumber: number; raceId: string; startTime: string }[] = [];
+  const trackMap = new Map<string, { raceByNumber: Record<number, string>; firstRaceId: string }>();
+
+  for (const file of raceFiles) {
+    try {
+      const content = fs.readFileSync(path.join(dayPath, file), 'utf-8');
+      const raceData = JSON.parse(content);
+      const venueName = raceData.venue_name || VENUE_CODE_MAP[raceData.venue_code] || '';
+      if (!venueName) continue;
+
+      const raceNumber = raceData.race_number || 0;
+      const raceId = raceData.race_id || '';
+
+      allRaces.push({ track: venueName, raceNumber, raceId, startTime: '' });
+
+      if (!trackMap.has(venueName)) {
+        trackMap.set(venueName, { raceByNumber: {}, firstRaceId: raceId });
+      }
+      const trackData = trackMap.get(venueName)!;
+      trackData.raceByNumber[raceNumber] = raceId;
+      if (raceNumber === 1) trackData.firstRaceId = raceId;
+    } catch { /* skip */ }
+  }
+
+  if (trackMap.size === 0) return null;
+
+  const tracks: { name: string; firstRaceId: string; raceByNumber: Record<number, string> }[] = [];
+  for (const [name, data] of trackMap) {
+    tracks.push({ name, firstRaceId: data.firstRaceId, raceByNumber: data.raceByNumber });
+  }
+  tracks.sort((a, b) => {
+    const iA = TRACKS.indexOf(a.name as (typeof TRACKS)[number]);
+    const iB = TRACKS.indexOf(b.name as (typeof TRACKS)[number]);
+    return iA - iB;
+  });
+
+  allRaces.sort((a, b) => {
+    const iA = TRACKS.indexOf(a.track as (typeof TRACKS)[number]);
+    const iB = TRACKS.indexOf(b.track as (typeof TRACKS)[number]);
+    if (iA !== iB) return iA - iB;
+    return a.raceNumber - b.raceNumber;
+  });
+
+  const currentIndex = allRaces.findIndex(
+    r => r.track === currentTrack && r.raceNumber === currentRaceNumber
+  );
+  const prevRace = currentIndex > 0
+    ? { track: allRaces[currentIndex - 1].track, raceId: allRaces[currentIndex - 1].raceId }
+    : null;
+  const nextRace = currentIndex >= 0 && currentIndex < allRaces.length - 1
+    ? { track: allRaces[currentIndex + 1].track, raceId: allRaces[currentIndex + 1].raceId }
+    : null;
+
+  const races = allRaces
+    .filter(r => r.track === currentTrack)
+    .map(r => ({ raceNumber: r.raceNumber, raceId: r.raceId, raceName: `${r.raceNumber}R`, startTime: '' }))
+    .sort((a, b) => a.raceNumber - b.raceNumber);
+
+  return { tracks, races, allRacesByTime: allRaces, prevRace, nextRace };
+}
+
 /**
  * ローカルファイルパスをWebアプリURLに変換
  */
@@ -878,7 +979,7 @@ export interface RaceInfoData {
 
 export async function getRaceInfo(date: string): Promise<RaceInfoData | null> {
   const [year, month, day] = date.split('-');
-  const filePath = path.join(PATHS.races, year, month, day, 'race_info.json');
+  const filePath = path.join(RACES_DIR, year, month, day, 'race_info.json');
 
   if (!fs.existsSync(filePath)) {
     return null;

@@ -54,6 +54,8 @@ export interface V4RaceData {
   track_type: string;        // "turf" | "dirt"
   track_condition: string;
   num_runners: number;
+  grade: string;             // G1/G2/G3/Listed/OP/3勝クラス/2勝クラス/1勝クラス/未勝利/新馬
+  race_name: string;         // レース名
   pace: V4RacePace | null;
   entries: V4RaceEntry[];
 }

@@ -3,7 +3,7 @@ import path from 'path';
 import { remark } from 'remark';
 import html from 'remark-html';
 import gfm from 'remark-gfm';
-import { PATHS } from '../config';
+import { DATA3_ROOT } from '../config';
 import type { HorseSummary, HorseProfile } from '@/types';
 
 /**
@@ -29,7 +29,7 @@ export interface PastRace {
  * 馬IDからプロファイルを取得
  */
 export async function getHorseProfile(horseId: string): Promise<HorseProfile | null> {
-  const horsesPath = PATHS.horses;
+  const horsesPath = path.join(DATA3_ROOT, 'horses', 'profiles');
 
   if (!fs.existsSync(horsesPath)) {
     return null;
@@ -75,7 +75,7 @@ export async function getHorseProfile(horseId: string): Promise<HorseProfile | n
  * 馬名で検索
  */
 export async function searchHorses(query: string): Promise<HorseSummary[]> {
-  const horsesPath = PATHS.horses;
+  const horsesPath = path.join(DATA3_ROOT, 'horses', 'profiles');
 
   if (!fs.existsSync(horsesPath)) {
     return [];

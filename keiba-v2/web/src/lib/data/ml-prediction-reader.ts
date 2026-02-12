@@ -10,7 +10,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR, DATA3_ROOT } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 
 // --- 型定義（既存互換） ---
 
@@ -87,17 +87,9 @@ interface V4PredictionsLive {
 // --- キャッシュ ---
 
 const V4_PREDICTIONS_PATH = path.join(DATA3_ROOT, 'ml', 'predictions_live.json');
-const V2_PREDICTIONS_PATH = path.join(
-  KEIBA_DATA_ROOT_DIR,
-  'target',
-  'ml',
-  'predictions_live.json'
-);
 
 let cachedV4: V4PredictionsLive | null = null;
-let cachedV2: MlPredictionsLive | null = null;
 let cacheTimestampV4 = 0;
-let cacheTimestampV2 = 0;
 const CACHE_TTL = 60 * 1000;
 
 async function loadV4(): Promise<V4PredictionsLive | null> {
@@ -109,20 +101,6 @@ async function loadV4(): Promise<V4PredictionsLive | null> {
     cachedV4 = JSON.parse(content) as V4PredictionsLive;
     cacheTimestampV4 = Date.now();
     return cachedV4;
-  } catch {
-    return null;
-  }
-}
-
-async function loadV2(): Promise<MlPredictionsLive | null> {
-  if (cachedV2 && Date.now() - cacheTimestampV2 < CACHE_TTL) {
-    return cachedV2;
-  }
-  try {
-    const content = await fs.readFile(V2_PREDICTIONS_PATH, 'utf-8');
-    cachedV2 = JSON.parse(content) as MlPredictionsLive;
-    cacheTimestampV2 = Date.now();
-    return cachedV2;
   } catch {
     return null;
   }
@@ -208,19 +186,6 @@ export async function getMlPredictions(
     }
   }
 
-  // v2 (data2) フォールバック
-  const v2 = await loadV2();
-  if (v2) {
-    const race = v2.races.find((r) => r.race_id === raceId);
-    if (race) {
-      const map: Record<number, MlHorsePrediction> = {};
-      for (const h of race.horses) {
-        map[h.horse_number] = h;
-      }
-      return map;
-    }
-  }
-
   return null;
 }
 
@@ -229,7 +194,5 @@ export async function getMlPredictions(
  */
 export async function getMlPredictionDate(): Promise<string | null> {
   const v4 = await loadV4();
-  if (v4) return v4.date;
-  const v2 = await loadV2();
-  return v2?.date ?? null;
+  return v4?.date ?? null;
 }

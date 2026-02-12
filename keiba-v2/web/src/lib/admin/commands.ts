@@ -1,5 +1,6 @@
 /**
  * 管理画面用コマンド定義
+ * 全コマンドがv2(keiba-v2/)ネイティブ — v1依存なし
  */
 
 export type ActionType =
@@ -8,9 +9,6 @@ export type ActionType =
   | 'paddok'
   | 'seiseki'
   | 'babakeikou'
-  | 'integrate'
-  | 'markdown'
-  | 'horse_profile'
   | 'batch_prepare'
   | 'batch_after_race'
   | 'sunpyo_update'
@@ -21,10 +19,10 @@ export type ActionType =
   | 'build_trainer_index'        // 調教師インデックス作成
   | 'analyze_trainer_patterns'   // 調教師パターン分析
   | 'v4_build_race'              // v4 JRA-VAN → data3/races/
-  | 'v4_build_kbext'             // v4 data2 integrated → data3/keibabook/
+  | 'v4_build_kbext'             // v4 data2 integrated → data3/keibabook/ (レガシー)
   | 'v4_cyokyo_enrich'           // v4 調教詳細データをkb_extに補強
   | 'v4_predict'                 // v4 ML v3予測 → data3/ml/predictions_live.json
-  | 'v4_pipeline';               // v4 上記4つを連結実行
+  | 'v4_pipeline';               // v4 上記を連結実行
 
 export interface ActionConfig {
   id: ActionType;
@@ -42,66 +40,33 @@ export interface CommandOptions {
   track?: string;
 }
 
-const RACE_INFO_UPDATE_SCRIPT = '../KeibaCICD.TARGET/scripts/parse_jv_race_data.py';
-
-function buildRaceInfoUpdateArgs(date: string): string[] {
-  return [
-    RACE_INFO_UPDATE_SCRIPT,
-    '--date',
-    date,
-    '--update-race-info',
-  ];
-}
-
-function getDateRangeList(startDate: string, endDate: string): string[] {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return [];
-  }
-
-  const dates: string[] = [];
-  const current = new Date(start);
-
-  while (current <= end) {
-    const year = current.getFullYear();
-    const month = String(current.getMonth() + 1).padStart(2, '0');
-    const day = String(current.getDate()).padStart(2, '0');
-    dates.push(`${year}-${month}-${day}`);
-    current.setDate(current.getDate() + 1);
-  }
-
-  return dates;
-}
-
 export const ACTIONS: ActionConfig[] = [
-  // データ取得
+  // データ取得（v2 batch_scraper経由）
   {
     id: 'schedule',
     label: 'スケジュール取得',
-    description: '開催日程を取得',
+    description: 'keibabook.co.jpから開催日程を取得',
     icon: '📅',
     category: 'fetch',
   },
   {
     id: 'basic',
     label: '基本データ取得',
-    description: '出馬表・調教・談話・勝因を取得',
+    description: '出馬表・調教・談話・勝因を取得 → kb_ext直接構築',
     icon: '📋',
     category: 'fetch',
   },
   {
     id: 'paddok',
     label: 'パドック取得',
-    description: 'パドック情報を取得（レース当日用）',
+    description: 'パドック情報を取得 → kb_ext更新（レース当日用）',
     icon: '🐎',
     category: 'fetch',
   },
   {
     id: 'seiseki',
     label: '成績取得',
-    description: 'レース結果を取得（レース後用）',
+    description: 'レース結果を取得 → kb_ext更新（レース後用）',
     icon: '🏆',
     category: 'fetch',
   },
@@ -112,40 +77,18 @@ export const ACTIONS: ActionConfig[] = [
     icon: '🌱',
     category: 'fetch',
   },
-  // データ統合・生成
-  {
-    id: 'integrate',
-    label: 'データ統合',
-    description: 'JSONデータを統合',
-    icon: '🔗',
-    category: 'generate',
-  },
-  {
-    id: 'markdown',
-    label: 'MD生成',
-    description: 'Markdownファイルを生成',
-    icon: '📄',
-    category: 'generate',
-  },
-  {
-    id: 'horse_profile',
-    label: '馬プロフィール生成',
-    description: '馬の詳細プロフィールを生成',
-    icon: '🐴',
-    category: 'generate',
-  },
   // 一括実行
   {
     id: 'batch_prepare',
-    label: '前日準備',
-    description: 'スケジュール → 基本データ → 統合',
+    label: '基本情報構築',
+    description: '日程取得 → 基本データ取得 → kb_ext構築 → v4パイプライン（レース構築・調教補強・ML予測）',
     icon: '🌅',
     category: 'batch',
   },
   {
     id: 'batch_after_race',
-    label: 'レース後更新',
-    description: 'パドック → 成績 → 統合',
+    label: '直前情報・結果情報構築',
+    description: 'パドック → 成績 → kb_ext更新 → v4パイプライン（調教補強・ML予測）',
     icon: '🔄',
     category: 'batch',
   },
@@ -153,7 +96,7 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'sunpyo_update',
     label: '寸評更新',
-    description: '過去レースの成績を再取得（寸評含む）',
+    description: '過去レースの成績を再取得（寸評含む）→ kb_ext更新',
     icon: '📝',
     category: 'update',
     requiresDateRange: true,
@@ -162,7 +105,7 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'calc_race_type_standards',
     label: 'レース特性基準値算出',
-    description: 'JRA-VANデータから瞬発戦/持続戦の基準値を算出',
+    description: 'data3/racesからRPCI瞬発戦/持続戦の基準値を算出',
     icon: '📊',
     category: 'analysis',
     noDateRequired: true,
@@ -177,15 +120,15 @@ export const ACTIONS: ActionConfig[] = [
   },
   {
     id: 'training_summary',
-    label: '調教サマリ生成',
-    description: 'CK_DATAから調教サマリJSONを生成',
+    label: '調教詳細補強',
+    description: 'keibabook HTMLから調教詳細データをkb_extに補強（v4_cyokyo_enrichと同等）',
     icon: '🏋️',
     category: 'generate',
   },
   {
     id: 'build_horse_name_index',
     label: '馬名インデックス作成',
-    description: 'UM_DATAから馬名→血統番号の辞書を再構築（新馬対応・年1回推奨）',
+    description: 'data3/masters/horsesから馬名→血統番号の辞書を再構築（新馬対応・年1回推奨）',
     icon: '📖',
     category: 'generate',
     noDateRequired: true,
@@ -193,7 +136,7 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'build_trainer_index',
     label: '調教師インデックス作成',
-    description: '競馬ブック厩舎IDとJRA-VAN調教師コードの対応辞書を構築',
+    description: 'data3/mastersから調教師コード↔名前の対応辞書を構築',
     icon: '👨‍🏫',
     category: 'generate',
     noDateRequired: true,
@@ -201,7 +144,7 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'analyze_trainer_patterns',
     label: '調教師パターン分析',
-    description: '過去3年の調教×着順データから調教師別好走パターンを統計分析',
+    description: 'keibabook調教詳細×着順データから調教師別好走パターンを統計分析',
     icon: '🔬',
     category: 'analysis',
     noDateRequired: true,
@@ -216,8 +159,8 @@ export const ACTIONS: ActionConfig[] = [
   },
   {
     id: 'v4_build_kbext',
-    label: 'v4 KB拡張変換',
-    description: 'data2 integrated → data3/keibabook/ 拡張データ変換',
+    label: 'v4 KB拡張変換（レガシー）',
+    description: 'data2 integrated → data3/keibabook/ 拡張データ変換（過去データ用）',
     icon: '📦',
     category: 'generate',
   },
@@ -238,7 +181,7 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'v4_pipeline',
     label: 'v4 パイプライン',
-    description: 'レース構築 → KB拡張変換 → 調教詳細補強 → ML予測 を一括実行',
+    description: 'レース構築 → 調教詳細補強 → ML予測 を一括実行',
     icon: '🚀',
     category: 'batch',
   },
@@ -253,7 +196,7 @@ export function formatDateForCli(date: string): string {
 }
 
 /**
- * アクションIDからコマンド引数を生成
+ * レースフィルタ引数を追加
  */
 function appendRaceFilters(args: string[], options?: CommandOptions): string[] {
   if (!options) return args;
@@ -271,46 +214,25 @@ function appendRaceFilters(args: string[], options?: CommandOptions): string[] {
   return args;
 }
 
+/**
+ * アクションIDからコマンド引数を生成（全てv2ネイティブ）
+ */
 export function getCommandArgs(action: ActionType, date: string, options?: CommandOptions): string[][] {
-  const formattedDate = formatDateForCli(date);
-  const raceInfoUpdateArgs = buildRaceInfoUpdateArgs(date);
-
   switch (action) {
     case 'schedule':
       return [
-        ['-m', 'src.fast_batch_cli', 'schedule', '--start', formattedDate, '--end', formattedDate],
-        raceInfoUpdateArgs,
+        ['-m', 'keibabook.batch_scraper', '--date', date, '--types', 'nittei'],
       ];
 
     case 'basic':
       return [
-        [
-          '-m',
-          'src.fast_batch_cli',
-          'full',
-          '--start',
-          formattedDate,
-          '--end',
-          formattedDate,
-          '--data-types',
-          'shutsuba,cyokyo,danwa,syoin',
-        ],
+        ['-m', 'keibabook.batch_scraper', '--date', date, '--types', 'basic'],
       ];
 
     case 'paddok':
       return [
         appendRaceFilters(
-          [
-            '-m',
-            'src.fast_batch_cli',
-            'full',
-            '--start',
-            formattedDate,
-            '--end',
-            formattedDate,
-            '--data-types',
-            'paddok',
-          ],
+          ['-m', 'keibabook.batch_scraper', '--date', date, '--types', 'paddok'],
           options
         ),
       ];
@@ -318,114 +240,34 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
     case 'seiseki':
       return [
         appendRaceFilters(
-          [
-            '-m',
-            'src.fast_batch_cli',
-            'full',
-            '--start',
-            formattedDate,
-            '--end',
-            formattedDate,
-            '--data-types',
-            'seiseki',
-          ],
+          ['-m', 'keibabook.batch_scraper', '--date', date, '--types', 'seiseki'],
           options
         ),
       ];
 
     case 'babakeikou':
-      // 馬場情報取得（単一日付）
       return [
-        [
-          '-m',
-          'src.fast_batch_cli',
-          'full',
-          '--start',
-          formattedDate,
-          '--end',
-          formattedDate,
-          '--data-types',
-          'babakeikou',
-        ],
-      ];
-
-    case 'integrate':
-      return [['-m', 'src.integrator_cli', 'batch', '--date', formattedDate]];
-
-    case 'markdown':
-      return [['-m', 'src.markdown_cli', 'batch', '--date', formattedDate, '--organized']];
-
-    case 'horse_profile':
-      return [
-        [
-          '-m',
-          'src.horse_profile_cli',
-          '--date',
-          formattedDate,
-          '--all',
-          '--with-history',
-          '--with-seiseki-table',
-        ],
+        ['-m', 'keibabook.batch_scraper', '--date', date, '--types', 'babakeikou'],
       ];
 
     case 'batch_prepare':
-      // 前日準備: スケジュール → 基本データ → 統合
-      // ※MD生成・馬プロフィールは除外（WebViewer v2では不要）
-      return [
-        ...getCommandArgs('schedule', date, options),
-        ...getCommandArgs('basic', date, options),
-        ...getCommandArgs('integrate', date, options),
-      ];
-
     case 'batch_after_race':
-      // レース後更新: パドック → 成績 → 統合
-      // ※MD生成は除外（WebViewer不要、Obsidian用）
-      return [
-        ...getCommandArgs('paddok', date, options),
-        ...getCommandArgs('seiseki', date, options),
-        ...getCommandArgs('integrate', date, options),
-      ];
-
     case 'sunpyo_update':
-      // 寸評更新は日付範囲対応版を使用
+      // Note: execute/route.ts で特別に処理される
       return [];
 
     case 'calc_race_type_standards':
-      // レース特性基準値算出（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'calc_rating_standards':
-      // レイティング基準値算出（keibabookスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'training_summary':
-      // 調教サマリ生成（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'build_horse_name_index':
-      // 馬名インデックス作成（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'build_trainer_index':
-      // 調教師インデックス作成（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'analyze_trainer_patterns':
-      // 調教師パターン分析（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'v4_build_race':
     case 'v4_build_kbext':
     case 'v4_cyokyo_enrich':
     case 'v4_predict':
     case 'v4_pipeline':
-      // v4パイプライン: APIルートで特別に処理される
+      // Note: execute/route.ts で特別に処理される
       return [];
 
     default:
@@ -434,8 +276,7 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
 }
 
 /**
- * 日付範囲対応アクションのコマンド引数を生成
- * すべてのアクションで日付範囲指定が可能
+ * 日付範囲対応アクションのコマンド引数を生成（全てv2ネイティブ）
  */
 export function getCommandArgsRange(
   action: ActionType,
@@ -443,46 +284,21 @@ export function getCommandArgsRange(
   endDate: string,
   options?: CommandOptions
 ): string[][] {
-  const formattedStart = formatDateForCli(startDate);
-  const formattedEnd = formatDateForCli(endDate);
-  const rangeDates = getDateRangeList(startDate, endDate);
-
   switch (action) {
     case 'schedule':
       return [
-        ['-m', 'src.fast_batch_cli', 'schedule', '--start', formattedStart, '--end', formattedEnd],
-        ...rangeDates.map((date) => buildRaceInfoUpdateArgs(date)),
+        ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'nittei'],
       ];
 
     case 'basic':
       return [
-        [
-          '-m',
-          'src.fast_batch_cli',
-          'full',
-          '--start',
-          formattedStart,
-          '--end',
-          formattedEnd,
-          '--data-types',
-          'shutsuba,cyokyo,danwa,syoin',
-        ],
+        ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'basic'],
       ];
 
     case 'paddok':
       return [
         appendRaceFilters(
-          [
-            '-m',
-            'src.fast_batch_cli',
-            'full',
-            '--start',
-            formattedStart,
-            '--end',
-            formattedEnd,
-            '--data-types',
-            'paddok',
-          ],
+          ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'paddok'],
           options
         ),
       ];
@@ -490,120 +306,32 @@ export function getCommandArgsRange(
     case 'seiseki':
       return [
         appendRaceFilters(
-          [
-            '-m',
-            'src.fast_batch_cli',
-            'full',
-            '--start',
-            formattedStart,
-            '--end',
-            formattedEnd,
-            '--data-types',
-            'seiseki',
-          ],
+          ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
           options
         ),
       ];
 
     case 'babakeikou':
       return [
-        [
-          '-m',
-          'src.fast_batch_cli',
-          'full',
-          '--start',
-          formattedStart,
-          '--end',
-          formattedEnd,
-          '--data-types',
-          'babakeikou',
-        ],
-      ];
-
-    case 'integrate':
-      return [['-m', 'src.integrator_cli', 'batch', '--start', formattedStart, '--end', formattedEnd]];
-
-    case 'markdown':
-      return [['-m', 'src.markdown_cli', 'batch', '--start', formattedStart, '--end', formattedEnd, '--organized']];
-
-    case 'horse_profile':
-      // 馬プロフィールは範囲全体を処理
-      return [
-        [
-          '-m',
-          'src.horse_profile_cli',
-          '--start',
-          formattedStart,
-          '--end',
-          formattedEnd,
-          '--all',
-          '--with-history',
-          '--with-seiseki-table',
-        ],
+        ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'babakeikou'],
       ];
 
     case 'batch_prepare':
-      // 前日準備: スケジュール → 基本データ → 統合
-      // ※MD生成・馬プロフィールは除外（WebViewer v2では不要）
-      return [
-        ...getCommandArgsRange('schedule', startDate, endDate, options),
-        ...getCommandArgsRange('basic', startDate, endDate, options),
-        ...getCommandArgsRange('integrate', startDate, endDate, options),
-      ];
-
     case 'batch_after_race':
-      // レース後更新: パドック → 成績 → 統合
-      // ※MD生成は除外（WebViewer不要、Obsidian用）
-      return [
-        ...getCommandArgsRange('paddok', startDate, endDate, options),
-        ...getCommandArgsRange('seiseki', startDate, endDate, options),
-        ...getCommandArgsRange('integrate', startDate, endDate, options),
-      ];
-
     case 'sunpyo_update':
-      // 過去レースの成績を再取得（寸評含む）→ 統合 → MD生成
-      return [
-        [
-          '-m',
-          'src.fast_batch_cli',
-          'full',
-          '--start',
-          formattedStart,
-          '--end',
-          formattedEnd,
-          '--data-types',
-          'seiseki',
-        ],
-        ['-m', 'src.integrator_cli', 'batch', '--start', formattedStart, '--end', formattedEnd],
-        ['-m', 'src.markdown_cli', 'batch', '--start', formattedStart, '--end', formattedEnd, '--organized'],
-      ];
+      // Note: execute/route.ts で特別に処理される
+      return [];
 
     case 'training_summary':
-      // 調教サマリ生成（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'build_horse_name_index':
-      // 馬名インデックス作成（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'build_trainer_index':
-      // 調教師インデックス作成（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'analyze_trainer_patterns':
-      // 調教師パターン分析（TARGETスクリプト）
-      // Note: このアクションはAPIルートで特別に処理される
-      return [];
-
     case 'v4_build_race':
     case 'v4_build_kbext':
     case 'v4_cyokyo_enrich':
     case 'v4_predict':
     case 'v4_pipeline':
-      // v4パイプライン: APIルートで特別に処理される
+      // Note: execute/route.ts で特別に処理される
       return [];
 
     default:

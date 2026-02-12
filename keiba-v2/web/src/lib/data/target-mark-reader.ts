@@ -86,7 +86,7 @@ const MARK_SET_FOLDERS: Record<number, string> = {
  * MY_DATAディレクトリパスを取得
  */
 function getMyDataDir(markSet: number = 1): string {
-  const jvRoot = process.env.JV_DATA_ROOT_DIR || 'E:\\TFJV';
+  const jvRoot = process.env.JV_DATA_ROOT || 'E:\\TFJV';
   const baseDir = path.join(jvRoot, 'MY_DATA');
   const subFolder = MARK_SET_FOLDERS[markSet] || '';
   return subFolder ? path.join(baseDir, subFolder) : baseDir;

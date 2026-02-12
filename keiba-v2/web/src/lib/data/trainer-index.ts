@@ -8,7 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { KEIBA_DATA_ROOT_DIR } from '@/lib/config';
+import { DATA3_ROOT } from '@/lib/config';
 
 /**
  * 調教師情報
@@ -40,13 +40,15 @@ function loadTrainerIndex(): Map<string, TrainerInfo> {
   trainerIndexCache = new Map();
   
   try {
-    const indexPath = path.join(KEIBA_DATA_ROOT_DIR, 'target', 'trainer_id_index.json');
+    const indexPath = path.join(DATA3_ROOT, 'indexes', 'trainer_kb_index.json');
     
     if (fs.existsSync(indexPath)) {
       const content = fs.readFileSync(indexPath, 'utf-8');
       const data = JSON.parse(content);
       
       for (const [keibabookId, info] of Object.entries(data)) {
+        // data3のtrainer_kb_index.jsonにはmetadata/code_to_nameが含まれるのでスキップ
+        if (keibabookId === 'metadata' || keibabookId === 'code_to_name') continue;
         const typedInfo = info as Record<string, string>;
         trainerIndexCache.set(keibabookId, {
           keibabookId,

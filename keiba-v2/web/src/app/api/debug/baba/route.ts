@@ -17,14 +17,14 @@ import {
   getBabaCushionMapSize,
   getBabaDebugCandidatesAndVenues,
 } from '@/lib/data/baba-reader';
-import { BABA_DATA_PATH, DATA_ROOT } from '@/lib/config';
+import { BABA_DATA_PATH, DATA3_ROOT } from '@/lib/config';
 import { getIntegratedRaceData } from '@/lib/data/integrated-race-reader';
 
 /** race_info.json を直接読み込む（race-reader の remark 依存を避ける） */
 async function readRaceInfo(date: string): Promise<{ kaisai_data?: Record<string, Array<{ race_id?: string; race_no?: string }>> } | null> {
   const [y, m, d] = date.split('-');
   if (!y || !m || !d) return null;
-  const filePath = path.join(DATA_ROOT, 'races', y, m, d, 'race_info.json');
+  const filePath = path.join(DATA3_ROOT, 'races', y, m, d, 'race_info.json');
   if (!fs.existsSync(filePath)) return null;
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -42,13 +42,13 @@ export async function GET(request: NextRequest) {
     const raceId = searchParams.get('raceId') || '';
 
     const [y, m, d] = date.split('-');
-    const raceInfoPath = y && m && d ? path.join(DATA_ROOT, 'races', y, m, d, 'race_info.json') : '';
+    const raceInfoPath = y && m && d ? path.join(DATA3_ROOT, 'races', y, m, d, 'race_info.json') : '';
 
     const diag: Record<string, unknown> = {
       date,
       track,
       raceId,
-      dataRoot: DATA_ROOT,
+      dataRoot: DATA3_ROOT,
       raceInfoPath,
       raceInfoPathExists: raceInfoPath ? fs.existsSync(raceInfoPath) : false,
       babaConfigPath: BABA_DATA_PATH,
