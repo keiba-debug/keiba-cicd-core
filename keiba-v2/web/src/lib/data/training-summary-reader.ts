@@ -348,7 +348,9 @@ export async function getPreviousTrainingBatch(
     console.log('[DEBUG] Dates:', Array.from(dateGroups.keys()).sort());
   }
 
-  // 各日付の training_summary.json を読み込み
+  // 各日付の training_summary.json を読み込み（同期読み込みのみ、オンデマンド生成はしない）
+  // 注意: 過去日付のオンデマンド生成は数十日分のCK_DATAパースを引き起こし
+  // ページロードが100秒超になるため、既存ファイルのみ参照する
   let totalMatched = 0;
   let totalMissing = 0;
   for (const [date, horseNames] of dateGroups) {

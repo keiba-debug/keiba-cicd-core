@@ -242,6 +242,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 targetMarks={targetMarks}
                 recentFormMap={recentFormMap}
                 mlPredictions={mlPredictions}
+                raceId={raceData.meta?.race_id}
               />
             </div>
           </TabsContent>
@@ -358,6 +359,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               targetMarks={targetMarks}
               recentFormMap={recentFormMap}
               mlPredictions={mlPredictions}
+              raceId={raceData.meta?.race_id}
             />
           </div>
 

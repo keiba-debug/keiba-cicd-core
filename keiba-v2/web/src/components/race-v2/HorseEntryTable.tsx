@@ -16,8 +16,9 @@
  * - RatingCell, RatingMiniBar を React.memo でラップ
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
+import useSWR from 'swr';
 import {
   HorseEntry,
   getWakuColor,
@@ -58,6 +59,34 @@ export interface MlPredictionEntry {
   is_value_bet: boolean;
 }
 
+/** DB odds レスポンス型 */
+interface DbHorseOdds {
+  umaban: number;
+  winOdds: number | null;
+  placeOddsMin: number | null;
+  placeOddsMax: number | null;
+  ninki: number | null;
+  firstWinOdds: number | null;
+  oddsTrend: 'up' | 'down' | 'stable' | null;
+}
+
+interface DbOddsResponse {
+  raceId: string;
+  source: 'timeseries' | 'final' | 'none';
+  snapshotTime: string | null;
+  snapshotCount: number;
+  horses: DbHorseOdds[];
+}
+
+const swrFetcher = (url: string) => fetch(url).then((r) => r.json());
+
+function formatSnapshotTime(raw: string | null): string {
+  if (!raw || raw.length < 8) return '';
+  const hh = raw.slice(4, 6);
+  const mm = raw.slice(6, 8);
+  return `${hh}:${mm}`;
+}
+
 interface HorseEntryTableProps {
   entries: HorseEntry[];
   showResult?: boolean;
@@ -70,6 +99,8 @@ interface HorseEntryTableProps {
   recentFormMap?: Record<number, RecentFormData[]>;
   /** ML予測（馬番→予測データ） */
   mlPredictions?: Record<number, MlPredictionEntry>;
+  /** 16桁レースID（DB odds取得用） */
+  raceId?: string;
 }
 
 // =============================================================================
@@ -380,6 +411,8 @@ interface HorseEntryRowProps {
   myMark2?: string;
   recentForm?: RecentFormData[];
   mlPrediction?: MlPredictionEntry;
+  dbOdds?: DbHorseOdds;
+  hasDbOdds?: boolean;
 }
 
 const HorseEntryRow = React.memo(function HorseEntryRow({
@@ -400,12 +433,16 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   myMark2,
   recentForm,
   mlPrediction,
+  dbOdds,
+  hasDbOdds,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
 
-  // 人気による行の背景色
-  const oddsRankRaw = parseInt(entry_data.odds_rank, 10);
+  // DB odds優先: オッズ・人気を決定
+  const displayOdds = dbOdds?.winOdds != null ? String(dbOdds.winOdds.toFixed(1)) : entry_data.odds;
+  const displayNinki = dbOdds?.ninki ?? parseInt(entry_data.odds_rank, 10);
+  const oddsRankRaw = dbOdds?.ninki ?? parseInt(entry_data.odds_rank, 10);
   const oddsRank = isNaN(oddsRankRaw) ? 0 : oddsRankRaw;
   const rowBgClass = oddsRank === 1
     ? 'bg-amber-50 dark:bg-amber-900/10'
@@ -547,8 +584,29 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         oddsRank === 2 && "bg-blue-50 dark:bg-blue-900/10",
         oddsRank === 3 && "bg-emerald-50 dark:bg-emerald-900/10"
       )}>
-        <OddsRankBadge rank={oddsRank} odds={entry_data.odds} />
+        <div className="flex items-center justify-end gap-1">
+          {dbOdds?.oddsTrend && (
+            <span className={cn(
+              "text-[10px]",
+              dbOdds.oddsTrend === 'down' ? 'text-red-500' :
+              dbOdds.oddsTrend === 'up' ? 'text-blue-500' : 'text-gray-400'
+            )}>
+              {dbOdds.oddsTrend === 'down' ? '\u25BC' : dbOdds.oddsTrend === 'up' ? '\u25B2' : '-'}
+            </span>
+          )}
+          <OddsRankBadge rank={oddsRank} odds={displayOdds} />
+        </div>
       </td>
+      {/* 複勝オッズ（DB取得時のみ表示） */}
+      {hasDbOdds && (
+        <td className="px-2 py-1.5 text-right border font-mono text-xs text-gray-500">
+          {dbOdds?.placeOddsMin != null ? (
+            dbOdds.placeOddsMin === dbOdds.placeOddsMax
+              ? dbOdds.placeOddsMin.toFixed(1)
+              : `${dbOdds.placeOddsMin.toFixed(1)}-${dbOdds.placeOddsMax!.toFixed(1)}`
+          ) : '-'}
+        </td>
+      )}
 
       {/* AI指数 */}
       <td className={cn(
@@ -627,8 +685,39 @@ export default function HorseEntryTable({
   targetMarks,
   recentFormMap,
   mlPredictions,
+  raceId,
 }: HorseEntryTableProps) {
   const hasMlPredictions = mlPredictions && Object.keys(mlPredictions).length > 0;
+
+  // DB odds取得（SWR: 当日は30秒ポーリング）
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+  const isToday = raceId ? raceId.startsWith(todayStr) : false;
+
+  const { data: dbOdds } = useSWR<DbOddsResponse>(
+    mounted && raceId && raceId.length === 16 ? `/api/odds/db-latest?raceId=${raceId}` : null,
+    swrFetcher,
+    {
+      refreshInterval: isToday ? 30000 : 0,
+      revalidateOnFocus: isToday,
+      dedupingInterval: 10000,
+    }
+  );
+
+  const hasDbOdds = !!(dbOdds && dbOdds.source !== 'none' && dbOdds.horses.length > 0);
+  const dbOddsMap = useMemo(() => {
+    const map = new Map<number, DbHorseOdds>();
+    if (hasDbOdds) {
+      for (const h of dbOdds.horses) {
+        map.set(h.umaban, h);
+      }
+    }
+    return map;
+  }, [dbOdds, hasDbOdds]);
+
   // 馬番順にソート（useMemoでキャッシュ）
   const sortedEntries = useMemo(
     () => [...entries].sort((a, b) => a.horse_number - b.horse_number),
@@ -676,6 +765,21 @@ export default function HorseEntryTable({
 
   return (
     <div className="overflow-x-auto">
+      {/* DB odds情報バー */}
+      {hasDbOdds && (
+        <div className="flex items-center gap-2 text-xs text-gray-500 mb-1 px-1">
+          {dbOdds.source === 'timeseries' && dbOdds.snapshotTime && (
+            <>
+              <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <span>{formatSnapshotTime(dbOdds.snapshotTime)}更新</span>
+              <span className="text-gray-400">({dbOdds.snapshotCount}回)</span>
+            </>
+          )}
+          {dbOdds.source === 'final' && (
+            <span className="text-yellow-600">確定オッズ</span>
+          )}
+        </div>
+      )}
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="bg-gray-100 dark:bg-gray-800">
@@ -691,7 +795,10 @@ export default function HorseEntryTable({
             <th className="px-2 py-2 text-center border w-16">性齢</th>
             <th className="px-2 py-2 text-left border min-w-20">騎手</th>
             <th className="px-2 py-2 text-center border w-12">斤量</th>
-            <th className="px-2 py-2 text-right border w-16">オッズ</th>
+            <th className="px-2 py-2 text-right border w-16">単勝</th>
+            {hasDbOdds && (
+              <th className="px-2 py-2 text-right border w-24">複勝</th>
+            )}
             <th className="px-2 py-2 text-center border w-16">AI指数</th>
             <th className="px-2 py-2 text-center border w-12">レート</th>
             <th className="px-2 py-2 text-center border w-10">P</th>
@@ -728,6 +835,8 @@ export default function HorseEntryTable({
               myMark2={targetMarks?.horseMarks2?.[entry.horse_number]}
               recentForm={recentFormMap?.[entry.horse_number]}
               mlPrediction={hasMlPredictions ? mlPredictions[entry.horse_number] : undefined}
+              dbOdds={dbOddsMap.get(entry.horse_number)}
+              hasDbOdds={hasDbOdds}
             />
           ))}
         </tbody>

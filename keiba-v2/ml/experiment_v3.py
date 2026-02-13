@@ -402,6 +402,9 @@ def compute_features_for_race(
         feat['date'] = race_date
         feat['ketto_num'] = ketto_num
         feat['horse_name'] = entry.get('horse_name', '')
+        feat['umaban'] = entry.get('umaban', 0)
+        feat['venue_name'] = race.get('venue_name', '')
+        feat['grade'] = race.get('grade', '')
         feat['finish_position'] = fp
         feat['is_top3'] = 1 if fp <= 3 else 0
         feat['is_win'] = 1 if fp == 1 else 0
@@ -596,8 +599,10 @@ def calc_value_bet_analysis(df: pd.DataFrame) -> List[dict]:
     results = []
     for min_gap in [2, 3, 4, 5]:
         total_bets = 0
-        total_return = 0
-        hits = 0
+        place_return = 0
+        win_return = 0
+        place_hits = 0
+        win_hits = 0
         total_count = 0
 
         for race_id, group in df.groupby('race_id'):
@@ -612,22 +617,96 @@ def calc_value_bet_analysis(df: pd.DataFrame) -> List[dict]:
                 total_bets += bet
                 total_count += 1
 
+                if row['is_win'] == 1:
+                    win_return += row['odds'] * bet
+                    win_hits += 1
+
                 if row['is_top3'] == 1:
                     place_odds = max(row['odds'] / 3.5, 1.1)
-                    total_return += place_odds * bet
-                    hits += 1
+                    place_return += place_odds * bet
+                    place_hits += 1
 
-        place_roi = total_return / total_bets * 100 if total_bets > 0 else 0
-        hit_rate = hits / total_count if total_count > 0 else 0
+        place_roi = place_return / total_bets * 100 if total_bets > 0 else 0
+        win_roi = win_return / total_bets * 100 if total_bets > 0 else 0
+        hit_rate = place_hits / total_count if total_count > 0 else 0
 
         results.append({
             'min_gap': min_gap,
             'bet_count': total_count,
+            'win_hits': win_hits,
+            'win_roi': round(win_roi, 1),
+            'place_hits': place_hits,
             'place_hit_rate': round(hit_rate, 4),
             'place_roi': round(place_roi, 1),
         })
 
     return results
+
+
+def collect_value_bet_picks(df: pd.DataFrame, min_gap: int = 3) -> List[dict]:
+    """テスト期間のValue Bet候補を個別レコードとして収集"""
+    if 'pred_rank_v' not in df.columns or 'odds_rank' not in df.columns:
+        return []
+
+    picks = []
+    for race_id, group in df.groupby('race_id'):
+        candidates = group[
+            (group['pred_rank_v'] <= 3) &
+            (group['odds_rank'] >= group['pred_rank_v'] + min_gap)
+        ]
+        for _, row in candidates.iterrows():
+            gap = int(row['odds_rank'] - row['pred_rank_v'])
+            picks.append({
+                'race_id': str(row['race_id']),
+                'date': str(row['date']),
+                'venue': str(row.get('venue_name', '')),
+                'grade': str(row.get('grade', '')),
+                'horse_number': int(row.get('umaban', 0)),
+                'horse_name': str(row.get('horse_name', '')),
+                'value_rank': int(row['pred_rank_v']),
+                'odds_rank': int(row['odds_rank']),
+                'gap': gap,
+                'odds': round(float(row['odds']), 1) if row['odds'] > 0 else None,
+                'pred_proba_accuracy': round(float(row['pred_proba_a']), 4),
+                'pred_proba_value': round(float(row['pred_proba_v']), 4),
+                'actual_position': int(row['finish_position']),
+                'is_top3': int(row['is_top3']),
+            })
+
+    picks.sort(key=lambda x: (-x['gap'], x['date']))
+    return picks
+
+
+def collect_race_predictions(df: pd.DataFrame) -> List[dict]:
+    """テスト期間のレース別予測データを収集"""
+    races = []
+    for race_id, group in df.groupby('race_id'):
+        group_sorted = group.sort_values('pred_proba_a', ascending=False)
+        row0 = group_sorted.iloc[0]
+        horses = []
+        for _, row in group_sorted.iterrows():
+            horses.append({
+                'horse_number': int(row.get('umaban', 0)),
+                'horse_name': str(row.get('horse_name', '')),
+                'pred_proba_accuracy': round(float(row['pred_proba_a']), 4),
+                'pred_proba_value': round(float(row['pred_proba_v']), 4),
+                'pred_top3': int(row['pred_rank_a'] <= 3),
+                'actual_position': int(row['finish_position']),
+                'actual_top3': int(row['is_top3']),
+                'odds_rank': int(row['odds_rank']) if row.get('odds_rank', 0) > 0 else None,
+                'odds': round(float(row['odds']), 1) if row.get('odds', 0) > 0 else None,
+                'value_rank': int(row['pred_rank_v']),
+            })
+        races.append({
+            'race_id': str(race_id),
+            'date': str(row0['date']),
+            'venue': str(row0.get('venue_name', '')),
+            'grade': str(row0.get('grade', '')),
+            'entry_count': len(group),
+            'horses': horses,
+        })
+    races.sort(key=lambda x: (x['date'], x['race_id']))
+    return races
 
 
 def parse_year_range(s: str) -> Tuple[int, int]:
@@ -708,6 +787,12 @@ def main():
 
     print("\n[Analysis] Value Bet analysis...")
     vb_analysis = calc_value_bet_analysis(df_test)
+    vb_picks = collect_value_bet_picks(df_test, min_gap=2)
+    print(f"  Value Bet picks: {len(vb_picks)} entries (gap >= 2)")
+
+    print("\n[Analysis] Collecting race predictions...")
+    race_preds = collect_race_predictions(df_test)
+    print(f"  Race predictions: {len(race_preds)} races")
 
     # 結果表示
     print(f"\n{'='*60}")
@@ -802,6 +887,8 @@ def main():
         'value_bets': {
             'by_rank_gap': vb_analysis,
         },
+        'value_bet_picks': vb_picks,
+        'race_predictions': race_preds,
     }
 
     result_path = model_dir / "ml_experiment_v3_result.json"

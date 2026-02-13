@@ -175,6 +175,17 @@ const ExpandableText = React.memo(function ExpandableText({ text, maxLength }: {
   );
 });
 
+// detailからラップランクを抽出（例: "坂路B-(51.3)" → "B-"）
+function extractLapRankFromValue(value: string): string {
+  const m = value.match(/(SS|[SABCD][+=-])/);
+  return m ? m[1] : '';
+}
+
+// detailから好タイム判定（カッコ内に数値がある = 好タイム表示）
+function hasGoodTimeMarker(value: string): boolean {
+  return /\(\d+\.\d+\)/.test(value);
+}
+
 // detailをパースして行ごとに表示（最終/土日/1週前）
 function formatTrainingDetail(
   detail?: string,
@@ -187,7 +198,8 @@ function formatTrainingDetail(
 ) {
   if (!detail) return null;
 
-  const parts = detail.split(' / ');
+  // ラベル(最終/土日/1週前)の前で分割（スペース区切り・スラッシュ区切りの両方に対応）
+  const parts = detail.split(/\s*\/\s*|\s+(?=最終:|土日:|1週前:)/).filter(Boolean);
 
   return (
     <div className="space-y-0.5">
@@ -198,16 +210,17 @@ function formatTrainingDetail(
         const label = part.substring(0, colonIdx);
         const value = part.substring(colonIdx + 1);
 
+        // ラップランク: 引数優先、なければdetailテキストから抽出
         let lapRank = '';
         let isFastTime = false;
         if (label === '最終') {
-          lapRank = finalLap || '';
-          isFastTime = finalSpeed === '◎';
+          lapRank = finalLap || extractLapRankFromValue(value);
+          isFastTime = finalSpeed === '◎' || hasGoodTimeMarker(value);
         } else if (label === '土日') {
-          lapRank = weekendLap || '';
-          isFastTime = weekendSpeed === '◎';
+          lapRank = weekendLap || extractLapRankFromValue(value);
+          isFastTime = weekendSpeed === '◎' || hasGoodTimeMarker(value);
         } else if (label === '1週前') {
-          lapRank = weekAgoLap || '';
+          lapRank = weekAgoLap || extractLapRankFromValue(value);
           isFastTime = weekAgoSpeed === '◎';
         }
 

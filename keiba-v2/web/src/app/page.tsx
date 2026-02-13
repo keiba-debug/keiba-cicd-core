@@ -3,7 +3,8 @@ import { getAvailableDates, getRacesByDate } from '@/lib/data';
 import { getVenueBabaSummary, type VenueBabaSummary } from '@/lib/data/baba-reader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TabsContent } from '@/components/ui/tabs';
+import { DateTabs } from '@/components/DateTabs';
 import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
 import { BabaInputForm } from '@/components/baba/BabaInputForm';
 import { ChevronLeft, ChevronRight, MessageCircle, TrendingUp } from 'lucide-react';
@@ -26,7 +27,7 @@ function groupDatesByYearMonth(dates: string[]): Map<string, string[]> {
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ year?: string; month?: string }>;
+  searchParams: Promise<{ year?: string; month?: string; date?: string }>;
 }) {
   const params = await searchParams;
   const dates = await getAvailableDates();
@@ -66,8 +67,12 @@ export default async function HomePage({
   // 選択された年月の日付を取得
   const datesInMonth = groupedDates.get(selectedYearMonth) || [];
 
-  // 最新日付のデータを取得
-  const latestDate = datesInMonth[0];
+  // デフォルト日付の決定: URLパラメータ > 今日の日付 > 最新日付
+  const todayDate = `${currentYear}-${currentMonth}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayInMonth = datesInMonth.includes(todayDate) ? todayDate : null;
+  const latestDate = params.date && datesInMonth.includes(params.date)
+    ? params.date
+    : todayInMonth || datesInMonth[0];
 
   // 前月・次月の計算
   const selectedMonthNum = parseInt(selectedMonth);
@@ -177,33 +182,16 @@ export default async function HomePage({
 
       {/* 日付タブ */}
       {datesInMonth.length > 0 ? (
-        <Tabs defaultValue={latestDate} className="w-full">
-          <TabsList className="mb-6 flex-wrap h-auto gap-2 bg-transparent p-0 justify-start">
-            {datesInMonth.map((date) => {
-              const [, month, day] = date.split('-');
-              return (
-                <TabsTrigger
-                  key={date}
-                  value={date}
-                  className="px-5 py-2.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md border bg-background hover:bg-muted/50 transition-all flex flex-col items-center min-w-[4.5rem]"
-                >
-                  <span className="text-lg font-bold leading-none">
-                    {parseInt(day)}
-                  </span>
-                  <span className={`text-xs font-bold mt-1 ${getDayColorClass(date)} group-data-[state=active]:text-primary-foreground/90`}>
-                    {getDayOfWeek(date)}曜
-                  </span>
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-
+        <DateTabs
+          defaultValue={latestDate}
+          dates={datesInMonth}
+        >
           {datesInMonth.map((date) => (
             <TabsContent key={date} value={date} className="mt-0">
               <DateRaces date={date} />
             </TabsContent>
           ))}
-        </Tabs>
+        </DateTabs>
       ) : (
         <div className="text-center py-12 text-muted-foreground">
           <p>この月にはレースデータがありません</p>

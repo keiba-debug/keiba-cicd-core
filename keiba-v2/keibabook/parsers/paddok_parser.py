@@ -57,12 +57,23 @@ def parse_paddok_html(html: str, race_id_12: str = "") -> dict[str, Any]:
 
         entry: dict[str, Any] = {}
 
-        # 馬番
-        for i, cell in enumerate(cells):
-            text = cell.get_text(strip=True)
-            if text.isdigit() and int(text) <= 18:
-                entry["horse_number"] = int(text)
+        # 馬番 — class="umaban"のセルを優先
+        for cell in cells:
+            if "umaban" in cell.get("class", []):
+                text = cell.get_text(strip=True)
+                if text.isdigit():
+                    entry["horse_number"] = int(text)
                 break
+
+        # フォールバック: 枠番(class="waku")を除いた最初の数字セル
+        if "horse_number" not in entry:
+            for cell in cells:
+                if "waku" in cell.get("class", []):
+                    continue
+                text = cell.get_text(strip=True)
+                if text.isdigit() and int(text) <= 18:
+                    entry["horse_number"] = int(text)
+                    break
 
         if "horse_number" not in entry:
             continue

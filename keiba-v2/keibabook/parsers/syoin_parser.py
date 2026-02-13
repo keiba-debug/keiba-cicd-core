@@ -57,12 +57,23 @@ def _parse_interview_row(cells) -> Optional[dict]:
     """行からインタビューデータを抽出"""
     entry: dict[str, Any] = {}
 
-    # 馬番（数値セル）
+    # 馬番 — class="umaban"のセルを優先
     for cell in cells:
-        text = cell.get_text(strip=True)
-        if text.isdigit() and int(text) <= 18:
-            entry["horse_number"] = int(text)
+        if "umaban" in cell.get("class", []):
+            text = cell.get_text(strip=True)
+            if text.isdigit():
+                entry["horse_number"] = int(text)
             break
+
+    # フォールバック: 枠番(class="waku")を除いた最初の数字セル
+    if "horse_number" not in entry:
+        for cell in cells:
+            if "waku" in cell.get("class", []):
+                continue
+            text = cell.get_text(strip=True)
+            if text.isdigit() and int(text) <= 18:
+                entry["horse_number"] = int(text)
+                break
 
     if "horse_number" not in entry:
         return None
@@ -82,17 +93,26 @@ def _parse_interview_row(cells) -> Optional[dict]:
                     entry["horse_name"] = text
                     break
 
-    # インタビュー本文 (最も長いテキストセル)
-    longest = ""
-    for cell in cells:
-        text = cell.get_text(strip=True)
-        if len(text) > len(longest) and not text.isdigit():
-            longest = text
-
-    # インタビューと次走メモを分割
-    interview, memo = _split_interview_memo(longest)
-    entry["interview"] = interview
-    entry["next_race_memo"] = memo
+    # 前走インタビュー・次走メモ — class="syoin"の2つのセルから取得
+    syoin_cells = [c for c in cells if "syoin" in c.get("class", [])]
+    if len(syoin_cells) >= 2:
+        entry["interview"] = syoin_cells[0].get_text(strip=True)
+        entry["next_race_memo"] = syoin_cells[1].get_text(strip=True)
+    elif len(syoin_cells) == 1:
+        text = syoin_cells[0].get_text(strip=True)
+        interview, memo = _split_interview_memo(text)
+        entry["interview"] = interview
+        entry["next_race_memo"] = memo
+    else:
+        # フォールバック: 最長テキスト
+        longest = ""
+        for cell in cells:
+            text = cell.get_text(strip=True)
+            if len(text) > len(longest) and not text.isdigit():
+                longest = text
+        interview, memo = _split_interview_memo(longest)
+        entry["interview"] = interview
+        entry["next_race_memo"] = memo
 
     return entry
 

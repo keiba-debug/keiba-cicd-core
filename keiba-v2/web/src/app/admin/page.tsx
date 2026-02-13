@@ -63,6 +63,9 @@ export default function AdminPage() {
   // インデックス再構築
   const [isRebuildingIndex, setIsRebuildingIndex] = useState(false);
 
+  // 調教サマリー一括生成
+  const [isGeneratingTraining, setIsGeneratingTraining] = useState(false);
+
   // データ品質リフレッシュ用
   const [dataQualityRefreshKey, setDataQualityRefreshKey] = useState(0);
 
@@ -118,6 +121,87 @@ export default function AdminPage() {
       setIsRebuildingIndex(false);
     }
   }, [addLog, refreshDataQuality]);
+
+  // 調教サマリー一括生成
+  const batchGenerateTraining = useCallback(async () => {
+    setIsGeneratingTraining(true);
+    setStatus('running');
+    setCurrentAction('調教サマリー一括生成');
+    addLog({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      message: '🏋️ 調教サマリー一括生成 開始...',
+    });
+
+    try {
+      const response = await fetch('/api/admin/batch-training-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}), // 全日付対象
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'start' || data.type === 'log' || data.type === 'progress') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: data.level || 'info',
+                  message: data.message,
+                });
+              } else if (data.type === 'complete') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: 'success',
+                  message: data.message,
+                });
+                setStatus('success');
+              } else if (data.type === 'error') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: 'error',
+                  message: data.message,
+                });
+                setStatus('error');
+              }
+            } catch (e) {
+              console.error('SSE parse error:', e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        message: `調教サマリー一括生成エラー: ${error}`,
+      });
+      setStatus('error');
+    } finally {
+      setIsGeneratingTraining(false);
+      setCurrentAction(null);
+    }
+  }, [addLog]);
 
   const executeAction = async (action: ActionType) => {
     const actionConfig = ACTIONS.find((a) => a.id === action);
@@ -524,6 +608,33 @@ export default function AdminPage() {
                         </div>
                         <span className="text-xs text-muted-foreground mt-1">
                           新しい日程データを登録した後に実行
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* 調教サマリー一括生成 */}
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-3">
+                      調教データ
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Button
+                        variant="outline"
+                        className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
+                        onClick={batchGenerateTraining}
+                        disabled={isGeneratingTraining || isRunning}
+                      >
+                        <div className="flex items-center gap-2 w-full">
+                          <span className={`text-lg ${isGeneratingTraining ? 'animate-pulse' : ''}`}>🏋️</span>
+                          <span className="font-semibold text-sm">
+                            {isGeneratingTraining ? '調教サマリー生成中...' : '調教サマリー一括生成'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground mt-1">
+                          全レース日付のtraining_summary.jsonを一括生成（前走調教表示に必要）
                         </span>
                       </Button>
                     </div>

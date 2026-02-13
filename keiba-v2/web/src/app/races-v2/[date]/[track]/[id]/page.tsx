@@ -63,27 +63,49 @@ const getTrackBgClass = (trackName: string) => {
 
 export async function generateMetadata({ params }: PageParams): Promise<Metadata> {
   const { date, track, id } = await params;
-  const raceData = await getIntegratedRaceData(date, track, id);
-  
-  if (!raceData) {
-    return { title: 'レースが見つかりません' };
-  }
-  
-  const { race_info } = raceData;
-  // URLパラメータのtrackを優先（JSONデータは不正確な場合がある）
   const displayTrack = decodeURIComponent(track);
-  
-  // 日付を短い形式に変換（2026-01-31 → 1/31）
   const [, month, day] = date.split('-');
   const shortDate = `${parseInt(month)}/${parseInt(day)}`;
-  
-  // レース名があれば表示、なければ距離等
-  const raceName = race_info.race_name || race_info.race_condition || '';
-  const title = `${displayTrack}${race_info.race_number}R ${raceName}`.trim();
-  
+
+  // integrated data → v4 data のフォールバック
+  const integratedData = await getIntegratedRaceData(date, track, id);
+
+  let raceName = '';
+  let raceNumber = '';
+  let raceCondition = '';
+
+  if (integratedData) {
+    raceName = integratedData.race_info.race_name || integratedData.race_info.race_condition || '';
+    raceNumber = String(integratedData.race_info.race_number);
+    raceCondition = integratedData.race_info.race_condition || '';
+  } else {
+    // v4 race JSONから直接タイトル情報を取得
+    const dateCompact = date.replace(/-/g, '');
+    const venueToJvCode: Record<string, string> = {
+      '札幌': '01', '函館': '02', '福島': '03', '新潟': '04', '東京': '05',
+      '中山': '06', '中京': '07', '京都': '08', '阪神': '09', '小倉': '10',
+    };
+    let raceId16: string;
+    if (id.length === 16 && id.startsWith(dateCompact)) {
+      raceId16 = id;
+    } else {
+      const jvVenueCode = venueToJvCode[displayTrack] || id.slice(6, 8);
+      raceId16 = `${dateCompact}${jvVenueCode}${id.slice(4, 6)}${id.slice(8, 10)}${id.slice(10, 12)}`;
+    }
+    const v4Race = getV4RaceData(raceId16);
+    if (v4Race) {
+      raceName = v4Race.race_name || '';
+      raceNumber = String(v4Race.race_number);
+    } else {
+      return { title: 'レースが見つかりません' };
+    }
+  }
+
+  const title = `${displayTrack}${raceNumber}R ${raceName}`.trim();
+
   return {
     title: `${title} (${shortDate})`,
-    description: `${date} ${title} - ${race_info.race_condition || ''}`,
+    description: `${date} ${title} - ${raceCondition}`,
   };
 }
 
