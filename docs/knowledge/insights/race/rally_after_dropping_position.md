@@ -188,7 +188,7 @@
   特に着順が悪い場合（7-10着）でも、盛り返しパターンがあれば
   次走で大きく巻き返す可能性がある。
 
-★ これは [着順バイアス](finishing_position_vs_margin_bias.md) の別角度:
+★ これは [着順バイアス](../model/finishing_position_vs_margin_bias.md の別角度:
   着順は「7着」だが、通過順位のパターンを見ると
   「一度12番手まで下がって7着まで盛り返した」→ 実力は高い。
   着順だけ見ると軽視されるが、盛り返しを検出すれば正しく評価できる。
@@ -326,7 +326,7 @@
     ↓ 着差が大きく開く
     ↓ 過去数走で着順が悪化傾向
 
-→ これは [パフォーマンススコア](alternative_target_variables.md) の
+→ これは [パフォーマンススコア](../model/alternative_target_variables.md の
   Layer 2補正（ルール補正）に組み込める:
   「盛り返しパターンがある走は、着順の割にスコアを上方修正」
   「戦意喪失パターンがある走は、着順に関わらずスコアを下方修正」
@@ -338,11 +338,11 @@
 
 | この考察の論点 | 関連するinsight |
 |---|---|
-| 着順だけでは見えない走りの質 | [着順以外の評価基準](beyond_finishing_position.md) |
-| 着順vs着差の評価ギャップ | [着順バイアス](finishing_position_vs_margin_bias.md) |
-| パフォーマンススコアの補正 | [着順以外の目的変数](alternative_target_variables.md) |
+| 着順だけでは見えない走りの質 | [着順以外の評価基準](../model/beyond_finishing_position.md |
+| 着順vs着差の評価ギャップ | [着順バイアス](../model/finishing_position_vs_margin_bias.md |
+| パフォーマンススコアの補正 | [着順以外の目的変数](../model/alternative_target_variables.md |
 | 前走不利の検出（不利後盛り返し） | [スムーズな走りと展開予測の必要性](smooth_trip_without_simulation.md) |
-| 安定型/一発型の分類 | [馬の着順分布の形状](horse_performance_distribution.md) |
+| 安定型/一発型の分類 | [馬の着順分布の形状](../model/horse_performance_distribution.md |
 | ポジショニングコストとの関係 | [ポジショニングコストと出たなりの優位性](positioning_cost_and_natural_running.md) |
 
 ---

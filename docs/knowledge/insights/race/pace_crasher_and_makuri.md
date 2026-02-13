@@ -155,7 +155,7 @@
 ★ マクリの成功率:
   一般的にマクリは「ハイリスク・ハイリターン」の戦法。
   成功すれば圧勝もあるが、失敗すると大敗。
-  → 着順分布の分散が大きい = [一発型](horse_performance_distribution.md)
+  → 着順分布の分散が大きい = [一発型](../model/horse_performance_distribution.md
 ```
 
 ---
@@ -506,9 +506,9 @@
 | 展開リスク指数、レース選別 | [スムーズな走りと展開予測の必要性](smooth_trip_without_simulation.md) |
 | ポジショニングコスト（マクリのコスト） | [ポジショニングコストと出たなりの優位性](positioning_cost_and_natural_running.md) |
 | 先行争いとコース形態 | [1コーナーまでの距離と枠順バイアス](start_to_first_corner_gate_bias.md) |
-| 一発型（マクリ馬の着順分布） | [馬の着順分布の形状](horse_performance_distribution.md) |
-| 前走不利の事後検出 | [着順以外の評価基準](beyond_finishing_position.md) |
-| ペースクラッシャー候補とオッズ | [馬券市場の構造的非効率性](market_structural_inefficiencies.md) |
+| 一発型（マクリ馬の着順分布） | [馬の着順分布の形状](../model/horse_performance_distribution.md |
+| 前走不利の事後検出 | [着順以外の評価基準](../model/beyond_finishing_position.md |
+| ペースクラッシャー候補とオッズ | [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md |
 
 ---
 

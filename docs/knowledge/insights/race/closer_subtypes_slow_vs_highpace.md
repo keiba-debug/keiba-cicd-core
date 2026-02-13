@@ -231,7 +231,7 @@
 ### 4-2. 着順分布の形状が異なる
 
 ```
-[馬の着順分布の形状](horse_performance_distribution.md) との接続:
+[馬の着順分布の形状](../model/horse_performance_distribution.md との接続:
 
 スロー捲り型:
   → 安定好走型に近い（3着以内率が高く、大敗も少ない）
@@ -442,7 +442,7 @@ AIモデルのEV計算への影響:
   「差し馬だから」という理由で軽視されている場合、
   オッズが歪んでいる → 期待値がある。
 
-これは [馬券市場の構造的非効率性](market_structural_inefficiencies.md) の
+これは [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md の
 新たな歪みの候補。
 ```
 
@@ -484,11 +484,11 @@ Step 3: 各タイプのペース適性も追加
 |---|---|
 | マクリの定義と検出 | [マクリ・ペースクラッシャーの影響](pace_crasher_and_makuri.md) |
 | 展開依存の確率変動 | [展開シミュレーションと条件付き着順予測](race_scenario_simulation.md) |
-| 着順分布の3類型（安定/好走/一発） | [馬の着順分布の形状](horse_performance_distribution.md) |
+| 着順分布の3類型（安定/好走/一発） | [馬の着順分布の形状](../model/horse_performance_distribution.md |
 | 展開リスク指数とレース選別 | [スムーズな走りと展開予測の必要性](smooth_trip_without_simulation.md) |
-| ペース系特徴量 | [features.md](../features.md) ペース・ラップ系 |
+| ペース系特徴量 | [features.md](../../features.md) ペース・ラップ系 |
 | 脚質×枠番×コースの交互作用 | [1コーナーまでの距離と枠順バイアス](start_to_first_corner_gate_bias.md) |
-| オッズの歪みと市場の非効率性 | [馬券市場の構造的非効率性](market_structural_inefficiencies.md) |
+| オッズの歪みと市場の非効率性 | [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md |
 
 ---
 

@@ -520,9 +520,9 @@ LightGBMに①〜⑩を特徴量として入れれば、
 
 | 関連insight | 接続点 |
 |---|---|
-| [特徴量設計とハイパラ](human_vs_ai_in_model_design.md) | 特徴量の「発想」は人間の仕事 |
-| [馬主情報の特徴量化](owner_as_feature.md) | 過学習リスクのある特徴量の扱い方（調教師IDと同様の問題） |
-| [仮説検証マスター](hypothesis_verification_master.md) | ローテーション関連の仮説を追加 |
+| [特徴量設計とハイパラ](../model/human_vs_ai_in_model_design.md | 特徴量の「発想」は人間の仕事 |
+| [馬主情報の特徴量化](../model/owner_as_feature.md | 過学習リスクのある特徴量の扱い方（調教師IDと同様の問題） |
+| [仮説検証マスター](../operations/hypothesis_verification_master.md | ローテーション関連の仮説を追加 |
 
 ## タグ
 

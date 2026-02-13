@@ -659,10 +659,10 @@ Phase 3（精密モデル）: 含水率推定・空気密度計算
 | 関連insight | 接続点 |
 |---|---|
 | [ローテーション分析](rotation_interval_analysis.md) | 季節（気温）× ローテーションの交互作用 |
-| [着順以外の評価基準](beyond_finishing_position.md) | スピード指数の馬場差・気象補正 |
+| [着順以外の評価基準](../model/beyond_finishing_position.md | スピード指数の馬場差・気象補正 |
 | [展開シミュレーション](race_scenario_simulation.md) | 風向き→脚質有利不利の展開影響 |
-| [特徴量設計とハイパラ](human_vs_ai_in_model_design.md) | 環境物理学は「人間が発想する特徴量」の典型 |
-| [仮説検証マスター](hypothesis_verification_master.md) | H-30〜H-33の管理 |
+| [特徴量設計とハイパラ](../model/human_vs_ai_in_model_design.md | 環境物理学は「人間が発想する特徴量」の典型 |
+| [仮説検証マスター](../operations/hypothesis_verification_master.md | H-30〜H-33の管理 |
 
 ## タグ
 

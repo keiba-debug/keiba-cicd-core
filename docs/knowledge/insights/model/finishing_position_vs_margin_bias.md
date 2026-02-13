@@ -314,7 +314,7 @@ weight計算例:
 
 → 「前走着差が小さいのに着順が中途半端（4-8着）な馬」は
   市場に過小評価されている可能性がある。
-  = [馬券市場の構造的非効率性](market_structural_inefficiencies.md)
+  = [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md
     の新たな歪み候補。
 ```
 
@@ -358,7 +358,7 @@ weight計算例:
 ■ カテゴリ思考（掲示板の壁）
   「5着以内 = 好走」「6着以下 = 凡走」というカテゴリ分け。
   → 連続量（着差）をカテゴリ（好走/凡走）に変換する際の情報損失。
-  → [ランダムネスの認知錯誤](randomness_cognitive_errors.md) と同根の問題。
+  → [ランダムネスの認知錯誤](../market/randomness_cognitive_errors.md と同根の問題。
 
 ■ 代表性ヒューリスティック
   「5着の馬」は「次も好走しそう」と感じる。
@@ -410,10 +410,10 @@ weight計算例:
 |---|---|
 | 着順以外の評価基準全般 | [着順以外の評価基準](beyond_finishing_position.md) |
 | パフォーマンススコアの設計 | [着順以外の目的変数](alternative_target_variables.md) |
-| 認知バイアスと誤判断 | [ランダムネスの認知錯誤](randomness_cognitive_errors.md) |
-| 着差・上がりギャップの特徴量 | [features.md](../features.md) パフォーマンス評価系 |
-| オッズの歪みと市場の非効率性 | [馬券市場の構造的非効率性](market_structural_inefficiencies.md) |
-| 前走不利の検出と次走戦略 | [スムーズな走りと展開予測の必要性](smooth_trip_without_simulation.md) |
+| 認知バイアスと誤判断 | [ランダムネスの認知錯誤](../market/randomness_cognitive_errors.md |
+| 着差・上がりギャップの特徴量 | [features.md](../../features.md) パフォーマンス評価系 |
+| オッズの歪みと市場の非効率性 | [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md |
+| 前走不利の検出と次走戦略 | [スムーズな走りと展開予測の必要性](../race/smooth_trip_without_simulation.md |
 
 ---
 

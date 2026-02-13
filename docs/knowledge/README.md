@@ -4,7 +4,7 @@
 
 > 📌 **考察の羅針盤**: 今後の開発・考察を加速させる包括ドキュメントは [競馬AI×機械学習 考察マスター](consideration_master.md) を参照。
 
-> 最終更新: 2026-02-12
+> 最終更新: 2026-02-13
 
 ## ディレクトリ構成
 
@@ -12,7 +12,12 @@
 |---|---|
 | `blog-analyses/` | ブログ単位の考察ドキュメント（時系列で番号管理） |
 | `blog-analyses/_template.md` | 新規考察ドキュメントのテンプレート |
-| `insights/` | テーマ別に横断整理した知見 |
+| `insights/` | テーマ別に横断整理した知見（サブフォルダ分類） |
+| `insights/learning/` | 学習ロードマップ・用語集（4ファイル） |
+| `insights/model/` | モデル設計・特徴量・評価理論（9ファイル） |
+| `insights/market/` | 市場構造・馬券・資金管理（6ファイル） |
+| `insights/race/` | レース構造・展開・ドメイン知識（9ファイル） |
+| `insights/operations/` | 運用・検証・横断知見（3ファイル） |
 | `features.md` | AI開発に使える特徴量候補リスト |
 | `consideration_master.md` | 考察の羅針盤（テーマ間の接続・優先付け・次の問い） |
 
@@ -79,36 +84,37 @@
 | ドキュメント | 内容 |
 |---|---|
 | [競馬AI×機械学習 考察マスター](consideration_master.md) | ナレッジベース全体の羅針盤。6本柱の世界観、テーマ別マップと「次の問い」、新テーマの立て方 |
-| [松風ブログ核心知見](insights/matsukaze_core_insights.md) | 001-012の横断整理。17の核心知見を重要度順に整理 + 優先実装リスト |
-| [ML学習ロードマップ](insights/ml_learning_roadmap.md) | 競馬AI開発に必要なML知識の体系的整理。Level 0〜5の段階的学習計画 |
-| [ML用語集](insights/ml_glossary.md) | エンコーディング・評価指標・キャリブレーション等の用語定義。ロードマップの補足 |
-| [データエンジニアリング実践ロードマップ](insights/data_engineering_roadmap.md) | データ品質管理・ETL・DWH・パイプライン自動化。Phase 1-5の実践計画、DE×DS統合学習 |
-| [馬券市場の構造的非効率性](insights/market_structural_inefficiencies.md) | 均等配分バイアス・Favorite-Longshot・条件付き確率の無視等、AIが突ける9つの歪み |
-| [特徴量設計とハイパラ: 人間 vs AI](insights/human_vs_ai_in_model_design.md) | 特徴量の「発想」は人間、ハイパラ調整はAI。7工程の分業設計 |
-| [運用アーキテクチャ設計指針](insights/operations_architecture_principles.md) | 松風8モジュール構成から学ぶシステム設計。Themisの「目隠し」原則、運用ミスの教訓集、KeibaCICDへの適用 |
-| [バンクロール管理の原則](insights/bankroll_management_principles.md) | 複利の二面性、追い下げ方式、EV閾値、破産確率、馬券種ポートフォリオ、税引後EVの横断整理 |
-| [仮説検証計画マスター](insights/hypothesis_verification_master.md) | 全20仮説の統合管理。検証優先度マトリクス、全アクションアイテムの仮説への紐付け、Phase別実行計画 |
-| [モデル分離戦略](insights/model_separation_strategy.md) | 芝/ダート/障害のモデル分離判断。分離基準、サンプルサイズ閾値、005の過学習教訓との整合 |
-| [組合せ馬券の確率計算](insights/combination_ticket_probability.md) | 単勝確率→組合せ馬券確率の変換。Harville公式、Henery補正、着順の条件付き確率、馬券種別の実装優先度 |
-| [展開シミュレーションと条件付き着順予測](insights/race_scenario_simulation.md) | 脚質相互作用・出遅れ・ペース変動が着順を変える構造。レベル0〜3の段階的アプローチ |
-| [馬主情報の特徴量化](insights/owner_as_feature.md) | 馬主名・馬主成績の2つの意味（能力の代理変数 vs オッズ歪み指標）。過学習リスク、実用的な特徴量設計 |
-| [馬の着順分布の形状](insights/horse_performance_distribution.md) | 安定強者/安定好走/一発型の3類型。Harvilleが見落とす「分散」の影響、馬券種別の戦略的含意 |
-| [予測根拠のインタビュー機能](insights/prediction_interview_feature.md) | SHAP値で馬ごとの好材料・懸念材料を提示。推理エンターテインメント×モデルデバッグ×人間との対話 |
-| [回収率と購入量のトレードオフ](insights/roi_volume_tradeoff.md) | 「あえて回収率を下げる」戦略の数理。EV閾値の最適化、115%は結果であって目標ではない、分散ドラッグ |
-| [ランダムネスの認知錯誤](insights/randomness_cognitive_errors.md) | 逆正弦法則・ギャンブラーの誤謬・ホットハンド・モンテカルロの誤謬の家系図。連敗時の判断、パラメータ変更の指針 |
-| [HarvilleのIIA批判](insights/harville_iia_critique.md) | 「スライドではなく再計算すべき」の数理的根拠。Thurstoneモデル、馬ごとのγ、IIA仮定の限界と段階的改善 |
-| [ローテーション分析](insights/rotation_interval_analysis.md) | レース間隔の多次元構造。叩き2戦目、厩舎別傾向、消耗度、臨戦過程の特徴量化 |
-| [着順以外の評価基準](insights/beyond_finishing_position.md) | スピード指数、着差、上がり3Fギャップ、レーティング、負けの質分析。8つのアプローチ |
-| [環境物理学](insights/environmental_physics.md) | 空気抵抗・気温・風・含水率の物理計算。馬体重×風速、馬体重×気温×距離の定量分析 |
-| [着順以外の目的変数](insights/alternative_target_variables.md) | パフォーマンススコア設計。三層構造（自動計算/ルール補正/人間判断）。「結果」でなく「能力」を予測する |
-| [スムーズな走りと展開予測の必要性](insights/smooth_trip_without_simulation.md) | 展開・隊列予測は不可欠か？不利の4類型、特徴量で8割捕捉可、「予測より回避」の戦略 |
-| [ポジショニングコストと出たなりの優位性](insights/positioning_cost_and_natural_running.md) | 逃げ馬の外は恵まれるか？出たなり vs ポジション争いのエネルギー差。JRA-VANデータからの推定方法 |
-| [1コーナーまでの距離と枠順バイアス](insights/start_to_first_corner_gate_bias.md) | 距離が短い→漏斗効果で内枠有利。頭数×脚質構成×芝ダートの交互作用。コース定数テーブルの設計 |
-| [マクリ・ペースクラッシャーの影響](insights/pace_crasher_and_makuri.md) | マクリの検出方法、ペースクラッシャーの3類型、先行馬への道連れ効果、被害馬の次走戦略 |
-| [差し馬のサブタイプ: スロー捲り型 vs ハイペース追込型](insights/closer_subtypes_slow_vs_highpace.md) | 差し馬の中の根本的な2タイプ。ペース適性×仕掛け早さの4象限分類、展開との交互作用 |
-| [着順バイアス: 着順 vs 着差の評価ギャップ](insights/finishing_position_vs_margin_bias.md) | 0.5秒差5着 vs 0.2秒差6着。序数思考バイアス、接戦レースの着順の無意味さ、着差weight導入 |
-| [盛り返しパターンと充実度](insights/rally_after_dropping_position.md) | 位置取りを下げてから盛り返す馬は充実の証拠。盛り返し強度の定量化、戦意喪失の反対指標 |
-| [能力はスカラーではなくベクトル](insights/ability_is_not_scalar.md) | 「能力の方向性は一定ではない」の統合理論。能力ベクトル×条件ベクトル＝適合度。穴馬の構造的説明 |
+| [松風ブログ核心知見](insights/operations/matsukaze_core_insights.md) | 001-012の横断整理。17の核心知見を重要度順に整理 + 優先実装リスト |
+| [ML学習ロードマップ](insights/learning/ml_learning_roadmap.md) | 競馬AI開発に必要なML知識の体系的整理。Level 0〜5の段階的学習計画 |
+| [ML用語集](insights/learning/ml_glossary.md) | エンコーディング・評価指標・キャリブレーション等の用語定義。ロードマップの補足 |
+| [データエンジニアリング実践ロードマップ](insights/learning/data_engineering_roadmap.md) | データ品質管理・ETL・DWH・パイプライン自動化。Phase 1-5の実践計画、DE×DS統合学習 |
+| [書籍×プロジェクト実践学習ロードマップ](insights/learning/book_learning_roadmap.md) | 所有書籍3冊の各章をkeiba-v2コードに紐づけた学習計画。Phase A〜Fの段階的アプローチ |
+| [馬券市場の構造的非効率性](insights/market/market_structural_inefficiencies.md) | 均等配分バイアス・Favorite-Longshot・条件付き確率の無視等、AIが突ける9つの歪み |
+| [特徴量設計とハイパラ: 人間 vs AI](insights/model/human_vs_ai_in_model_design.md) | 特徴量の「発想」は人間、ハイパラ調整はAI。7工程の分業設計 |
+| [運用アーキテクチャ設計指針](insights/operations/operations_architecture_principles.md) | 松風8モジュール構成から学ぶシステム設計。Themisの「目隠し」原則、運用ミスの教訓集、KeibaCICDへの適用 |
+| [バンクロール管理の原則](insights/market/bankroll_management_principles.md) | 複利の二面性、追い下げ方式、EV閾値、破産確率、馬券種ポートフォリオ、税引後EVの横断整理 |
+| [仮説検証計画マスター](insights/operations/hypothesis_verification_master.md) | 全20仮説の統合管理。検証優先度マトリクス、全アクションアイテムの仮説への紐付け、Phase別実行計画 |
+| [モデル分離戦略](insights/model/model_separation_strategy.md) | 芝/ダート/障害のモデル分離判断。分離基準、サンプルサイズ閾値、005の過学習教訓との整合 |
+| [組合せ馬券の確率計算](insights/market/combination_ticket_probability.md) | 単勝確率→組合せ馬券確率の変換。Harville公式、Henery補正、着順の条件付き確率、馬券種別の実装優先度 |
+| [展開シミュレーションと条件付き着順予測](insights/race/race_scenario_simulation.md) | 脚質相互作用・出遅れ・ペース変動が着順を変える構造。レベル0〜3の段階的アプローチ |
+| [馬主情報の特徴量化](insights/model/owner_as_feature.md) | 馬主名・馬主成績の2つの意味（能力の代理変数 vs オッズ歪み指標）。過学習リスク、実用的な特徴量設計 |
+| [馬の着順分布の形状](insights/model/horse_performance_distribution.md) | 安定強者/安定好走/一発型の3類型。Harvilleが見落とす「分散」の影響、馬券種別の戦略的含意 |
+| [予測根拠のインタビュー機能](insights/model/prediction_interview_feature.md) | SHAP値で馬ごとの好材料・懸念材料を提示。推理エンターテインメント×モデルデバッグ×人間との対話 |
+| [回収率と購入量のトレードオフ](insights/market/roi_volume_tradeoff.md) | 「あえて回収率を下げる」戦略の数理。EV閾値の最適化、115%は結果であって目標ではない、分散ドラッグ |
+| [ランダムネスの認知錯誤](insights/market/randomness_cognitive_errors.md) | 逆正弦法則・ギャンブラーの誤謬・ホットハンド・モンテカルロの誤謬の家系図。連敗時の判断、パラメータ変更の指針 |
+| [HarvilleのIIA批判](insights/market/harville_iia_critique.md) | 「スライドではなく再計算すべき」の数理的根拠。Thurstoneモデル、馬ごとのγ、IIA仮定の限界と段階的改善 |
+| [ローテーション分析](insights/race/rotation_interval_analysis.md) | レース間隔の多次元構造。叩き2戦目、厩舎別傾向、消耗度、臨戦過程の特徴量化 |
+| [着順以外の評価基準](insights/model/beyond_finishing_position.md) | スピード指数、着差、上がり3Fギャップ、レーティング、負けの質分析。8つのアプローチ |
+| [環境物理学](insights/race/environmental_physics.md) | 空気抵抗・気温・風・含水率の物理計算。馬体重×風速、馬体重×気温×距離の定量分析 |
+| [着順以外の目的変数](insights/model/alternative_target_variables.md) | パフォーマンススコア設計。三層構造（自動計算/ルール補正/人間判断）。「結果」でなく「能力」を予測する |
+| [スムーズな走りと展開予測の必要性](insights/race/smooth_trip_without_simulation.md) | 展開・隊列予測は不可欠か？不利の4類型、特徴量で8割捕捉可、「予測より回避」の戦略 |
+| [ポジショニングコストと出たなりの優位性](insights/race/positioning_cost_and_natural_running.md) | 逃げ馬の外は恵まれるか？出たなり vs ポジション争いのエネルギー差。JRA-VANデータからの推定方法 |
+| [1コーナーまでの距離と枠順バイアス](insights/race/start_to_first_corner_gate_bias.md) | 距離が短い→漏斗効果で内枠有利。頭数×脚質構成×芝ダートの交互作用。コース定数テーブルの設計 |
+| [マクリ・ペースクラッシャーの影響](insights/race/pace_crasher_and_makuri.md) | マクリの検出方法、ペースクラッシャーの3類型、先行馬への道連れ効果、被害馬の次走戦略 |
+| [差し馬のサブタイプ: スロー捲り型 vs ハイペース追込型](insights/race/closer_subtypes_slow_vs_highpace.md) | 差し馬の中の根本的な2タイプ。ペース適性×仕掛け早さの4象限分類、展開との交互作用 |
+| [着順バイアス: 着順 vs 着差の評価ギャップ](insights/model/finishing_position_vs_margin_bias.md) | 0.5秒差5着 vs 0.2秒差6着。序数思考バイアス、接戦レースの着順の無意味さ、着差weight導入 |
+| [盛り返しパターンと充実度](insights/race/rally_after_dropping_position.md) | 位置取りを下げてから盛り返す馬は充実の証拠。盛り返し強度の定量化、戦意喪失の反対指標 |
+| [能力はスカラーではなくベクトル](insights/model/ability_is_not_scalar.md) | 「能力の方向性は一定ではない」の統合理論。能力ベクトル×条件ベクトル＝適合度。穴馬の構造的説明 |
 
 ## 考察ドキュメント一覧
 

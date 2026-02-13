@@ -571,7 +571,7 @@ F8-F11を追加:
 ★ これは仮説であり、実データでの検証が必要。
   特に回収率ベースの分析（単勝回収率、複勝回収率）が重要。
 
-→ [馬券市場の構造的非効率性](market_structural_inefficiencies.md) に
+→ [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md に
   「枠順バイアスの織り込み度」を追加する検証候補。
 ```
 
@@ -584,9 +584,9 @@ F8-F11を追加:
 | ポジショニングコストの概念 | [ポジショニングコストと出たなりの優位性](positioning_cost_and_natural_running.md) |
 | 展開予測と特徴量の関係 | [スムーズな走りと展開予測の必要性](smooth_trip_without_simulation.md) |
 | 枠番×脚質のペース影響 | [展開シミュレーションと条件付き着順予測](race_scenario_simulation.md) |
-| 構造的バイアスとオッズ | [馬券市場の構造的非効率性](market_structural_inefficiencies.md) |
+| 構造的バイアスとオッズ | [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md |
 | コース形態と環境要因 | [環境物理学](environmental_physics.md) |
-| 出たなりの特徴量化 | [features.md](../features.md) ポジショニング系 |
+| 出たなりの特徴量化 | [features.md](../../features.md) ポジショニング系 |
 
 ---
 

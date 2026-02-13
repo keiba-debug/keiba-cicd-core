@@ -214,7 +214,7 @@
 
 **競馬AI**: 馬ごとに「なぜ高確率か」を分解する基盤。prediction_interview_featureの技術的背景。また、重要度上位に「本番では使えない情報」があればデータリークの疑い。
 
-**関連**: [予測根拠のインタビュー機能](prediction_interview_feature.md), ロードマップ Level 1-4
+**関連**: [予測根拠のインタビュー機能](../model/prediction_interview_feature.md, ロードマップ Level 1-4
 
 ---
 
@@ -480,7 +480,7 @@
 
 **競馬AI**: 市場の構造的非効率性の代表例。AIがFLBを正しく認識すれば、人気馬の過小評価を突ける場合がある。ただし単純な「人気馬を買う」戦略ではなく、確率推定の精度でFLBを超えるのが本来のアプローチ。
 
-**関連**: [馬券市場の構造的非効率性](market_structural_inefficiencies.md)
+**関連**: [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md
 
 ---
 
@@ -492,7 +492,7 @@
 
 **競馬AI**: IIA違反はHarvilleモデルの組合せ確率計算に歪みを生む。Thurstone/Heneryモデルでの緩和が課題。
 
-**関連**: [HarvilleのIIA批判](harville_iia_critique.md), ロードマップ Level 2-5
+**関連**: [HarvilleのIIA批判](../market/harville_iia_critique.md, ロードマップ Level 2-5
 
 ---
 
@@ -502,7 +502,7 @@
 
 **競馬AI**: 組合せ馬券のEV計算の基盤。IIA仮定の限界を認識しつつ、まずHarvilleで構築し、段階的にHenery/Thurstoneへ改善するアプローチが推奨。
 
-**関連**: [組合せ馬券の確率計算](combination_ticket_probability.md), ロードマップ Level 2-5
+**関連**: [組合せ馬券の確率計算](../market/combination_ticket_probability.md, ロードマップ Level 2-5
 
 ---
 

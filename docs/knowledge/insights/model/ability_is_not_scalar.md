@@ -169,7 +169,7 @@
 
 ⑩ ペース適性
    スロー/ミドル/ハイのどのペースが合うか。
-   → [差し馬サブタイプ](closer_subtypes_slow_vs_highpace.md) で考察済み。
+   → [差し馬サブタイプ](../race/closer_subtypes_slow_vs_highpace.md で考察済み。
    測定: RPCI別成績。
 ```
 
@@ -182,11 +182,11 @@
 
 ⑫ ゲート技術
    出遅れ率、スタートの巧拙。
-   → [ポジショニングコスト](positioning_cost_and_natural_running.md) で考察済み。
+   → [ポジショニングコスト](../race/positioning_cost_and_natural_running.md で考察済み。
 
 ⑬ 戦意・根性
    不利を受けても盛り返す力、接戦での粘り。
-   → [盛り返しパターン](rally_after_dropping_position.md) で考察済み。
+   → [盛り返しパターン](../race/rally_after_dropping_position.md で考察済み。
 
 ⑭ 集団適性
    多頭数での揉まれ強さ vs 少頭数での方が力を出せるか。
@@ -493,7 +493,7 @@ LightGBMで複数の目的変数を同時に学習:
   → AI: 重馬場では能力が発揮できない → 人気ほどの確率はない
   → 人気馬の過大評価を検出 → 相手として馬券を組まない
 
-★ これは [ショート戦略](../blog-analyses/001_競馬におけるショート戦略.md) の
+★ これは [ショート戦略](../../blog-analyses/001_競馬におけるショート戦略.md) の
   本質的な理論的根拠。「人気馬を消す」の根拠が
   「能力の方向性が条件と合わない」。
 ```
@@ -564,7 +564,7 @@ LightGBMで複数の目的変数を同時に学習:
 
 ★ まずは第1-2階層を確実に実装し、
   モデルの精度向上が確認できたら第3階層に進む。
-  [過学習の教訓](../blog-analyses/005_ランダムネスと平均回帰.md) を常に意識。
+  [過学習の教訓](../../blog-analyses/005_ランダムネスと平均回帰.md) を常に意識。
 ```
 
 ---
@@ -597,17 +597,17 @@ LightGBMで複数の目的変数を同時に学習:
 
 | この考察の論点 | 関連するinsight |
 |---|---|
-| 瞬発力 vs 持続力の区別 | [差し馬のサブタイプ](closer_subtypes_slow_vs_highpace.md) |
-| ポジション取り能力 | [ポジショニングコストと出たなりの優位性](positioning_cost_and_natural_running.md) |
-| 戦意・精神力の次元 | [盛り返しパターンと充実度](rally_after_dropping_position.md) |
+| 瞬発力 vs 持続力の区別 | [差し馬のサブタイプ](../race/closer_subtypes_slow_vs_highpace.md |
+| ポジション取り能力 | [ポジショニングコストと出たなりの優位性](../race/positioning_cost_and_natural_running.md |
+| 戦意・精神力の次元 | [盛り返しパターンと充実度](../race/rally_after_dropping_position.md |
 | 着順の1次元投影の限界 | [着順バイアス](finishing_position_vs_margin_bias.md) |
 | パフォーマンスの多次元評価 | [着順以外の評価基準](beyond_finishing_position.md) |
 | 目的変数の再設計 | [着順以外の目的変数](alternative_target_variables.md) |
-| 環境条件との相互作用 | [環境物理学](environmental_physics.md) |
-| 展開条件との相互作用 | [展開シミュレーション](race_scenario_simulation.md) |
-| 市場がスカラー評価する歪み | [馬券市場の構造的非効率性](market_structural_inefficiencies.md) |
-| 過学習リスク | [005 ランダムネスと平均回帰](../blog-analyses/005_ランダムネスと平均回帰.md) |
-| Harvilleの固定能力仮定 | [HarvilleのIIA批判](harville_iia_critique.md) |
+| 環境条件との相互作用 | [環境物理学](../race/environmental_physics.md |
+| 展開条件との相互作用 | [展開シミュレーション](../race/race_scenario_simulation.md |
+| 市場がスカラー評価する歪み | [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md |
+| 過学習リスク | [005 ランダムネスと平均回帰](../../blog-analyses/005_ランダムネスと平均回帰.md) |
+| Harvilleの固定能力仮定 | [HarvilleのIIA批判](../market/harville_iia_critique.md |
 
 ---
 

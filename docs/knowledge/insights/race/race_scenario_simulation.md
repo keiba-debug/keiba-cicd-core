@@ -489,12 +489,12 @@ Step E: フルシミュレーション（レベル3）
 
 | この考察の論点 | 関連するinsight |
 |---|---|
-| Harvilleの限界（脚質相互作用） | [組合せ馬券の確率計算](combination_ticket_probability.md) セクション8 |
-| 展開を特徴量で反映 | [features.md](../features.md) のペース・ラップ系 |
-| 展開シナリオの確率 | [仮説検証マスター](hypothesis_verification_master.md) H-25 |
-| 三連単での展開依存性 | [馬券市場の構造的非効率性](market_structural_inefficiencies.md) 2-5 |
-| モデル分離と展開 | [モデル分離戦略](model_separation_strategy.md) 芝/ダートで展開構造が異なる |
-| 過学習の警告 | [005](../blog-analyses/005_ランダムネスと平均回帰.md) 展開分類も細かすぎると過学習 |
+| Harvilleの限界（脚質相互作用） | [組合せ馬券の確率計算](../market/combination_ticket_probability.md セクション8 |
+| 展開を特徴量で反映 | [features.md](../../features.md) のペース・ラップ系 |
+| 展開シナリオの確率 | [仮説検証マスター](../operations/hypothesis_verification_master.md H-25 |
+| 三連単での展開依存性 | [馬券市場の構造的非効率性](../market/market_structural_inefficiencies.md 2-5 |
+| モデル分離と展開 | [モデル分離戦略](../model/model_separation_strategy.md 芝/ダートで展開構造が異なる |
+| 過学習の警告 | [005](../../blog-analyses/005_ランダムネスと平均回帰.md) 展開分類も細かすぎると過学習 |
 
 ---
 

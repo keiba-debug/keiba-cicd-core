@@ -723,10 +723,10 @@ H-29: 馬ごとのγ補正はHarvilleより組合せ馬券の精度を改善す�
 | 関連insight | 接続点 |
 |---|---|
 | [組合せ馬券の確率計算](combination_ticket_probability.md) | Harville公式の定義、Henery補正（セクション5） |
-| [馬の着順分布の形状](horse_performance_distribution.md) | タイプB/Cの2着確率乖離（セクション2） |
-| [展開シミュレーション](race_scenario_simulation.md) | 1着馬が展開情報を与える問題（セクション3） |
-| [モデル分離戦略](model_separation_strategy.md) | σの推定は芝/ダート別に行うべき |
-| [仮説検証マスター](hypothesis_verification_master.md) | H-23, H-24と本考察のH-28, H-29の関係 |
+| [馬の着順分布の形状](../model/horse_performance_distribution.md | タイプB/Cの2着確率乖離（セクション2） |
+| [展開シミュレーション](../race/race_scenario_simulation.md | 1着馬が展開情報を与える問題（セクション3） |
+| [モデル分離戦略](../model/model_separation_strategy.md | σの推定は芝/ダート別に行うべき |
+| [仮説検証マスター](../operations/hypothesis_verification_master.md | H-23, H-24と本考察のH-28, H-29の関係 |
 
 ## タグ
 

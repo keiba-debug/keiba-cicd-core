@@ -3,7 +3,7 @@
 今後の開発のために、既存の気づきを土台に**考察を加速・発展**させるための包括ドキュメント。
 ナレッジベース全体の「羅針盤」として使い、新しいテーマの立案・優先付け・深掘りの指針とする。
 
-> 最終更新: 2026-02-12
+> 最終更新: 2026-02-13
 
 ---
 
@@ -14,8 +14,8 @@
 | **全体像を押さえたい** | セクション2「世界観の統合」→ セクション4「テーママップ」を順に読む |
 | **あるテーマを深掘りしたい** | セクション4で該当テーマを探し、「参照insights」と「次の問い」から進める |
 | **新しい考察テーマを立てたい** | セクション5「考察を加速するフレーム」に従い、問いを立ててから該当insightに紐づける |
-| **何を検証すべきか決めたい** | [仮説検証計画マスター](insights/hypothesis_verification_master.md) と本ドキュメントのテーママップを照合 |
-| **用語・MLの基礎を確認したい** | [ML用語集](insights/ml_glossary.md)・[ML学習ロードマップ](insights/ml_learning_roadmap.md) を参照 |
+| **何を検証すべきか決めたい** | [仮説検証計画マスター](insights/operations/hypothesis_verification_master.md) と本ドキュメントのテーママップを照合 |
+| **用語・MLの基礎を確認したい** | [ML用語集](insights/learning/ml_glossary.md)・[ML学習ロードマップ](insights/learning/ml_learning_roadmap.md) を参照 |
 
 ---
 
@@ -30,7 +30,7 @@
 - **利益の源泉はオッズの歪み**。AI予測確率と市場オッズの乖離を突く。予測精度向上と利益は別問題。
 - **人間の認知バイアス**（Favorite-Longshot、応援馬券、均等配分等）が歪みを生む → AIの優位性。
 
-**参照**: [松風ブログ核心知見](insights/matsukaze_core_insights.md) 1–3, [馬券市場の構造的非効率性](insights/market_structural_inefficiencies.md), [ランダムネスの認知錯誤](insights/randomness_cognitive_errors.md)
+**参照**: [松風ブログ核心知見](insights/operations/matsukaze_core_insights.md) 1–3, [馬券市場の構造的非効率性](insights/market/market_structural_inefficiencies.md), [ランダムネスの認知錯誤](insights/market/randomness_cognitive_errors.md)
 
 ---
 
@@ -40,7 +40,7 @@
 - 回収率115%は「結果」であり「目標」ではない。回収率を下げてでも購入量を増やす戦略が利益・安定性の両面で有効。
 - 税務設計（雑所得要件）を最初から設計に織り込む。
 
-**参照**: [松風ブログ核心知見](insights/matsukaze_core_insights.md) 1, 4, [回収率と購入量のトレードオフ](insights/roi_volume_tradeoff.md), [バンクロール管理の原則](insights/bankroll_management_principles.md)
+**参照**: [松風ブログ核心知見](insights/operations/matsukaze_core_insights.md) 1, 4, [回収率と購入量のトレードオフ](insights/market/roi_volume_tradeoff.md), [バンクロール管理の原則](insights/market/bankroll_management_principles.md)
 
 ---
 
@@ -50,7 +50,7 @@
 - 特徴量は「仮説駆動（人間）」と「データ駆動（AI/自動化）」の二層。評価指標・検証方法の設計は人間の責務。
 - **着順以外の目的変数**（能力スコア・着差・パフォーマンス指標）の設計が、モデルの天井を決める。
 
-**参照**: [松風ブログ核心知見](insights/matsukaze_core_insights.md) 5, [特徴量設計とハイパラ: 人間 vs AI](insights/human_vs_ai_in_model_design.md), [着順以外の目的変数](insights/alternative_target_variables.md), [features.md](features.md)
+**参照**: [松風ブログ核心知見](insights/operations/matsukaze_core_insights.md) 5, [特徴量設計とハイパラ: 人間 vs AI](insights/model/human_vs_ai_in_model_design.md), [着順以外の目的変数](insights/model/alternative_target_variables.md), [features.md](features.md)
 
 ---
 
@@ -60,7 +60,7 @@
 - 時系列分割・Walk-Forward検証が必須。ランダム分割はデータリーク。
 - 仮説は**事前に定義し、検証結果に応じて代替戦略を用意**する。
 
-**参照**: [松風ブログ核心知見](insights/matsukaze_core_insights.md) 6, [仮説検証計画マスター](insights/hypothesis_verification_master.md), [ML学習ロードマップ](insights/ml_learning_roadmap.md) Level 1–3
+**参照**: [松風ブログ核心知見](insights/operations/matsukaze_core_insights.md) 6, [仮説検証計画マスター](insights/operations/hypothesis_verification_master.md), [ML学習ロードマップ](insights/learning/ml_learning_roadmap.md) Level 1–3
 
 ---
 
@@ -70,7 +70,7 @@
 - **最大のリスクはモデルではなく運用**（障害・入金忘れ・チューニングの攻めすぎ・バグ）。完全自動化と保守的パラメータ、バンクロール同期の一貫性が重要。
 - 馬券種は**ポートフォリオ**として扱い、相関の低い組み合わせでリスク分散。
 
-**参照**: [松風ブログ核心知見](insights/matsukaze_core_insights.md) 8–13, [運用アーキテクチャ設計指針](insights/operations_architecture_principles.md), [バンクロール管理の原則](insights/bankroll_management_principles.md)
+**参照**: [松風ブログ核心知見](insights/operations/matsukaze_core_insights.md) 8–13, [運用アーキテクチャ設計指針](insights/operations/operations_architecture_principles.md), [バンクロール管理の原則](insights/market/bankroll_management_principles.md)
 
 ---
 
@@ -80,7 +80,7 @@
 - 着順だけでなく**着差・スピード指数・上がり3Fギャップ・負けの質**など、多様な評価軸を目的変数や特徴量に取り込む余地がある。
 - HarvilleのIIA前提の限界を踏まえ、**条件付き確率・着順の依存関係**を明示的にモデル化する方向が有効。
 
-**参照**: [能力はスカラーではなくベクトル](insights/ability_is_not_scalar.md), [着順以外の目的変数](insights/alternative_target_variables.md), [着順以外の評価基準](insights/beyond_finishing_position.md), [着順バイアス](insights/finishing_position_vs_margin_bias.md), [HarvilleのIIA批判](insights/harville_iia_critique.md), [馬の着順分布の形状](insights/horse_performance_distribution.md)
+**参照**: [能力はスカラーではなくベクトル](insights/model/ability_is_not_scalar.md), [着順以外の目的変数](insights/model/alternative_target_variables.md), [着順以外の評価基準](insights/model/beyond_finishing_position.md), [着順バイアス](insights/model/finishing_position_vs_margin_bias.md), [HarvilleのIIA批判](insights/market/harville_iia_critique.md), [馬の着順分布の形状](insights/model/horse_performance_distribution.md)
 
 ---
 
@@ -199,7 +199,7 @@
 4. **成果の置き場を決める**  
    - 新規insight → `insights/` に新ファイル。READMEの横断整理に1行追加。  
    - 特徴量候補 → [features.md](features.md) に追記。  
-   - 検証仮説 → [仮説検証計画マスター](insights/hypothesis_verification_master.md) にID付きで追加。  
+   - 検証仮説 → [仮説検証計画マスター](insights/operations/hypothesis_verification_master.md) にID付きで追加。  
    - ブログ考察の要約 → `blog-analyses/` に番号付き。必要ならinsightsに横断整理。
 
 ### 5-2. 優先付けの考え方
@@ -231,7 +231,7 @@
 | 統計検定 | 柱1, 柱4 | 回収率の有意性判定（柱1）、過学習の検出・多重検定補正（柱4） |
 | 回帰分析 | 柱3 | ベースラインモデル。LightGBMの効果を測る比較対象 |
 
-これらは「Level 0 で学んで卒業」ではなく、モデリングの前・中・後のすべてのフェーズで継続的に使う。詳細は [ML学習ロードマップ Level 0](insights/ml_learning_roadmap.md) を参照。
+これらは「Level 0 で学んで卒業」ではなく、モデリングの前・中・後のすべてのフェーズで継続的に使う。詳細は [ML学習ロードマップ Level 0](insights/learning/ml_learning_roadmap.md) を参照。
 
 ---
 
@@ -239,19 +239,20 @@
 
 | 知りたいこと | 見る場所 |
 |--------------|----------|
-| 思想・戦略・松風の教訓の要約 | [松風ブログ核心知見](insights/matsukaze_core_insights.md) |
-| 何を検証すべきか・Phase別計画 | [仮説検証計画マスター](insights/hypothesis_verification_master.md) |
+| 思想・戦略・松風の教訓の要約 | [松風ブログ核心知見](insights/operations/matsukaze_core_insights.md) |
+| 何を検証すべきか・Phase別計画 | [仮説検証計画マスター](insights/operations/hypothesis_verification_master.md) |
 | 特徴量の候補・実装難度・出典 | [features.md](features.md) |
-| 市場の歪み・三連単・FLB | [馬券市場の構造的非効率性](insights/market_structural_inefficiencies.md) |
-| 人間とAIの役割分担・特徴量設計 | [特徴量設計とハイパラ: 人間 vs AI](insights/human_vs_ai_in_model_design.md) |
-| データ分析の基礎・EDA・統計検定 | [ML学習ロードマップ Level 0](insights/ml_learning_roadmap.md)（記述統計・可視化・クロス集計・相関分析・統計検定） |
-| 学習の順序・Level別トピック | [ML学習ロードマップ](insights/ml_learning_roadmap.md) |
-| 用語の定義（Target Encoding等） | [ML用語集](insights/ml_glossary.md) |
-| 運用・モジュール・Themis・障害教訓 | [運用アーキテクチャ設計指針](insights/operations_architecture_principles.md) |
-| データ品質・ETL・パイプライン基盤 | [データエンジニアリング実践ロードマップ](insights/data_engineering_roadmap.md) |
-| 資金管理・EV閾値・ポートフォリオ | [バンクロール管理の原則](insights/bankroll_management_principles.md) |
-| 目的変数の設計・着順以外 | [着順以外の目的変数](insights/alternative_target_variables.md), [着順以外の評価基準](insights/beyond_finishing_position.md) |
-| 能力の多次元性・穴馬の構造 | [能力はスカラーではなくベクトル](insights/ability_is_not_scalar.md) |
+| 市場の歪み・三連単・FLB | [馬券市場の構造的非効率性](insights/market/market_structural_inefficiencies.md) |
+| 人間とAIの役割分担・特徴量設計 | [特徴量設計とハイパラ: 人間 vs AI](insights/model/human_vs_ai_in_model_design.md) |
+| データ分析の基礎・EDA・統計検定 | [ML学習ロードマップ Level 0](insights/learning/ml_learning_roadmap.md)（記述統計・可視化・クロス集計・相関分析・統計検定） |
+| 学習の順序・Level別トピック | [ML学習ロードマップ](insights/learning/ml_learning_roadmap.md) |
+| 用語の定義（Target Encoding等） | [ML用語集](insights/learning/ml_glossary.md) |
+| 書籍と keiba-v2 コードの紐づけ | [書籍×プロジェクト実践学習ロードマップ](insights/learning/book_learning_roadmap.md) |
+| 運用・モジュール・Themis・障害教訓 | [運用アーキテクチャ設計指針](insights/operations/operations_architecture_principles.md) |
+| データ品質・ETL・パイプライン基盤 | [データエンジニアリング実践ロードマップ](insights/learning/data_engineering_roadmap.md) |
+| 資金管理・EV閾値・ポートフォリオ | [バンクロール管理の原則](insights/market/bankroll_management_principles.md) |
+| 目的変数の設計・着順以外 | [着順以外の目的変数](insights/model/alternative_target_variables.md), [着順以外の評価基準](insights/model/beyond_finishing_position.md) |
+| 能力の多次元性・穴馬の構造 | [能力はスカラーではなくベクトル](insights/model/ability_is_not_scalar.md) |
 | ブログ考察の一覧・タグ | [README 考察ドキュメント一覧](README.md#考察ドキュメント一覧) |
 | 全体のテーマと次の問い | **本ドキュメント セクション4** |
 

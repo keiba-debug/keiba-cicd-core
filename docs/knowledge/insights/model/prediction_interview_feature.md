@@ -523,12 +523,12 @@ SHAPは「訓練データの範囲内」での説明は正確だが、
 
 | この機能の側面 | 関連するinsight |
 |---|---|
-| SHAP値の計算 | [組合せ馬券の確率計算](combination_ticket_probability.md) → 1着確率に対するSHAP |
+| SHAP値の計算 | [組合せ馬券の確率計算](../market/combination_ticket_probability.md → 1着確率に対するSHAP |
 | 着順分布タイプの説明 | [馬の着順分布の形状](horse_performance_distribution.md) → 安定度のSHAP寄与 |
-| 展開の影響の説明 | [展開シミュレーション](race_scenario_simulation.md) → ペース系特徴量のSHAP |
+| 展開の影響の説明 | [展開シミュレーション](../race/race_scenario_simulation.md → ペース系特徴量のSHAP |
 | 馬主情報の寄与 | [馬主情報の特徴量化](owner_as_feature.md) → 馬主タイプのSHAP寄与 |
 | 人間との対話 | [特徴量設計: 人間 vs AI](human_vs_ai_in_model_design.md) → 人間がSHAPを見て特徴量のアイデアを得る |
-| 過学習の検出 | [005 平均回帰](../blog-analyses/005_ランダムネスと平均回帰.md) → 特定条件のSHAPが異常に大きい = 過学習の兆候 |
+| 過学習の検出 | [005 平均回帰](../../blog-analyses/005_ランダムネスと平均回帰.md) → 特定条件のSHAPが異常に大きい = 過学習の兆候 |
 | エージェントの役割分担 | CLAUDE.md → EVALUATOR, STRATEGIST等がSHAPを翻訳 |
 
 ---

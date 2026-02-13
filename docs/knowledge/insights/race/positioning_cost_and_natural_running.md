@@ -531,7 +531,7 @@ LightGBMへの入力イメージ:
   → 「恵まれた展開で力を発揮できた」という説明
   → 次走で枠順や展開が悪ければ過剰評価の可能性
 
-→ これは [着順以外の目的変数](alternative_target_variables.md) の
+→ これは [着順以外の目的変数](../model/alternative_target_variables.md の
   「Layer 2: ルール補正」で使える情報。
   ポジショニングコストが高い走は、パフォーマンススコアを
   上方修正する（不利を考慮して実力を高く見積もる）。
@@ -550,7 +550,7 @@ LightGBMへの入力イメージ:
 ■ パドック・返し馬の観察（人間判断 or 映像AI）
   馬の精神状態、テンション、折り合い予兆を観察。
   → 「今日は掛かりそう」「落ち着いている」の判断。
-  → [着順以外の目的変数](alternative_target_variables.md) の
+  → [着順以外の目的変数](../model/alternative_target_variables.md の
     Layer 3（人間判断）で取り込む対象。
 
 ■ 海外のGPSトラッキング（参考）
@@ -576,10 +576,10 @@ LightGBMへの入力イメージ:
 | 空気抵抗・風よけ効果の物理計算 | [環境物理学](environmental_physics.md) |
 | 展開予測vs特徴量アプローチ | [スムーズな走りと展開予測の必要性](smooth_trip_without_simulation.md) |
 | 展開シミュレーションのレベル0-3 | [展開シミュレーションと条件付き着順予測](race_scenario_simulation.md) |
-| 上がりギャップ、位置取り評価 | [着順以外の評価基準](beyond_finishing_position.md) |
-| パフォーマンススコアの補正 | [着順以外の目的変数](alternative_target_variables.md) Layer 2 |
-| 枠順×脚質の構造的分析 | [features.md](../features.md) ペース・ラップ系 |
-| 安定型/一発型の分類 | [馬の着順分布の形状](horse_performance_distribution.md) |
+| 上がりギャップ、位置取り評価 | [着順以外の評価基準](../model/beyond_finishing_position.md |
+| パフォーマンススコアの補正 | [着順以外の目的変数](../model/alternative_target_variables.md Layer 2 |
+| 枠順×脚質の構造的分析 | [features.md](../../features.md) ペース・ラップ系 |
+| 安定型/一発型の分類 | [馬の着順分布の形状](../model/horse_performance_distribution.md |
 
 ---
 

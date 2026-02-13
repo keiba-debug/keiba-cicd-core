@@ -756,9 +756,9 @@ Phase X: マルチタスク化
 | [着順以外の評価基準](beyond_finishing_position.md) | スコアの構成要素（着差、上がり、位置取り） |
 | [特徴量設計とハイパラ](human_vs_ai_in_model_design.md) | 工程6「評価指標の設計は人間の仕事」 |
 | [馬の着順分布の形状](horse_performance_distribution.md) | スコアの標準偏差 = 安定度の指標 |
-| [Harville IIA批判](harville_iia_critique.md) | スコアのμとσ → Thurstone変換への入力 |
+| [Harville IIA批判](../market/harville_iia_critique.md | スコアのμとσ → Thurstone変換への入力 |
 | [予測根拠のインタビュー](prediction_interview_feature.md) | スコア予測のSHAP説明 |
-| [ローテーション分析](rotation_interval_analysis.md) | 休み明け補正、叩き良化補正 |
+| [ローテーション分析](../race/rotation_interval_analysis.md | 休み明け補正、叩き良化補正 |
 
 ## タグ
 

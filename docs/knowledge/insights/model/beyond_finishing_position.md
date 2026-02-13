@@ -573,10 +573,10 @@ AI向け特徴量として:
 | 関連insight | 接続点 |
 |---|---|
 | [馬の着順分布の形状](horse_performance_distribution.md) | 安定型/一発型の分類基準としての評価指標 |
-| [展開シミュレーション](race_scenario_simulation.md) | 展開負けの検出、位置取り分析 |
-| [ローテーション分析](rotation_interval_analysis.md) | 前走の「内容」× 間隔 = 臨戦過程 |
-| [組合せ馬券の確率計算](combination_ticket_probability.md) | 1着確率の精度向上 → 組合せ確率の精度向上 |
-| [Harville IIA批判](harville_iia_critique.md) | Thurstone σの推定に着差・上がりデータが使える |
+| [展開シミュレーション](../race/race_scenario_simulation.md | 展開負けの検出、位置取り分析 |
+| [ローテーション分析](../race/rotation_interval_analysis.md | 前走の「内容」× 間隔 = 臨戦過程 |
+| [組合せ馬券の確率計算](../market/combination_ticket_probability.md | 1着確率の精度向上 → 組合せ確率の精度向上 |
+| [Harville IIA批判](../market/harville_iia_critique.md | Thurstone σの推定に着差・上がりデータが使える |
 
 ## タグ
 

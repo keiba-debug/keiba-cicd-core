@@ -521,12 +521,12 @@ LightGBMに特徴量（脚質、逃げ馬頭数、枠番）を入れれば、
 | この考察の論点 | 関連するinsight |
 |---|---|
 | 展開シミュレーションのレベル0-3 | [展開シミュレーションと条件付き着順予測](race_scenario_simulation.md) |
-| 前走不利の検出（上がりギャップ等） | [着順以外の評価基準](beyond_finishing_position.md) |
-| 展開を反映する特徴量設計 | [features.md](../features.md) ペース・ラップ系 |
-| レース選別と購入戦略 | [回収率と購入量のトレードオフ](roi_volume_tradeoff.md) |
-| 着順標準偏差による安定度分類 | [馬の着順分布の形状](horse_performance_distribution.md) |
+| 前走不利の検出（上がりギャップ等） | [着順以外の評価基準](../model/beyond_finishing_position.md |
+| 展開を反映する特徴量設計 | [features.md](../../features.md) ペース・ラップ系 |
+| レース選別と購入戦略 | [回収率と購入量のトレードオフ](../market/roi_volume_tradeoff.md |
+| 着順標準偏差による安定度分類 | [馬の着順分布の形状](../model/horse_performance_distribution.md |
 | 枠順×コースの構造的分析 | [環境物理学](environmental_physics.md) |
-| パフォーマンススコアとの統合 | [着順以外の目的変数](alternative_target_variables.md) |
+| パフォーマンススコアとの統合 | [着順以外の目的変数](../model/alternative_target_variables.md |
 
 ---
 
