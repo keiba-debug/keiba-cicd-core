@@ -182,6 +182,7 @@ def _build_entry_from_scraped(
     syoin_entry: Optional[dict] = None,
     paddok_entry: Optional[dict] = None,
     seiseki_entry: Optional[dict] = None,
+    speed_entry: Optional[dict] = None,
 ) -> dict:
     """パース済みデータから1馬分のkb_extエントリを構築。
 
@@ -218,6 +219,20 @@ def _build_entry_from_scraped(
     if seiseki_entry:
         sunpyo = seiseki_entry.get('sunpyo', '')
 
+    # パドック
+    paddock_info = None
+    if paddok_entry:
+        paddock_info = {
+            'mark': paddok_entry.get('mark', ''),
+            'mark_score': paddok_entry.get('mark_score', 0),
+            'comment': paddok_entry.get('comment', ''),
+        }
+
+    # スピード指数
+    speed_indexes = None
+    if speed_entry:
+        speed_indexes = speed_entry.get('speed_indexes')
+
     ext = {
         # マーク系
         'honshi_mark': horse.get('本誌印', ''),
@@ -253,6 +268,10 @@ def _build_entry_from_scraped(
             'interview': interview,
             'next_race_memo': next_race_memo,
         },
+        # パドック
+        'paddock_info': paddock_info,
+        # スピード指数（過去5走: 5走前→前走, Noneは欠損）
+        'speed_indexes': speed_indexes,
     }
 
     return ext
@@ -268,6 +287,7 @@ def build_kb_ext_from_scraped(
     syoin: Optional[dict] = None,
     paddok: Optional[dict] = None,
     seiseki: Optional[dict] = None,
+    speed: Optional[dict] = None,
 ) -> Optional[Tuple[str, dict]]:
     """パース済みデータからkb_ext JSONを構築。
 
@@ -333,6 +353,14 @@ def build_kb_ext_from_scraped(
             if bano:
                 seiseki_map[str(bano)] = r
 
+    # スピード指数を馬番マップに
+    speed_map: Dict[str, dict] = {}
+    if speed:
+        for h in speed.get('horses', []):
+            bano = h.get('馬番', '')
+            if bano:
+                speed_map[str(bano)] = h
+
     # エントリ構築
     entries: Dict[str, dict] = {}
     for horse in horses:
@@ -348,6 +376,7 @@ def build_kb_ext_from_scraped(
             syoin_entry=syoin_map.get(umaban_int),
             paddok_entry=paddok_map.get(umaban_int),
             seiseki_entry=seiseki_map.get(umaban),
+            speed_entry=speed_map.get(umaban),
         )
 
     # 展開データ

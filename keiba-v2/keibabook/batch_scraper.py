@@ -35,6 +35,7 @@ from keibabook.parsers.paddok_parser import parse_paddok_html
 from keibabook.parsers.seiseki_parser import parse_seiseki_html
 from keibabook.parsers.babakeikou_parser import parse_babakeikou_html
 from keibabook.cyokyo_parser import parse_cyokyo_html
+from keibabook.parsers.speed_parser import parse_speed_html
 from keibabook.ext_builder import (
     build_kb_ext_from_scraped, save_kb_ext, update_kb_ext_field,
     convert_race_id_12_to_16,
@@ -204,6 +205,14 @@ class KeibabookBatchScraper:
                 danwa_html = self.scraper.scrape_danwa(rid)
                 syoin_html = self.scraper.scrape_syoin(rid)
 
+                # スピード指数（エラーでも続行）
+                speed = None
+                try:
+                    speed_html = self.scraper.scrape_speed(rid)
+                    speed = parse_speed_html(speed_html, rid)
+                except Exception as e:
+                    logger.warning(f"  speed {rid}: スキップ ({e})")
+
                 # パース
                 syutuba = parse_syutuba_html(syutuba_html, rid)
                 cyokyo = parse_cyokyo_html(cyokyo_html, rid)
@@ -219,6 +228,7 @@ class KeibabookBatchScraper:
                     cyokyo_detail=cyokyo,
                     danwa=danwa,
                     syoin=syoin,
+                    speed=speed,
                 )
 
                 if result:
@@ -277,16 +287,28 @@ class KeibabookBatchScraper:
                     html = self.scraper.scrape_paddok(rid)
                     paddok = parse_paddok_html(html, rid)
 
-                    # 馬番→更新内容マップ
-                    field_updates = {}
-                    for pe in paddok.get("paddock_evaluations", []):
-                        num = pe.get("horse_number")
-                        if num:
-                            # paddok_infoはkb_extのトップレベルフィールドとしては存在しないが
-                            # 必要に応じてフィールドを追加可能
-                            pass  # パドック情報はkb_extに直接マップしにくいため、ログのみ
+                    # paddock_infoをkb_extに反映
+                    race_id_16 = convert_race_id_12_to_16(rid, date_str, venue)
+                    if race_id_16:
+                        field_updates = {}
+                        for pe in paddok.get("paddock_evaluations", []):
+                            num = pe.get("horse_number")
+                            if num:
+                                field_updates[str(num)] = {
+                                    "paddock_info": {
+                                        "mark": pe.get("mark", ""),
+                                        "mark_score": pe.get("mark_score", 0),
+                                        "comment": pe.get("comment", ""),
+                                    }
+                                }
 
-                    logger.info(f"  paddok {rid}: {len(paddok.get('paddock_evaluations',[]))}頭")
+                        if field_updates:
+                            update_kb_ext_field(race_id_16, date_str, field_updates)
+                            logger.info(f"  paddok {rid}: {len(field_updates)}頭更新")
+                        else:
+                            logger.info(f"  paddok {rid}: データなし")
+                    else:
+                        logger.info(f"  paddok {rid}: race_id_16変換失敗")
                     updated += 1
 
                 except Exception as e:

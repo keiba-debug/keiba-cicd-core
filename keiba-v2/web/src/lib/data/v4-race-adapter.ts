@@ -251,7 +251,33 @@ function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null): HorseEntry {
       }
     : null;
 
-  const paddockInfo: PaddockInfo | null = null; // Paddock data not available in v4/kb_ext
+  const paddockInfo: PaddockInfo | null = kb?.paddock_info
+    ? {
+        mark: kb.paddock_info.mark || '',
+        mark_score: kb.paddock_info.mark_score || 0,
+        comment: kb.paddock_info.comment || '',
+        condition: '',
+        temperament: '',
+        gait: '',
+        horse_weight: '',
+        weight_change: '',
+        evaluator: '',
+      }
+    : null;
+
+  const oikiriSummary = kb?.cyokyo_detail?.oikiri_summary
+    ? {
+        course: kb.cyokyo_detail.oikiri_summary.oikiri_course,
+        condition: kb.cyokyo_detail.oikiri_summary.oikiri_condition || '',
+        intensity: kb.cyokyo_detail.oikiri_summary.oikiri_intensity,
+        hasAwase: kb.cyokyo_detail.oikiri_summary.oikiri_has_awase,
+        awaseText: kb.cyokyo_detail.oikiri_summary.oikiri_awase_text || '',
+        rider: kb.cyokyo_detail.oikiri_summary.oikiri_rider,
+        comment: kb.cyokyo_detail.oikiri_summary.oikiri_comment,
+        restPeriod: kb.cyokyo_detail.rest_period || '',
+        sessionCount: kb.cyokyo_detail.oikiri_summary.session_count,
+      }
+    : null;
 
   const pastPerformances: PastPerformances = {
     total_races: 0,
@@ -274,6 +300,7 @@ function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null): HorseEntry {
     result,
     previous_race_interview: prevInterview,
     paddock_info: paddockInfo,
+    oikiri_summary: oikiriSummary,
     past_performances: pastPerformances,
     history_features: historyFeatures,
   };

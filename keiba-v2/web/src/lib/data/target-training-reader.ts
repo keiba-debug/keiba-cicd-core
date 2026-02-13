@@ -678,32 +678,32 @@ export function calculateLapRank(
     accel = '=';  // 同タイム
   }
   
-  // 好タイム判定（4Fタイム基準）
+  // 好タイム判定（4Fタイム基準） — v4.6厳格化: 0.5s引き下げ
   const isGoodTime = !isNaN(t4f) && (
-    (location === 'Miho' && t4f <= 52.9) ||
-    (location === 'Ritto' && t4f <= 53.9)
+    (location === 'Miho' && t4f <= 52.4) ||
+    (location === 'Ritto' && t4f <= 53.4)
   );
-  
-  // ラップ分類
+
+  // ラップ分類 — v4.6厳格化: S/A閾値 12.0→11.8, B/C閾値 13.0→12.3
   let baseRank: string;
-  
-  if (l2 < 12.0 && l1 < 12.0) {
-    // S分類: 2F連続11秒台以下
+
+  if (l2 < 11.8 && l1 < 11.8) {
+    // S分類: 2F連続11.7秒以下
     if (isGoodTime && accel !== '-') {
       return 'SS';  // 好タイム + S分類 + 加速or同タイム
     }
     baseRank = 'S';
-  } else if (l1 < 12.0 && l2 >= 12.0) {
-    // A分類: 終い11秒台以下、Lap2は12秒台以上
+  } else if (l1 < 11.8 && l2 >= 11.8) {
+    // A分類: 終い11.7秒以下、Lap2は11.8秒以上
     baseRank = 'A';
-  } else if (l2 >= 12.0 && l2 < 13.0 && l1 >= 12.0 && l1 < 13.0) {
-    // B分類: 2F連続12秒台
+  } else if (l2 < 12.3 && l1 < 12.3) {
+    // B分類: 2F連続12.2秒以下（旧S/A帯を吸収）
     baseRank = 'B';
-  } else if (l1 >= 12.0 && l1 < 13.0) {
-    // C分類: 終い12秒台
+  } else if (l1 < 12.3) {
+    // C分類: 終い12.2秒以下
     baseRank = 'C';
   } else {
-    // D分類: 終い13秒台以上
+    // D分類: 終い12.3秒以上
     baseRank = 'D';
   }
   
@@ -718,18 +718,18 @@ export function calculateTimeRank(
   sakamichiRecords: TrainingRecord[],
   courseRecords: TrainingRecord[]
 ): string {
-  // 好タイム基準
+  // 好タイム基準 — v4.6厳格化: 0.5s引き下げ
   const hasSakamichiGoodTime = sakamichiRecords.some(r => {
     const t4f = parseFloat(r.time4f || '');
     if (isNaN(t4f)) return false;
-    return (r.location === 'Miho' && t4f <= 52.9) ||
-           (r.location === 'Ritto' && t4f <= 53.9);
+    return (r.location === 'Miho' && t4f <= 52.4) ||
+           (r.location === 'Ritto' && t4f <= 53.4);
   });
-  
+
   const hasCourseGoodTime = courseRecords.some(r => {
     const t4f = parseFloat(r.time4f || '');
     if (isNaN(t4f)) return false;
-    return t4f <= 52.2;
+    return t4f <= 51.7;
   });
   
   if (hasSakamichiGoodTime && hasCourseGoodTime) return 'Both';

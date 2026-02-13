@@ -1,7 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-ML Experiment v3.3: JRA-VANネイティブ・デュアルモデル
+ML Experiment v3.5: スピード指数特徴量追加
+
+v3.5改善:
+  - keibabookスピード指数特徴量 (5個): 過去5走のスピード指数から最新/最高/平均/トレンド/安定性
+
+v3.4改善:
+  - mykeibadb時系列オッズ連携: 確定オッズ→事前オッズに置換（データリーク解消）
+  - Model Aの市場系特徴量がレース前に取得可能な「正当な」事前情報に
+  - DB未接続/データなし時はJSON確定オッズにフォールバック
 
 v3.3改善:
   - 詳細調教特徴量 (9個): 追い切りタイム・脚色・併せ馬・セッション数・休養週数・坂路
@@ -21,11 +29,12 @@ v3.0:
   - 過去走カバレッジ: 36,008頭
 
 特徴量構成:
-  Model A (全特徴量): 基本 + 過去走 + trainer + jockey + 脚質 + ローテ + ペース + 調教 + 市場系
+  Model A (全特徴量): 基本 + 過去走 + trainer + jockey + 脚質 + ローテ + ペース + 調教 + スピード指数 + 市場系
   Model B (Value):     Model Aから市場系特徴量を除外
 
 Usage:
     python -m ml.experiment_v3 [--train-years 2020-2024] [--test-years 2025-2026]
+    python -m ml.experiment_v3 --no-db  # DB未使用（旧JSON確定オッズ）
 """
 
 import argparse
@@ -97,6 +106,12 @@ TRAINING_FEATURES = [
     'training_session_count', 'rest_weeks', 'oikiri_is_slope',
 ]
 
+# スピード指数特徴量 (v3.5)
+SPEED_FEATURES = [
+    'speed_idx_latest', 'speed_idx_best5', 'speed_idx_avg3',
+    'speed_idx_trend', 'speed_idx_std',
+]
+
 # 市場系特徴量（Model Bでは除外）
 MARKET_FEATURES = {'odds', 'popularity', 'odds_rank', 'popularity_trend'}
 
@@ -108,7 +123,7 @@ FEATURE_COLS_ALL = (
     BASE_FEATURES + ['odds', 'popularity'] + DERIVED_FEATURES +
     PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
-    PACE_FEATURES + TRAINING_FEATURES
+    PACE_FEATURES + TRAINING_FEATURES + SPEED_FEATURES
 )
 
 # Value特徴量（Model B = 市場系除外）
@@ -154,6 +169,18 @@ def load_race_json(race_id: str, date: str) -> dict:
         return json.load(f)
 
 
+def _iter_date_index(date_index: dict):
+    """date_indexから(date_str, race_id)ペアをイテレート（新旧両形式対応）"""
+    for date_str, day_data in sorted(date_index.items()):
+        if isinstance(day_data, dict) and 'tracks' in day_data:
+            for track in day_data['tracks']:
+                for race in track.get('races', []):
+                    yield date_str, race['id']
+        elif isinstance(day_data, list):
+            for race_id in day_data:
+                yield date_str, race_id
+
+
 def build_pace_index(date_index: dict) -> dict:
     """全レースJSONからペースデータを抽出して辞書化"""
     print("[Load] Building pace index...")
@@ -161,22 +188,21 @@ def build_pace_index(date_index: dict) -> dict:
     count = 0
     errors = 0
 
-    for date_str, race_ids in date_index.items():
-        for race_id in race_ids:
-            try:
-                race = load_race_json(race_id, date_str)
-                pace = race.get('pace') or {}
-                if pace.get('rpci'):
-                    pace_index[race_id] = {
-                        'rpci': pace.get('rpci'),
-                        's3': pace.get('s3'),
-                        'l3': pace.get('l3'),
-                        's4': pace.get('s4'),
-                        'l4': pace.get('l4'),
-                    }
-                count += 1
-            except Exception:
-                errors += 1
+    for date_str, race_id in _iter_date_index(date_index):
+        try:
+            race = load_race_json(race_id, date_str)
+            pace = race.get('pace') or {}
+            if pace.get('rpci'):
+                pace_index[race_id] = {
+                    'rpci': pace.get('rpci'),
+                    's3': pace.get('s3'),
+                    'l3': pace.get('l3'),
+                    's4': pace.get('s4'),
+                    'l4': pace.get('l4'),
+                }
+            count += 1
+        except Exception:
+            errors += 1
 
     print(f"  Pace index: {len(pace_index):,} races with pace data "
           f"(of {count:,} total, {errors} errors)")
@@ -194,20 +220,19 @@ def build_kb_ext_index(date_index: dict) -> dict:
     kb_index = {}
     errors = 0
 
-    for date_str, race_ids in date_index.items():
+    for date_str, race_id in _iter_date_index(date_index):
         parts = date_str.split('-')
         day_dir = kb_dir / parts[0] / parts[1] / parts[2]
         if not day_dir.exists():
             continue
 
-        for race_id in race_ids:
-            kb_path = day_dir / f"kb_ext_{race_id}.json"
-            if kb_path.exists():
-                try:
-                    with open(kb_path, encoding='utf-8') as f:
-                        kb_index[race_id] = json.load(f)
-                except Exception:
-                    errors += 1
+        kb_path = day_dir / f"kb_ext_{race_id}.json"
+        if kb_path.exists():
+            try:
+                with open(kb_path, encoding='utf-8') as f:
+                    kb_index[race_id] = json.load(f)
+            except Exception:
+                errors += 1
 
     print(f"  KB ext index: {len(kb_index):,} races (errors={errors})")
     return kb_index
@@ -259,8 +284,14 @@ def compute_features_for_race(
     jockey_index: dict,
     pace_index: dict,
     kb_ext_index: dict,
+    db_odds: dict = None,
 ) -> List[dict]:
-    """1レースの全出走馬の特徴量を計算"""
+    """1レースの全出走馬の特徴量を計算
+
+    Args:
+        db_odds: mykeibadbから取得した事前オッズ {umaban: {'odds': float, 'ninki': int}}
+                 Noneの場合はJSON確定オッズを使用（従来動作）
+    """
     from ml.features.base_features import extract_base_features
     from ml.features.past_features import compute_past_features
     from ml.features.trainer_features import get_trainer_features
@@ -269,6 +300,7 @@ def compute_features_for_race(
     from ml.features.rotation_features import compute_rotation_features
     from ml.features.pace_features import compute_pace_features
     from ml.features.training_features import compute_training_features
+    from ml.features.speed_features import compute_speed_features
 
     race_date = race['date']
     race_id = race['race_id']
@@ -290,6 +322,14 @@ def compute_features_for_race(
 
         # 基本特徴量
         feat = extract_base_features(entry, race)
+
+        # DB事前オッズで上書き（データリーク解消）
+        umaban = entry.get('umaban', 0)
+        if db_odds and umaban in db_odds:
+            feat['odds'] = db_odds[umaban]['odds']
+            ninki = db_odds[umaban].get('ninki')
+            if ninki is not None:
+                feat['popularity'] = ninki
 
         # 過去走特徴量
         past = compute_past_features(
@@ -350,6 +390,13 @@ def compute_features_for_race(
         )
         feat.update(train_feat)
 
+        # スピード指数特徴量 (v3.5)
+        speed_feat = compute_speed_features(
+            umaban=str(entry.get('umaban', '')),
+            kb_ext=kb_ext,
+        )
+        feat.update(speed_feat)
+
         # メタ情報（学習には使わないが分析用）
         feat['race_id'] = race_id
         feat['date'] = race_date
@@ -373,32 +420,61 @@ def build_dataset(
     kb_ext_index: dict,
     min_year: int,
     max_year: int,
+    use_db_odds: bool = True,
 ) -> pd.DataFrame:
-    """全レースの特徴量を構築してDataFrameで返す"""
+    """全レースの特徴量を構築してDataFrameで返す
+
+    Args:
+        use_db_odds: True=mykeibadbから事前オッズ取得, False=JSON確定オッズ（従来動作）
+    """
     print(f"\n[Build] Building dataset for {min_year}-{max_year}...")
+
+    # 対象レースIDを収集
+    target_races = []
+    for date_str, race_id in _iter_date_index(date_index):
+        year = int(date_str[:4])
+        if year < min_year or year > max_year:
+            continue
+        target_races.append((date_str, race_id))
+
+    # DB事前オッズをバッチ取得
+    db_odds_index = {}
+    if use_db_odds:
+        try:
+            from core.odds_db import batch_get_pre_race_odds, is_db_available
+            if is_db_available():
+                race_codes = [rid for _, rid in target_races]
+                db_odds_index = batch_get_pre_race_odds(race_codes)
+                ts_count = sum(1 for v in db_odds_index.values()
+                               if v and any(e.get('source') == 'timeseries' for e in v.values()))
+                final_count = sum(1 for v in db_odds_index.values()
+                                  if v and any(e.get('source') == 'final' for e in v.values()))
+                print(f"[DB Odds] {len(db_odds_index):,} races loaded "
+                      f"(timeseries={ts_count:,}, final={final_count:,}, "
+                      f"no_data={len(target_races)-len(db_odds_index):,})")
+            else:
+                print("[DB Odds] mykeibadb not available, using JSON odds")
+        except Exception as e:
+            print(f"[DB Odds] Error: {e}, using JSON odds")
 
     all_rows = []
     race_count = 0
     error_count = 0
 
-    for date_str, race_ids in sorted(date_index.items()):
-        year = int(date_str[:4])
-        if year < min_year or year > max_year:
-            continue
-
-        for race_id in race_ids:
-            try:
-                race = load_race_json(race_id, date_str)
-                rows = compute_features_for_race(
-                    race, history_cache, trainer_index, jockey_index,
-                    pace_index, kb_ext_index,
-                )
-                all_rows.extend(rows)
-                race_count += 1
-            except Exception as e:
-                error_count += 1
-                if error_count <= 3:
-                    print(f"  ERROR: {race_id}: {e}")
+    for date_str, race_id in target_races:
+        try:
+            race = load_race_json(race_id, date_str)
+            rows = compute_features_for_race(
+                race, history_cache, trainer_index, jockey_index,
+                pace_index, kb_ext_index,
+                db_odds=db_odds_index.get(race_id),
+            )
+            all_rows.extend(rows)
+            race_count += 1
+        except Exception as e:
+            error_count += 1
+            if error_count <= 3:
+                print(f"  ERROR: {race_id}: {e}")
 
         if race_count % 1000 == 0 and race_count > 0:
             print(f"  ... {race_count:,} races, {len(all_rows):,} entries")
@@ -566,15 +642,18 @@ def main():
     parser = argparse.ArgumentParser(description='ML Experiment v3')
     parser.add_argument('--train-years', default='2020-2024', help='Training year range')
     parser.add_argument('--test-years', default='2025-2026', help='Test year range')
+    parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用（JSON確定オッズ）')
     args = parser.parse_args()
 
     train_min, train_max = parse_year_range(args.train_years)
     test_min, test_max = parse_year_range(args.test_years)
+    use_db_odds = not args.no_db
 
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD v4 - ML Experiment v3.3")
+    print(f"  KeibaCICD v4 - ML Experiment v3.4")
     print(f"  Train: {train_min}-{train_max}")
     print(f"  Test:  {test_min}-{test_max}")
+    print(f"  DB Odds: {'ON' if use_db_odds else 'OFF (JSON fallback)'}")
     print(f"  Model A features: {len(FEATURE_COLS_ALL)}")
     print(f"  Model B features: {len(FEATURE_COLS_VALUE)}")
     print(f"{'='*60}\n")
@@ -587,11 +666,11 @@ def main():
     # データセット構築
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
-        kb_ext_index, train_min, train_max,
+        kb_ext_index, train_min, train_max, use_db_odds=use_db_odds,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
-        kb_ext_index, test_min, test_max,
+        kb_ext_index, test_min, test_max, use_db_odds=use_db_odds,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
@@ -672,10 +751,11 @@ def main():
     model_b.save_model(str(model_dir / "model_b.txt"))
 
     meta = {
-        'version': '3.3',
+        'version': '3.4',
         'features_all': FEATURE_COLS_ALL,
         'features_value': FEATURE_COLS_VALUE,
         'market_features': list(MARKET_FEATURES),
+        'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
         'created_at': datetime.now().isoformat(timespec='seconds'),
     }
     (model_dir / "model_meta.json").write_text(
@@ -684,7 +764,7 @@ def main():
 
     # 結果JSON保存
     result = {
-        'version': '3.3',
+        'version': '3.4',
         'experiment': 'ml_experiment_v3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {

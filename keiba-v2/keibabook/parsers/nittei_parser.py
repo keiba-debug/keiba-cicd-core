@@ -33,16 +33,10 @@ def parse_nittei_html(html: str, date_str: str = "") -> dict[str, Any]:
     kaisai_data: dict[str, list] = {}
     total_races = 0
 
-    # 各開催ブロック: <div class="kaisai"> 内の <table class="kaisai">
-    kaisai_divs = soup.find_all("div", class_="kaisai")
-    if not kaisai_divs:
-        # フォールバック: table直接探索
-        kaisai_divs = soup.find_all("table", class_="kaisai")
+    # 各開催テーブル: <table class="kaisai"> を直接探索
+    kaisai_tables = soup.find_all("table", class_="kaisai")
 
-    for div in kaisai_divs:
-        table = div.find("table", class_="kaisai") if div.name != "table" else div
-        if not table:
-            continue
+    for table in kaisai_tables:
 
         # 開催名 (e.g. "1回東京1日目")
         midasi = table.find("th", class_="midasi")

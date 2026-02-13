@@ -191,6 +191,18 @@ export interface HistoryFeatures {
   [key: string]: unknown;
 }
 
+export interface OikiriSummary {
+  course: string;        // 栗CW, 美W, 栗坂, 美坂 等
+  condition: string;     // 良/稍/重/不
+  intensity: string;     // 馬なり余力/強めに追う/一杯に追う等
+  hasAwase: boolean;     // 併せ馬あり
+  awaseText: string;     // 併せ馬詳細
+  rider: string;         // 騎乗者
+  comment: string;       // コメント
+  restPeriod: string;    // 中1週 等
+  sessionCount: number;  // 本数
+}
+
 export interface HorseEntry {
   horse_number: number;
   horse_name: string;
@@ -201,6 +213,7 @@ export interface HorseEntry {
   result: RaceResult | null;
   previous_race_interview: PreviousRaceInterview | null;
   paddock_info: PaddockInfo | null;
+  oikiri_summary?: OikiriSummary | null;
   past_performances: PastPerformances;
   history_features: HistoryFeatures | null;
 }

@@ -9,6 +9,12 @@ import fs from 'fs';
 import path from 'path';
 import { DATA3_ROOT } from '@/lib/config';
 import { getHorseRaceResultsFromTarget } from './target-race-result-reader';
+import {
+  generateTrainingSummary,
+  isTrainingDataAvailable,
+  getTrainingDateRanges,
+  type TrainingSummary,
+} from './target-training-reader';
 
 const DATA_ROOT = DATA3_ROOT;
 
@@ -85,16 +91,52 @@ export async function getTrainingSummaryMap(date: string): Promise<Record<string
       'training_summary.json'
     );
 
-    if (!fs.existsSync(filePath)) {
-      console.log(`[TrainingSummaryReader] File not found: ${filePath}`);
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const data: TrainingSummaryFile = JSON.parse(content);
+      console.log(`[TrainingSummaryReader] Loaded ${Object.keys(data.summaries).length} summaries from ${filePath}`);
+      return data.summaries;
+    }
+
+    // ファイルがない場合: CK_DATAからオンデマンド生成
+    if (!isTrainingDataAvailable()) {
+      console.log(`[TrainingSummaryReader] File not found and CK_DATA unavailable: ${filePath}`);
       return {};
     }
 
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const data: TrainingSummaryFile = JSON.parse(content);
-    
-    console.log(`[TrainingSummaryReader] Loaded ${Object.keys(data.summaries).length} summaries from ${filePath}`);
-    return data.summaries;
+    const dateStr = `${year}${month}${day}`;
+    console.log(`[TrainingSummaryReader] Auto-generating training summary for ${dateStr}...`);
+    const summaries = await generateTrainingSummary(dateStr);
+
+    if (summaries.length === 0) {
+      console.log(`[TrainingSummaryReader] No training data found for ${dateStr}`);
+      return {};
+    }
+
+    // 馬名をキーにしたマップ形式に変換
+    const summaryMap: Record<string, TrainingSummaryData> = {};
+    for (const s of summaries) {
+      summaryMap[s.horseName] = s as TrainingSummaryData;
+    }
+
+    // 次回用にファイル保存
+    const targetDir = path.join(DATA_ROOT, 'races', year, month, day, 'temp');
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    const outputData: TrainingSummaryFile = {
+      meta: {
+        date: dateStr,
+        created_at: new Date().toISOString(),
+        ranges: getTrainingDateRanges(dateStr),
+        count: summaries.length,
+      },
+      summaries: summaryMap,
+    };
+    fs.writeFileSync(filePath, JSON.stringify(outputData, null, 2), 'utf-8');
+    console.log(`[TrainingSummaryReader] Auto-generated and saved ${summaries.length} summaries to ${filePath}`);
+
+    return summaryMap;
   } catch (error) {
     console.error('[TrainingSummaryReader] Error:', error);
     return {};

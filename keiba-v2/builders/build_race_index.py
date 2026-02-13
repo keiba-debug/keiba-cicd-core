@@ -31,7 +31,7 @@ def build_date_index() -> dict:
     date_index = defaultdict(list)
     count = 0
 
-    for json_file in races_root.rglob("race_*.json"):
+    for json_file in races_root.rglob("race_[0-9]*.json"):
         try:
             data = json.loads(json_file.read_text(encoding='utf-8'))
             race_id = data['race_id']

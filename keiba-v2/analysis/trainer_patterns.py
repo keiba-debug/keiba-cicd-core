@@ -254,7 +254,7 @@ def collect_history(since_year: int) -> dict:
             continue
 
         year_matched = 0
-        for race_file in year_dir.rglob("race_*.json"):
+        for race_file in year_dir.rglob("race_[0-9]*.json"):
             try:
                 with open(race_file, 'r', encoding='utf-8') as f:
                     race = json.load(f)

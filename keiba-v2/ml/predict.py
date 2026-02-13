@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-リアルタイム予測スクリプト (v3モデル)
+リアルタイム予測スクリプト (v3.4モデル)
 
-JRA-VANレースJSON + keibabook拡張JSON → predictions_live.json
+JRA-VANレースJSON + keibabook拡張JSON + mykeibadb事前オッズ → predictions_live.json
+
+v3.4: mykeibadb連携 - レース前最新オッズを自動取得
+      DB接続不可時はJSONオッズにフォールバック
 
 Usage:
     python -m ml.predict [--date 2026-02-08] [--race-id 2026020806010101]
     python -m ml.predict --latest   # 最新の開催日
+    python -m ml.predict --no-db    # DBオッズ未使用
 """
 
 import argparse
@@ -31,6 +35,7 @@ from ml.features.running_style_features import compute_running_style_features
 from ml.features.rotation_features import compute_rotation_features
 from ml.features.pace_features import compute_pace_features
 from ml.features.training_features import compute_training_features
+from ml.features.speed_features import compute_speed_features
 
 
 def load_model_and_meta():
@@ -126,8 +131,13 @@ def predict_race(
     trainer_index: dict,
     jockey_index: dict,
     pace_index: dict,
+    db_odds: Optional[Dict[int, dict]] = None,
 ) -> dict:
-    """1レースの予測を実行"""
+    """1レースの予測を実行
+
+    Args:
+        db_odds: mykeibadbから取得した事前オッズ {umaban: {'odds': float, 'ninki': int}}
+    """
     features_all = meta['features_all']
     features_value = meta['features_value']
 
@@ -149,6 +159,13 @@ def predict_race(
 
         # 基本特徴量
         feat = extract_base_features(entry, race)
+
+        # DB事前オッズで上書き
+        if db_odds and umaban in db_odds:
+            feat['odds'] = db_odds[umaban]['odds']
+            ninki = db_odds[umaban].get('ninki')
+            if ninki is not None:
+                feat['popularity'] = ninki
 
         # 過去走特徴量
         past = compute_past_features(
@@ -209,6 +226,13 @@ def predict_race(
             kb_ext=kb_ext,
         )
         feat.update(train_feat)
+
+        # スピード指数特徴量 (v3.5)
+        speed_feat = compute_speed_features(
+            umaban=str(umaban),
+            kb_ext=kb_ext,
+        )
+        feat.update(speed_feat)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = 0  # placeholder
@@ -314,7 +338,7 @@ def get_races_for_date(date: str) -> List[dict]:
         return []
 
     races = []
-    for rp in sorted(race_dir.glob("race_*.json")):
+    for rp in sorted(race_dir.glob("race_[0-9]*.json")):
         with open(rp, encoding='utf-8') as f:
             races.append(json.load(f))
 
@@ -337,12 +361,15 @@ def main():
     parser.add_argument('--date', help='対象日 (YYYY-MM-DD)')
     parser.add_argument('--race-id', help='特定レースID (16桁)')
     parser.add_argument('--latest', action='store_true', help='最新開催日')
+    parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
     args = parser.parse_args()
+    use_db_odds = not args.no_db
 
     t0 = time.time()
 
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD v4 - Race Prediction (v3 model)")
+    print(f"  KeibaCICD v4 - Race Prediction (v3.4 model)")
+    print(f"  DB Odds: {'ON' if use_db_odds else 'OFF (JSON fallback)'}")
     print(f"{'='*60}\n")
 
     # モデルロード
@@ -389,6 +416,20 @@ def main():
 
     print(f"\n[Predict] {len(races)} races for {date}")
 
+    # DB事前オッズ取得
+    db_odds_index = {}
+    if use_db_odds:
+        try:
+            from core.odds_db import batch_get_pre_race_odds, is_db_available
+            if is_db_available():
+                race_codes = [r['race_id'] for r in races]
+                db_odds_index = batch_get_pre_race_odds(race_codes)
+                print(f"[DB Odds] {len(db_odds_index)}/{len(races)} races with DB odds")
+            else:
+                print("[DB Odds] mykeibadb not available, using JSON odds")
+        except Exception as e:
+            print(f"[DB Odds] Error: {e}, using JSON odds")
+
     # 予測実行
     all_predictions = []
     vb_count = 0
@@ -398,7 +439,8 @@ def main():
         pred = predict_race(
             race, kb_ext,
             model_a, model_b, meta,
-            history_cache, trainer_index, jockey_index, pace_index
+            history_cache, trainer_index, jockey_index, pace_index,
+            db_odds=db_odds_index.get(race['race_id']),
         )
         all_predictions.append(pred)
 
@@ -417,10 +459,12 @@ def main():
 
     # 結果保存
     output = {
-        'version': '3.3',
+        'version': '3.4',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'date': date,
         'model_version': meta.get('version', '?'),
+        'odds_source': 'mykeibadb' if db_odds_index else 'json',
+        'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
         'races': all_predictions,
         'summary': {
             'total_races': len(all_predictions),

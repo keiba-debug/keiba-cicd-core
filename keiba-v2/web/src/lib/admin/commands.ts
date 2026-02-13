@@ -14,13 +14,10 @@ export type ActionType =
   | 'sunpyo_update'
   | 'calc_race_type_standards'   // レース特性基準値算出
   | 'calc_rating_standards'      // レイティング基準値算出
-  | 'training_summary'           // 調教サマリ生成
   | 'build_horse_name_index'     // 馬名インデックス作成
   | 'build_trainer_index'        // 調教師インデックス作成
   | 'analyze_trainer_patterns'   // 調教師パターン分析
   | 'v4_build_race'              // v4 JRA-VAN → data3/races/
-  | 'v4_build_kbext'             // v4 data2 integrated → data3/keibabook/ (レガシー)
-  | 'v4_cyokyo_enrich'           // v4 調教詳細データをkb_extに補強
   | 'v4_predict'                 // v4 ML v3予測 → data3/ml/predictions_live.json
   | 'v4_pipeline';               // v4 上記を連結実行
 
@@ -119,13 +116,6 @@ export const ACTIONS: ActionConfig[] = [
     noDateRequired: true,
   },
   {
-    id: 'training_summary',
-    label: '調教詳細補強',
-    description: 'keibabook HTMLから調教詳細データをkb_extに補強（v4_cyokyo_enrichと同等）',
-    icon: '🏋️',
-    category: 'generate',
-  },
-  {
     id: 'build_horse_name_index',
     label: '馬名インデックス作成',
     description: 'data3/masters/horsesから馬名→血統番号の辞書を再構築（新馬対応・年1回推奨）',
@@ -155,20 +145,6 @@ export const ACTIONS: ActionConfig[] = [
     label: 'v4 レース構築',
     description: 'JRA-VAN SE/SR → data3/races/ レースJSON生成',
     icon: '🏗️',
-    category: 'generate',
-  },
-  {
-    id: 'v4_build_kbext',
-    label: 'v4 KB拡張変換（レガシー）',
-    description: 'data2 integrated → data3/keibabook/ 拡張データ変換（過去データ用）',
-    icon: '📦',
-    category: 'generate',
-  },
-  {
-    id: 'v4_cyokyo_enrich',
-    label: 'v4 調教詳細補強',
-    description: 'debug HTMLから調教詳細データをkb_extに補強',
-    icon: '🏋️',
     category: 'generate',
   },
   {
@@ -258,13 +234,10 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
 
     case 'calc_race_type_standards':
     case 'calc_rating_standards':
-    case 'training_summary':
     case 'build_horse_name_index':
     case 'build_trainer_index':
     case 'analyze_trainer_patterns':
     case 'v4_build_race':
-    case 'v4_build_kbext':
-    case 'v4_cyokyo_enrich':
     case 'v4_predict':
     case 'v4_pipeline':
       // Note: execute/route.ts で特別に処理される
@@ -322,13 +295,10 @@ export function getCommandArgsRange(
       // Note: execute/route.ts で特別に処理される
       return [];
 
-    case 'training_summary':
     case 'build_horse_name_index':
     case 'build_trainer_index':
     case 'analyze_trainer_patterns':
     case 'v4_build_race':
-    case 'v4_build_kbext':
-    case 'v4_cyokyo_enrich':
     case 'v4_predict':
     case 'v4_pipeline':
       // Note: execute/route.ts で特別に処理される

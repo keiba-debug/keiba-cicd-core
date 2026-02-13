@@ -122,6 +122,17 @@ function getLapRankBgColor(rank?: string): string {
   return '';
 }
 
+// 脚色の表示ラベルと色
+function getIntensityInfo(intensity?: string): { label: string; color: string } {
+  if (!intensity) return { label: '-', color: 'text-gray-400' };
+  if (intensity.includes('一杯')) return { label: '一杯', color: 'text-red-600 dark:text-red-400 font-bold' };
+  if (intensity.includes('末強')) return { label: '末強', color: 'text-orange-600 dark:text-orange-400 font-bold' };
+  if (intensity.includes('強め')) return { label: '強め', color: 'text-amber-600 dark:text-amber-400 font-medium' };
+  if (intensity.includes('馬なり')) return { label: '馬なり', color: 'text-green-600 dark:text-green-400 font-medium' };
+  if (intensity.includes('ゲート')) return { label: 'ゲート', color: 'text-gray-500' };
+  return { label: intensity.length > 4 ? intensity.slice(0, 4) : intensity, color: 'text-gray-600 dark:text-gray-400' };
+}
+
 // =============================================================================
 // メモ化されたサブコンポーネント
 // =============================================================================
@@ -288,6 +299,38 @@ const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, tra
         ) || <span className="text-gray-400 text-xs">-</span>}
       </td>
 
+      {/* 脚色 */}
+      {(() => {
+        const oikiri = entry.oikiri_summary;
+        const info = getIntensityInfo(oikiri?.intensity);
+        return (
+          <td className={`px-1 py-1.5 text-center border text-xs ${info.color}`} title={oikiri?.intensity || ''}>
+            {oikiri ? (
+              <div>
+                <div>{info.label}</div>
+                {oikiri.condition && (oikiri.condition === '重' || oikiri.condition === '不') && (
+                  <div className="text-[10px] text-gray-500" title={`馬場: ${oikiri.condition}`}>{oikiri.condition}</div>
+                )}
+              </div>
+            ) : '-'}
+          </td>
+        );
+      })()}
+
+      {/* 併せ馬 */}
+      <td className="px-1 py-1.5 text-center border text-xs">
+        {entry.oikiri_summary?.hasAwase ? (
+          <span
+            className="text-blue-600 dark:text-blue-400 font-bold cursor-help"
+            title={entry.oikiri_summary.awaseText || '併せ馬あり'}
+          >
+            併
+          </span>
+        ) : (
+          <span className="text-gray-400">-</span>
+        )}
+      </td>
+
       {/* 前走調教 */}
       <td className="px-2 py-1.5 border">
         {(previousTraining?.training?.detail || previousRaceForm) ? (
@@ -428,6 +471,8 @@ export default function TrainingAnalysisSection({
                   <th className="px-2 py-2 text-left border min-w-20">馬名</th>
                   <th className="px-2 py-2 text-left border min-w-24">調教師</th>
                   <th className="px-2 py-2 text-left border min-w-70" title="調教タイム詳細（最終/土日/1週前）">今走調教</th>
+                  <th className="px-2 py-2 text-center border w-14" title="追い切り脚色">脚色</th>
+                  <th className="px-2 py-2 text-center border w-10" title="併せ馬">併</th>
                   <th className="px-2 py-2 text-left border min-w-70" title="前走時の調教タイム">前走調教</th>
                   <th className="px-2 py-2 text-center border w-12" title="調教評価">評価</th>
                   <th className="px-2 py-2 text-left border min-w-60">調教短評・解説</th>
@@ -455,6 +500,8 @@ export default function TrainingAnalysisSection({
               <span><strong className="text-green-600">◎</strong>=好タイム（緑色表示）</span>
               <span><strong>ラップ:</strong> <strong className="text-yellow-600">SS</strong>=最高 / S=優秀 / A=良 / B=普通 / C=やや劣 / D=劣</span>
               <span><strong>加速:</strong> ↗=加速 / →=同タイム / ↘=減速</span>
+              <span><strong>脚色:</strong> <span className="text-green-600">馬なり</span>=余裕 / <span className="text-amber-600">強め</span> / <span className="text-orange-600">末強</span> / <span className="text-red-600">一杯</span>=全力</span>
+              <span><strong className="text-blue-600">併</strong>=併せ馬あり（ツールチップで詳細）</span>
               <span><strong className="text-amber-500">★</strong>=調教師勝負パターン一致</span>
             </div>
           </div>

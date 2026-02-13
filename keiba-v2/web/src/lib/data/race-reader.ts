@@ -373,6 +373,7 @@ function buildDateGroupFromRaceInfoOnly(dayPath: string, date: string): DateGrou
 
 /**
  * レース詳細を取得
+ * 優先順位: 1. Markdown(.md) 2. v4レースJSON(race_*.json)
  */
 export async function getRaceDetail(
   date: string,
@@ -380,38 +381,120 @@ export async function getRaceDetail(
   raceId: string
 ): Promise<RaceDetail | null> {
   const [year, month, day] = date.split('-');
-  const filePath = path.join(RACES_DIR, year, month, day, track, `${raceId}.md`);
-  const infoByRaceId = loadRaceInfoByRaceId(path.join(RACES_DIR, year, month, day));
+  const dayPath = path.join(RACES_DIR, year, month, day);
+  const filePath = path.join(dayPath, track, `${raceId}.md`);
+  const infoByRaceId = loadRaceInfoByRaceId(dayPath);
 
-  if (!fs.existsSync(filePath)) {
+  // 1. Markdownファイルがあればそちらを使用
+  if (fs.existsSync(filePath)) {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const summary = parseRaceSummary(content, `${raceId}.md`, date, track, filePath);
+    const info = infoByRaceId.get(raceId);
+    if (summary && info?.course) {
+      summary.distance = info.course;
+    }
+
+    if (!summary) return null;
+
+    // ローカルパスをURLに変換
+    const processedContent = convertLocalPaths(content);
+
+    // MarkdownをHTMLに変換
+    const result = await remark().use(gfm).use(html).process(processedContent);
+    let htmlContent = result.toString();
+
+    // 馬リンクを新規タブで開くように変換
+    htmlContent = addTargetBlankToHorseLinks(htmlContent);
+
+    return {
+      ...summary,
+      content,
+      htmlContent,
+      horses: [],
+    };
+  }
+
+  // 2. v4レースJSON フォールバック
+  return getRaceDetailFromJson(date, track, raceId, dayPath, infoByRaceId);
+}
+
+/**
+ * v4レースJSON(race_*.json)からRaceDetailを構築
+ */
+function getRaceDetailFromJson(
+  date: string,
+  track: string,
+  raceId: string,
+  dayPath: string,
+  infoByRaceId: Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string; raceName?: string }>
+): RaceDetail | null {
+  const jsonPath = path.join(dayPath, `race_${raceId}.json`);
+  if (!fs.existsSync(jsonPath)) return null;
+
+  try {
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    const info = infoByRaceId.get(raceId);
+    const raceNumber = data.race_number || parseInt(raceId.slice(-2), 10);
+
+    // distance構築: JSON直接 or race_info.json
+    let distance = info?.course || '';
+    if (!distance && data.track_type && data.distance) {
+      distance = `${data.track_type}${data.distance}m`;
+    }
+
+    return {
+      id: raceId,
+      date,
+      track: data.venue_name || track,
+      raceNumber,
+      raceName: info?.raceName || data.race_name || `${raceNumber}R`,
+      className: data.grade || '',
+      distance,
+      startTime: info?.startTime || '',
+      kai: data.kai || info?.kai,
+      nichi: data.nichi || info?.nichi,
+      filePath: jsonPath,
+      content: '',     // JSON源 — Markdown無し
+      htmlContent: '',
+      horses: [],
+    };
+  } catch {
     return null;
   }
+}
 
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const summary = parseRaceSummary(content, `${raceId}.md`, date, track, filePath);
-  const info = infoByRaceId.get(raceId);
-  if (summary && info?.course) {
-    summary.distance = info.course;
+/**
+ * v4レースJSONからエントリー情報を取得（HorseData形式）
+ */
+export function loadV4RaceEntries(date: string, raceId: string) {
+  const [year, month, day] = date.split('-');
+  const jsonPath = path.join(RACES_DIR, year, month, day, `race_${raceId}.json`);
+  if (!fs.existsSync(jsonPath)) return null;
+
+  try {
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    const sexMap: Record<string, string> = { '1': '牡', '2': '牝', '3': 'セ' };
+    return (data.entries || []).map((e: any) => ({
+      waku: e.wakuban || 0,
+      umaban: e.umaban || 0,
+      name: e.horse_name || '',
+      sex: sexMap[e.sex_cd] || '',
+      age: e.age || 0,
+      weight: e.futan || 0,
+      jockey: e.jockey_name || '',
+      trainer: e.trainer_name || '',
+      odds: e.odds || 0,
+      popularity: e.popularity || 0,
+      horseWeight: e.horse_weight || 0,
+      horseWeightDiff: e.horse_weight_diff ?? null,
+      kettoNum: e.ketto_num || '',
+      finishPosition: e.finish_position || 0,
+      time: e.time || '',
+      last3f: e.last_3f || 0,
+    }));
+  } catch {
+    return null;
   }
-
-  if (!summary) return null;
-
-  // ローカルパスをURLに変換
-  const processedContent = convertLocalPaths(content);
-
-  // MarkdownをHTMLに変換
-  const result = await remark().use(gfm).use(html).process(processedContent);
-  let htmlContent = result.toString();
-
-  // 馬リンクを新規タブで開くように変換
-  htmlContent = addTargetBlankToHorseLinks(htmlContent);
-
-  return {
-    ...summary,
-    content,
-    htmlContent,
-    horses: [], // TODO: 出走馬情報を抽出
-  };
 }
 
 /**
@@ -466,14 +549,14 @@ export async function getRaceNavigation(
     return indexResult;
   }
 
-  // 2. JSONからのナビゲーション構築を試行
-  const jsonResult = await getRaceNavigationFromJson(date, currentTrack, currentRaceNumber, dayPath);
-  if (jsonResult) {
-    return jsonResult;
+  // 2. v4レースJSON（race_*.json）— 全場のデータが確実にある
+  const v4Result = await getRaceNavigationFromV4(date, currentTrack, currentRaceNumber, dayPath);
+  if (v4Result) {
+    return v4Result;
   }
 
-  // 3. フォールバック: v4レースJSONからナビゲーション構築
-  return getRaceNavigationFromV4(date, currentTrack, currentRaceNumber, dayPath);
+  // 3. フォールバック: race_info.json / nittei_*.json
+  return getRaceNavigationFromJson(date, currentTrack, currentRaceNumber, dayPath);
 }
 
 /**

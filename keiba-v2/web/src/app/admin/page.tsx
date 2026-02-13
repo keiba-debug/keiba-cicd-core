@@ -257,19 +257,17 @@ export default function AdminPage() {
 
   // カテゴリ別にアクションを分類
   const batchActions = ACTIONS.filter((a) => a.category === 'batch' && !a.id.startsWith('v4_'));
-  const generateActions = ACTIONS.filter((a) =>
-    ['training_summary'].includes(a.id)
-  );
   const indexActions = ACTIONS.filter((a) =>
     ['build_horse_name_index', 'build_trainer_index'].includes(a.id)
   );
   const v4PipelineAction = ACTIONS.find((a) => a.id === 'v4_pipeline');
   const v4IndividualActions = ACTIONS.filter((a) =>
-    ['v4_build_race', 'v4_build_kbext', 'v4_cyokyo_enrich', 'v4_predict'].includes(a.id)
+    ['v4_build_race', 'v4_predict'].includes(a.id)
   );
+  const sunpyoAction = ACTIONS.find((a) => a.id === 'sunpyo_update');
   const analysisActions = ACTIONS.filter((a) => a.category === 'analysis');
   // データリフレッシュが必要なアクション
-  const dataRefreshActions: ActionType[] = ['batch_prepare', 'batch_after_race', 'v4_pipeline', 'v4_build_race', 'v4_build_kbext'];
+  const dataRefreshActions: ActionType[] = ['batch_prepare', 'batch_after_race', 'v4_pipeline', 'v4_build_race'];
 
   return (
     <div className="container py-6 max-w-4xl">
@@ -414,48 +412,33 @@ export default function AdminPage() {
               />
             ))}
           </div>
-          {/* v4パイプラインのみ再実行 */}
-          {v4PipelineAction && (
-            <>
-              <Separator />
-              <div className="text-sm text-muted-foreground mb-2">
-                v4パイプラインのみ再実行（スクレイピング済みの場合）
-              </div>
+
+          <Separator />
+
+          {/* 補助一括実行 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* v4パイプライン */}
+            {v4PipelineAction && (
               <ActionButton
                 icon={v4PipelineAction.icon}
                 label={v4PipelineAction.label}
-                description={v4PipelineAction.description}
+                description="スクレイプ済みデータを再処理（レース構築→調教補強→ML予測）"
                 onClick={() => executeAction(v4PipelineAction.id)}
                 disabled={isRunning}
                 loading={isRunning && currentAction === v4PipelineAction.label}
               />
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* v4パイプライン個別ステップ（デバッグ・部分再実行用） */}
-      <Card className="mb-6 border-emerald-200 dark:border-emerald-800">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <span className="text-xl">🏗️</span>
-            <span>v4 個別ステップ</span>
-            <span className="ml-auto text-xs font-normal text-muted-foreground">デバッグ・部分再実行用</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {v4IndividualActions.map((action) => (
+            )}
+            {/* 寸評更新 */}
+            {sunpyoAction && (
               <ActionButton
-                key={action.id}
-                icon={action.icon}
-                label={action.label}
-                description={action.description}
-                onClick={() => executeAction(action.id)}
+                icon={sunpyoAction.icon}
+                label={sunpyoAction.label}
+                description={sunpyoAction.description}
+                onClick={() => executeAction(sunpyoAction.id)}
                 disabled={isRunning}
-                loading={isRunning && currentAction === action.label}
+                loading={isRunning && currentAction === sunpyoAction.label}
               />
-            ))}
+            )}
           </div>
         </CardContent>
       </Card>
@@ -485,25 +468,27 @@ export default function AdminPage() {
             <CollapsibleContent>
               <CardContent>
                 <div className="space-y-6">
-                  {/* データ生成 */}
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground mb-3">
-                      データ生成
+                  {/* v4個別ステップ（デバッグ用） */}
+                  {v4IndividualActions.length > 0 && (
+                    <div>
+                      <div className="text-sm font-medium text-muted-foreground mb-3">
+                        v4 個別ステップ（デバッグ・部分再実行用）
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {v4IndividualActions.map((action) => (
+                          <ActionButton
+                            key={action.id}
+                            icon={action.icon}
+                            label={action.label}
+                            description={action.description}
+                            onClick={() => executeAction(action.id)}
+                            disabled={isRunning}
+                            loading={isRunning && currentAction === action.label}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {generateActions.map((action) => (
-                        <ActionButton
-                          key={action.id}
-                          icon={action.icon}
-                          label={action.label}
-                          description={action.description}
-                          onClick={() => executeAction(action.id)}
-                          disabled={isRunning}
-                          loading={isRunning && currentAction === action.label}
-                        />
-                      ))}
-                    </div>
-                  </div>
+                  )}
 
                   <Separator />
 

@@ -101,7 +101,7 @@ def scan_races(since_year: int) -> list:
         except ValueError:
             continue
 
-        json_files = list(year_dir.rglob("race_*.json"))
+        json_files = list(year_dir.rglob("race_[0-9]*.json"))
         year_count = 0
 
         for json_file in json_files:

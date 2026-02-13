@@ -3,13 +3,12 @@ import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import { ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { getRaceDetail, getRaceNavigation, getRaceInfo } from '@/lib/data';
+import { getRaceDetail, getRaceNavigation, getRaceInfo, loadV4RaceEntries } from '@/lib/data';
 import { RaceMemoEditor } from '@/components/race-memo-editor';
 import { RaceContentWithMermaid } from '@/components/race-content-with-mermaid';
 import { RaceFetchDropdown } from '@/components/race-fetch-dropdown';
+import { RaceHorseTable } from '@/components/race-horse-table';
 import { generatePaddockUrl, generateRaceUrl, generatePatrolUrl, getKaisaiInfoFromRaceInfo } from '@/lib/jra-viewer-url';
-import { formatTrainerName } from '@/types/race-data';
 
 interface PageProps {
   params: Promise<{
@@ -64,21 +63,6 @@ const getCourseBadgeClass = (distance?: string) => {
     return 'text-[var(--color-surface-steeplechase)] bg-[var(--color-surface-steeplechase)]/10';
   }
   return 'text-muted-foreground bg-muted';
-};
-
-// 枠番カラー（1-8枠）
-const getWakuColor = (waku: number) => {
-  const colors: Record<number, { bg: string; text: string; border: string }> = {
-    1: { bg: 'bg-white', text: 'text-gray-900', border: 'border-gray-300' },
-    2: { bg: 'bg-gray-900', text: 'text-white', border: 'border-gray-900' },
-    3: { bg: 'bg-red-600', text: 'text-white', border: 'border-red-600' },
-    4: { bg: 'bg-blue-600', text: 'text-white', border: 'border-blue-600' },
-    5: { bg: 'bg-yellow-400', text: 'text-gray-900', border: 'border-yellow-400' },
-    6: { bg: 'bg-green-600', text: 'text-white', border: 'border-green-600' },
-    7: { bg: 'bg-orange-500', text: 'text-white', border: 'border-orange-500' },
-    8: { bg: 'bg-pink-500', text: 'text-white', border: 'border-pink-500' },
-  };
-  return colors[waku] || colors[1];
 };
 
 // Markdownから馬データを抽出するヘルパー関数
@@ -177,18 +161,21 @@ export default async function RaceDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  // Markdownから馬データを抽出
-  const horses = extractHorsesFromMarkdown(raceData.content);
+  // 馬データ取得: Markdown → JSON フォールバック
+  let horses;
+  if (raceData.content) {
+    // Markdownソース: テーブルから抽出
+    horses = extractHorsesFromMarkdown(raceData.content);
+  } else {
+    // JSONソース (v4): race_*.json の entries から取得
+    horses = loadV4RaceEntries(date, id) || [];
+  }
   // raceDataにhorsesをマージしたオブジェクトを作成
   const race = { ...raceData, horses };
 
   // もしhorsesが抽出できたら、HTMLコンテンツからテーブル部分を除去する
   let displayHtmlContent = race.htmlContent;
-  if (horses.length > 0) {
-    // <table>...</table> を空文字に置換
-    // 注: 複数のテーブルがある場合（払戻金など）、最初のテーブル（出走表）だけを消したい
-    // 出走表は通常一番上にあるが、念のため内容で判断できればベスト
-    // ここでは単純に最初のtableを消す（出走表と仮定）
+  if (horses.length > 0 && displayHtmlContent) {
     displayHtmlContent = displayHtmlContent.replace(/<table[\s\S]*?<\/table>/, '');
   }
 
@@ -466,107 +453,11 @@ export default async function RaceDetailPage({ params }: PageProps) {
 
       {/* 出走馬テーブル (データがある場合のみ表示) */}
       {race.horses.length > 0 && (
-        <div className="bg-card rounded-lg border overflow-hidden mt-6 mb-6">
-          <div className="bg-gradient-to-r from-gray-800 to-gray-700 text-white px-4 py-3">
-            <h2 className="font-bold text-lg">出走馬一覧</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-100 border-b">
-                  <th className="px-2 py-2.5 text-center font-bold w-10">枠</th>
-                  <th className="px-2 py-2.5 text-center font-bold w-10">番</th>
-                  <th className="px-3 py-2.5 text-left font-bold min-w-[140px]">馬名</th>
-                  <th className="px-2 py-2.5 text-center font-bold w-14">性齢</th>
-                  <th className="px-2 py-2.5 text-center font-bold w-14">斤量</th>
-                  <th className="px-3 py-2.5 text-left font-bold min-w-[80px]">騎手</th>
-                  <th className="px-3 py-2.5 text-left font-bold min-w-[80px]">調教師</th>
-                  <th className="px-2 py-2.5 text-right font-bold w-16">オッズ</th>
-                  <th className="px-2 py-2.5 text-center font-bold w-10">人</th>
-                </tr>
-              </thead>
-              <tbody>
-                {race.horses.map((horse, index) => {
-                  const wakuColor = getWakuColor(horse.waku);
-                  return (
-                    <tr 
-                      key={horse.umaban}
-                      className={`border-b transition-colors hover:bg-blue-50/50 ${
-                        index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
-                      }`}
-                    >
-                      {/* 枠番 */}
-                      <td className="px-2 py-2 text-center">
-                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-sm text-xs font-bold border ${wakuColor.bg} ${wakuColor.text} ${wakuColor.border}`}>
-                          {horse.waku}
-                        </span>
-                      </td>
-                      {/* 馬番 */}
-                      <td className="px-2 py-2 text-center">
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white border-2 border-gray-300 text-xs font-bold">
-                          {horse.umaban}
-                        </span>
-                      </td>
-                      {/* 馬名 */}
-                      <td className="px-3 py-2">
-                        <Link 
-                          href={`/horses/${horse.name}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-bold text-gray-900 hover:text-blue-600 hover:underline transition-colors"
-                        >
-                          {horse.name}
-                        </Link>
-                      </td>
-                      {/* 性齢 */}
-                      <td className="px-2 py-2 text-center text-gray-600">
-                        {horse.sex}{horse.age}
-                      </td>
-                      {/* 斤量 */}
-                      <td className="px-2 py-2 text-center font-mono text-gray-700">
-                        {horse.weight.toFixed(1)}
-                      </td>
-                      {/* 騎手 */}
-                      <td className="px-3 py-2">
-                        <Link 
-                          href={`/jockeys/${horse.jockey}`}
-                          className="text-gray-700 hover:text-blue-600 hover:underline transition-colors"
-                        >
-                          {horse.jockey}
-                        </Link>
-                      </td>
-                      {/* 調教師 */}
-                      <td className="px-3 py-2 text-gray-600">
-                        {formatTrainerName(horse.trainer)}
-                      </td>
-                      {/* オッズ */}
-                      <td className="px-2 py-2 text-right font-mono">
-                        <span className={`font-bold ${
-                          horse.odds < 5 ? 'text-red-600' : 
-                          horse.odds < 10 ? 'text-orange-600' : 
-                          'text-gray-700'
-                        }`}>
-                          {horse.odds.toFixed(1)}
-                        </span>
-                      </td>
-                      {/* 人気 */}
-                      <td className="px-2 py-2 text-center">
-                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
-                          horse.popularity === 1 ? 'bg-red-500 text-white' :
-                          horse.popularity === 2 ? 'bg-blue-500 text-white' :
-                          horse.popularity === 3 ? 'bg-green-500 text-white' :
-                          'bg-gray-200 text-gray-700'
-                        }`}>
-                          {horse.popularity}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <RaceHorseTable
+          horses={race.horses}
+          raceId={id}
+          isToday={date === new Date().toISOString().slice(0, 10)}
+        />
       )}
 
       {/* レース内容（Markdown変換済みHTML、テーブル除去済み） */}

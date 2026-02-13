@@ -44,6 +44,39 @@ export interface KbEntryExt {
   stable_comment: KbStableComment;
   sunpyo: string;
   previous_race_interview: KbPreviousInterview;
+  paddock_info?: {
+    mark: string;
+    mark_score: number;
+    comment: string;
+  } | null;
+  cyokyo_detail?: {
+    sessions: Array<{
+      is_oikiri: boolean;
+      rider: string;
+      date: string;
+      course: string;
+      condition: string;
+      times: { '5f'?: number; '3f'?: number; '1f'?: number; half_mile?: number };
+      intensity: string;
+      comment: string;
+      awase: string | null;
+    }>;
+    rest_period: string;
+    oikiri_summary?: {
+      oikiri_course: string;
+      oikiri_condition: string;
+      oikiri_5f: number;
+      oikiri_3f: number;
+      oikiri_1f: number;
+      oikiri_intensity: string;
+      oikiri_rider: string;
+      oikiri_comment: string;
+      oikiri_has_awase: boolean;
+      oikiri_awase_text: string;
+      session_count: number;
+      rest_period: string;
+    };
+  } | null;
 }
 
 export interface KbTenkaiData {

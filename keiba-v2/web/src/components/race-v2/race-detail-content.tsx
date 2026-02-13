@@ -17,20 +17,6 @@ import {
   type TargetCommentSavedData,
 } from '@/components/race-v2';
 
-// 調教・厩舎情報セクションを遅延読み込み
-// ssr: false でクライアントサイドのみでレンダリング（Radix UIのハイドレーションエラー回避）
-const TrainingInfoSection = dynamic(
-  () => import('./TrainingInfoSection').then(mod => ({ default: mod.default })),
-  {
-    loading: () => (
-      <div className="border rounded-lg p-4 flex items-center justify-center gap-2 text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin" />
-        <span className="text-sm">調教・厩舎情報を読み込み中...</span>
-      </div>
-    ),
-    ssr: false,
-  }
-);
 import { RaceMemoSection } from '@/components/race-v2/RaceMemoSection';
 import StakeholderCommentsSection from './StakeholderCommentsSection';
 

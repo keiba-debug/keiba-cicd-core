@@ -104,17 +104,9 @@ export async function POST(request: NextRequest) {
           return cmds;
         };
 
-        // レガシーv4パイプライン（v4_pipelineアクション用 — ext_builder含む）
-        const buildV4PipelineCommands = (dateArg: string, includeRaceBuild: boolean): string[][] => {
-          const cmds: string[][] = [];
-          if (includeRaceBuild) {
-            cmds.push(dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']);
-          }
-          cmds.push(dateArg ? ['-m', 'keibabook.ext_builder', '--date', dateArg] : ['-m', 'keibabook.ext_builder']);
-          cmds.push(dateArg ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg] : ['-m', 'keibabook.cyokyo_enricher']);
-          cmds.push(dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']);
-          return cmds;
-        };
+        // v4パイプライン（v4_pipelineアクション用）
+        // buildV4AfterScrapeCommandsと同一だが、includeRaceBuild=trueで呼ぶ想定
+        const buildV4PipelineCommands = buildV4AfterScrapeCommands;
 
         // コマンドリストを構築（全てv2Pathで実行）
         let commands: string[][] = [];
@@ -160,11 +152,6 @@ export async function POST(request: NextRequest) {
           commands = [['-m', 'analysis.race_type_standards', '--since', '2020']];
         } else if (action === 'calc_rating_standards') {
           commands = [['-m', 'analysis.rating_standards', '--since', '2023']];
-        } else if (action === 'training_summary') {
-          const dateArg = date || '';
-          commands = [dateArg
-            ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg]
-            : ['-m', 'keibabook.cyokyo_enricher']];
         } else if (action === 'build_horse_name_index') {
           commands = [['-m', 'builders.build_horse_name_index']];
         } else if (action === 'build_trainer_index') {
@@ -174,12 +161,6 @@ export async function POST(request: NextRequest) {
         } else if (action === 'v4_build_race') {
           const dateArg = date || '';
           commands = [dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']];
-        } else if (action === 'v4_build_kbext') {
-          const dateArg = date || '';
-          commands = [dateArg ? ['-m', 'keibabook.ext_builder', '--date', dateArg] : ['-m', 'keibabook.ext_builder']];
-        } else if (action === 'v4_cyokyo_enrich') {
-          const dateArg = date || '';
-          commands = [dateArg ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg] : ['-m', 'keibabook.cyokyo_enricher']];
         } else if (action === 'v4_predict') {
           const dateArg = date || '';
           commands = [dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']];

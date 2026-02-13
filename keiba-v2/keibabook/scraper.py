@@ -35,6 +35,7 @@ SYOIN_URL = f"{BASE_URL}/cyuou/syoin/"
 PADDOK_URL = f"{BASE_URL}/cyuou/paddok/"
 SEISEKI_URL = f"{BASE_URL}/cyuou/seiseki/"
 BABAKEIKOU_URL = f"{BASE_URL}/cyuou/babakeikou/"
+SPEED_URL = f"{BASE_URL}/cyuou/speed/0/"
 
 # デフォルト設定
 DEFAULT_USER_AGENT = (
@@ -191,6 +192,12 @@ class KeibabookScraper:
     def scrape_babakeikou(self, date_str: str, place_code: str) -> str:
         """馬場傾向ページ取得。date_str: YYYYMMDD, place_code: 2桁"""
         html = self.scrape(f"{BABAKEIKOU_URL}{date_str}{place_code}")
+        self._wait()
+        return html
+
+    def scrape_speed(self, race_id_12: str) -> str:
+        """スピード指数ページ取得"""
+        html = self.scrape(f"{SPEED_URL}{race_id_12}")
         self._wait()
         return html
 
