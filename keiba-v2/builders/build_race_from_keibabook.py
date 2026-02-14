@@ -30,6 +30,78 @@ from keibabook.scraper import KeibabookScraper
 from keibabook.parsers.syutuba_parser import parse_syutuba_html
 
 
+def load_horse_name_index() -> dict:
+    """horse_name_index.jsonから馬名→10桁ketto_numマッピングを読み込む"""
+    path = config.indexes_dir() / "horse_name_index.json"
+    if not path.exists():
+        print("WARN: horse_name_index.json not found")
+        return {}
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("name_to_id", {})
+
+
+def load_trainer_name_to_code() -> dict:
+    """trainer_kb_index.jsonから調教師名→5桁コードマッピングを読み込む"""
+    path = config.indexes_dir() / "trainer_kb_index.json"
+    if not path.exists():
+        print("WARN: trainer_kb_index.json not found")
+        return {}
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("name_to_code", {})
+
+
+def load_jockey_name_to_code() -> dict:
+    """jockeys.jsonから騎手名→5桁コードマッピングを構築（省略名対応）"""
+    path = config.masters_dir() / "jockeys.json"
+    if not path.exists():
+        print("WARN: jockeys.json not found")
+        return {}
+    with open(path, encoding="utf-8") as f:
+        jockeys = json.load(f)
+    index = {}
+    for j in jockeys:
+        name = j.get("name", "")
+        code = j.get("code", "")
+        if not name or not code:
+            continue
+        index[name] = code
+        # 省略名対応: "国分恭介" → "国分恭" でもマッチするよう前方一致キーも登録
+        if len(name) >= 3:
+            for length in range(2, len(name)):
+                short = name[:length]
+                if short not in index:
+                    index[short] = code
+    return index
+
+
+def resolve_trainer_code(kb_trainer_name: str, trainer_name_to_code: dict) -> str:
+    """keibabookの調教師名（栗/美プレフィックス+省略名）からJRA-VANコードを解決
+
+    keibabook形式: "栗矢作芳" = 栗東所属の矢作芳人
+    JRA-VAN形式: "矢作芳人" = フルネーム
+    """
+    if not kb_trainer_name:
+        return ""
+    # 直接マッチ
+    if kb_trainer_name in trainer_name_to_code:
+        return trainer_name_to_code[kb_trainer_name]
+    # 栗/美プレフィックスを除去して前方一致
+    if kb_trainer_name[0] in ("栗", "美") and len(kb_trainer_name) > 1:
+        stripped = kb_trainer_name[1:]
+        matches = [(name, code) for name, code in trainer_name_to_code.items()
+                   if name.startswith(stripped)]
+        if len(matches) == 1:
+            return matches[0][1]
+        # 複数マッチ: 最長一致を試行
+        if len(matches) > 1:
+            exact = [m for m in matches if m[0] == stripped]
+            if exact:
+                return exact[0][1]
+    return ""
+
+
 def load_race_info(date: str) -> dict:
     """race_info.jsonから対象日のレース一覧を読み込む"""
     parts = date.split("-")
@@ -64,8 +136,17 @@ def build_race_json_from_syutuba(
     race_number: int,
     race_name: str,
     syutuba_data: dict,
+    horse_name_to_id: dict = None,
+    trainer_name_to_code: dict = None,
+    jockey_name_to_code: dict = None,
 ) -> dict:
-    """syutubaパース結果からrace JSON構造を構築"""
+    """syutubaパース結果からrace JSON構造を構築
+
+    Args:
+        horse_name_to_id: 馬名→10桁ketto_numマッピング
+        trainer_name_to_code: 調教師名→5桁コードマッピング
+        jockey_name_to_code: 騎手名→5桁コードマッピング
+    """
 
     venue_code = VENUE_NAMES_TO_CODES.get(venue_name, "")
     # race_id_16からkai, nichiを抽出
@@ -77,8 +158,13 @@ def build_race_json_from_syutuba(
     track_type = ri.get("track", "")
     distance = ri.get("distance", 0)
 
+    horse_name_to_id = horse_name_to_id or {}
+    trainer_name_to_code = trainer_name_to_code or {}
+    jockey_name_to_code = jockey_name_to_code or {}
+
     # 出走馬エントリ構築
     entries = []
+    resolved_count = 0
     horses = syutuba_data.get("horses", [])
     for horse in horses:
         umaban_str = horse.get("馬番", "")
@@ -92,15 +178,31 @@ def build_race_json_from_syutuba(
         if waku_str and waku_str.isdigit():
             wakuban = int(waku_str)
 
-        # 騎手名
+        # 騎手名・コード
         jockey_name = horse.get("騎手", "")
-        # 調教師名（syutubaにはtrainer_idはあるが名前は厩舎のリンクテキスト）
+        jockey_code = jockey_name_to_code.get(jockey_name, "")
+
+        # 調教師名・コード（栗/美プレフィックス+省略名をfuzzy matching）
         trainer_name = ""
-        # 出馬表テーブルの「厩舎」列を確認
         for k in ("厩舎", "調教師", "きゅう舎"):
             if k in horse and horse[k]:
                 trainer_name = horse[k]
                 break
+        trainer_code = resolve_trainer_code(trainer_name, trainer_name_to_code)
+
+        # 馬名 → 10桁ketto_num変換（7桁keibabookコードではなくJRA-VAN IDを使用）
+        horse_name = horse.get("馬名_clean", horse.get("馬名", ""))
+        kb_horse_code = horse.get("umacd", "")  # keibabook 7桁コード（参考用）
+        ketto_num = horse_name_to_id.get(horse_name, "")
+        # (地)/(外) プレフィックス除去して再検索
+        if not ketto_num:
+            clean_name = re.sub(r"^\((?:地|外)\)", "", horse_name)
+            if clean_name != horse_name:
+                ketto_num = horse_name_to_id.get(clean_name, "")
+                if ketto_num:
+                    horse_name = clean_name  # JSON内の馬名もクリーン化
+        if ketto_num:
+            resolved_count += 1
 
         # 性齢パース（例: "牡3" → sex_cd="1", age=3 / "牝4" → "2",4 / "セ5" → "3",5）
         sex_cd = ""
@@ -129,8 +231,9 @@ def build_race_json_from_syutuba(
         entry = {
             "umaban": umaban,
             "wakuban": wakuban,
-            "ketto_num": horse.get("umacd", ""),  # keibabookのhorse_code（7桁）
-            "horse_name": horse.get("馬名_clean", horse.get("馬名", "")),
+            "ketto_num": ketto_num,
+            "kb_horse_code": kb_horse_code,
+            "horse_name": horse_name,
             "sex_cd": sex_cd,
             "age": age,
             "jockey_name": jockey_name,
@@ -145,8 +248,8 @@ def build_race_json_from_syutuba(
             "odds": 0.0,
             "popularity": 0,
             "corners": [],
-            "jockey_code": "",
-            "trainer_code": "",
+            "jockey_code": jockey_code,
+            "trainer_code": trainer_code,
         }
         entries.append(entry)
 
@@ -209,6 +312,15 @@ def main():
     total_races = sum(len(races) for races in kaisai_data.values())
     print(f"対象レース: {total_races}件")
 
+    # マッピングデータ読み込み
+    print("[Load] Loading ID mapping indexes...")
+    horse_name_to_id = load_horse_name_index()
+    trainer_name_to_code = load_trainer_name_to_code()
+    jockey_name_to_code = load_jockey_name_to_code()
+    print(f"  Horse names: {len(horse_name_to_id):,}")
+    print(f"  Trainers:    {len(trainer_name_to_code):,}")
+    print(f"  Jockeys:     {len(jockey_name_to_code):,}")
+
     # 既存race JSONの確認（forceでない場合はスキップ）
     parts = date.split("-")
     race_dir = config.races_dir() / parts[0] / parts[1] / parts[2]
@@ -219,6 +331,8 @@ def main():
     created = 0
     skipped = 0
     errors = 0
+    total_resolved = 0
+    total_horses = 0
 
     for kaisai_key, races in kaisai_data.items():
         venue_name = extract_venue_name(kaisai_key)
@@ -270,15 +384,30 @@ def main():
                 race_number=race_number,
                 race_name=race_name,
                 syutuba_data=syutuba_data,
+                horse_name_to_id=horse_name_to_id,
+                trainer_name_to_code=trainer_name_to_code,
+                jockey_name_to_code=jockey_name_to_code,
             )
+
+            # ID解決状況
+            resolved = sum(1 for e in race_json["entries"] if e["ketto_num"])
+            total = len(race_json["entries"])
+            unresolved_names = [
+                e["horse_name"] for e in race_json["entries"] if not e["ketto_num"]
+            ]
 
             if not args.dry_run:
                 config.ensure_dir(race_dir)
                 with open(filepath, "w", encoding="utf-8") as f:
                     json.dump(race_json, f, ensure_ascii=False, indent=2)
 
-            print(f"    {race_no_str}R: {race_name} ({horse_count}頭) → {filepath.name}")
+            id_status = f"ID:{resolved}/{total}"
+            if unresolved_names:
+                id_status += f" (未解決: {', '.join(unresolved_names[:3])})"
+            print(f"    {race_no_str}R: {race_name} ({horse_count}頭) {id_status} → {filepath.name}")
             created += 1
+            total_resolved += resolved
+            total_horses += total
 
     elapsed = time.time() - t0
     print(f"\n{'='*60}")
@@ -286,6 +415,8 @@ def main():
     print(f"  Created: {created}")
     print(f"  Skipped (existing): {skipped}")
     print(f"  Errors: {errors}")
+    print(f"  ID Resolution: {total_resolved}/{total_horses} "
+          f"({total_resolved/total_horses*100:.1f}%)" if total_horses > 0 else "")
     print(f"  Elapsed: {elapsed:.1f}s")
     print(f"{'='*60}")
 

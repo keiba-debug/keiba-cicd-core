@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-ML Experiment v3.5: スピード指数特徴量追加
+ML Experiment v3.5: 評価手法改善 + スピード指数特徴量
 
 v3.5改善:
+  - 3-way split (train/val/test): early stoppingにvalを使い、testは純粋評価
+  - Brier Score/ECE: キャリブレーション評価指標を追加
+  - NaN処理: fillna(-1)を廃止、LightGBMネイティブNaN処理に委ねる
   - keibabookスピード指数特徴量 (5個): 過去5走のスピード指数から最新/最高/平均/トレンド/安定性
 
 v3.4改善:
@@ -492,27 +495,57 @@ def build_dataset(
     return df
 
 
+def calc_brier_score(y_true, y_pred) -> float:
+    """Brier Score: 確率予測の精度指標 (低いほど良い)"""
+    return float(np.mean((y_pred - y_true) ** 2))
+
+
+def calc_ece(y_true, y_pred, n_bins: int = 10) -> float:
+    """Expected Calibration Error: キャリブレーション誤差
+
+    予測確率をビンに分割し、各ビンの「予測平均」と「実際の正例率」の
+    加重平均差を計算。低いほどキャリブレーションが良い。
+    """
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    ece = 0.0
+    for i in range(n_bins):
+        mask = (y_pred >= bin_edges[i]) & (y_pred < bin_edges[i + 1])
+        if mask.sum() == 0:
+            continue
+        bin_acc = y_true[mask].mean()
+        bin_conf = y_pred[mask].mean()
+        ece += mask.sum() / len(y_true) * abs(bin_acc - bin_conf)
+    return float(ece)
+
+
 def train_model(
     df_train: pd.DataFrame,
+    df_val: pd.DataFrame,
     df_test: pd.DataFrame,
     feature_cols: List[str],
     params: dict,
     label_col: str = 'is_top3',
     model_name: str = 'model',
 ) -> Tuple:
-    """LightGBMモデルを学習"""
+    """LightGBMモデルを学習
+
+    3-way split: train=学習, val=early stopping, test=純粋評価
+    NaN処理はLightGBMネイティブに委ねる（fillna(-1)しない）
+    """
     import lightgbm as lgb
 
-    X_train = df_train[feature_cols].fillna(-1)
+    X_train = df_train[feature_cols]
     y_train = df_train[label_col]
-    X_test = df_test[feature_cols].fillna(-1)
+    X_val = df_val[feature_cols]
+    y_val = df_val[label_col]
+    X_test = df_test[feature_cols]
     y_test = df_test[label_col]
 
     train_data = lgb.Dataset(X_train, label=y_train)
-    valid_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
+    valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
     print(f"\n[Train] {model_name}: {len(feature_cols)} features, "
-          f"train={len(X_train):,}, test={len(X_test):,}")
+          f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}")
 
     model = lgb.train(
         params, train_data, num_boost_round=1500,
@@ -523,16 +556,24 @@ def train_model(
         ],
     )
 
-    # 評価
+    # テストセットで純粋評価（early stoppingに使っていない）
     from sklearn.metrics import roc_auc_score, accuracy_score, log_loss
 
     y_pred = model.predict(X_test)
     auc = roc_auc_score(y_test, y_pred)
     acc = accuracy_score(y_test, (y_pred > 0.5).astype(int))
     ll = log_loss(y_test, y_pred)
+    brier = calc_brier_score(y_test.values, y_pred)
+    ece = calc_ece(y_test.values, y_pred)
 
-    print(f"[{model_name}] AUC={auc:.4f}, Acc={acc:.4f}, LogLoss={ll:.4f}, "
-          f"BestIter={model.best_iteration}")
+    # Validationセットの指標も計算（比較用）
+    y_pred_val = model.predict(X_val)
+    auc_val = roc_auc_score(y_val, y_pred_val)
+
+    print(f"[{model_name}] Test:  AUC={auc:.4f}, Acc={acc:.4f}, LogLoss={ll:.4f}, "
+          f"Brier={brier:.4f}, ECE={ece:.4f}")
+    print(f"[{model_name}] Val:   AUC={auc_val:.4f} (early stopping set)")
+    print(f"[{model_name}] BestIter={model.best_iteration}")
 
     # 特徴量重要度
     importance = dict(zip(feature_cols, model.feature_importance(importance_type='gain')))
@@ -541,8 +582,12 @@ def train_model(
         'auc': round(auc, 4),
         'accuracy': round(acc, 4),
         'log_loss': round(ll, 4),
+        'brier_score': round(brier, 4),
+        'ece': round(ece, 4),
+        'auc_val': round(auc_val, 4),
         'best_iteration': model.best_iteration,
         'train_size': len(X_train),
+        'val_size': len(X_val),
         'test_size': len(X_test),
     }
 
@@ -719,22 +764,26 @@ def parse_year_range(s: str) -> Tuple[int, int]:
 
 def main():
     parser = argparse.ArgumentParser(description='ML Experiment v3')
-    parser.add_argument('--train-years', default='2020-2024', help='Training year range')
-    parser.add_argument('--test-years', default='2025-2026', help='Test year range')
+    parser.add_argument('--train-years', default='2020-2023', help='Training year range')
+    parser.add_argument('--val-years', default='2024', help='Validation year range (early stopping)')
+    parser.add_argument('--test-years', default='2025-2026', help='Test year range (pure evaluation)')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用（JSON確定オッズ）')
     args = parser.parse_args()
 
     train_min, train_max = parse_year_range(args.train_years)
+    val_min, val_max = parse_year_range(args.val_years)
     test_min, test_max = parse_year_range(args.test_years)
     use_db_odds = not args.no_db
 
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD v4 - ML Experiment v3.4")
+    print(f"  KeibaCICD v4 - ML Experiment v3.5")
     print(f"  Train: {train_min}-{train_max}")
-    print(f"  Test:  {test_min}-{test_max}")
+    print(f"  Val:   {val_min}-{val_max} (early stopping)")
+    print(f"  Test:  {test_min}-{test_max} (pure evaluation)")
     print(f"  DB Odds: {'ON' if use_db_odds else 'OFF (JSON fallback)'}")
     print(f"  Model A features: {len(FEATURE_COLS_ALL)}")
     print(f"  Model B features: {len(FEATURE_COLS_VALUE)}")
+    print(f"  NaN handling: LightGBM native")
     print(f"{'='*60}\n")
 
     t0 = time.time()
@@ -742,10 +791,14 @@ def main():
     # データロード
     history_cache, trainer_index, jockey_index, date_index, pace_index, kb_ext_index = load_data()
 
-    # データセット構築
+    # データセット構築（3-way split）
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, train_min, train_max, use_db_odds=use_db_odds,
+    )
+    df_val = build_dataset(
+        date_index, history_cache, trainer_index, jockey_index, pace_index,
+        kb_ext_index, val_min, val_max, use_db_odds=use_db_odds,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -754,17 +807,19 @@ def main():
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
           f"{df_train['race_id'].nunique():,} races")
+    print(f"[Dataset] Val:   {len(df_val):,} entries from "
+          f"{df_val['race_id'].nunique():,} races")
     print(f"[Dataset] Test:  {len(df_test):,} entries from "
           f"{df_test['race_id'].nunique():,} races")
 
     # Model A: 全特徴量
     model_a, metrics_a, importance_a, pred_a = train_model(
-        df_train, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Model_A'
+        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Model_A'
     )
 
     # Model B: Value特徴量（市場系除外）
     model_b, metrics_b, importance_b, pred_b = train_model(
-        df_train, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Model_B'
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Model_B'
     )
 
     # 予測結果をDataFrameに追加
@@ -798,8 +853,10 @@ def main():
     print(f"\n{'='*60}")
     print(f"  Results")
     print(f"{'='*60}")
-    print(f"\n  Model A (Accuracy): AUC={metrics_a['auc']}, Iter={metrics_a['best_iteration']}")
-    print(f"  Model B (Value):    AUC={metrics_b['auc']}, Iter={metrics_b['best_iteration']}")
+    print(f"\n  Model A (Accuracy): AUC={metrics_a['auc']}, Brier={metrics_a['brier_score']}, "
+          f"ECE={metrics_a['ece']}, Iter={metrics_a['best_iteration']}")
+    print(f"  Model B (Value):    AUC={metrics_b['auc']}, Brier={metrics_b['brier_score']}, "
+          f"ECE={metrics_b['ece']}, Iter={metrics_b['best_iteration']}")
 
     print(f"\n  Hit Analysis (Model A):")
     for h in hit_a:
@@ -836,7 +893,7 @@ def main():
     model_b.save_model(str(model_dir / "model_b.txt"))
 
     meta = {
-        'version': '3.4',
+        'version': '3.5',
         'features_all': FEATURE_COLS_ALL,
         'features_value': FEATURE_COLS_VALUE,
         'market_features': list(MARKET_FEATURES),
@@ -849,11 +906,12 @@ def main():
 
     # 結果JSON保存
     result = {
-        'version': '3.4',
+        'version': '3.5',
         'experiment': 'ml_experiment_v3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {
             'train': f"{train_min}-{train_max}",
+            'val': f"{val_min}-{val_max}",
             'test': f"{test_min}-{test_max}",
         },
         'models': {

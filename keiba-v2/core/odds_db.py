@@ -187,14 +187,22 @@ def get_final_quinella_odds(race_code: str) -> Dict[str, dict]:
 
 # === バッチローダー（ML学習用） ===
 
-def batch_get_pre_race_odds(race_codes: List[str]) -> Dict[str, Dict[int, dict]]:
+def batch_get_pre_race_odds(
+    race_codes: List[str],
+    strict: bool = False,
+) -> Dict[str, Dict[int, dict]]:
     """複数レースの事前オッズを一括取得（ML学習用）
 
     各レースについて、時系列オッズの最終スナップショットを取得。
     時系列データがなければ確定オッズにフォールバック。
 
+    注意: 確定オッズ(final)はJRA-VANの「発走直前の最終オッズ」であり、
+    レース結果を含む事後情報ではない。ただしデータ送信タイミングは
+    レース後のSEデータに含まれる。
+
     Args:
         race_codes: race_codeのリスト
+        strict: Trueの場合、時系列オッズのみ使用（確定オッズへのフォールバック無し）
 
     Returns:
         {race_code: {umaban: {'odds': float, 'ninki': int, 'source': str}}}
@@ -244,9 +252,9 @@ def batch_get_pre_race_odds(race_codes: List[str]) -> Dict[str, Dict[int, dict]]
                 if odds is not None:
                     result[rc][umaban] = {'odds': odds, 'ninki': ninki, 'source': 'timeseries'}
 
-            # 2) 時系列がないレースは確定オッズでフォールバック
+            # 2) 時系列がないレースは確定オッズでフォールバック（strict時はスキップ）
             missing = [rc for rc in batch if rc not in ts_races]
-            if missing:
+            if missing and not strict:
                 placeholders_m = ','.join(['%s'] * len(missing))
                 sql_final = (
                     "SELECT RACE_CODE, UMABAN, ODDS, NINKI FROM odds1_tansho "

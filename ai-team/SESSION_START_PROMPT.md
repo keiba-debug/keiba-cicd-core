@@ -26,14 +26,14 @@
 
 ## プロジェクト概要
 
-### KeibaCICD v4.5（JRA-VANネイティブ）
+### KeibaCICD v4.7（JRA-VANネイティブ + mykeibadb）
 
 **目的**: 毎週の競馬予想でプラス収支を実現し、推理エンターテインメントとして競馬を楽しむ
 
 **現在の状態**:
-- JRA-VAN直接パース + data3/JSON基盤が安定稼働中
-- ML v3.3: デュアルモデル（60特徴量）、VB gap>=5 ROI 139.0%
-- WebViewer: Next.js App Router、Server Components、管理画面統合済み
+- JRA-VAN直接パース + data3/JSON基盤 + mykeibadb(MySQL)時系列オッズ
+- ML v3.4: デュアルモデル（65/61特徴量）、DB事前オッズ統合、VB gap>=5 ROI 139.4%
+- WebViewer: Next.js App Router + 当日予測ページ(EV列) + ML分析(VB一覧/レース予測)
 - 実績: 月間+57,310（180.9% ROI）
 
 **重要な方針**:
@@ -41,7 +41,7 @@
 2. **人間は判断せず、情報整理のみ** — 購入判断は機械的にルールベース
 3. **トライアンドエラーで改善** — ドキュメント化しながら自動化
 
-**技術スタック**: Next.js + Python + LightGBM + JRA-VAN + JSON（DB不使用）
+**技術スタック**: Next.js + Python + LightGBM + JRA-VAN + JSON + MySQL(mykeibadb)
 
 ---
 
@@ -53,6 +53,27 @@
 | **技術リード** | カカシ | 設計・実装・相談 |
 
 > **Note**: v5.1のMCPエージェント化で、キバ（データ追跡）・アルテタ（ML予想）・シカマル（購入戦略）等の専門エージェントを編成予定。詳細はROADMAP.mdを参照。
+
+---
+
+## 次回セッション（Session 18）の最優先タスク
+
+### 🚨 ketto_numバグ修正（predict.pyの確率/EVに致命的影響）
+
+**問題**: `build_race_from_keibabook.py`がkeibabookの短縮ketto_num（7桁: `0950311`）をそのままrace JSONに書き込んでいる。horse_history_cache等はJRA-VAN 10桁（`2022105559`）をキーに使うため、全馬の過去走特徴量がマッチせず-1になる。
+
+**影響**:
+- 全539頭の61特徴量中36個が-1（欠損）
+- Model V確率が0.003（正常値0.3-0.6の100倍低い）
+- EV = 確率 × オッズ が常に << 1.0（本来1.0以上があるべき）
+
+**修正方針**:
+1. `build_race_from_keibabook.py`でketto_num変換: 馬名マスタ逆引き or keibabookの馬ページ取得
+2. predict.py出力時に`predictions_YYYY-MM-DD.json`も保存（日別アーカイブ）
+3. 修正後にpredict.py再実行して検証
+
+**検証済み**: `_debug_predict.py`で特徴量一覧を出力し、36/61が-1であることを確認。
+バックテスト(experiment_v3)の確率は正常（0.55, 0.38等）なのでモデル自体は問題なし。
 
 ---
 

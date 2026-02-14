@@ -235,7 +235,7 @@ def predict_race(
         feat.update(speed_feat)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
-        feat['odds_rank'] = 0  # placeholder
+        feat['odds_rank'] = np.nan  # placeholder — real oddsがあればランク化される
 
         # keibabook拡張（あれば）
         kb_feat = get_keibabook_features(kb_e)
@@ -248,8 +248,8 @@ def predict_race(
             'umaban': umaban,
             'ketto_num': ketto_num,
             'horse_name': entry.get('horse_name', ''),
-            'odds': entry.get('odds', 0),
-            'popularity': entry.get('popularity', 0),
+            'odds': feat.get('odds', 0),           # DB更新後の値を使用
+            'popularity': feat.get('popularity', 0), # DB更新後の値を使用
             'features': feat,
             # kb拡張情報（表示用）
             'kb_mark': kb_e.get('honshi_mark', '') if kb_e else '',
@@ -259,16 +259,19 @@ def predict_race(
             'kb_comment': kb_e.get('short_comment', '') if kb_e else '',
         })
 
-    # odds_rank計算
-    odds_list = [(i, p['features'].get('odds', 0)) for i, p in enumerate(predictions)]
-    odds_list.sort(key=lambda x: (x[1] if x[1] > 0 else 9999))
-    for rank, (idx, _) in enumerate(odds_list, 1):
-        predictions[idx]['features']['odds_rank'] = rank
+    # odds_rank計算（有効なオッズがある場合のみ）
+    has_real_odds = any(p['features'].get('odds', 0) > 0 for p in predictions)
+    if has_real_odds:
+        odds_list = [(i, p['features'].get('odds', 0)) for i, p in enumerate(predictions)]
+        odds_list.sort(key=lambda x: (x[1] if x[1] > 0 else 9999))
+        for rank, (idx, _) in enumerate(odds_list, 1):
+            predictions[idx]['features']['odds_rank'] = rank
+    # else: odds_rank = np.nan のまま → LightGBMのNaN処理に委ねる
 
-    # 特徴量行列を構築
+    # 特徴量行列を構築（NaN処理はLightGBMネイティブに委ねる）
     for p in predictions:
-        row_a = [p['features'].get(f, -1) for f in features_all]
-        row_v = [p['features'].get(f, -1) for f in features_value]
+        row_a = [p['features'].get(f, np.nan) for f in features_all]
+        row_v = [p['features'].get(f, np.nan) for f in features_value]
         feature_rows_a.append(row_a)
         feature_rows_v.append(row_v)
 
@@ -291,8 +294,16 @@ def predict_race(
     for i, p in enumerate(predictions):
         ra = rank_a_dict[i]
         rv = rank_v_dict[i]
-        odds_rank = p['features'].get('odds_rank', 0)
-        gap = odds_rank - rv  # Value Betギャップ
+
+        # odds_rank: NaN（オッズなし）→ 0 として出力
+        odds_rank_raw = p['features'].get('odds_rank', np.nan)
+        try:
+            odds_rank = 0 if np.isnan(odds_rank_raw) else int(odds_rank_raw)
+        except (TypeError, ValueError):
+            odds_rank = 0
+
+        # VB gap: odds_rankが有効な場合のみ計算
+        gap = (odds_rank - rv) if odds_rank > 0 else 0
 
         result_entries.append({
             'umaban': p['umaban'],
@@ -305,7 +316,7 @@ def predict_race(
             'rank_v': int(rv),
             'odds_rank': odds_rank,
             'vb_gap': int(gap),
-            'is_value_bet': gap >= 3,
+            'is_value_bet': gap >= 3 and odds_rank > 0,
             # keibabook情報
             'kb_mark': p['kb_mark'],
             'kb_mark_point': p['kb_mark_point'],
