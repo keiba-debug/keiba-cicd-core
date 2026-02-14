@@ -399,6 +399,11 @@ def predict_race(
             # Place odds
             'place_odds_min': place_low,
             'place_odds_max': place_high,
+            # EV (期待値)
+            'win_ev': round(float(pred_wv[i]) * p['odds'], 4)
+                if has_win_model and p['odds'] > 0 else None,
+            'place_ev': round(float(pred_b[i]) * place_low, 4)
+                if place_low and place_low > 0 else None,
             # keibabook情報
             'kb_mark': p['kb_mark'],
             'kb_mark_point': p['kb_mark_point'],
@@ -589,6 +594,14 @@ def main():
             'total_races': len(all_predictions),
             'total_entries': sum(len(p['entries']) for p in all_predictions),
             'value_bets': vb_count,
+            'ev_positive_win': sum(
+                1 for p in all_predictions for e in p['entries']
+                if (e.get('win_ev') or 0) > 1.0
+            ),
+            'ev_positive_place': sum(
+                1 for p in all_predictions for e in p['entries']
+                if (e.get('place_ev') or 0) > 1.0
+            ),
         },
     }
 

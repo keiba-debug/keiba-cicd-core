@@ -190,6 +190,83 @@ function calcHeadRatio(probWV: number | undefined, probV: number): number | null
   return probWV / probV;
 }
 
+/**
+ * Kelly Criterion: f* = (b*p - q) / b
+ * b = net payout (odds - 1), p = probability, q = 1 - p
+ * Returns fractional Kelly (0 if negative = don't bet)
+ */
+function calcKellyFraction(prob: number, odds: number): number {
+  const b = odds - 1;
+  if (b <= 0 || prob <= 0) return 0;
+  const f = (b * prob - (1 - prob)) / b;
+  return Math.max(0, f);
+}
+
+/** 推奨買い目の設定定数 */
+const BET_CONFIG = {
+  defaultBudget: 30000,
+  kellyFraction: 0.25,
+  minBet: 100,
+  betUnit: 100,
+  minGap: 3,
+  minGapDanger: 2,      // 危険レースは閾値緩和
+  dangerThreshold: 5,   // value_rank - odds_rank >= 5 で「危険な人気馬」
+  minEvThreshold: 1.0,
+} as const;
+
+/** 危険な人気馬情報 */
+interface DangerInfo {
+  isDanger: boolean;
+  dangerScore: number;          // max(rank_v - odds_rank) among top-3 popular
+  dangerHorse?: {
+    umaban: number;
+    horseName: string;
+    oddsRank: number;
+    rankV: number;
+  };
+}
+
+/** レースの危険度を判定 */
+function getRaceDanger(entries: PredictionEntry[]): DangerInfo {
+  let maxDanger = 0;
+  let dangerHorse: DangerInfo['dangerHorse'] = undefined;
+
+  for (const e of entries) {
+    if (e.odds_rank > 0 && e.odds_rank <= 3) {
+      const dg = e.rank_v - e.odds_rank;
+      if (dg > maxDanger) {
+        maxDanger = dg;
+        dangerHorse = {
+          umaban: e.umaban,
+          horseName: e.horse_name,
+          oddsRank: e.odds_rank,
+          rankV: e.rank_v,
+        };
+      }
+    }
+  }
+
+  return {
+    isDanger: maxDanger >= BET_CONFIG.dangerThreshold,
+    dangerScore: maxDanger,
+    dangerHorse: maxDanger >= BET_CONFIG.dangerThreshold ? dangerHorse : undefined,
+  };
+}
+
+interface BetRecommendation {
+  race: PredictionRace;
+  entry: PredictionEntry;
+  betType: '単勝' | '複勝' | '単複';
+  strength: 'strong' | 'normal';
+  winEv: number | null;
+  placeEv: number | null;
+  kellyWin: number;
+  kellyPlace: number;
+  betAmountWin: number;
+  betAmountPlace: number;
+  danger?: DangerInfo;   // 危険レースフラグ
+}
+
 function getFinishColor(pos: number): string {
   if (pos === 1) return 'text-amber-500 font-bold';
   if (pos === 2) return 'text-gray-500 font-bold';
@@ -333,6 +410,13 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   // TARGET馬印2 VB印反映
   const [markSyncing, setMarkSyncing] = useState(false);
   const [markResult, setMarkResult] = useState<{ marks: Record<string, number>; markedHorses: number } | null>(null);
+
+  // 推奨買い目 予算設定
+  const [dailyBudget, setDailyBudget] = useState<number>(BET_CONFIG.defaultBudget);
+
+  // TARGET PD CSV 推奨買い目反映
+  const [betSyncing, setBetSyncing] = useState(false);
+  const [betSyncResult, setBetSyncResult] = useState<{ totalBets: number; winBets: number; placeBets: number; racesWritten: number; racesSkipped: number; totalAmount: number } | null>(null);
 
   const isToday = useMemo(() => {
     const now = new Date();
@@ -562,6 +646,163 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     }
   }, [isArchive, currentDate]);
 
+  // 推奨買い目構築（危険レース検出込み）
+  const betRecommendations = useMemo<BetRecommendation[]>(() => {
+    const recs: BetRecommendation[] = [];
+    for (const race of races) {
+      // 危険な人気馬の検出
+      const danger = getRaceDanger(race.entries);
+      const effectiveMinGap = danger.isDanger ? BET_CONFIG.minGapDanger : BET_CONFIG.minGap;
+
+      for (const entry of race.entries) {
+        if (entry.vb_gap < effectiveMinGap) continue;
+
+        // EV計算（ライブオッズ優先 → predict.py静的値フォールバック）
+        const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
+        const placeOddsMin = getPlaceOddsMin(oddsMap, race.race_id, entry.umaban) ?? entry.place_odds_min ?? null;
+        const wEv = calcWinEv(entry, winOdds) ?? entry.win_ev ?? null;
+        const pEv = calcPlaceEv(entry.pred_proba_v, placeOddsMin) ?? entry.place_ev ?? null;
+
+        const hasWinEv = wEv !== null && wEv > BET_CONFIG.minEvThreshold;
+        const hasPlaceEv = pEv !== null && pEv > BET_CONFIG.minEvThreshold;
+        if (!hasWinEv && !hasPlaceEv) continue;
+
+        // 買い目タイプ決定（getBuyRecommendation ロジックベース）
+        const rec = getBuyRecommendation(race.track_type, entry.vb_gap, entry.rank_v, winOdds);
+        if (!rec.type) continue;
+
+        // Kelly計算
+        const probWin = entry.pred_proba_wv ?? entry.pred_proba_v;
+        const kellyWin = winOdds && winOdds > 0 ? calcKellyFraction(probWin, winOdds) : 0;
+        const kellyPlace = placeOddsMin && placeOddsMin > 0 ? calcKellyFraction(entry.pred_proba_v, placeOddsMin) : 0;
+
+        // EV+でKelly>0のみ採用。複勝Kelly=0だがwin Kelly>0の場合は単勝にフォールバック
+        let finalType = rec.type;
+        let useWin = finalType === '単勝' || finalType === '単複';
+        let usePlace = finalType === '複勝' || finalType === '単複';
+
+        if (usePlace && kellyPlace <= 0) {
+          if (kellyWin > 0 && hasWinEv) {
+            finalType = '単勝';
+            useWin = true;
+            usePlace = false;
+          } else if (!useWin) {
+            continue;
+          }
+        }
+        if (useWin && kellyWin <= 0 && !usePlace) continue;
+
+        recs.push({
+          race, entry,
+          betType: finalType,
+          strength: rec.strength,
+          winEv: wEv,
+          placeEv: pEv,
+          kellyWin,
+          kellyPlace,
+          betAmountWin: 0,
+          betAmountPlace: 0,
+          danger: danger.isDanger ? danger : undefined,
+        });
+      }
+    }
+
+    // Kelly金額計算（日予算内に収める）
+    const budget = dailyBudget;
+    let totalRaw = 0;
+    for (const r of recs) {
+      const useWin = r.betType === '単勝' || r.betType === '単複';
+      const usePlace = r.betType === '複勝' || r.betType === '単複';
+      if (useWin) totalRaw += r.kellyWin * BET_CONFIG.kellyFraction * budget;
+      if (usePlace) totalRaw += r.kellyPlace * BET_CONFIG.kellyFraction * budget;
+    }
+
+    const scale = totalRaw > budget ? budget / totalRaw : 1.0;
+
+    for (const r of recs) {
+      const useWin = r.betType === '単勝' || r.betType === '単複';
+      const usePlace = r.betType === '複勝' || r.betType === '単複';
+      if (useWin) {
+        const raw = r.kellyWin * BET_CONFIG.kellyFraction * budget * scale;
+        r.betAmountWin = Math.max(BET_CONFIG.minBet, Math.round(raw / BET_CONFIG.betUnit) * BET_CONFIG.betUnit);
+      }
+      if (usePlace) {
+        const raw = r.kellyPlace * BET_CONFIG.kellyFraction * budget * scale;
+        r.betAmountPlace = Math.max(BET_CONFIG.minBet, Math.round(raw / BET_CONFIG.betUnit) * BET_CONFIG.betUnit);
+      }
+    }
+
+    // 金額降順
+    recs.sort((a, b) => (b.betAmountWin + b.betAmountPlace) - (a.betAmountWin + a.betAmountPlace));
+    return recs;
+  }, [races, oddsMap, dailyBudget]);
+
+  // 推奨サマリー
+  const betSummary = useMemo(() => {
+    let winCount = 0, placeCount = 0, winTotal = 0, placeTotal = 0, evSum = 0, evCount = 0;
+    const dangerRaceIds = new Set<string>();
+    for (const r of betRecommendations) {
+      if (r.betAmountWin > 0) { winCount++; winTotal += r.betAmountWin; }
+      if (r.betAmountPlace > 0) { placeCount++; placeTotal += r.betAmountPlace; }
+      if (r.winEv && r.betAmountWin > 0) { evSum += r.winEv * r.betAmountWin; evCount += r.betAmountWin; }
+      if (r.placeEv && r.betAmountPlace > 0) { evSum += r.placeEv * r.betAmountPlace; evCount += r.betAmountPlace; }
+      if (r.danger?.isDanger) dangerRaceIds.add(r.race.race_id);
+    }
+    const avgEv = evCount > 0 ? evSum / evCount : 0;
+    const totalAmount = winTotal + placeTotal;
+    const expectedReturn = Math.round(evSum);
+    return { winCount, placeCount, winTotal, placeTotal, totalAmount, avgEv, expectedReturn, totalBets: betRecommendations.length, dangerRaces: dangerRaceIds.size };
+  }, [betRecommendations]);
+
+  // TARGET PD CSVに推奨買い目を書込み
+  const syncBetMarks = useCallback(async () => {
+    setBetSyncing(true);
+    setBetSyncResult(null);
+    try {
+      // クライアント側で算出した推奨買い目をAPIに送信
+      const bets = betRecommendations.flatMap(r => {
+        const items: { raceId: string; umaban: number; betType: number; amount: number }[] = [];
+        if (r.betAmountWin > 0) {
+          items.push({ raceId: r.race.race_id, umaban: r.entry.umaban, betType: 0, amount: r.betAmountWin });
+        }
+        if (r.betAmountPlace > 0) {
+          items.push({ raceId: r.race.race_id, umaban: r.entry.umaban, betType: 1, amount: r.betAmountPlace });
+        }
+        return items;
+      });
+
+      if (bets.length === 0) {
+        alert('書込み対象の買い目がありません');
+        return;
+      }
+
+      const res = await fetch('/api/target-marks/auto-bet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bets }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setBetSyncResult({
+        totalBets: data.summary.totalBets,
+        winBets: data.summary.winBets,
+        placeBets: data.summary.placeBets,
+        racesWritten: data.summary.racesWritten,
+        racesSkipped: data.summary.racesSkipped,
+        totalAmount: data.summary.totalAmount,
+      });
+    } catch (error) {
+      console.error('[syncBetMarks] Error:', error);
+      setBetSyncResult(null);
+      alert(`TARGET書込み失敗: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBetSyncing(false);
+    }
+  }, [betRecommendations]);
+
   // VBテーブル ソート適用
   const sortedVBEntries = useMemo(() => {
     const arr = [...filteredVBEntries];
@@ -582,6 +823,18 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         case 'ev': {
           va = calcWinEv(a.entry, getWinOdds(oddsMap, a.race.race_id, a.entry.umaban, a.entry.odds)) ?? -1;
           vb = calcWinEv(b.entry, getWinOdds(oddsMap, b.race.race_id, b.entry.umaban, b.entry.odds)) ?? -1;
+          break;
+        }
+        case 'place_ev': {
+          const aPlaceMin = a.entry.place_odds_min ?? getPlaceOddsMin(oddsMap, a.race.race_id, a.entry.umaban);
+          const bPlaceMin = b.entry.place_odds_min ?? getPlaceOddsMin(oddsMap, b.race.race_id, b.entry.umaban);
+          va = calcPlaceEv(a.entry.pred_proba_v, aPlaceMin) ?? -1;
+          vb = calcPlaceEv(b.entry.pred_proba_v, bPlaceMin) ?? -1;
+          break;
+        }
+        case 'head_ratio': {
+          va = calcHeadRatio(a.entry.pred_proba_wv, a.entry.pred_proba_v) ?? -1;
+          vb = calcHeadRatio(b.entry.pred_proba_wv, b.entry.pred_proba_v) ?? -1;
           break;
         }
         case 'prob_a': va = a.entry.pred_proba_a; vb = b.entry.pred_proba_a; break;
@@ -918,6 +1171,187 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         );
       })()}
 
+      {/* 推奨買い目セクション */}
+      {betRecommendations.length > 0 && (
+        <Card className="mb-8 border-indigo-200 dark:border-indigo-800">
+          <CardHeader className="pb-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                推奨買い目 ({betSummary.totalBets}件)
+                <Badge variant="outline" className="text-xs">Stage 1</Badge>
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setOddsLoading(true); fetchAllOdds(); }}
+                  disabled={oddsLoading}
+                  className="px-2 py-0.5 text-xs rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-300 dark:border-gray-600 disabled:opacity-50"
+                  title="最新オッズを取得してKelly金額を再計算"
+                >
+                  {oddsLoading ? '取得中...' : '再計算'}
+                </button>
+                <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                  予算
+                  <input
+                    type="number"
+                    value={dailyBudget}
+                    onChange={(e) => setDailyBudget(Math.max(1000, Math.round(Number(e.target.value) / 1000) * 1000))}
+                    step={5000}
+                    min={1000}
+                    className="w-20 px-1.5 py-0.5 text-xs text-right rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+                  />
+                </label>
+                {betSyncResult && (
+                  <span className="text-xs text-green-700 dark:text-green-400">
+                    {betSyncResult.racesWritten > 0
+                      ? `${betSyncResult.racesWritten}R / 単${betSyncResult.winBets} 複${betSyncResult.placeBets} / ¥${betSyncResult.totalAmount.toLocaleString()} 書込み完了`
+                      : `${betSyncResult.racesSkipped}R スキップ（既存あり）`
+                    }
+                  </span>
+                )}
+                <button
+                  onClick={syncBetMarks}
+                  disabled={betSyncing}
+                  className="px-3 py-1 text-xs font-medium rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-indigo-300 dark:border-indigo-700 disabled:opacity-50"
+                  title="推奨買い目をTARGET PD CSV に書込み（資金管理メニューで読込可能）"
+                >
+                  {betSyncing ? '書込中...' : 'TARGET買い目'}
+                </button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {/* サマリー */}
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4 text-center text-sm">
+              <div className="bg-gray-50 dark:bg-gray-800/50 rounded p-2">
+                <div className="text-lg font-bold">&yen;{betSummary.totalAmount.toLocaleString()}</div>
+                <div className="text-[10px] text-muted-foreground">投資総額</div>
+              </div>
+              <div className="bg-red-50 dark:bg-red-900/20 rounded p-2">
+                <div className="text-lg font-bold text-red-600">{betSummary.winCount}件</div>
+                <div className="text-[10px] text-muted-foreground">単勝 &yen;{betSummary.winTotal.toLocaleString()}</div>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2">
+                <div className="text-lg font-bold text-blue-600">{betSummary.placeCount}件</div>
+                <div className="text-[10px] text-muted-foreground">複勝 &yen;{betSummary.placeTotal.toLocaleString()}</div>
+              </div>
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded p-2">
+                <div className={`text-lg font-bold ${betSummary.avgEv >= 1.0 ? 'text-emerald-600' : 'text-yellow-600'}`}>
+                  {betSummary.avgEv.toFixed(2)}
+                </div>
+                <div className="text-[10px] text-muted-foreground">加重平均EV</div>
+              </div>
+              <div className="bg-purple-50 dark:bg-purple-900/20 rounded p-2">
+                <div className="text-lg font-bold text-purple-600">&yen;{betSummary.expectedReturn.toLocaleString()}</div>
+                <div className="text-[10px] text-muted-foreground">期待回収額</div>
+              </div>
+              {betSummary.dangerRaces > 0 && (
+                <div className="bg-orange-50 dark:bg-orange-900/20 rounded p-2 border border-orange-200 dark:border-orange-800">
+                  <div className="text-lg font-bold text-orange-600">{betSummary.dangerRaces}R</div>
+                  <div className="text-[10px] text-muted-foreground">危険人気馬</div>
+                </div>
+              )}
+            </div>
+
+            {/* 推奨テーブル */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-indigo-50 dark:bg-indigo-900/30 text-xs">
+                    <th className="px-2 py-2 text-left border">場</th>
+                    <th className="px-2 py-2 text-center border">R</th>
+                    <th className="px-2 py-2 text-center border">馬番</th>
+                    <th className="px-2 py-2 text-left border">馬名</th>
+                    <th className="px-2 py-2 text-center border">推奨</th>
+                    <th className="px-2 py-2 text-center border" title="単勝EV">単EV</th>
+                    <th className="px-2 py-2 text-center border" title="複勝EV">複EV</th>
+                    <th className="px-2 py-2 text-center border" title="VB Gap">Gap</th>
+                    <th className="px-2 py-2 text-center border" title="Kelly基準ベット比率">Kelly</th>
+                    <th className="px-2 py-2 text-center border bg-yellow-50 dark:bg-yellow-900/20" title="推奨金額">金額</th>
+                    <th className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</th>
+                    <th className="px-2 py-2 text-center border" title="頭向き度">頭%</th>
+                    <th className="px-2 py-2 text-center border bg-orange-50 dark:bg-orange-900/20" title="危険な人気馬（モデルVが低評価の人気馬）">危険馬</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {betRecommendations.map((r) => {
+                    const winOdds = getWinOdds(oddsMap, r.race.race_id, r.entry.umaban, r.entry.odds);
+                    const headRatio = calcHeadRatio(r.entry.pred_proba_wv, r.entry.pred_proba_v);
+                    const totalBet = r.betAmountWin + r.betAmountPlace;
+                    const mainKelly = r.betType === '複勝' ? r.kellyPlace : r.kellyWin;
+                    return (
+                      <tr
+                        key={`${r.race.race_id}-${r.entry.umaban}`}
+                        className={`border-b hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 ${
+                          r.danger?.isDanger
+                            ? 'bg-orange-50/40 dark:bg-orange-900/10'
+                            : r.strength === 'strong' ? 'bg-indigo-50/30 dark:bg-indigo-900/10' : ''
+                        }`}
+                      >
+                        <td className="px-2 py-1.5 border text-xs">
+                          <Link href={getRaceLink(r.race)} target="_blank" className="hover:text-blue-600 hover:underline">
+                            {r.race.venue_name}
+                          </Link>
+                        </td>
+                        <td className="px-2 py-1.5 border text-center font-bold">{r.race.race_number}</td>
+                        <td className="px-2 py-1.5 border text-center font-mono">{r.entry.umaban}</td>
+                        <td className="px-2 py-1.5 border font-bold text-xs">{r.entry.horse_name}</td>
+                        <td className="px-2 py-1.5 border text-center">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${getRecBadgeClass(r.betType, r.strength)}`}>
+                            {r.betType}
+                          </span>
+                        </td>
+                        <td className={`px-2 py-1.5 border text-center font-mono text-xs ${r.winEv && r.winEv >= 1.0 ? getEvColor(r.winEv) : 'text-gray-300'}`}>
+                          {r.winEv ? r.winEv.toFixed(2) : '-'}
+                        </td>
+                        <td className={`px-2 py-1.5 border text-center font-mono text-xs ${r.placeEv && r.placeEv >= 1.0 ? 'text-blue-600 font-bold' : 'text-gray-300'}`}>
+                          {r.placeEv ? r.placeEv.toFixed(2) : '-'}
+                        </td>
+                        <td className={`px-2 py-1.5 border text-center font-mono ${getGapColor(r.entry.vb_gap)}`}>
+                          +{r.entry.vb_gap}
+                        </td>
+                        <td className="px-2 py-1.5 border text-center font-mono text-xs">
+                          {(mainKelly * BET_CONFIG.kellyFraction * 100).toFixed(1)}%
+                        </td>
+                        <td className="px-2 py-1.5 border text-center font-mono font-bold bg-yellow-50/50 dark:bg-yellow-900/10">
+                          {r.betAmountWin > 0 && <div className="text-red-600">&yen;{r.betAmountWin.toLocaleString()}</div>}
+                          {r.betAmountPlace > 0 && <div className="text-blue-600">&yen;{r.betAmountPlace.toLocaleString()}</div>}
+                        </td>
+                        <td className="px-2 py-1.5 border text-center font-mono text-xs">
+                          {winOdds ? winOdds.toFixed(1) : '-'}
+                        </td>
+                        <td className={`px-2 py-1.5 border text-center font-mono text-xs ${headRatio && headRatio >= 0.35 ? 'text-red-600 font-bold' : ''}`}>
+                          {headRatio ? `${(headRatio * 100).toFixed(0)}` : '-'}
+                        </td>
+                        <td className="px-2 py-1.5 border text-center text-[10px]">
+                          {r.danger?.dangerHorse ? (
+                            <span className="text-orange-600 font-bold" title={`${r.danger.dangerHorse.horseName}: 人気${r.danger.dangerHorse.oddsRank}位 → V${r.danger.dangerHorse.rankV}位 (gap ${r.danger.dangerScore})`}>
+                              {r.danger.dangerHorse.umaban}{r.danger.dangerHorse.horseName.slice(0, 3)}
+                              <span className="text-orange-400 ml-0.5">+{r.danger.dangerScore}</span>
+                            </span>
+                          ) : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-3 text-[10px] text-muted-foreground">
+              Kelly Criterion (1/4 Kelly) / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet} / 危険レースはVB gap&ge;{BET_CONFIG.minGapDanger}に緩和
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {betRecommendations.length === 0 && races.length > 0 && (
+        <Card className="mb-8 border-gray-200 dark:border-gray-700">
+          <CardContent className="py-6 text-center text-muted-foreground">
+            <div className="text-lg font-bold mb-1">本日は見送り推奨</div>
+            <div className="text-xs">EV &gt; 1.0 かつ VB gap &ge; {BET_CONFIG.minGap}（危険レースは &ge; {BET_CONFIG.minGapDanger}）の条件を満たす馬が見つかりません</div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* VB候補ハイライト */}
       {filteredVBEntries.length > 0 && (
         <Card className="mb-8 border-amber-200 dark:border-amber-800">
@@ -964,8 +1398,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                     <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ（DB最新）">オッズ</SortTh>
                     <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="人気 - VR：市場評価とモデル評価の乖離（大きいほど過小評価）">Gap</SortTh>
                     <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-emerald-50 dark:bg-emerald-900/30" title="単勝EV = P(win) × 単勝オッズ（1.0以上がプラス期待値）">単EV</SortTh>
-                    <th className="px-2 py-2 text-center border bg-blue-50 dark:bg-blue-900/30" title="複勝EV = P(top3) × 複勝オッズ最低値">複EV</th>
-                    <th className="px-2 py-2 text-center border" title="頭向き度 = P(win)/P(top3) — 高いほど勝ち切る力が強い">頭%</th>
+                    <SortTh sortKey="place_ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-blue-50 dark:bg-blue-900/30" title="複勝EV = P(top3) × 複勝オッズ最低値">複EV</SortTh>
+                    <SortTh sortKey="head_ratio" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="頭向き度 = P(win)/P(top3) — 高いほど勝ち切る力が強い">頭%</SortTh>
                     <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="P(top3) 複勝圏予測確率（市場非依存）">V%</SortTh>
                     <th className="px-2 py-2 text-center border" title="競馬ブック調教評価の矢印">調教</th>
                     <th className="px-2 py-2 text-left border" title="競馬ブック短評コメント">短評</th>
@@ -999,6 +1433,9 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                           <Link href={getRaceLink(race)} target="_blank" className="hover:text-blue-600 hover:underline">
                             {race.venue_name}
                           </Link>
+                          {(() => { const dg = getRaceDanger(race.entries); return dg.isDanger ? (
+                            <span className="ml-0.5 text-[9px] text-orange-500" title={`危険: ${dg.dangerHorse?.horseName} (人気${dg.dangerHorse?.oddsRank}→V${dg.dangerHorse?.rankV})`}>!</span>
+                          ) : null; })()}
                         </td>
                         <td className="px-2 py-1.5 border text-center font-bold">
                           <Link href={getRaceLink(race)} target="_blank" className="hover:text-blue-600 hover:underline">

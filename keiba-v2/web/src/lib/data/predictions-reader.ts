@@ -32,6 +32,9 @@ export interface PredictionEntry {
   // Place odds from DB
   place_odds_min?: number;
   place_odds_max?: number;
+  // EV (期待値)
+  win_ev?: number;     // P(win) × 単勝オッズ
+  place_ev?: number;   // P(top3) × 複勝オッズ最低値
   // keibabook
   kb_mark: string;
   kb_mark_point: number;
