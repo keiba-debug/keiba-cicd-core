@@ -279,8 +279,14 @@ def predict_race(
     arr_v = np.array(feature_rows_v)
 
     # 予測
-    pred_a = model_a.predict(arr_a)
-    pred_b = model_b.predict(arr_v)
+    pred_a_raw = model_a.predict(arr_a)
+    pred_b_raw = model_b.predict(arr_v)
+
+    # レース内正規化: 各馬の確率合計を100%にする
+    sum_a = pred_a_raw.sum()
+    sum_b = pred_b_raw.sum()
+    pred_a = pred_a_raw / sum_a if sum_a > 0 else pred_a_raw
+    pred_b = pred_b_raw / sum_b if sum_b > 0 else pred_b_raw
 
     # ランク計算
     rank_a = np.argsort(-pred_a) + 1
