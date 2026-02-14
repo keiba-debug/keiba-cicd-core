@@ -4,7 +4,7 @@
 
 > 📌 **考察の羅針盤**: 今後の開発・考察を加速させる包括ドキュメントは [競馬AI×機械学習 考察マスター](consideration_master.md) を参照。
 
-> 最終更新: 2026-02-13
+> 最終更新: 2026-02-14
 
 ## ディレクトリ構成
 
@@ -14,7 +14,7 @@
 | `blog-analyses/_template.md` | 新規考察ドキュメントのテンプレート |
 | `insights/` | テーマ別に横断整理した知見（サブフォルダ分類） |
 | `insights/learning/` | 学習ロードマップ・用語集（4ファイル） |
-| `insights/model/` | モデル設計・特徴量・評価理論（9ファイル） |
+| `insights/model/` | モデル設計・特徴量・評価理論（10ファイル） |
 | `insights/market/` | 市場構造・馬券・資金管理（6ファイル） |
 | `insights/race/` | レース構造・展開・ドメイン知識（9ファイル） |
 | `insights/operations/` | 運用・検証・横断知見（3ファイル） |
@@ -115,6 +115,7 @@
 | [着順バイアス: 着順 vs 着差の評価ギャップ](insights/model/finishing_position_vs_margin_bias.md) | 0.5秒差5着 vs 0.2秒差6着。序数思考バイアス、接戦レースの着順の無意味さ、着差weight導入 |
 | [盛り返しパターンと充実度](insights/race/rally_after_dropping_position.md) | 位置取りを下げてから盛り返す馬は充実の証拠。盛り返し強度の定量化、戦意喪失の反対指標 |
 | [能力はスカラーではなくベクトル](insights/model/ability_is_not_scalar.md) | 「能力の方向性は一定ではない」の統合理論。能力ベクトル×条件ベクトル＝適合度。穴馬の構造的説明 |
+| [次期特徴量・目的変数アイデア集](insights/model/next_features_and_targets.md) | v3.5→v4計画。目的変数拡張（is_win/ランキング学習/着差回帰）、未使用データ活用（KB印/展開予想/血統）、Sprint 1-3ロードマップ |
 
 ## 考察ドキュメント一覧
 

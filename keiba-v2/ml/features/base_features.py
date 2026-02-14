@@ -4,6 +4,8 @@
 基本特徴量: レースJSON直読み
 
 JRA-VANデータから抽出する基本特徴量。
+
+v4.0: month, nichi (開催日) を追加
 """
 
 
@@ -14,6 +16,14 @@ def extract_base_features(entry: dict, race: dict) -> dict:
     baba_map = {'良': 0, '稍重': 1, '重': 2, '不良': 3}
 
     pace = race.get('pace') or {}
+
+    # 開催日 (race_id[12:14]): 1=開幕週, 8=最終週
+    race_id = race.get('race_id', '')
+    nichi = int(race_id[12:14]) if len(race_id) >= 14 else 0
+
+    # 月
+    date_str = race.get('date', '')
+    month = int(date_str[5:7]) if len(date_str) >= 7 else 0
 
     return {
         'age': entry.get('age', 0),
@@ -29,4 +39,7 @@ def extract_base_features(entry: dict, race: dict) -> dict:
         'entry_count': race.get('num_runners', 0),
         'odds': entry.get('odds', 0.0),
         'popularity': entry.get('popularity', 0),
+        # v4.0
+        'month': month,
+        'nichi': nichi,
     }

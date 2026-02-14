@@ -147,6 +147,15 @@ def enrich_kb_ext(
             "rest_period": horse.get("rest_period", ""),
             "oikiri_summary": summary,
         }
+
+        # attack_explanation / short_review をtraining_dataにも反映
+        attack_exp = horse.get("attack_explanation", "")
+        if attack_exp and "training_data" in entries[umaban]:
+            entries[umaban]["training_data"]["attack_explanation"] = attack_exp
+        short_rev = horse.get("short_review", "")
+        if short_rev and "training_data" in entries[umaban]:
+            entries[umaban]["training_data"]["short_review"] = short_rev
+
         enriched_count += 1
 
     if enriched_count == 0:

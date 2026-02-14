@@ -5,12 +5,17 @@ TARGET frontier JV の調教データ（CK_DATA）の構造と読み取り方法
 ## 概要
 
 CK_DATAディレクトリには、JRA-VAN Data Lab.から取得した調教データが格納されています。
-主に坂路調教とコース調教の2種類のデータがあります。
+**2種類のファイルタイプ**で坂路調教とコース調教を区別します:
+
+| ファイル | 略語の意味 | 調教種別 | レコード長 |
+|---------|-----------|---------|-----------|
+| **HC*.DAT** | **H**ill **C**ourse（坂路） | 坂路調教 | 47バイト + CRLF |
+| **WC*.DAT** | **W**ood **C**hip（ウッドチップ面） | コース調教 | 92バイト + CRLF |
 
 ## ディレクトリ構造
 
 ```
-Y:\CK_DATA\
+C:\TFJV\CK_DATA\
   ├── 2024\
   │   ├── 202401\
   │   │   ├── HC020240101.DAT  # 坂路調教（美浦）
@@ -19,7 +24,7 @@ Y:\CK_DATA\
   │   │   └── WC120240101.DAT  # コース調教（栗東・ウッド）
   │   └── ...
   └── 2026\
-      └── 202601\
+      └── 202602\
           └── ...
 ```
 
@@ -27,53 +32,47 @@ Y:\CK_DATA\
 
 | パターン | 説明 |
 |---------|------|
-| `HC{場所}{YYYYMMDD}.DAT` | 坂路調教データ |
-| `WC{場所}{YYYYMMDD}.DAT` | コース調教データ（ウッド） |
+| `HC{場所}{YYYYMMDD}.DAT` | 坂路調教データ（Hill Course） |
+| `WC{場所}{YYYYMMDD}.DAT` | コース調教データ（Wood Chip） |
 
 **場所コード:**
 - `0`: 美浦トレーニングセンター
 - `1`: 栗東トレーニングセンター
 
+**RecordType（各レコードの先頭バイト）:**
+- `'0'`: 美浦の調教レコード
+- `'1'`: 栗東の調教レコード
+- **注意**: これは有効/無効フラグではなく場所コード。両方とも有効な調教レコード。
+
 ## 坂路調教レコード構造（HC*.DAT）
 
-固定長**47バイト**（+CRLF 2バイト）
+固定長**47バイト**（+CRLF 2バイト = 49バイト/レコード）
 
-**注意**: TARGET実データではタイムのオフセットが上記と異なる場合があります。実サンプル `02026010206572020101174066316804951670328164164` に合わせ、parse_ck_data.py では Time4F=28-30(3桁)、Time3F=31-33(3桁)、Lap2=38-40、Lap1=41-43 でパースしています。
+坂路調教は4F(800m)が主タイム。5Fフィールドは存在しない。
 
 | 位置 | 長さ | フィールド | 説明 |
 |-----|------|-----------|------|
-| 0 | 1 | RecordType | レコードタイプ（'0' or '1'） |
+| 0 | 1 | RecordType | 場所コード（'0'=美浦, '1'=栗東） |
 | 1-8 | 8 | Date | 調教日（YYYYMMDD） |
 | 9-12 | 4 | Time | 調教時刻（HHMM） |
 | 13-22 | 10 | KettoNum | 血統登録番号 |
-| 23-26 | 4 | Time5F | 5Fタイム |
-| 27-30 | 4 | Time4F | 4Fタイム（実データでは28-30の3桁のことも） |
-| 31-34 | 4 | Time3F | 3Fタイム（実データでは31-33の3桁のことも） |
-| 35-37 | 3 | 不明 | |
-| 38-40 | 3 | Lap2 | Lap2 |
-| 41-43 | 3 | Lap1 | Lap1 |
-
-### タイム値の変換
-
-タイム値は0.1秒単位の整数で格納されています。
-
-```typescript
-// 例: "548" → 54.8秒
-function formatTime(raw: string): string {
-  const val = parseInt(raw, 10);
-  const sec = Math.floor(val / 10);
-  const tenth = val % 10;
-  return `${sec}.${tenth}`;
-}
-```
+| 23-26 | 4 | **Time4F** | **4Fタイム（坂路主タイム、直接値）** |
+| 27-29 | 3 | Reserved | 予備 |
+| 30-33 | 4 | Time3F | 3Fタイム |
+| 34-36 | 3 | Reserved | 予備 |
+| 37-40 | 4 | Time2F | 2Fタイム |
+| 41-43 | 3 | Lap2 | Lap2（400M-200M区間） |
+| 44-46 | 3 | Lap1 | Lap1（200M-0M区間） |
 
 ## コース調教レコード構造（WC*.DAT）
 
-固定長**92バイト**（+CRLF 2バイト）
+固定長**92バイト**（+CRLF 2バイト = 94バイト/レコード）
+
+コース調教は6F〜1Fまでの各区間データを持つ。
 
 | 位置 | 長さ | フィールド | 説明 |
 |-----|------|-----------|------|
-| 0 | 1 | RecordType | レコードタイプ（常に '1'） |
+| 0 | 1 | RecordType | 場所コード（'0'=美浦, '1'=栗東） |
 | 1-8 | 8 | Date | 調教日（YYYYMMDD） |
 | 9-12 | 4 | Time | 調教時刻（HHMM） |
 | 13-22 | 10 | KettoNum | 血統登録番号 |
@@ -86,9 +85,23 @@ function formatTime(raw: string): string {
 | 86-88 | 3 | Lap2 | Lap2（400M-200M区間） |
 | 89-91 | 3 | Lap1 | Lap1（200M-0M区間） |
 
+### タイム値の変換
+
+タイム値は0.1秒単位の整数で格納されています。
+
+```typescript
+// 例: "0527" → 52.7秒, "548" → 54.8秒
+function formatTime(raw: string): string {
+  const val = parseInt(raw, 10);
+  const sec = Math.floor(val / 10);
+  const tenth = val % 10;
+  return `${sec}.${tenth}`;
+}
+```
+
 ## TypeScriptリーダー
 
-`KeibaCICD.WebViewer/src/lib/data/target-training-reader.ts` で読み取り機能を提供しています。
+`keiba-v2/web/src/lib/data/target-training-reader.ts` で読み取り機能を提供しています。
 
 ### 主要関数
 
@@ -96,40 +109,33 @@ function formatTime(raw: string): string {
 // 指定日の全調教データを取得
 async function getTrainingDataForDate(dateStr: string): Promise<TrainingRecord[]>
 
-// 利用可能な日付一覧を取得
-function getAvailableTrainingDates(year: number, month: number): string[]
+// 調教サマリーを生成（2週間分のデータを集計）
+async function generateTrainingSummary(baseDateStr: string): Promise<TrainingSummary[]>
 
 // 調教ラップ分類を計算
-function calculateLapRank(lap2: string, lap1: string, time4f: string, location: string): string
+function calculateLapRank(lap2, lap1, time4f, location, recordType): string
 
 // 調教データに馬名を付加
-async function enrichTrainingRecordsWithHorseNames(records: TrainingRecord[]): Promise<TrainingRecord[]>
+async function enrichTrainingRecordsWithHorseNames(records): Promise<TrainingRecord[]>
 ```
 
-### 使用例
+### TrainingRecord インターフェース
 
 ```typescript
-import { 
-  getTrainingDataForDate, 
-  enrichTrainingRecordsWithHorseNames,
-  calculateLapRank 
-} from '@/lib/data/target-training-reader';
-
-// 2026年1月23日の調教データを取得
-const records = await getTrainingDataForDate('20260123');
-
-// 馬名を付加
-const enrichedRecords = await enrichTrainingRecordsWithHorseNames(records);
-
-// ラップ分類を計算
-for (const record of enrichedRecords) {
-  const lapRank = calculateLapRank(
-    record.lap2 || '', 
-    record.lap1 || '', 
-    record.time4f || '', 
-    record.location
-  );
-  console.log(`${record.horseName}: ${lapRank}`);
+interface TrainingRecord {
+  recordType: 'sakamichi' | 'course';  // HC=sakamichi, WC=course
+  date: string;           // YYYY/MM/DD
+  time: string;           // HH:MM
+  kettoNum: string;       // 血統登録番号（10桁）
+  location: string;       // 'Miho' or 'Ritto'
+  time4f?: string;        // 4Fタイム（例: "52.3"）
+  time3f?: string;        // 3Fタイム
+  time2f?: string;        // 2Fタイム
+  lap2?: string;          // ラップ2
+  lap1?: string;          // ラップ1
+  // WCコース専用
+  lap4?: string;          // ラップ4
+  lap3?: string;          // ラップ3
 }
 ```
 
@@ -148,29 +154,25 @@ for (const record of enrichedRecords) {
 
 | 場所 | 種別 | 基準 |
 |-----|------|------|
-| 美浦 | 坂路 | 52.9秒以下 |
-| 栗東 | 坂路 | 53.9秒以下 |
-| 美浦/栗東 | コース | 52.2秒以下 |
-
-## デバッグAPI
-
-開発時の確認用APIエンドポイント：
-
-```
-GET /api/debug/training?date=YYYYMMDD
-GET /api/debug/training?action=dates&year=2026&month=1
-```
+| 美浦 | 坂路 (HC) | 52.9秒以下 |
+| 栗東 | 坂路 (HC) | 53.9秒以下 |
+| 美浦/栗東 | コース (WC) | 52.2秒以下 |
 
 ## 注意事項
 
-1. **馬名の取得**: DATファイルには馬名が含まれていないため、血統登録番号をキーにSE_DATA（馬毎レース成績）から取得する必要があります。
+1. **WC/HC の意味**: WC = Wood Chip（コース調教）、HC = Hill Course（坂路調教）。名前の略語に注意。
 
-2. **エンコーディング**: ファイルはShift-JISで格納されています。Node.jsで読み込む際は `iconv-lite` を使用してデコードしてください。
+2. **RecordType ≠ 有効フラグ**: 各レコードの先頭バイト('0'=美浦, '1'=栗東)は場所を示す。両方とも有効な調教レコード。
 
-3. **キャッシュ**: 大量のファイルを読み込むため、`fileBufferCache` でメモリキャッシュを行っています。必要に応じて `clearTrainingCache()` でクリアしてください。
+3. **坂路に5Fフィールドはない**: HC(坂路)のoffset 23は4Fタイム（直接値）。坂路は4F(800m)が主距離のため5F以上のデータは存在しない。
+
+4. **馬名の取得**: DATファイルには馬名が含まれていないため、血統登録番号をキーにSE_DATA/UM_DATA/horse master JSONから取得する。
+
+5. **エンコーディング**: ファイルはShift-JISで格納。Node.jsでは `iconv-lite` を使用してデコード。
+
+6. **キャッシュ**: `fileBufferCache` でメモリキャッシュ。`clearTrainingCache()` でクリア可能。
 
 ## 関連ドキュメント
 
 - [SE_DATA 馬毎レース成績仕様](./SE_DATA_馬毎レース成績仕様.md)
 - [TARGET_DATA 構造一覧](./TARGET_DATA_構造一覧.md)
-- [調教データ作成スクリプト開発](./調教データ作成スクリプト開発.md)

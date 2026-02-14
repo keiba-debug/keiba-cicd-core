@@ -4,6 +4,8 @@
 ローテーション・コンディション特徴量
 
 斤量変化、馬体重変化、前走人気など。
+
+v4.0: jockey_change (騎手乗り替わりフラグ) を追加
 """
 
 
@@ -13,6 +15,7 @@ def compute_rotation_features(
     futan: float,
     horse_weight: int,
     popularity: int,
+    jockey_code: str,
     history_cache: dict,
 ) -> dict:
     """
@@ -26,6 +29,7 @@ def compute_rotation_features(
         'weight_change_ratio': -1,
         'prev_race_popularity': -1,
         'popularity_trend': -1,  # MARKET特徴量
+        'jockey_change': None,  # v4.0: 騎手乗り替わり
     }
 
     runs = history_cache.get(ketto_num, [])
@@ -57,5 +61,10 @@ def compute_rotation_features(
     # popularity_trend: 今走人気 - 前走人気 (正=人気落ち)
     if popularity > 0 and prev_pop > 0:
         result['popularity_trend'] = popularity - prev_pop
+
+    # jockey_change: 騎手乗り替わり (v4.0)
+    prev_jockey = last.get('jockey_code', '')
+    if jockey_code and prev_jockey:
+        result['jockey_change'] = 0 if jockey_code == prev_jockey else 1
 
     return result

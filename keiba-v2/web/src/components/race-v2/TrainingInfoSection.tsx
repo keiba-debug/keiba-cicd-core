@@ -31,9 +31,21 @@ function getArrowColor(arrow: string): string {
 function getTimeRankBgColor(rank?: string): string {
   if (!rank || rank === '-') return '';
   switch (rank) {
-    case '両': return POSITIVE_BG;
-    case '坂':
-    case 'コ': return POSITIVE_BG_MUTED;
+    case '5': return 'bg-yellow-100 dark:bg-yellow-900/40';
+    case '4': return POSITIVE_BG;
+    case '3': return POSITIVE_BG_MUTED;
+    case '2': return '';
+    default: return '';
+  }
+}
+
+function getTimeRankTextColor(rank?: string): string {
+  if (!rank || rank === '-') return '';
+  switch (rank) {
+    case '5': return 'text-yellow-700 dark:text-yellow-300';
+    case '4': return 'text-green-700 dark:text-green-300';
+    case '3': return 'text-blue-700 dark:text-blue-300';
+    case '1': return 'text-gray-400 dark:text-gray-500';
     default: return '';
   }
 }
@@ -163,9 +175,9 @@ const TrainingInfoRow = React.memo(function TrainingInfoRow({ entry, trainingSum
         {entry.horse_name}
       </td>
       
-      {/* 調教タイム分類（TARGET） */}
-      <td className={`px-2 py-1.5 text-center border font-bold ${getTimeRankBgColor(trainingSummary?.timeRank)}`}>
-        {trainingSummary?.timeRank || '-'}
+      {/* 調教タイムレベル（TARGET） */}
+      <td className={`px-2 py-1.5 text-center border font-bold ${getTimeRankBgColor(trainingSummary?.timeRank)} ${getTimeRankTextColor(trainingSummary?.timeRank)}`}>
+        {trainingSummary?.timeRank && trainingSummary.timeRank !== '-' ? `Lv${trainingSummary.timeRank}` : '-'}
       </td>
       
       {/* 調教ラップ分類（TARGET） */}

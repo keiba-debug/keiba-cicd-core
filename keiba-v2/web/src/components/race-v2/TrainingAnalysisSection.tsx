@@ -186,6 +186,33 @@ function hasGoodTimeMarker(value: string): boolean {
   return /\(\d+\.\d+\)/.test(value);
 }
 
+// detailテキストからラップランクを除去（バッジで別表示するため重複排除）
+// "坂路B+(53.2)" → "坂路(53.2)", "坂路D-,コースB+(52.3)" → "坂路,コース(52.3)"
+function stripLapRanksFromValue(value: string): string {
+  return value.replace(/(坂路|コース)(SS|[A-DS][+=-])/g, '$1');
+}
+
+// タイムレベルの色（5=金, 4=緑, 3=青, 2=灰, 1=薄灰）
+function getTimeLevelColor(level: number): string {
+  switch (level) {
+    case 5: return 'text-yellow-600 dark:text-yellow-400 font-bold';
+    case 4: return 'text-green-600 dark:text-green-400 font-bold';
+    case 3: return 'text-blue-600 dark:text-blue-400 font-medium';
+    case 2: return 'text-gray-500 dark:text-gray-400';
+    case 1: return 'text-gray-400 dark:text-gray-500';
+    default: return '';
+  }
+}
+
+function getTimeLevelBgColor(level: number): string {
+  switch (level) {
+    case 5: return 'bg-yellow-50 dark:bg-yellow-900/30';
+    case 4: return 'bg-green-50 dark:bg-green-900/30';
+    case 3: return 'bg-blue-50 dark:bg-blue-900/20';
+    default: return '';
+  }
+}
+
 // detailをパースして行ごとに表示（最終/土日/1週前）
 function formatTrainingDetail(
   detail?: string,
@@ -212,37 +239,40 @@ function formatTrainingDetail(
 
         // ラップランク: 引数優先、なければdetailテキストから抽出
         let lapRank = '';
-        let isFastTime = false;
+        let timeLevel = 0;
         if (label === '最終') {
           lapRank = finalLap || extractLapRankFromValue(value);
-          isFastTime = finalSpeed === '◎' || hasGoodTimeMarker(value);
+          timeLevel = finalSpeed ? parseInt(finalSpeed, 10) || 0 : (hasGoodTimeMarker(value) ? 4 : 0);
         } else if (label === '土日') {
           lapRank = weekendLap || extractLapRankFromValue(value);
-          isFastTime = weekendSpeed === '◎' || hasGoodTimeMarker(value);
+          timeLevel = weekendSpeed ? parseInt(weekendSpeed, 10) || 0 : (hasGoodTimeMarker(value) ? 4 : 0);
         } else if (label === '1週前') {
           lapRank = weekAgoLap || extractLapRankFromValue(value);
-          isFastTime = weekAgoSpeed === '◎';
+          timeLevel = weekAgoSpeed ? parseInt(weekAgoSpeed, 10) || 0 : (hasGoodTimeMarker(value) ? 4 : 0);
         }
 
-        const isGoodTime = isFastTime;
-        const rowClass = isGoodTime
-          ? 'text-xs flex items-center gap-1 text-green-700 dark:text-green-400 font-medium bg-green-50 dark:bg-green-900/30 px-1.5 py-0.5 rounded'
-          : 'text-xs flex items-center gap-1 text-gray-700 dark:text-gray-300';
+        const isHighLevel = timeLevel >= 4;
+        const rowBgClass = isHighLevel
+          ? getTimeLevelBgColor(timeLevel)
+          : (lapRank ? getLapRankBgColor(lapRank) : '');
+        const rowClass = `text-xs flex items-center gap-1 ${isHighLevel ? 'font-medium' : ''} text-gray-700 dark:text-gray-300 ${rowBgClass} ${isHighLevel ? 'px-1.5 py-0.5 rounded' : ''}`.trim();
 
-        const bgClass = !isGoodTime && lapRank ? getLapRankBgColor(lapRank) : '';
-        const combinedRowClass = `${rowClass} ${bgClass}`.trim();
+        // ランクをバッジに集約するため、detailテキストからは除去
+        const cleanValue = stripLapRanksFromValue(value);
 
         return (
-          <div key={idx} className={combinedRowClass}>
-            <span className={isGoodTime ? 'w-10 shrink-0 font-semibold' : 'text-muted-foreground w-10 shrink-0'}>{label}:</span>
-            <span className={`font-mono ${isGoodTime ? 'font-semibold' : ''}`}>{value}</span>
+          <div key={idx} className={rowClass}>
+            <span className={isHighLevel ? 'w-10 shrink-0 font-semibold' : 'text-muted-foreground w-10 shrink-0'}>{label}:</span>
+            <span className={`font-mono ${isHighLevel ? 'font-semibold' : ''}`}>{cleanValue}</span>
             {lapRank && (
-              <span className={`ml-1 px-1.5 py-0.5 rounded text-xs font-medium ${getLapRankColor(lapRank)} ${isGoodTime ? 'bg-green-100 dark:bg-green-800/40' : ''}`}>
+              <span className={`ml-1 px-1.5 py-0.5 rounded text-xs font-medium ${getLapRankColor(lapRank)}`}>
                 {lapRank} {getAccelerationIcon(lapRank)}
               </span>
             )}
-            {isGoodTime && (
-              <span className="text-green-600 dark:text-green-400 font-bold ml-1" title="好タイム">◎</span>
+            {timeLevel >= 1 && (
+              <span className={`ml-1 px-1 py-0.5 rounded text-xs font-bold ${getTimeLevelColor(timeLevel)}`} title={`タイムレベル ${timeLevel}/5`}>
+                Lv{timeLevel}
+              </span>
             )}
           </div>
         );
@@ -513,7 +543,7 @@ export default function TrainingAnalysisSection({
           <div className="p-3 border-t bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-400">
             <div className="flex flex-wrap gap-4">
               <span><strong>今走/前走調教:</strong> 最終（当週水・木）/ 土日（前週土・日）/ 1週前（前週水・木）</span>
-              <span><strong className="text-green-600">◎</strong>=好タイム（緑色表示）</span>
+              <span><strong>タイム:</strong> <strong className="text-yellow-600">Lv5</strong>=top5% / <strong className="text-green-600">Lv4</strong>=top20% / <strong className="text-blue-600">Lv3</strong>=中央 / Lv2=やや遅 / <span className="text-gray-400">Lv1</span>=軽め</span>
               <span><strong>ラップ:</strong> <strong className="text-yellow-600">SS</strong>=最高 / S=優秀 / A=良 / B=普通 / C=やや劣 / D=劣</span>
               <span><strong>加速:</strong> ↗=加速 / →=同タイム / ↘=減速</span>
               <span><strong>脚色:</strong> <span className="text-green-600">馬なり</span>=余裕 / <span className="text-amber-600">強め</span> / <span className="text-orange-600">末強</span> / <span className="text-red-600">一杯</span>=全力</span>

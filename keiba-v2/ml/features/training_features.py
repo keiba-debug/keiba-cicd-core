@@ -1,15 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-調教特徴量 (v3.3)
+調教特徴量 (v4.0)
 
 keibabook拡張データ(kb_ext)から調教関連の特徴量を抽出。
 
-v3.2: training_arrow_value のみ
+v4.0: KB印・レーティング (mark_point, aggregate_mark_point, rating) を追加
 v3.3: cyokyo_detail (追い切りタイム・脚色・併せ馬・セッション数) を追加
+v3.2: training_arrow_value のみ
 
 データソース: data3/keibabook/YYYY/MM/DD/kb_ext_{race_id}.json
   → entries[umaban].cyokyo_detail (cyokyo_enricherで追加)
+  → entries[umaban].mark_point / aggregate_mark_point / rating
 """
 
 import re
@@ -82,6 +84,10 @@ def compute_training_features(
         'training_session_count': -1,
         'rest_weeks': -1,
         'oikiri_is_slope': -1,
+        # KB印・レーティング (v4.0)
+        'kb_mark_point': None,
+        'kb_aggregate_mark_point': None,
+        'kb_rating': None,
     }
 
     if not kb_ext:
@@ -98,6 +104,17 @@ def compute_training_features(
     tav = entry.get('training_arrow_value')
     if tav is not None:
         result['training_arrow_value'] = tav
+
+    # KB印・レーティング (v4.0)
+    mp = entry.get('mark_point')
+    if mp is not None:
+        result['kb_mark_point'] = mp
+    amp = entry.get('aggregate_mark_point')
+    if amp is not None:
+        result['kb_aggregate_mark_point'] = amp
+    rating = entry.get('rating')
+    if rating is not None:
+        result['kb_rating'] = rating
 
     # cyokyo_detail (cyokyo_enricherで追加済みの場合)
     detail = entry.get('cyokyo_detail')

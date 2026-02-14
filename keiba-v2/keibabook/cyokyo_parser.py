@@ -99,10 +99,14 @@ def _parse_horse_table(table: Tag) -> Optional[dict]:
         <thead>...</thead>
         <tbody>
           <tr>  ← ヘッダ行 (枠番, 馬番, 馬名, 短評, 矢印)
-          <tr>  ← 内側テーブル (td colspan=5 > table.cyokyodata)
+          <tr>
+            <td colspan=5>
+              <table class="cyokyodata">...</table>
+              <div class="semekaisetu">攻め解説</div>  ← テーブル内部
+            </td>
+          </tr>
         </tbody>
       </table>
-      <div class="semekaisetu">攻め解説</div>
     """
     result = {
         "horse_number": None,
@@ -138,8 +142,8 @@ def _parse_horse_table(table: Tag) -> Optional[dict]:
     if inner_table:
         _parse_session_table(inner_table, result)
 
-    # 攻め解説 (table直後のdiv.semekaisetu)
-    seme_div = table.find_next_sibling("div", class_="semekaisetu")
+    # 攻め解説 (テーブル内部のtd > div.semekaisetu)
+    seme_div = table.find("div", class_="semekaisetu")
     if seme_div:
         p = seme_div.find("p")
         if p:

@@ -5,6 +5,8 @@
 
 horse_history_cache.jsonから馬の過去走成績を計算。
 v2のcompute_past_features()を移植・拡張。
+
+v4.0: best_l3f_last5, finish_std_last5, comeback_strength_last5 を追加
 """
 
 from typing import Dict, List, Optional
@@ -38,6 +40,10 @@ def compute_past_features(
         'distance_fitness': -1,
         'prev_race_entry_count': -1,
         'entry_count_change': -1,
+        # v4.0: 安定度・末脚ピーク・盛り返し
+        'best_l3f_last5': None,
+        'finish_std_last5': None,
+        'comeback_strength_last5': None,
     }
 
     runs = history_cache.get(ketto_num, [])
@@ -69,6 +75,31 @@ def compute_past_features(
     l3f = [r['last_3f'] for r in last3 if r.get('last_3f', 0) > 0]
     if l3f:
         result['last3f_avg_last3'] = round(sum(l3f) / len(l3f), 1)
+
+    # 上がり3F最速（直近5走）(v4.0)
+    l3f_5 = [r['last_3f'] for r in last5 if r.get('last_3f', 0) > 0]
+    if l3f_5:
+        result['best_l3f_last5'] = min(l3f_5)
+
+    # 着順標準偏差（直近5走）(v4.0) — 小=安定、大=ムラ
+    if len(positions_5) >= 2:
+        mean_pos = sum(positions_5) / len(positions_5)
+        variance = sum((p - mean_pos) ** 2 for p in positions_5) / (len(positions_5) - 1)
+        result['finish_std_last5'] = round(variance ** 0.5, 2)
+
+    # 盛り返し強度（直近5走）(v4.0) — 道中最悪順位から着順への回復度
+    comeback_scores = []
+    for r in last5:
+        corners = r.get('corners', [])
+        fp = r.get('finish_position', 0)
+        nr = r.get('num_runners', 0)
+        if corners and fp > 0 and nr > 1:
+            worst_corner = max(corners)
+            comeback_scores.append((worst_corner - fp) / (nr - 1))
+    if comeback_scores:
+        result['comeback_strength_last5'] = round(
+            sum(comeback_scores) / len(comeback_scores), 4
+        )
 
     # 前走からの間隔（日数）
     from datetime import datetime

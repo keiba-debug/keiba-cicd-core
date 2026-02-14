@@ -33,6 +33,8 @@ def compute_pace_features(
         'last3f_vs_race_l3_last3': -1,
         'steep_course_experience': -1,
         'steep_course_top3_rate': -1,
+        # v4.0: 上がり3F順位 vs 着順ギャップ
+        'l3_unrewarded_rate_last5': None,
     }
 
     runs = history_cache.get(ketto_num, [])
@@ -76,6 +78,25 @@ def compute_pace_features(
             diffs.append(horse_l3 - race_l3)
     if diffs:
         result['last3f_vs_race_l3_last3'] = round(np.mean(diffs), 2)
+
+    # l3_unrewarded_rate_last5: 上がりが速いのに着外のレース率 (v4.0)
+    # 「脚はあるが展開不利で結果が出ない」馬を検出
+    last5 = past[-5:]
+    l3_fast_but_lost = 0
+    l3_fast_total = 0
+    for r in last5:
+        horse_l3 = r.get('last_3f', 0)
+        pace_data = pace_index.get(r['race_id'], {})
+        race_l3 = pace_data.get('l3')
+        if horse_l3 > 0 and race_l3 is not None and race_l3 > 0:
+            if horse_l3 < race_l3:  # 馬のL3がレース平均より速い
+                l3_fast_total += 1
+                if r.get('finish_position', 0) > 3:
+                    l3_fast_but_lost += 1
+    if l3_fast_total > 0:
+        result['l3_unrewarded_rate_last5'] = round(
+            l3_fast_but_lost / l3_fast_total, 4
+        )
 
     # steep_course_experience: 急坂場(中山/阪神)での出走割合
     if len(past) >= 2:

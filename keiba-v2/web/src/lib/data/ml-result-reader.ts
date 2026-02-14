@@ -6,6 +6,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { DATA3_ROOT } from '@/lib/config';
+import { getVersionedMlPath } from '@/lib/data/version-utils';
 
 // --- 共通型定義 ---
 
@@ -198,8 +199,21 @@ const CACHE_TTL = 5 * 60 * 1000;
 
 /**
  * ML実験結果を読み込む（v2優先、v1フォールバック）
+ * @param version 省略時はライブ（最新版）をキャッシュ付きで読む。指定時はアーカイブから読む（キャッシュなし）
  */
-export async function getMlExperimentResult(): Promise<MlResult | null> {
+export async function getMlExperimentResult(version?: string | null): Promise<MlResult | null> {
+  // バージョン指定時: アーカイブから直接読む（キャッシュなし）
+  if (version) {
+    const versionedPath = getVersionedMlPath('ml_experiment_v3_result.json', version);
+    try {
+      const content = await fs.readFile(versionedPath, 'utf-8');
+      return JSON.parse(content) as MlResult;
+    } catch {
+      return null;
+    }
+  }
+
+  // ライブ: キャッシュ付き
   if (cachedResult && Date.now() - cacheTimestamp < CACHE_TTL) {
     return cachedResult;
   }

@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { useMlResult } from '@/hooks/useMlResult';
 import { TABS, type TabKey } from './utils';
+import VersionSelector from './VersionSelector';
 
 const TabSkeleton = () => (
   <div className="flex h-64 items-center justify-center">
@@ -20,7 +21,8 @@ const ImportanceTab = dynamic(() => import('./tabs/ImportanceTab'), { loading: T
 const PredictionsTab = dynamic(() => import('./tabs/PredictionsTab'), { loading: TabSkeleton, ssr: false });
 
 export default function MlAnalysisPage() {
-  const { data, isLoading, error } = useMlResult();
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+  const { data, isLoading, error } = useMlResult(selectedVersion);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
   if (isLoading) return <div className="flex h-64 items-center justify-center"><div className="text-gray-500">読み込み中...</div></div>;
@@ -33,11 +35,14 @@ export default function MlAnalysisPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">ML分析</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {data.description ?? data.experiment} — {data.model ?? 'LightGBM'} ({data.experiment})
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">ML分析</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {data.description ?? data.experiment} — {data.model ?? 'LightGBM'} ({data.experiment})
+          </p>
+        </div>
+        <VersionSelector value={selectedVersion} onChange={setSelectedVersion} />
       </div>
 
       <div className="mb-5 grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-400">

@@ -56,7 +56,7 @@ def load_model_and_meta():
         names = ", ".join(p.name for p in missing)
         raise FileNotFoundError(
             f"モデルファイルが見つかりません: {names} (in {ml_dir})\n"
-            "先に python -m ml.experiment_v3 を実行してください"
+            "先に python -m ml.experiment を実行してください"
         )
 
     model_a = lgb.Booster(model_file=str(model_a_path))
@@ -88,7 +88,7 @@ def load_master_data():
     jockey_index = build_jockey_index(jockeys_list)
 
     # Pace index
-    from ml.experiment_v3 import build_pace_index
+    from ml.experiment import build_pace_index
     di_path = config.indexes_dir() / "race_date_index.json"
     with open(di_path, encoding='utf-8') as f:
         date_index = json.load(f)
@@ -220,6 +220,7 @@ def predict_race(
             futan=entry.get('futan', 0.0),
             horse_weight=entry.get('horse_weight', 0),
             popularity=entry.get('popularity', 0),
+            jockey_code=entry.get('jockey_code', ''),
             history_cache=history_cache,
         )
         feat.update(rot_feat)

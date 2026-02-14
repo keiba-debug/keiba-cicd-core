@@ -1,12 +1,12 @@
 /**
  * TARGET CK_DATA (調教データ) 読み込みユーティリティ
- * 
- * WC*.DAT: 坂路調教データ（92バイト固定長）
- * HC*.DAT: コース調教データ（47バイト固定長）
- * 
+ *
+ * WC*.DAT: コース調教データ（Wood Chip面、92バイト固定長）
+ * HC*.DAT: 坂路調教データ（Hill Course、47バイト固定長）
+ *
  * ファイル名規則:
- * - WC{場所}{YYYYMMDD}.DAT: 坂路調教（0=美浦、1=栗東）
- * - HC{場所}{YYYYMMDD}.DAT: コース調教（0=美浦、1=栗東）
+ * - WC{場所}{YYYYMMDD}.DAT: コース調教（0=美浦、1=栗東）
+ * - HC{場所}{YYYYMMDD}.DAT: 坂路調教（0=美浦、1=栗東）
  */
 
 import fs from 'fs';
@@ -30,7 +30,7 @@ const horseNameCache = new Map<string, string>();
 const umDataCache = new Map<string, Buffer>();  // UM_DATAファイルキャッシュ
 
 /**
- * 坂路調教レコード
+ * WC コース調教レコード（Wood Chip面）
  *
  * レコード構造（92バイト + CRLF）:
  * 位置0: 場所コード (1) — '0'=美浦, '1'=栗東
@@ -45,6 +45,21 @@ const umDataCache = new Map<string, Buffer>();  // UM_DATAファイルキャッ�
  * 位置82-85: 2Fタイム合計 (4)
  * 位置86-88: Lap2 (3)
  * 位置89-91: Lap1 (3)
+ *
+ * HC 坂路調教レコード（Hill Course）
+ *
+ * レコード構造（47バイト + CRLF）:
+ * 位置0: 場所コード (1) — '0'=美浦, '1'=栗東
+ * 位置1-8: 日付 YYYYMMDD (8)
+ * 位置9-12: 時刻 HHMM (4)
+ * 位置13-22: 血統登録番号 (10)
+ * 位置23-26: 4Fタイム合計 (4) — 坂路主タイム（直接値）
+ * 位置27-29: 予備 (3)
+ * 位置30-33: 3Fタイム合計 (4)
+ * 位置34-36: 予備 (3)
+ * 位置37-40: 2Fタイム合計 (4)
+ * 位置41-43: Lap2 (3)
+ * 位置44-46: Lap1 (3)
  */
 export interface TrainingRecord {
   recordType: 'sakamichi' | 'course';
@@ -80,6 +95,24 @@ export interface TrainingSummary {
   lapRank: string;        // SS, S+, A-, B= など
   timeRank: string;       // 坂, コ, 両, -
   detail: string;         // 調教詳細
+  // 最終追い切り（当週水・木）
+  finalLocation?: string;   // 坂 / コ
+  finalSpeed?: string;      // ◎ = 好タイム
+  finalLap?: string;        // S+ / A- など
+  finalTime4F?: number;
+  finalLap1?: number;
+  // 土日追い切り（前週土・日）
+  weekendLocation?: string;
+  weekendSpeed?: string;
+  weekendLap?: string;
+  weekendTime4F?: number;
+  weekendLap1?: number;
+  // 1週前追い切り（前週水・木）
+  weekAgoLocation?: string;
+  weekAgoSpeed?: string;
+  weekAgoLap?: string;
+  weekAgoTime4F?: number;
+  weekAgoLap1?: number;
 }
 
 /**
@@ -129,7 +162,7 @@ function locationCodeToName(code: string): string {
 }
 
 /**
- * 坂路調教レコードをパース
+ * WC コース調教レコードをパース（Wood Chip面、92バイト）
  */
 function parseWcRecord(buffer: Buffer, offset: number, location: string): TrainingRecord | null {
   if (offset + 92 > buffer.length) {
@@ -167,7 +200,7 @@ function parseWcRecord(buffer: Buffer, offset: number, location: string): Traini
       : '';
     
     return {
-      recordType: 'sakamichi',
+      recordType: 'course',
       date,
       time,
       kettoNum,
@@ -187,7 +220,10 @@ function parseWcRecord(buffer: Buffer, offset: number, location: string): Traini
 }
 
 /**
- * コース調教レコードをパース
+ * HC 坂路調教レコードをパース（Hill Course、47バイト）
+ *
+ * 坂路は4F(800m)が主タイム。offset 23-26に直接4Fタイムが格納されている。
+ * 5Fフィールドは存在しない（坂路は4Fまでの計測）。
  */
 function parseHcRecord(buffer: Buffer, offset: number, location: string): TrainingRecord | null {
   if (offset + 47 > buffer.length) {
@@ -200,50 +236,39 @@ function parseHcRecord(buffer: Buffer, offset: number, location: string): Traini
     if (recordType !== '0' && recordType !== '1') {
       return null;
     }
-    
+
     const dateRaw = decodeShiftJis(buffer, offset + 1, 8);
     const timeRaw = decodeShiftJis(buffer, offset + 9, 4);
     const kettoNum = decodeShiftJis(buffer, offset + 13, 10);
-    
-    // コース調教タイム（HC 47バイトレコード）
-    // 位置23: 5Fタイム(4B), 位置27: 5F-3F差(3B), 位置30: 3Fタイム(4B)
-    // 位置34: Lap3(3B), 位置37: 2Fタイム(4B), 位置41: Lap2(3B), 位置44: Lap1(3B)
-    const time5fRaw = decodeShiftJis(buffer, offset + 23, 4);
+
+    // 坂路調教タイム（HC 47バイトレコード）
+    // 位置23: 4Fタイム(4B) — 坂路主タイム（直接値）
+    // 位置27: 予備(3B), 位置30: 3Fタイム(4B)
+    // 位置34: 予備(3B), 位置37: 2Fタイム(4B), 位置41: Lap2(3B), 位置44: Lap1(3B)
+    const time4fRaw = decodeShiftJis(buffer, offset + 23, 4);
     const time3fRaw = decodeShiftJis(buffer, offset + 30, 4);
     const time2fRaw = decodeShiftJis(buffer, offset + 37, 4);
     const lap2Raw = decodeShiftJis(buffer, offset + 41, 3);
     const lap1Raw = decodeShiftJis(buffer, offset + 44, 3);
-    
+
     // 日付整形
-    const date = dateRaw.length === 8 
+    const date = dateRaw.length === 8
       ? `${dateRaw.substring(0, 4)}/${dateRaw.substring(4, 6)}/${dateRaw.substring(6, 8)}`
       : '';
-    
+
     // 時刻整形
-    const time = timeRaw.length === 4 
+    const time = timeRaw.length === 4
       ? `${timeRaw.substring(0, 2)}:${timeRaw.substring(2, 4)}`
       : '';
-    
-    const t5f = formatTime(time5fRaw);
-    const t3f = formatTime(time3fRaw);
-
-    // time4f近似: (5F + 3F) / 2  — HC形式には4Fフィールドが無いため
-    let t4f: string | undefined;
-    const n5f = parseFloat(t5f);
-    const n3f = parseFloat(t3f);
-    if (!isNaN(n5f) && !isNaN(n3f) && n5f > n3f) {
-      t4f = ((n5f + n3f) / 2).toFixed(1);
-    }
 
     return {
-      recordType: 'course',
+      recordType: 'sakamichi',
       date,
       time,
       kettoNum,
       location: locationCodeToName(location),
-      time5f: t5f,
-      time4f: t4f,
-      time3f: t3f,
+      time4f: formatTime(time4fRaw),
+      time3f: formatTime(time3fRaw),
       time2f: formatTime(time2fRaw),
       lap2: formatLap(lap2Raw),
       lap1: formatLap(lap1Raw),
@@ -319,7 +344,7 @@ export async function getTrainingDataForDate(dateStr: string): Promise<TrainingR
   const { wc, hc } = getTrainingFilePaths(dateStr);
   const records: TrainingRecord[] = [];
   
-  // 坂路調教
+  // コース調教（WC = Wood Chip）
   for (const filePath of wc) {
     const buffer = getBufferCached(filePath);
     if (!buffer) continue;
@@ -340,7 +365,7 @@ export async function getTrainingDataForDate(dateStr: string): Promise<TrainingR
     }
   }
   
-  // コース調教
+  // 坂路調教（HC = Hill Course）
   for (const filePath of hc) {
     const buffer = getBufferCached(filePath);
     if (!buffer) continue;
@@ -364,23 +389,22 @@ export async function getTrainingDataForDate(dateStr: string): Promise<TrainingR
 }
 
 /**
- * テキスト行から坂路調教レコードをパース
- * 
+ * テキスト行からWCコース調教レコードをパース（Wood Chip面、92バイト）
+ *
  * レコード構造（92バイト）:
- * [0]: レコードタイプ (1)
+ * [0]: レコードタイプ (1) — '0'=美浦, '1'=栗東
  * [1-8]: 日付 YYYYMMDD
  * [9-12]: 時刻 HHMM
  * [13-22]: 血統登録番号 (10桁)
- * [23-24]: 何か（不明）
- * ... 中間部分（フラグ/オプション）
+ * [23-67]: 各種フラグ/予備
  * 末尾から逆算:
- * [-6..-4]: Lap1 (0.1秒単位)
- * [-9..-7]: Lap2
- * [-12..-10]: 2Fタイム
- * [-15..-13]: Lap3
- * [-18..-16]: 3Fタイム
- * [-21..-19]: Lap4
- * [-24..-22]: 4Fタイム
+ * [-3..-1]: Lap1 (0.1秒単位)
+ * [-6..-4]: Lap2
+ * [-10..-7]: 2Fタイム
+ * [-13..-11]: Lap3
+ * [-17..-14]: 3Fタイム
+ * [-20..-18]: Lap4
+ * [-24..-21]: 4Fタイム
  */
 function parseWcRecordFromText(line: string, location: string): TrainingRecord | null {
   if (line.length < 70) return null;
@@ -410,7 +434,7 @@ function parseWcRecordFromText(line: string, location: string): TrainingRecord |
     const time = `${timeRaw.substring(0, 2)}:${timeRaw.substring(2, 4)}`;
     
     return {
-      recordType: 'sakamichi',
+      recordType: 'course',
       date,
       time,
       kettoNum,
@@ -429,7 +453,10 @@ function parseWcRecordFromText(line: string, location: string): TrainingRecord |
 }
 
 /**
- * テキスト行からコース調教レコードをパース
+ * テキスト行からHC坂路調教レコードをパース（Hill Course、47バイト）
+ *
+ * 坂路は4F(800m)が主タイム。offset 23-26に直接4Fタイムが格納。
+ * 5Fフィールドは存在しない。
  */
 function parseHcRecordFromText(line: string, location: string): TrainingRecord | null {
   if (line.length < 40) return null;
@@ -442,10 +469,11 @@ function parseHcRecordFromText(line: string, location: string): TrainingRecord |
     const timeRaw = line.substring(9, 13);
     const kettoNum = line.substring(13, 23);
 
-    // コース調教タイム（HC 47バイトレコード）
-    // 位置23: 5Fタイム(4B), 位置27: 5F-3F差(3B), 位置30: 3Fタイム(4B)
-    // 位置34: Lap3(3B), 位置37: 2Fタイム(4B), 位置41: Lap2(3B), 位置44: Lap1(3B)
-    const time5fRaw = line.substring(23, 27);
+    // 坂路調教タイム（HC 47バイトレコード）
+    // 位置23: 4Fタイム(4B) — 坂路主タイム（直接値）
+    // 位置27: 予備(3B), 位置30: 3Fタイム(4B)
+    // 位置34: 予備(3B), 位置37: 2Fタイム(4B), 位置41: Lap2(3B), 位置44: Lap1(3B)
+    const time4fRaw = line.substring(23, 27);
     const time3fRaw = line.substring(30, 34);
     const time2fRaw = line.substring(37, 41);
     const lap2Raw = line.substring(41, 44);
@@ -454,26 +482,14 @@ function parseHcRecordFromText(line: string, location: string): TrainingRecord |
     const date = `${dateRaw.substring(0, 4)}/${dateRaw.substring(4, 6)}/${dateRaw.substring(6, 8)}`;
     const time = `${timeRaw.substring(0, 2)}:${timeRaw.substring(2, 4)}`;
 
-    const t5f = formatTime(time5fRaw);
-    const t3f = formatTime(time3fRaw);
-
-    // time4f近似: (5F + 3F) / 2  — HC形式には4Fフィールドが無いため
-    let t4f: string | undefined;
-    const n5f = parseFloat(t5f);
-    const n3f = parseFloat(t3f);
-    if (!isNaN(n5f) && !isNaN(n3f) && n5f > n3f) {
-      t4f = ((n5f + n3f) / 2).toFixed(1);
-    }
-
     return {
-      recordType: 'course',
+      recordType: 'sakamichi',
       date,
       time,
       kettoNum,
       location: locationCodeToName(location),
-      time5f: t5f,
-      time4f: t4f,
-      time3f: t3f,
+      time4f: formatTime(time4fRaw),
+      time3f: formatTime(time3fRaw),
       time2f: formatTime(time2fRaw),
       lap2: formatLap(lap2Raw),
       lap1: formatLap(lap1Raw),
@@ -717,7 +733,6 @@ export function calculateLapRank(
 ): string {
   const l2 = parseFloat(lap2);
   const l1 = parseFloat(lap1);
-  const t4f = parseFloat(time4f);
 
   if (isNaN(l2) || isNaN(l1)) return '';
 
@@ -731,16 +746,8 @@ export function calculateLapRank(
     accel = '=';  // 同タイム
   }
 
-  // 好タイム判定（4Fタイム基準）
-  let goodTime = false;
-  if (!isNaN(t4f)) {
-    if (recordType === 'course') {
-      goodTime = t4f <= 52.2;
-    } else {
-      goodTime = (location === 'Miho' && t4f <= 52.9) ||
-                 (location === 'Ritto' && t4f <= 53.9);
-    }
-  }
+  // 好タイム判定（タイムレベル4以上 = 好タイム）
+  const goodTime = calculateTimeLevel(time4f, location, recordType) >= 4;
 
   // ラップ分類（坂路・コース共通閾値）
   let baseRank: string;
@@ -769,31 +776,64 @@ export function calculateLapRank(
 }
 
 /**
- * 調教タイム分類を計算
- * 坂, コ, 両, -
+ * 5段階タイムレベル閾値（4Fタイム基準）
+ *
+ * 2023年10月以降のCK_DATAから算出（美浦坂路改修後）
+ * 強め調教(≤60s)のパーセンタイルに基づく:
+ *   Level 5: top ~5%
+ *   Level 4: top ~20%
+ *   Level 3: top ~50%
+ *   Level 2: top ~80%
+ *   Level 1: それ以外
+ *
+ * 詳細: docs/training-time-analysis-notes.md
+ */
+const TIME_LEVEL_THRESHOLDS = {
+  Miho_sakamichi:  [53.0, 54.5, 56.0, 58.0],  // 美浦坂路（2023-10改修後）
+  Ritto_sakamichi: [52.0, 53.5, 55.5, 58.0],   // 栗東坂路
+  Miho_course:     [51.0, 52.2, 53.5, 55.5],    // 美浦コース
+  Ritto_course:    [51.0, 52.2, 53.5, 55.5],    // 栗東コース
+} as const;
+
+/**
+ * 4Fタイムから5段階タイムレベルを算出
+ * @returns 5(最高) ~ 1(軽め)、0=タイム無効
+ */
+export function calculateTimeLevel(
+  time4f: string | undefined,
+  location: string,
+  recordType: 'sakamichi' | 'course'
+): number {
+  const t4f = parseFloat(time4f || '');
+  if (isNaN(t4f) || t4f <= 0) return 0;
+
+  const key = `${location}_${recordType}` as keyof typeof TIME_LEVEL_THRESHOLDS;
+  const thresholds = TIME_LEVEL_THRESHOLDS[key];
+  if (!thresholds) return 0;
+
+  if (t4f <= thresholds[0]) return 5;
+  if (t4f <= thresholds[1]) return 4;
+  if (t4f <= thresholds[2]) return 3;
+  if (t4f <= thresholds[3]) return 2;
+  return 1;
+}
+
+/**
+ * 調教タイムレベル分類を計算
+ * 全レコードから最高タイムレベル(1-5)を返す
  */
 export function calculateTimeRank(
   sakamichiRecords: TrainingRecord[],
   courseRecords: TrainingRecord[]
 ): string {
-  // 好タイム基準（4F）— 元仕様準拠
-  const hasSakamichiGoodTime = sakamichiRecords.some(r => {
-    const t4f = parseFloat(r.time4f || '');
-    if (isNaN(t4f)) return false;
-    return (r.location === 'Miho' && t4f <= 52.9) ||
-           (r.location === 'Ritto' && t4f <= 53.9);
-  });
+  let bestLevel = 0;
 
-  const hasCourseGoodTime = courseRecords.some(r => {
-    const t4f = parseFloat(r.time4f || '');
-    if (isNaN(t4f)) return false;
-    return t4f <= 52.2;
-  });
-  
-  if (hasSakamichiGoodTime && hasCourseGoodTime) return 'Both';
-  if (hasSakamichiGoodTime) return 'Sakamichi';
-  if (hasCourseGoodTime) return 'Course';
-  return '-';
+  for (const r of [...sakamichiRecords, ...courseRecords]) {
+    const level = calculateTimeLevel(r.time4f, r.location, r.recordType);
+    if (level > bestLevel) bestLevel = level;
+  }
+
+  return bestLevel > 0 ? String(bestLevel) : '-';
 }
 
 /**
@@ -933,11 +973,16 @@ export async function generateTrainingSummary(
       const d = normalizeDate(r.date);
       return d >= ranges.weekAgoStart && d <= ranges.weekAgoEnd;
     });
-    
+    // 土日追い切り（weekAgoEndとfinalStartの間）
+    const weekendRecords = records.filter(r => {
+      const d = normalizeDate(r.date);
+      return d > ranges.weekAgoEnd && d < ranges.finalStart;
+    });
+
     // 全レコードから最高ランクを計算
     let bestRank = '';
     let bestScore = 0;
-    
+
     for (const r of records) {
       const rank = calculateLapRank(r.lap2 || '', r.lap1 || '', r.time4f || '', r.location, r.recordType);
       const score = getLapRankScore(rank);
@@ -946,23 +991,60 @@ export async function generateTrainingSummary(
         bestRank = rank;
       }
     }
-    
-    // 調教タイム分類
+
+    // 調教タイム分類（5段階: "5"〜"1" or "-"）
     const timeRank = calculateTimeRank(sakamichiRecords, courseRecords);
-    
+
     // 調教詳細を生成
     const detail = generateTrainingDetail(finalRecords, weekAgoRecords, records, ranges);
-    
-    summaries.push({
+
+    // 各期間のベストレコードから構造化フィールドを抽出
+    const summary: TrainingSummary = {
       horseName,
       kettoNum,
       trainerName: '',  // TODO: 調教師名取得
       lapRank: bestRank,
-      timeRank: timeRank === 'Both' ? '両' : 
-                timeRank === 'Sakamichi' ? '坂' : 
-                timeRank === 'Course' ? 'コ' : '',
+      timeRank,
       detail,
-    });
+    };
+
+    // 最終追い切り
+    const finalBest = getBestRecord(finalRecords);
+    if (finalBest) {
+      const rank = calculateLapRank(finalBest.lap2 || '', finalBest.lap1 || '', finalBest.time4f || '', finalBest.location, finalBest.recordType);
+      const level = getTimeLevel(finalBest);
+      summary.finalLocation = finalBest.recordType === 'sakamichi' ? '坂' : 'コ';
+      summary.finalLap = rank;
+      summary.finalSpeed = level >= 1 ? String(level) : '';
+      if (finalBest.time4f) summary.finalTime4F = parseFloat(finalBest.time4f);
+      if (finalBest.lap1) summary.finalLap1 = parseFloat(finalBest.lap1);
+    }
+
+    // 土日追い切り
+    const weekendBest = getBestRecord(weekendRecords);
+    if (weekendBest) {
+      const rank = calculateLapRank(weekendBest.lap2 || '', weekendBest.lap1 || '', weekendBest.time4f || '', weekendBest.location, weekendBest.recordType);
+      const level = getTimeLevel(weekendBest);
+      summary.weekendLocation = weekendBest.recordType === 'sakamichi' ? '坂' : 'コ';
+      summary.weekendLap = rank;
+      summary.weekendSpeed = level >= 1 ? String(level) : '';
+      if (weekendBest.time4f) summary.weekendTime4F = parseFloat(weekendBest.time4f);
+      if (weekendBest.lap1) summary.weekendLap1 = parseFloat(weekendBest.lap1);
+    }
+
+    // 1週前追い切り
+    const weekAgoBest = getBestRecord(weekAgoRecords);
+    if (weekAgoBest) {
+      const rank = calculateLapRank(weekAgoBest.lap2 || '', weekAgoBest.lap1 || '', weekAgoBest.time4f || '', weekAgoBest.location, weekAgoBest.recordType);
+      const level = getTimeLevel(weekAgoBest);
+      summary.weekAgoLocation = weekAgoBest.recordType === 'sakamichi' ? '坂' : 'コ';
+      summary.weekAgoLap = rank;
+      summary.weekAgoSpeed = level >= 1 ? String(level) : '';
+      if (weekAgoBest.time4f) summary.weekAgoTime4F = parseFloat(weekAgoBest.time4f);
+      if (weekAgoBest.lap1) summary.weekAgoLap1 = parseFloat(weekAgoBest.lap1);
+    }
+
+    summaries.push(summary);
   }
   
   // 馬名でソート
@@ -997,68 +1079,66 @@ function generateTrainingDetail(
   ranges: { finalStart: string; finalEnd: string; weekAgoStart: string; weekAgoEnd: string }
 ): string {
   const parts: string[] = [];
-  
+
+  // 各期間から坂路/コース別の最高ランクを文字列化するヘルパー
+  const formatPeriod = (records: TrainingRecord[], showGoodTime: boolean): string[] => {
+    const sakamichi = records.filter(r => r.recordType === 'sakamichi');
+    const course = records.filter(r => r.recordType === 'course');
+    const subParts: string[] = [];
+
+    if (sakamichi.length > 0) {
+      const best = getBestRecord(sakamichi);
+      if (best) {
+        const rank = calculateLapRank(best.lap2 || '', best.lap1 || '', best.time4f || '', best.location, best.recordType);
+        const level = getTimeLevel(best);
+        const timeStr = showGoodTime && level >= 3 ? `(${best.time4f})` : '';
+        subParts.push(`坂路${rank}${timeStr}`);
+      }
+    }
+
+    if (course.length > 0) {
+      const best = getBestRecord(course);
+      if (best) {
+        const rank = calculateLapRank(best.lap2 || '', best.lap1 || '', best.time4f || '', best.location, best.recordType);
+        const level = getTimeLevel(best);
+        const timeStr = showGoodTime && level >= 3 ? `(${best.time4f})` : '';
+        subParts.push(`コース${rank}${timeStr}`);
+      }
+    }
+
+    return subParts;
+  };
+
   // 最終追い切り
   if (finalRecords.length > 0) {
-    // 坂路とコースで最高ランクを取得
-    const finalSakamichi = finalRecords.filter(r => r.recordType === 'sakamichi');
-    const finalCourse = finalRecords.filter(r => r.recordType === 'course');
-    
-    const finalParts: string[] = [];
-    
-    if (finalSakamichi.length > 0) {
-      const best = getBestRecord(finalSakamichi);
-      if (best) {
-        const rank = calculateLapRank(best.lap2 || '', best.lap1 || '', best.time4f || '', best.location, best.recordType);
-        const timeStr = isGoodTime(best) ? `(${best.time4f})` : '';
-        finalParts.push(`坂路${rank}${timeStr}`);
-      }
-    }
-    
-    if (finalCourse.length > 0) {
-      const best = getBestRecord(finalCourse);
-      if (best) {
-        const rank = calculateLapRank(best.lap2 || '', best.lap1 || '', best.time4f || '', best.location, best.recordType);
-        const timeStr = isGoodTime(best) ? `(${best.time4f})` : '';
-        finalParts.push(`コース${rank}${timeStr}`);
-      }
-    }
-    
-    if (finalParts.length > 0) {
-      parts.push(`最終:${finalParts.join(',')}`);
+    const fp = formatPeriod(finalRecords, true);
+    if (fp.length > 0) {
+      parts.push(`最終:${fp.join(',')}`);
     }
   } else {
     parts.push('最終:なし');
   }
-  
-  // 一週前追い切り
-  if (weekAgoRecords.length > 0) {
-    const weekAgoSakamichi = weekAgoRecords.filter(r => r.recordType === 'sakamichi');
-    const weekAgoCourse = weekAgoRecords.filter(r => r.recordType === 'course');
-    
-    const weekAgoParts: string[] = [];
-    
-    if (weekAgoSakamichi.length > 0) {
-      const best = getBestRecord(weekAgoSakamichi);
-      if (best) {
-        const rank = calculateLapRank(best.lap2 || '', best.lap1 || '', best.time4f || '', best.location, best.recordType);
-        weekAgoParts.push(`坂路${rank}`);
-      }
-    }
-    
-    if (weekAgoCourse.length > 0) {
-      const best = getBestRecord(weekAgoCourse);
-      if (best) {
-        const rank = calculateLapRank(best.lap2 || '', best.lap1 || '', best.time4f || '', best.location, best.recordType);
-        weekAgoParts.push(`コース${rank}`);
-      }
-    }
-    
-    if (weekAgoParts.length > 0) {
-      parts.push(`1週前:${weekAgoParts.join(',')}`);
+
+  // 土日追い切り（weekAgoEndとfinalStartの間）
+  const weekendRecords = allRecords.filter(r => {
+    const d = normalizeDate(r.date);
+    return d > ranges.weekAgoEnd && d < ranges.finalStart;
+  });
+  if (weekendRecords.length > 0) {
+    const wp = formatPeriod(weekendRecords, true);
+    if (wp.length > 0) {
+      parts.push(`土日:${wp.join(',')}`);
     }
   }
-  
+
+  // 一週前追い切り
+  if (weekAgoRecords.length > 0) {
+    const wap = formatPeriod(weekAgoRecords, false);
+    if (wap.length > 0) {
+      parts.push(`1週前:${wap.join(',')}`);
+    }
+  }
+
   return parts.join(' ');
 }
 
@@ -1082,18 +1162,17 @@ function getBestRecord(records: TrainingRecord[]): TrainingRecord | null {
 }
 
 /**
- * 好タイムかどうか判定
+ * レコードのタイムレベルを取得（5段階）
+ */
+function getTimeLevel(record: TrainingRecord): number {
+  return calculateTimeLevel(record.time4f, record.location, record.recordType);
+}
+
+/**
+ * 好タイムかどうか判定（Level 4以上 = 好タイム）
  */
 function isGoodTime(record: TrainingRecord): boolean {
-  const t4f = parseFloat(record.time4f || '');
-  if (isNaN(t4f)) return false;
-  
-  if (record.recordType === 'sakamichi') {
-    return (record.location === 'Miho' && t4f <= 52.9) ||
-           (record.location === 'Ritto' && t4f <= 53.9);
-  } else {
-    return t4f <= 52.2;
-  }
+  return getTimeLevel(record) >= 4;
 }
 
 /**

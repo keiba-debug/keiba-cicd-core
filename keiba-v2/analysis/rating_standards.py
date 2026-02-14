@@ -406,6 +406,18 @@ def main():
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 旧バージョンをアーカイブ
+    if output_path.exists():
+        from core.versioning import archive_flat
+        try:
+            old = json.loads(output_path.read_text(encoding='utf-8'))
+            old_ver = old.get("metadata", {}).get("version", "unknown")
+            archive_flat(output_path.parent, old_ver, output_path.name,
+                         metadata={"created_at": old.get("metadata", {}).get("created_at", "")})
+        except Exception as e:
+            print(f"  [versioning] Warning: {e}")
+
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(standards, f, ensure_ascii=False, indent=2)
 

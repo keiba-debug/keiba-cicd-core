@@ -1,8 +1,12 @@
 /**
  * 調教サマリー読み込みユーティリティ
- * 
- * Z:\KEIBA-CICD\data2\races\{year}\{month}\{day}\temp\training_summary.json
+ *
+ * data3/races/{year}/{month}/{day}/temp/training_summary.json
  * を読み込み、馬名をキーにしたマップを返す
+ *
+ * CK_DATAファイル種別:
+ * - WC*.DAT = コース調教（Wood Chip面）→ recordType 'course'
+ * - HC*.DAT = 坂路調教（Hill Course）→ recordType 'sakamichi'
  */
 
 import fs from 'fs';
