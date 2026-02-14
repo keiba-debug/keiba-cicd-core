@@ -87,6 +87,14 @@ function formatSnapshotTime(raw: string | null): string {
   return `${hh}:${mm}`;
 }
 
+/** 上り3Fを小数点第1位で表示 */
+function formatLast3f(value: string | number | undefined | null): string {
+  if (value === undefined || value === null || value === '') return '-';
+  const n = typeof value === 'number' ? value : parseFloat(String(value).trim());
+  if (Number.isNaN(n)) return '-';
+  return n.toFixed(1);
+}
+
 interface HorseEntryTableProps {
   entries: HorseEntry[];
   showResult?: boolean;
@@ -479,18 +487,18 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         {entry.horse_number}
       </td>
 
-      {/* 本紙印 */}
-      <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getMarkBgColor(entry_data.honshi_mark)}`}>
+      {/* 本紙印（印列はフォント小さめで横幅節約） */}
+      <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMarkBgColor(entry_data.honshi_mark)}`}>
         {entry_data.honshi_mark || '-'}
       </td>
 
       {/* My印（TARGET馬印1） */}
-      <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getMyMarkBgColor(myMark)}`}>
+      <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMyMarkBgColor(myMark)}`}>
         {myMark || '-'}
       </td>
 
       {/* My印2（TARGET馬印2） */}
-      <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getMyMark2BgColor(myMark2)}`}>
+      <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMyMark2BgColor(myMark2)}`}>
         {myMark2 || '-'}
       </td>
 
@@ -683,7 +691,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         )}
       </td>
 
-      {/* 結果（オプション）：着順の横に連勝/連敗バッジを表示 */}
+      {/* 結果（オプション）：着順の横に連勝/連敗バッジ、タイムと上りは1列で表示 */}
       {showResult && result && (
         <>
           <td className="px-2 py-1.5 text-center border font-bold">
@@ -697,11 +705,11 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
               })()}
             </div>
           </td>
-          <td className="px-2 py-1.5 text-center border font-mono">
-            {result.time}
-          </td>
-          <td className="px-2 py-1.5 text-center border font-mono">
-            {result.last_3f}
+          <td className="px-1 py-1.5 text-center border font-mono text-xs">
+            <div className="flex flex-col items-center gap-0 leading-tight">
+              <span>{result.time || '-'}</span>
+              <span className="text-gray-500 dark:text-gray-400">{formatLast3f(result.last_3f)}</span>
+            </div>
           </td>
         </>
       )}
@@ -718,8 +726,12 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
               })()}
             </div>
           </td>
-          <td className="px-2 py-1.5 text-center border">-</td>
-          <td className="px-2 py-1.5 text-center border">-</td>
+          <td className="px-1 py-1.5 text-center border font-mono text-xs">
+            <div className="flex flex-col items-center gap-0 leading-tight">
+              <span>-</span>
+              <span className="text-gray-500 dark:text-gray-400">-</span>
+            </div>
+          </td>
         </>
       )}
     </tr>
@@ -834,9 +846,9 @@ export default function HorseEntryTable({
           <tr className="bg-gray-100 dark:bg-gray-800">
             <th className="px-2 py-2 text-center border w-10">枠</th>
             <th className="px-2 py-2 text-center border w-10">馬番</th>
-            <th className="px-2 py-2 text-center border w-10">本紙</th>
-            <th className="px-2 py-2 text-center border w-10">My印</th>
-            <th className="px-2 py-2 text-center border w-10">My2</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs">本紙</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs">My印</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs">My2</th>
             {hasMlPredictions && (
               <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
             )}
@@ -856,8 +868,7 @@ export default function HorseEntryTable({
             {showResult && (
               <>
                 <th className="px-2 py-2 text-center border w-10">着</th>
-                <th className="px-2 py-2 text-center border w-16">タイム</th>
-                <th className="px-2 py-2 text-center border w-12">上り</th>
+                <th className="px-1 py-2 text-center border w-14 whitespace-nowrap" title="タイム・上り3F">タイム/上り</th>
               </>
             )}
           </tr>
