@@ -21,7 +21,7 @@ function getPool(): mysql.Pool {
       database: process.env.MYKEIBADB_DB || 'mykeibadb',
       charset: 'utf8mb4',
       waitForConnections: true,
-      connectionLimit: 5,
+      connectionLimit: 20,
       queueLimit: 0,
     });
   }

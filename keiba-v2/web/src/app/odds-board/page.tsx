@@ -534,12 +534,18 @@ export default function OddsBoardPage() {
       setRaceIds(ids || []);
 
       const map: Record<string, RaceOdds> = {};
-      for (const id of ids || []) {
-        const res = await fetch(`/api/odds/race?raceId=${id}`);
-        if (res.ok) {
-          const data: RaceOdds = await res.json();
-          map[id] = data;
-        }
+      const results = await Promise.all(
+        (ids || []).map(async (id: string) => {
+          const res = await fetch(`/api/odds/race?raceId=${id}`);
+          if (res.ok) {
+            const data: RaceOdds = await res.json();
+            return [id, data] as const;
+          }
+          return null;
+        })
+      );
+      for (const r of results) {
+        if (r) map[r[0]] = r[1];
       }
       setOddsMap(map);
     } catch (e) {
@@ -556,12 +562,18 @@ export default function OddsBoardPage() {
     setLoadingEv(true);
     try {
       const map: Record<string, ExpectedValueResponse> = {};
-      for (const raceId of raceIds) {
-        const res = await fetch(`/api/odds/expected-value?raceId=${raceId}`);
-        if (res.ok) {
-          const data: ExpectedValueResponse = await res.json();
-          map[raceId] = data;
-        }
+      const results = await Promise.all(
+        raceIds.map(async (raceId) => {
+          const res = await fetch(`/api/odds/expected-value?raceId=${raceId}`);
+          if (res.ok) {
+            const data: ExpectedValueResponse = await res.json();
+            return [raceId, data] as const;
+          }
+          return null;
+        })
+      );
+      for (const r of results) {
+        if (r) map[r[0]] = r[1];
       }
       setExpectedValueMap(map);
     } catch (e) {

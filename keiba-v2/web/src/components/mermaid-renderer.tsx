@@ -1,15 +1,23 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
 
-// Mermaidの初期化設定
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'dark',
-  securityLevel: 'loose',
-  fontFamily: 'inherit',
-});
+// Mermaidを動的にインポート（~600KB → 必要時のみロード）
+let mermaidInstance: typeof import('mermaid').default | null = null;
+
+async function getMermaid() {
+  if (!mermaidInstance) {
+    const mod = await import('mermaid');
+    mermaidInstance = mod.default;
+    mermaidInstance.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      securityLevel: 'loose',
+      fontFamily: 'inherit',
+    });
+  }
+  return mermaidInstance;
+}
 
 interface MermaidRendererProps {
   chart: string;
@@ -29,6 +37,7 @@ export function MermaidRenderer({ chart, id }: MermaidRendererProps) {
       if (!containerRef.current || !chart.trim()) return;
 
       try {
+        const mermaid = await getMermaid();
         const uniqueId = id || `mermaid-${Math.random().toString(36).substr(2, 9)}`;
         const { svg } = await mermaid.render(uniqueId, chart);
         setSvg(svg);
@@ -75,7 +84,7 @@ export function MermaidContent({ htmlContent }: MermaidContentProps) {
     // <pre><code class="language-mermaid">...</code></pre> または
     // <pre>graph ... </pre> のパターンを検出
     const mermaidRegex = /<pre[^>]*>(?:<code[^>]*class="[^"]*language-mermaid[^"]*"[^>]*>)?([\s\S]*?)(?:<\/code>)?<\/pre>/gi;
-    
+
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     let match;
@@ -83,10 +92,10 @@ export function MermaidContent({ htmlContent }: MermaidContentProps) {
 
     while ((match = mermaidRegex.exec(htmlContent)) !== null) {
       const code = match[1].trim();
-      
+
       // Mermaidコードかどうかをチェック（graph, flowchart, sequenceDiagram, etc.）
       const isMermaid = /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|mindmap|timeline|quadrantChart|xychart|block)/i.test(code);
-      
+
       if (isMermaid) {
         // マッチ前のHTMLを追加
         if (match.index > lastIndex) {
@@ -97,10 +106,10 @@ export function MermaidContent({ htmlContent }: MermaidContentProps) {
             />
           );
         }
-        
+
         // Mermaid図を追加
         parts.push(<MermaidRenderer key={`mermaid-${key++}`} chart={code} />);
-        
+
         lastIndex = match.index + match[0].length;
       }
     }

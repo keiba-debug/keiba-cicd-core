@@ -1,10 +1,31 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import mermaid from 'mermaid';
 
-// Mermaidの初期化設定
+// Mermaidを動的にインポート（~600KB → 必要時のみロード）
+let mermaidInstance: typeof import('mermaid').default | null = null;
 let mermaidInitialized = false;
+
+async function getMermaid() {
+  if (!mermaidInstance) {
+    const mod = await import('mermaid');
+    mermaidInstance = mod.default;
+  }
+  if (!mermaidInitialized) {
+    mermaidInstance.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      securityLevel: 'loose',
+      fontFamily: 'inherit',
+      flowchart: {
+        useMaxWidth: true,
+        htmlLabels: true,
+      },
+    });
+    mermaidInitialized = true;
+  }
+  return mermaidInstance;
+}
 
 interface RaceContentWithMermaidProps {
   htmlContent: string;
@@ -33,46 +54,33 @@ export function RaceContentWithMermaid({ htmlContent }: RaceContentWithMermaidPr
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Mermaidを初期化（1回のみ）
-    if (!mermaidInitialized) {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        securityLevel: 'loose',
-        fontFamily: 'inherit',
-        flowchart: {
-          useMaxWidth: true,
-          htmlLabels: true,
-        },
-      });
-      mermaidInitialized = true;
-    }
-
     const renderMermaid = async () => {
       if (!containerRef.current) return;
 
+      const mermaid = await getMermaid();
+
       // preタグ内のMermaidコードを検出
       const preElements = containerRef.current.querySelectorAll('pre');
-      
+
       for (const pre of Array.from(preElements)) {
         const rawCode = pre.textContent?.trim() || '';
-        
+
         // Mermaidコードかどうかをチェック（より厳密に）
         const mermaidKeywords = /^(graph\s+(LR|RL|TD|TB|BT)|flowchart\s+(LR|RL|TD|TB|BT)|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|mindmap|timeline)/i;
         const isMermaid = mermaidKeywords.test(rawCode);
-        
+
         if (isMermaid) {
           try {
             // コードをサニタイズ
             const code = sanitizeMermaidCode(rawCode);
             const uniqueId = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-            
+
             // Mermaidの構文チェック
             const isValid = await mermaid.parse(code).catch(() => false);
-            
+
             if (isValid) {
               const { svg } = await mermaid.render(uniqueId, code);
-              
+
               // preタグをMermaid SVGで置換
               const wrapper = document.createElement('div');
               wrapper.className = 'mermaid-container my-4 p-4 bg-slate-700/30 rounded-lg overflow-auto border border-slate-600';
@@ -98,8 +106,8 @@ export function RaceContentWithMermaid({ htmlContent }: RaceContentWithMermaidPr
   return (
     <article
       ref={containerRef}
-      className="prose prose-neutral dark:prose-invert max-w-none 
-                 prose-headings:scroll-mt-20 
+      className="prose prose-neutral dark:prose-invert max-w-none
+                 prose-headings:scroll-mt-20
                  prose-table:w-full prose-table:text-sm
                  prose-th:bg-muted prose-th:text-left prose-th:p-2
                  prose-td:p-2 prose-td:border

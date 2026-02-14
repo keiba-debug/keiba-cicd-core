@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { getAvailableDates, getRacesByDate } from '@/lib/data';
 import { getVenueBabaSummary, type VenueBabaSummary } from '@/lib/data/baba-reader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -430,7 +431,7 @@ async function DateRaces({ date }: { date: string }) {
                             className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
                             title="競馬ブック"
                           >
-                            <img src="/keibabook.ico" alt="競馬ブック" className="w-4 h-4 object-contain opacity-80" />
+                            <Image src="/keibabook.ico" alt="競馬ブック" width={16} height={16} className="object-contain opacity-80" />
                           </a>
                           {netkeibaRaceId(race) && (
                             <>
@@ -441,7 +442,7 @@ async function DateRaces({ date }: { date: string }) {
                                 className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
                                 title="netkeiba"
                               >
-                                <img src="/netkeiba.png" alt="netkeiba" className="w-4 h-4 object-contain opacity-80" />
+                                <Image src="/netkeiba.png" alt="netkeiba" width={16} height={16} className="object-contain opacity-80" />
                               </a>
                               <a
                                 href={`https://race.netkeiba.com/race/bbs.html?race_id=${netkeibaRaceId(race)}&rf=race_submenu`}

@@ -136,13 +136,13 @@ export default async function RaceDetailPage({ params }: PageParams) {
     raceId16 = `${dateCompact}${jvVenueCode}${kai}${nichi}${raceNum}`;
   }
 
-  // データ取得（1段階目: 依存関係のないデータを並列取得）
+  // データ取得（並列取得: 依存関係のないデータを全て同時に取得）
   const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
     getTrainingSummaryMap(date),
-    getRatingStandards(),  // 依存なし → 1段階目に移動
+    getRatingStandards(),
     loadTrainerPatterns(),
     getMlPredictions(id, raceId16),
   ]);
@@ -161,21 +161,20 @@ export default async function RaceDetailPage({ params }: PageParams) {
     notFound();
   }
 
-  // 2段階目: raceData/trainingSummaryMapに依存するデータを並列取得
+  // 2段階目: raceDataに依存するデータを並列取得
   const horsesForPrevTraining = Object.entries(trainingSummaryMap)
     .filter(([_, data]) => data.kettoNum)
     .map(([horseName, data]) => ({
       horseName,
       kettoNum: data.kettoNum!
     }));
-  
+
   // 馬場状態をRPCI基準値用に変換（"良" → "良", それ以外 → "稍重以上"）
   const trackCondition = raceData.race_info.track_condition || '';
   const rpcibabaCondition = trackCondition === '良' ? '良' : trackCondition ? '稍重以上' : undefined;
   const numRunners = raceData.entries.length;
 
-  const [rpciInfo, previousTrainingMap] = await Promise.all([
-    // RPCI基準値情報（raceDataに依存）
+  const [rpciInfo, previousTrainingMap, raceTrendIndex] = await Promise.all([
     getCourseRpciInfo(
       track,
       raceData.race_info.track || '',
@@ -183,10 +182,10 @@ export default async function RaceDetailPage({ params }: PageParams) {
       rpcibabaCondition,
       numRunners,
     ),
-    // 前走調教データ（trainingSummaryMapに依存）
     horsesForPrevTraining.length > 0
       ? getPreviousTrainingBatch(horsesForPrevTraining, date)
       : Promise.resolve({}),
+    getRaceTrendIndex(),
   ]);
 
   // 結果があるかどうか
@@ -345,8 +344,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
     }
   }
 
-  // レース傾向インデックスを読み込んで近走データに付与
-  const raceTrendIndex = await getRaceTrendIndex();
+  // レース傾向インデックスを近走データに付与
   if (raceTrendIndex) {
     for (const forms of Object.values(recentFormMap)) {
       for (const form of forms) {
