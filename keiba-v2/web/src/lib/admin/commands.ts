@@ -17,6 +17,7 @@ export type ActionType =
   | 'build_horse_name_index'     // 馬名インデックス作成
   | 'build_trainer_index'        // 調教師インデックス作成
   | 'analyze_trainer_patterns'   // 調教師パターン分析
+  | 'analyze_training'           // 調教分析
   | 'v4_build_race'              // v4 JRA-VAN → data3/races/
   | 'v4_predict'                 // v4 ML v3予測 → data3/ml/predictions_live.json
   | 'v4_pipeline';               // v4 上記を連結実行
@@ -133,9 +134,17 @@ export const ACTIONS: ActionConfig[] = [
   },
   {
     id: 'analyze_trainer_patterns',
-    label: '調教師パターン分析',
+    label: '調教師パターン分析(旧)',
     description: 'keibabook調教詳細×着順データから調教師別好走パターンを統計分析',
     icon: '🔬',
+    category: 'analysis',
+    noDateRequired: true,
+  },
+  {
+    id: 'analyze_training',
+    label: '調教分析',
+    description: 'CK_DATA調教×レース成績の統合分析（全体+調教師別パターン）',
+    icon: '🏋️',
     category: 'analysis',
     noDateRequired: true,
   },
@@ -237,6 +246,7 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
     case 'build_horse_name_index':
     case 'build_trainer_index':
     case 'analyze_trainer_patterns':
+    case 'analyze_training':
     case 'v4_build_race':
     case 'v4_predict':
     case 'v4_pipeline':
@@ -298,6 +308,7 @@ export function getCommandArgsRange(
     case 'build_horse_name_index':
     case 'build_trainer_index':
     case 'analyze_trainer_patterns':
+    case 'analyze_training':
     case 'v4_build_race':
     case 'v4_predict':
     case 'v4_pipeline':

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, RefreshCw, ChevronDown, ChevronRight, Users, Target, TrendingUp, Pencil, Check, X } from 'lucide-react';
+import { ArrowLeft, RefreshCw, ChevronDown, ChevronRight, Users, Target, TrendingUp, Pencil, Check, X, Database, BarChart3 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,35 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 // Types
 // =============================================
 
+interface MetricStats {
+  sample_size: number;
+  win_rate: number;
+  top3_rate: number;
+  top5_rate: number;
+  avg_finish: number;
+  avg_odds: number;
+}
+
+interface PopulationBucketAnalysis {
+  by_lapRank: Record<string, MetricStats>;
+  by_timeLevel: Record<string, MetricStats>;
+  by_location: Record<string, MetricStats>;
+  by_acceleration: Record<string, MetricStats>;
+}
+
+interface OverallAnalysis {
+  by_lapRank: Record<string, MetricStats>;
+  by_timeLevel: Record<string, MetricStats>;
+  by_location: Record<string, MetricStats>;
+  by_acceleration: Record<string, MetricStats>;
+  by_intensity: Record<string, MetricStats>;
+  by_awase: Record<string, MetricStats>;
+  by_lapRank_x_location: Record<string, MetricStats>;
+  by_timeLevel_x_acceleration: Record<string, MetricStats>;
+  by_popularity_bucket: Record<string, PopulationBucketAnalysis>;
+  total: MetricStats;
+}
+
 interface PatternStats {
   win_rate: number;
   top3_rate: number;
@@ -20,6 +49,7 @@ interface PatternStats {
   sample_size: number;
   confidence: string;
   lift?: number;
+  avg_odds?: number;
 }
 
 interface TrainerPattern {
@@ -31,7 +61,6 @@ interface TrainerPattern {
 
 interface TrainerInfo {
   jvn_code: string;
-  keibabook_ids: string[];
   name: string;
   tozai: string;
   comment: string;
@@ -48,14 +77,16 @@ interface TrainerInfo {
 }
 
 interface ApiResponse {
-  meta?: {
+  metadata?: {
     created_at: string;
-    data_period: string;
-    total_trainers: number;
+    since: number;
+    total_records: number;
     version: string;
   };
+  overall?: OverallAnalysis;
   trainers: Record<string, TrainerInfo>;
   summary: {
+    totalRecords: number;
     totalTrainers: number;
     trainersWithPatterns: number;
     avgTop3Rate: number;
@@ -82,6 +113,26 @@ function pct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
+function getTop3Color(rate: number): string {
+  if (rate >= 0.35) return 'text-green-700 dark:text-green-400 font-bold';
+  if (rate >= 0.28) return 'text-emerald-600 dark:text-emerald-400 font-semibold';
+  if (rate >= 0.22) return 'text-amber-700 dark:text-amber-400';
+  return '';
+}
+
+function getTop3BgColor(rate: number): string {
+  if (rate >= 0.35) return 'bg-green-50 dark:bg-green-900/20';
+  if (rate >= 0.28) return 'bg-emerald-50 dark:bg-emerald-900/10';
+  return '';
+}
+
+function getLiftColor(lift: number): string {
+  if (lift >= 0.05) return 'text-green-600';
+  if (lift >= 0.02) return 'text-emerald-500';
+  if (lift <= -0.03) return 'text-red-500';
+  return 'text-gray-400';
+}
+
 function getConfidenceBadge(confidence: string) {
   switch (confidence) {
     case 'high':
@@ -93,59 +144,259 @@ function getConfidenceBadge(confidence: string) {
   }
 }
 
-function getTop3Color(rate: number): string {
-  if (rate >= 0.35) return 'text-green-700 dark:text-green-400 font-bold';
-  if (rate >= 0.25) return 'text-amber-700 dark:text-amber-400 font-semibold';
-  return '';
-}
-
-function getTop3BgColor(rate: number): string {
-  if (rate >= 0.35) return 'bg-green-50 dark:bg-green-900/20';
-  if (rate >= 0.25) return 'bg-amber-50 dark:bg-amber-900/20';
-  return '';
-}
-
 function formatConditions(conditions: Record<string, unknown>): string {
   const parts: string[] = [];
   if (conditions.finalLocation) parts.push(`場所:${conditions.finalLocation}`);
   if (conditions.acceleration) parts.push(`加速:${conditions.acceleration}`);
   if (conditions.hasGoodTime === true) parts.push('好タイム');
-  if (conditions.hasGoodTime === false) parts.push('好タイムなし');
   if (conditions.finalLapClassGroup) {
     const groups = conditions.finalLapClassGroup as string[];
     parts.push(`ラップ:${groups.join('/')}`);
   }
   if (conditions.timeClass) parts.push(`時計:${conditions.timeClass}`);
-  // 1週前
-  if (conditions.weekAgoHasGoodTime === true) parts.push('1週前好タイム');
-  if (conditions.weekAgoLocation) parts.push(`1週前場所:${conditions.weekAgoLocation}`);
-  if (conditions.weekAgoAcceleration) parts.push(`1週前加速:${conditions.weekAgoAcceleration}`);
-  if (conditions.weekAgoLapClassGroup) {
-    const groups = conditions.weekAgoLapClassGroup as string[];
-    parts.push(`1週前ラップ:${groups.join('/')}`);
-  }
-  // 土日
+  if (conditions.hasAwase === true) parts.push('併せ馬');
+  if (conditions.intensity) parts.push(`脚色:${conditions.intensity}`);
   if (conditions.weekendHasGoodTime === true) parts.push('土日好タイム');
   if (conditions.weekendLocation) parts.push(`土日場所:${conditions.weekendLocation}`);
   if (conditions.weekendAcceleration) parts.push(`土日加速:${conditions.weekendAcceleration}`);
-  if (conditions.weekendLapClassGroup) {
-    const groups = conditions.weekendLapClassGroup as string[];
-    parts.push(`土日ラップ:${groups.join('/')}`);
-  }
   return parts.join(' / ');
 }
 
+// lapRankの表示順序
+const LAP_RANK_ORDER = ['SS', 'S+', 'S=', 'S-', 'A+', 'A=', 'A-', 'B+', 'B=', 'B-', 'C+', 'C=', 'C-', 'D+', 'D=', 'D-'];
+
+function sortByLapRank(entries: [string, MetricStats][]): [string, MetricStats][] {
+  return entries.sort((a, b) => {
+    const ai = LAP_RANK_ORDER.indexOf(a[0]);
+    const bi = LAP_RANK_ORDER.indexOf(b[0]);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return 0;
+  });
+}
+
 // =============================================
-// Components
+// Tab 1: Overall Training Analysis
+// =============================================
+
+function MetricTable({
+  title,
+  data,
+  overallRate,
+  sortFn,
+  nameLabel,
+}: {
+  title: string;
+  data: Record<string, MetricStats>;
+  overallRate: number;
+  sortFn?: (entries: [string, MetricStats][]) => [string, MetricStats][];
+  nameLabel?: string;
+}) {
+  let entries = Object.entries(data);
+  if (sortFn) {
+    entries = sortFn(entries);
+  } else {
+    entries.sort((a, b) => b[1].top3_rate - a[1].top3_rate);
+  }
+
+  if (entries.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader className="p-3 pb-2">
+        <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="p-3 pt-0">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="text-muted-foreground border-b">
+              <th className="text-left py-1 pr-2">{nameLabel || '分類'}</th>
+              <th className="text-right py-1 px-1.5">好走率</th>
+              <th className="text-right py-1 px-1.5">勝率</th>
+              <th className="text-right py-1 px-1.5">平均着</th>
+              <th className="text-right py-1 px-1.5">平均OP</th>
+              <th className="text-right py-1 px-1.5">リフト</th>
+              <th className="text-right py-1 pl-1.5">n</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map(([key, stats]) => {
+              const lift = stats.top3_rate - overallRate;
+              return (
+                <tr key={key} className={`border-b border-gray-100 dark:border-gray-800 ${getTop3BgColor(stats.top3_rate)}`}>
+                  <td className="py-1 pr-2 font-medium">{key}</td>
+                  <td className={`text-right py-1 px-1.5 font-mono ${getTop3Color(stats.top3_rate)}`}>
+                    {pct(stats.top3_rate)}
+                  </td>
+                  <td className="text-right py-1 px-1.5 font-mono">{pct(stats.win_rate)}</td>
+                  <td className="text-right py-1 px-1.5 font-mono">{stats.avg_finish.toFixed(1)}</td>
+                  <td className="text-right py-1 px-1.5 font-mono text-muted-foreground">{stats.avg_odds.toFixed(0)}</td>
+                  <td className={`text-right py-1 px-1.5 font-mono ${getLiftColor(lift)}`}>
+                    {lift >= 0 ? '+' : ''}{(lift * 100).toFixed(1)}
+                  </td>
+                  <td className="text-right py-1 pl-1.5 font-mono text-muted-foreground">{stats.sample_size.toLocaleString()}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverallTrainingTab({ overall }: { overall: OverallAnalysis }) {
+  const [popFilter, setPopFilter] = useState<string>('all');
+  const overallRate = overall.total.top3_rate;
+
+  // 人気フィルタ適用
+  const getFilteredData = (key: keyof PopulationBucketAnalysis): Record<string, MetricStats> => {
+    if (popFilter === 'all') {
+      return (overall as unknown as Record<string, Record<string, MetricStats>>)[key] || {};
+    }
+    const bucket = overall.by_popularity_bucket[popFilter];
+    return bucket ? (bucket[key] || {}) : {};
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* 全体サマリ */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="text-xl font-bold">{overall.total.sample_size.toLocaleString()}</div>
+            <div className="text-[10px] text-muted-foreground">総レコード</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="text-xl font-bold">{pct(overall.total.win_rate)}</div>
+            <div className="text-[10px] text-muted-foreground">全体勝率</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="text-xl font-bold">{pct(overall.total.top3_rate)}</div>
+            <div className="text-[10px] text-muted-foreground">全体好走率</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="text-xl font-bold">{overall.total.avg_finish.toFixed(1)}</div>
+            <div className="text-[10px] text-muted-foreground">平均着順</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="text-xl font-bold">{overall.total.avg_odds.toFixed(0)}</div>
+            <div className="text-[10px] text-muted-foreground">平均オッズ</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 人気帯フィルタ */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">人気帯:</span>
+        {['all', '1-3', '4-6', '7-9', '10+'].map((v) => (
+          <Button
+            key={v}
+            size="sm"
+            variant={popFilter === v ? 'default' : 'outline'}
+            className="h-7 px-2 text-xs"
+            onClick={() => setPopFilter(v)}
+          >
+            {v === 'all' ? '全体' : `${v}番人気`}
+          </Button>
+        ))}
+      </div>
+
+      {/* メイン分析テーブル群 */}
+      <div className="space-y-4">
+        {/* lapRank */}
+        <MetricTable
+          title="ラップランク別 好走率"
+          data={getFilteredData('by_lapRank')}
+          overallRate={overallRate}
+          sortFn={sortByLapRank}
+          nameLabel="ランク"
+        />
+
+        {/* タイムレベル */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <MetricTable
+            title="タイムレベル別 好走率"
+            data={getFilteredData('by_timeLevel')}
+            overallRate={overallRate}
+            sortFn={(entries) => entries.sort((a, b) => Number(b[0]) - Number(a[0]))}
+            nameLabel="Lv"
+          />
+          <MetricTable
+            title="調教場所別 好走率"
+            data={getFilteredData('by_location')}
+            overallRate={overallRate}
+            nameLabel="場所"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <MetricTable
+            title="加速パターン別 好走率"
+            data={getFilteredData('by_acceleration')}
+            overallRate={overallRate}
+            nameLabel="パターン"
+          />
+          {popFilter === 'all' && (
+            <MetricTable
+              title="脚色別 好走率"
+              data={overall.by_intensity}
+              overallRate={overallRate}
+              nameLabel="脚色"
+            />
+          )}
+        </div>
+
+        {popFilter === 'all' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <MetricTable
+              title="併せ馬効果"
+              data={overall.by_awase}
+              overallRate={overallRate}
+              nameLabel=""
+            />
+          </div>
+        )}
+
+        {/* 交差分析 (全体のみ) */}
+        {popFilter === 'all' && (
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-muted-foreground">交差分析</h3>
+            <MetricTable
+              title="ラップランク x 場所"
+              data={overall.by_lapRank_x_location}
+              overallRate={overallRate}
+              nameLabel="組合せ"
+            />
+            <MetricTable
+              title="タイムレベル x 加速パターン"
+              data={overall.by_timeLevel_x_acceleration}
+              overallRate={overallRate}
+              nameLabel="組合せ"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================
+// Tab 2: Trainer Training Analysis
 // =============================================
 
 function TrainerDetailRow({ trainer }: { trainer: TrainerInfo }) {
   const [expanded, setExpanded] = useState(false);
   const [comment, setComment] = useState(trainer.comment || '');
-
-  const handleCommentSaved = (newComment: string) => {
-    setComment(newComment);
-  };
 
   return (
     <>
@@ -166,7 +417,7 @@ function TrainerDetailRow({ trainer }: { trainer: TrainerInfo }) {
         </td>
         <td className="px-3 py-2 border text-center text-xs">
           <Badge variant="secondary" className="text-[10px]">
-            {trainer.tozai}
+            {trainer.tozai || '-'}
           </Badge>
         </td>
         <td className="px-3 py-2 border text-center text-sm font-mono">
@@ -200,7 +451,7 @@ function TrainerDetailRow({ trainer }: { trainer: TrainerInfo }) {
             <TrainerDetailPanel
               trainer={trainer}
               comment={comment}
-              onCommentSaved={handleCommentSaved}
+              onCommentSaved={setComment}
             />
           </td>
         </tr>
@@ -272,7 +523,9 @@ function TrainerDetailPanel({
                     <span>好走率: <strong className={getTop3Color(pattern.stats.top3_rate)}>{pct(pattern.stats.top3_rate)}</strong></span>
                     <span>{pattern.stats.sample_size}走</span>
                     {pattern.stats.lift != null && (
-                      <span className="text-green-600">+{(pattern.stats.lift * 100).toFixed(1)}pt</span>
+                      <span className={getLiftColor(pattern.stats.lift)}>
+                        {pattern.stats.lift >= 0 ? '+' : ''}{(pattern.stats.lift * 100).toFixed(1)}pt
+                      </span>
                     )}
                   </div>
                 </CardContent>
@@ -282,7 +535,7 @@ function TrainerDetailPanel({
         </div>
       )}
 
-      {/* 調教師コメント（編集可能） */}
+      {/* 調教師コメント */}
       <div>
         <div className="flex items-center gap-2 mb-1">
           <h4 className="text-sm font-semibold">調教師コメント</h4>
@@ -323,7 +576,7 @@ function TrainerDetailPanel({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground italic">
-              コメントなし（ペンアイコンをクリックして追加）
+              コメントなし
             </p>
           )
         )}
@@ -410,44 +663,19 @@ function BreakdownTable({
   );
 }
 
-// =============================================
-// Main Page
-// =============================================
-
-export default function TrainerPatternsPage() {
-  const [data, setData] = useState<ApiResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+function TrainerTrainingTab({
+  trainers,
+  summary,
+}: {
+  trainers: Record<string, TrainerInfo>;
+  summary: ApiResponse['summary'];
+}) {
   const [sortKey, setSortKey] = useState<SortKey>('top3_rate');
   const [filterTozai, setFilterTozai] = useState<string>('all');
   const [filterPatternsOnly, setFilterPatternsOnly] = useState(false);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/admin/trainer-patterns');
-      const result = await res.json();
-      if (!res.ok) {
-        setError(result.message || 'データ取得に失敗しました');
-        return;
-      }
-      setData(result);
-    } catch {
-      setError('データ取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  // 調教師一覧のフィルタ+ソート
   const trainerList = useMemo(() => {
-    if (!data?.trainers) return [];
-    let list = Object.values(data.trainers) as TrainerInfo[];
+    let list = Object.values(trainers) as TrainerInfo[];
 
     if (filterTozai !== 'all') {
       list = list.filter((t) => t.tozai === filterTozai);
@@ -472,14 +700,13 @@ export default function TrainerPatternsPage() {
     });
 
     return list;
-  }, [data, sortKey, filterTozai, filterPatternsOnly]);
+  }, [trainers, sortKey, filterTozai, filterPatternsOnly]);
 
   // パターン別集計
   const patternGroups = useMemo(() => {
-    if (!data?.trainers) return [];
     const groups = new Map<string, Array<{ trainer: TrainerInfo; pattern: TrainerPattern }>>();
 
-    for (const trainer of Object.values(data.trainers) as TrainerInfo[]) {
+    for (const trainer of Object.values(trainers) as TrainerInfo[]) {
       for (const pattern of trainer.best_patterns || []) {
         const key = pattern.description;
         if (!groups.has(key)) groups.set(key, []);
@@ -487,85 +714,16 @@ export default function TrainerPatternsPage() {
       }
     }
 
-    // 各グループを好走率でソート
-    const result = Array.from(groups.entries())
+    return Array.from(groups.entries())
       .map(([description, items]) => ({
         description,
         items: items.sort((a, b) => b.pattern.stats.top3_rate - a.pattern.stats.top3_rate),
       }))
       .sort((a, b) => b.items.length - a.items.length);
-
-    return result;
-  }, [data]);
-
-  // Loading
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-center py-16 gap-3">
-          <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-          <span className="text-muted-foreground">読み込み中...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Error
-  if (error) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
-          <Link href="/" className="hover:underline flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" />
-            トップ
-          </Link>
-          <span>/</span>
-          <span className="text-foreground">調教師パターン分析</span>
-        </div>
-        <Card className="bg-amber-50 dark:bg-amber-950/30 border-amber-200">
-          <CardContent className="p-6 text-center">
-            <p className="text-amber-800 dark:text-amber-200 font-medium mb-2">
-              {error}
-            </p>
-            <p className="text-amber-600 dark:text-amber-400 text-sm">
-              管理画面 → データ分析 → 「調教師パターン分析」を実行してください
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  const { summary, meta } = data;
+  }, [trainers]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-      {/* ヘッダー */}
-      <div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-          <Link href="/" className="hover:underline flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" />
-            トップ
-          </Link>
-          <span>/</span>
-          <span className="text-foreground">調教師パターン分析</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">調教師パターン分析</h1>
-          <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">
-            <RefreshCw className="h-4 w-4" />
-            更新
-          </Button>
-        </div>
-        {meta && (
-          <p className="text-sm text-muted-foreground mt-1">
-            対象期間: {meta.data_period} / 生成: {meta.created_at?.slice(0, 10)}
-          </p>
-        )}
-      </div>
-
+    <div className="space-y-4">
       {/* サマリカード */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -597,15 +755,14 @@ export default function TrainerPatternsPage() {
         </Card>
       </div>
 
-      {/* タブ */}
-      <Tabs defaultValue="trainers">
+      {/* サブタブ: 調教師一覧 / パターン別 */}
+      <Tabs defaultValue="trainers-list">
         <TabsList>
-          <TabsTrigger value="trainers">調教師一覧</TabsTrigger>
-          <TabsTrigger value="patterns">パターン別</TabsTrigger>
+          <TabsTrigger value="trainers-list">調教師一覧</TabsTrigger>
+          <TabsTrigger value="by-pattern">パターン別</TabsTrigger>
         </TabsList>
 
-        {/* タブ1: 調教師一覧 */}
-        <TabsContent value="trainers" className="mt-4 space-y-3">
+        <TabsContent value="trainers-list" className="mt-4 space-y-3">
           {/* フィルタ・ソート */}
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1.5 text-sm">
@@ -623,7 +780,6 @@ export default function TrainerPatternsPage() {
               ))}
             </div>
             <div className="flex items-center gap-1.5 text-sm">
-              <span className="text-muted-foreground">表示:</span>
               <Button
                 size="sm"
                 variant={filterPatternsOnly ? 'default' : 'outline'}
@@ -658,7 +814,6 @@ export default function TrainerPatternsPage() {
             {trainerList.length}名表示 / {summary.totalTrainers}名中
           </div>
 
-          {/* テーブル */}
           <div className="overflow-x-auto border rounded-lg">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -683,8 +838,7 @@ export default function TrainerPatternsPage() {
           </div>
         </TabsContent>
 
-        {/* タブ2: パターン別 */}
-        <TabsContent value="patterns" className="mt-4 space-y-4">
+        <TabsContent value="by-pattern" className="mt-4 space-y-4">
           {patternGroups.map((group) => (
             <Card key={group.description}>
               <CardHeader className="p-3 pb-2">
@@ -706,7 +860,6 @@ export default function TrainerPatternsPage() {
                       <th className="text-right py-1 px-2">走数</th>
                       <th className="text-right py-1 px-2">リフト</th>
                       <th className="text-center py-1 px-2">信頼度</th>
-                      <th className="text-left py-1 pl-2">ラベル</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -716,19 +869,16 @@ export default function TrainerPatternsPage() {
                           {trainer.name}
                           {pattern.human_label && <span className="text-amber-500 ml-0.5">★</span>}
                         </td>
-                        <td className="text-center py-1 px-2">{trainer.tozai}</td>
+                        <td className="text-center py-1 px-2">{trainer.tozai || '-'}</td>
                         <td className={`text-right py-1 px-2 font-mono ${getTop3Color(pattern.stats.top3_rate)}`}>
                           {pct(pattern.stats.top3_rate)}
                         </td>
                         <td className="text-right py-1 px-2 font-mono">{pct(pattern.stats.win_rate)}</td>
                         <td className="text-right py-1 px-2 font-mono">{pattern.stats.sample_size}</td>
-                        <td className="text-right py-1 px-2 font-mono text-green-600">
-                          {pattern.stats.lift != null ? `+${(pattern.stats.lift * 100).toFixed(1)}` : '-'}
+                        <td className={`text-right py-1 px-2 font-mono ${getLiftColor(pattern.stats.lift || 0)}`}>
+                          {pattern.stats.lift != null ? `${pattern.stats.lift >= 0 ? '+' : ''}${(pattern.stats.lift * 100).toFixed(1)}` : '-'}
                         </td>
                         <td className="text-center py-1 px-2">{getConfidenceBadge(pattern.stats.confidence)}</td>
-                        <td className="py-1 pl-2 text-muted-foreground truncate max-w-40">
-                          {pattern.human_label || '-'}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -736,6 +886,134 @@ export default function TrainerPatternsPage() {
               </CardContent>
             </Card>
           ))}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// =============================================
+// Main Page
+// =============================================
+
+export default function TrainingAnalysisPage() {
+  const [data, setData] = useState<ApiResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/trainer-patterns');
+      const result = await res.json();
+      if (!res.ok) {
+        setError(result.message || 'データ取得に失敗しました');
+        return;
+      }
+      setData(result);
+    } catch {
+      setError('データ取得に失敗しました');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex items-center justify-center py-16 gap-3">
+          <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+          <span className="text-muted-foreground">読み込み中...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
+          <Link href="/" className="hover:underline flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" />
+            トップ
+          </Link>
+          <span>/</span>
+          <span className="text-foreground">調教分析</span>
+        </div>
+        <Card className="bg-amber-50 dark:bg-amber-950/30 border-amber-200">
+          <CardContent className="p-6 text-center">
+            <p className="text-amber-800 dark:text-amber-200 font-medium mb-2">{error}</p>
+            <p className="text-amber-600 dark:text-amber-400 text-sm">
+              管理画面 → データ分析 → 「調教分析」を実行してください
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { summary, metadata, overall } = data;
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      {/* ヘッダー */}
+      <div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+          <Link href="/" className="hover:underline flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" />
+            トップ
+          </Link>
+          <span>/</span>
+          <span className="text-foreground">調教分析</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">調教分析</h1>
+          <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">
+            <RefreshCw className="h-4 w-4" />
+            更新
+          </Button>
+        </div>
+        {metadata && (
+          <p className="text-sm text-muted-foreground mt-1">
+            対象期間: {metadata.since}年~ / レコード: {metadata.total_records?.toLocaleString()} / 生成: {metadata.created_at?.slice(0, 10)}
+          </p>
+        )}
+      </div>
+
+      {/* メインタブ */}
+      <Tabs defaultValue="training">
+        <TabsList>
+          <TabsTrigger value="training" className="gap-1.5">
+            <BarChart3 className="h-4 w-4" />
+            調教分析
+          </TabsTrigger>
+          <TabsTrigger value="trainers" className="gap-1.5">
+            <Database className="h-4 w-4" />
+            調教 x 調教師
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="training" className="mt-4">
+          {overall ? (
+            <OverallTrainingTab overall={overall} />
+          ) : (
+            <Card>
+              <CardContent className="p-6 text-center text-muted-foreground">
+                全体調教分析データがありません。新形式の分析を実行してください。
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="trainers" className="mt-4">
+          <TrainerTrainingTab trainers={data.trainers} summary={summary} />
         </TabsContent>
       </Tabs>
     </div>

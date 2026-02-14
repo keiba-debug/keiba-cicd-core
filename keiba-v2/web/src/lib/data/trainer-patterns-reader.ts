@@ -1,10 +1,10 @@
 /**
  * 調教師パターン読み込み & マッチングユーティリティ
  *
- * trainer_patterns.json から調教師の勝負パターンを読み込み、
- * 現在の調教データとのマッチングを行う。
+ * training_analysis.json (新形式) or trainer_patterns.json (旧形式) から
+ * 調教師の勝負パターンを読み込み、現在の調教データとのマッチングを行う。
  *
- * パフォーマンス: 1回読み込み、1時間キャッシュ（trainer-index.tsと同パターン）
+ * パフォーマンス: 1回読み込み、1時間キャッシュ
  */
 
 import fs from 'fs';
@@ -85,10 +85,12 @@ export function loadTrainerPatterns(): Map<string, TrainerPatternInfo> {
   keibabookIdToJvnCache = new Map();
 
   try {
-    const filePath = path.join(DATA3_ROOT, 'analysis', 'trainer_patterns.json');
+    // 新形式 (training_analysis.json) を優先、なければ旧形式
+    const newPath = path.join(DATA3_ROOT, 'analysis', 'training_analysis.json');
+    const oldPath = path.join(DATA3_ROOT, 'analysis', 'trainer_patterns.json');
+    const filePath = fs.existsSync(newPath) ? newPath : oldPath;
 
     if (!fs.existsSync(filePath)) {
-      // ファイルがなければ空のまま（まだ分析未実行）
       cacheLoadedAt = now;
       return patternsCache;
     }
@@ -99,9 +101,11 @@ export function loadTrainerPatterns(): Map<string, TrainerPatternInfo> {
 
     for (const [jvnCode, info] of Object.entries(trainers)) {
       const typed = info as TrainerPatternInfo;
+      // 新形式では jvn_code がオブジェクト内にある
+      if (!typed.jvn_code) typed.jvn_code = jvnCode;
       patternsCache.set(jvnCode, typed);
 
-      // keibabook_id → jvn_code の逆引き構築
+      // keibabook_id → jvn_code の逆引き構築（旧形式互換）
       for (const kbId of typed.keibabook_ids || []) {
         keibabookIdToJvnCache.set(kbId, jvnCode);
       }

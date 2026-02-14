@@ -272,8 +272,8 @@ export function Header() {
                   <span className="flex items-center gap-2">
                     <span>🔬</span>
                     <span>
-                      <span className="font-medium">調教師パターン分析</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">調教師別の勝負パターンを分析</span>
+                      <span className="font-medium">調教分析</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">調教データの統合分析</span>
                     </span>
                   </span>
                 </Link>
