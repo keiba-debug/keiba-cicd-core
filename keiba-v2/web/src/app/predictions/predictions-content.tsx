@@ -156,6 +156,12 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [oddsTime, setOddsTime] = useState<string | null>(null);
   const [oddsLoading, setOddsLoading] = useState(true);
 
+  // フィルタ state
+  const [venueFilter, setVenueFilter] = useState<string>('all');
+  const [raceNumFilter, setRaceNumFilter] = useState<number>(0); // 0 = 全て
+  const [minGap, setMinGap] = useState<number>(3);
+  const [minEv, setMinEv] = useState<number>(0); // 0 = 全て
+
   const isToday = useMemo(() => {
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -209,18 +215,22 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
   const { races, summary } = data;
 
-  // 開催場ごとにグループ化
-  const venueGroups = useMemo(() => {
-    const map = new Map<string, PredictionRace[]>();
-    for (const race of races) {
-      const group = map.get(race.venue_name) || [];
-      group.push(race);
-      map.set(race.venue_name, group);
-    }
-    return map;
+  // 開催場リスト（フィルタ用）
+  const venues = useMemo(() => {
+    const set = new Set<string>();
+    for (const race of races) set.add(race.venue_name);
+    return Array.from(set);
   }, [races]);
 
-  // VB候補一覧
+  // レース番号リスト（フィルタ用 — 場所フィルタ連動）
+  const raceNumbers = useMemo(() => {
+    const filtered = venueFilter === 'all' ? races : races.filter(r => r.venue_name === venueFilter);
+    const nums = new Set<number>();
+    for (const race of filtered) nums.add(race.race_number);
+    return Array.from(nums).sort((a, b) => a - b);
+  }, [races, venueFilter]);
+
+  // VB候補一覧（全件）
   const allVBEntries = useMemo(() => {
     const entries: Array<{ race: PredictionRace; entry: PredictionEntry }> = [];
     for (const race of races) {
@@ -231,6 +241,51 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     entries.sort((a, b) => b.entry.vb_gap - a.entry.vb_gap);
     return entries;
   }, [races]);
+
+  // フィルタ適用済みVB一覧
+  const filteredVBEntries = useMemo(() => {
+    let entries = allVBEntries;
+
+    // Gap閾値
+    if (minGap > 3) {
+      entries = entries.filter(e => e.entry.vb_gap >= minGap);
+    }
+
+    // 場所フィルタ
+    if (venueFilter !== 'all') {
+      entries = entries.filter(e => e.race.venue_name === venueFilter);
+    }
+
+    // レース番号フィルタ
+    if (raceNumFilter > 0) {
+      entries = entries.filter(e => e.race.race_number === raceNumFilter);
+    }
+
+    // EV閾値
+    if (minEv > 0) {
+      entries = entries.filter(e => {
+        const winOdds = getWinOdds(oddsMap, e.race.race_id, e.entry.umaban, e.entry.odds);
+        const ev = calcEv(e.entry.pred_proba_v, winOdds);
+        return ev !== null && ev >= minEv;
+      });
+    }
+
+    return entries;
+  }, [allVBEntries, venueFilter, raceNumFilter, minGap, minEv, oddsMap]);
+
+  // フィルタ適用済み開催場グループ
+  const filteredVenueGroups = useMemo(() => {
+    let filtered = races;
+    if (venueFilter !== 'all') filtered = filtered.filter(r => r.venue_name === venueFilter);
+    if (raceNumFilter > 0) filtered = filtered.filter(r => r.race_number === raceNumFilter);
+    const map = new Map<string, PredictionRace[]>();
+    for (const race of filtered) {
+      const group = map.get(race.venue_name) || [];
+      group.push(race);
+      map.set(race.venue_name, group);
+    }
+    return map;
+  }, [races, venueFilter, raceNumFilter]);
 
   // 統計
   const stats = useMemo(() => {
@@ -325,12 +380,109 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         </Card>
       </div>
 
+      {/* フィルタバー */}
+      <div className="flex flex-wrap items-center gap-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 p-3 mb-6">
+        {/* 場所 */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground mr-1">場所:</span>
+          {['all', ...venues].map(v => (
+            <button
+              key={v}
+              onClick={() => { setVenueFilter(v); setRaceNumFilter(0); }}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                venueFilter === v
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+              }`}
+            >
+              {v === 'all' ? '全て' : v}
+            </button>
+          ))}
+        </div>
+
+        {/* レース番号 */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground mr-1">R:</span>
+          <button
+            onClick={() => setRaceNumFilter(0)}
+            className={`px-2.5 py-1 text-xs rounded transition-colors ${
+              raceNumFilter === 0
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+            }`}
+          >
+            全て
+          </button>
+          {raceNumbers.map(n => (
+            <button
+              key={n}
+              onClick={() => setRaceNumFilter(n)}
+              className={`px-2 py-1 text-xs rounded transition-colors ${
+                raceNumFilter === n
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+
+        {/* Gap */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground mr-1">Gap:</span>
+          {[3, 4, 5].map(g => (
+            <button
+              key={g}
+              onClick={() => setMinGap(g)}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                minGap === g
+                  ? 'bg-orange-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+              }`}
+            >
+              &ge;{g}
+            </button>
+          ))}
+        </div>
+
+        {/* EV */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground mr-1">EV:</span>
+          {[
+            { v: 0, l: '全て' },
+            { v: 0.8, l: '\u22650.8' },
+            { v: 1.0, l: '\u22651.0' },
+            { v: 1.2, l: '\u22651.2' },
+          ].map(({ v, l }) => (
+            <button
+              key={v}
+              onClick={() => setMinEv(v)}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                minEv === v
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+
+        {/* 件数表示 */}
+        <span className="text-xs text-muted-foreground ml-auto">
+          {filteredVBEntries.length !== allVBEntries.length
+            ? `${filteredVBEntries.length} / ${allVBEntries.length} 件`
+            : `${allVBEntries.length} 件`}
+        </span>
+      </div>
+
       {/* VB候補ハイライト */}
-      {allVBEntries.length > 0 && (
+      {filteredVBEntries.length > 0 && (
         <Card className="mb-8 border-amber-200 dark:border-amber-800">
           <CardHeader className="pb-2 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950 dark:to-orange-950">
             <CardTitle className="text-lg flex items-center gap-2">
-              Value Bet 候補 ({allVBEntries.length}頭)
+              Value Bet 候補 ({filteredVBEntries.length}頭)
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-4">
@@ -355,7 +507,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                   </tr>
                 </thead>
                 <tbody>
-                  {allVBEntries.map(({ race, entry }) => {
+                  {filteredVBEntries.map(({ race, entry }) => {
                     const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
                     const ev = calcEv(entry.pred_proba_v, winOdds);
                     return (
@@ -411,7 +563,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
       {/* 開催場別レース一覧 */}
       <div className="space-y-8">
-        {Array.from(venueGroups.entries()).map(([venue, venueRaces]) => (
+        {Array.from(filteredVenueGroups.entries()).map(([venue, venueRaces]) => (
           <div key={venue}>
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
               {venue}
