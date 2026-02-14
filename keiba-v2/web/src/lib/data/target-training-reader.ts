@@ -12,6 +12,7 @@
 import fs from 'fs';
 import path from 'path';
 import iconv from 'iconv-lite';
+import { DATA3_ROOT } from '@/lib/config';
 import { getHorseRaceResultsFromTarget, preloadTargetRaceIndex } from './target-race-result-reader';
 
 const JV_DATA_ROOT = process.env.JV_DATA_ROOT || 'Y:/';
@@ -30,22 +31,20 @@ const umDataCache = new Map<string, Buffer>();  // UM_DATAファイルキャッ�
 
 /**
  * 坂路調教レコード
- * 
- * レコード構造（92バイト）:
- * 位置1: レコードタイプ (1)
- * 位置2-9: 日付 YYYYMMDD (8)
- * 位置10-13: 時刻 HHMM (4)
- * 位置14-23: 血統登録番号 (10)
- * 位置24-25: 不明 (2)
- * 位置26-45: 各種フラグ/予備 (20)
- * 位置46-49: 4Fタイム合計 (4) - 0.1秒単位
- * 位置50-52: Lap4 (3) - 0.1秒単位
- * 位置53-56: 3Fタイム合計 (4)
- * 位置57-59: Lap3 (3)
- * 位置60-63: 2Fタイム合計 (4)
- * 位置64-66: Lap2 (3)
- * 位置67-69: Lap1 (3)
- * 位置70-92: 追加情報 (23)
+ *
+ * レコード構造（92バイト + CRLF）:
+ * 位置0: 場所コード (1) — '0'=美浦, '1'=栗東
+ * 位置1-8: 日付 YYYYMMDD (8)
+ * 位置9-12: 時刻 HHMM (4)
+ * 位置13-22: 血統登録番号 (10)
+ * 位置23-67: 各種フラグ/予備 (45)
+ * 位置68-71: 4Fタイム合計 (4) — 0.1秒単位 (例: 0527 = 52.7s)
+ * 位置72-74: Lap4 (3) — 0.1秒単位
+ * 位置75-78: 3Fタイム合計 (4)
+ * 位置79-81: Lap3 (3)
+ * 位置82-85: 2Fタイム合計 (4)
+ * 位置86-88: Lap2 (3)
+ * 位置89-91: Lap1 (3)
  */
 export interface TrainingRecord {
   recordType: 'sakamichi' | 'course';
@@ -136,10 +135,11 @@ function parseWcRecord(buffer: Buffer, offset: number, location: string): Traini
   if (offset + 92 > buffer.length) {
     return null;
   }
-  
+
   try {
+    // レコードタイプ: '0'=美浦, '1'=栗東（両方とも有効な調教レコード）
     const recordType = decodeShiftJis(buffer, offset, 1);
-    if (recordType !== '1') {
+    if (recordType !== '0' && recordType !== '1') {
       return null;
     }
     
@@ -147,15 +147,14 @@ function parseWcRecord(buffer: Buffer, offset: number, location: string): Traini
     const timeRaw = decodeShiftJis(buffer, offset + 9, 4);
     const kettoNum = decodeShiftJis(buffer, offset + 13, 10);
     
-    // タイム・ラップ
-    // 位置46-49: 4Fタイム, 位置50-52: Lap4, etc.
-    const time4fRaw = decodeShiftJis(buffer, offset + 45, 4);
-    const lap4Raw = decodeShiftJis(buffer, offset + 49, 3);
-    const time3fRaw = decodeShiftJis(buffer, offset + 52, 4);
-    const lap3Raw = decodeShiftJis(buffer, offset + 56, 3);
-    const time2fRaw = decodeShiftJis(buffer, offset + 59, 4);
-    const lap2Raw = decodeShiftJis(buffer, offset + 63, 3);
-    const lap1Raw = decodeShiftJis(buffer, offset + 66, 3);
+    // タイム・ラップ（位置68-91）
+    const time4fRaw = decodeShiftJis(buffer, offset + 68, 4);
+    const lap4Raw = decodeShiftJis(buffer, offset + 72, 3);
+    const time3fRaw = decodeShiftJis(buffer, offset + 75, 4);
+    const lap3Raw = decodeShiftJis(buffer, offset + 79, 3);
+    const time2fRaw = decodeShiftJis(buffer, offset + 82, 4);
+    const lap2Raw = decodeShiftJis(buffer, offset + 86, 3);
+    const lap1Raw = decodeShiftJis(buffer, offset + 89, 3);
     
     // 日付整形
     const date = dateRaw.length === 8 
@@ -194,10 +193,11 @@ function parseHcRecord(buffer: Buffer, offset: number, location: string): Traini
   if (offset + 47 > buffer.length) {
     return null;
   }
-  
+
   try {
+    // レコードタイプ: '0'=美浦, '1'=栗東（両方とも有効な調教レコード）
     const recordType = decodeShiftJis(buffer, offset, 1);
-    if (recordType !== '1') {
+    if (recordType !== '0' && recordType !== '1') {
       return null;
     }
     
@@ -205,12 +205,14 @@ function parseHcRecord(buffer: Buffer, offset: number, location: string): Traini
     const timeRaw = decodeShiftJis(buffer, offset + 9, 4);
     const kettoNum = decodeShiftJis(buffer, offset + 13, 10);
     
-    // コース調教タイム（位置は要調整）
+    // コース調教タイム（HC 47バイトレコード）
+    // 位置23: 5Fタイム(4B), 位置27: 5F-3F差(3B), 位置30: 3Fタイム(4B)
+    // 位置34: Lap3(3B), 位置37: 2Fタイム(4B), 位置41: Lap2(3B), 位置44: Lap1(3B)
     const time5fRaw = decodeShiftJis(buffer, offset + 23, 4);
-    const time4fRaw = decodeShiftJis(buffer, offset + 27, 4);
-    const time3fRaw = decodeShiftJis(buffer, offset + 31, 4);
-    const lap2Raw = decodeShiftJis(buffer, offset + 38, 3);
-    const lap1Raw = decodeShiftJis(buffer, offset + 41, 3);
+    const time3fRaw = decodeShiftJis(buffer, offset + 30, 4);
+    const time2fRaw = decodeShiftJis(buffer, offset + 37, 4);
+    const lap2Raw = decodeShiftJis(buffer, offset + 41, 3);
+    const lap1Raw = decodeShiftJis(buffer, offset + 44, 3);
     
     // 日付整形
     const date = dateRaw.length === 8 
@@ -229,8 +231,8 @@ function parseHcRecord(buffer: Buffer, offset: number, location: string): Traini
       kettoNum,
       location: locationCodeToName(location),
       time5f: formatTime(time5fRaw),
-      time4f: formatTime(time4fRaw),
       time3f: formatTime(time3fRaw),
+      time2f: formatTime(time2fRaw),
       lap2: formatLap(lap2Raw),
       lap1: formatLap(lap1Raw),
     };
@@ -370,10 +372,11 @@ export async function getTrainingDataForDate(dateStr: string): Promise<TrainingR
  */
 function parseWcRecordFromText(line: string, location: string): TrainingRecord | null {
   if (line.length < 70) return null;
-  
+
   try {
+    // レコードタイプ: '0'=美浦, '1'=栗東（両方とも有効な調教レコード）
     const recordType = line.charAt(0);
-    if (recordType !== '1') return null;
+    if (recordType !== '0' && recordType !== '1') return null;
     
     const dateRaw = line.substring(1, 9);
     const timeRaw = line.substring(9, 13);
@@ -418,29 +421,27 @@ function parseWcRecordFromText(line: string, location: string): TrainingRecord |
  */
 function parseHcRecordFromText(line: string, location: string): TrainingRecord | null {
   if (line.length < 40) return null;
-  
+
   try {
     const recordType = line.charAt(0);
-    if (recordType !== '1') return null;
-    
+    if (recordType !== '0' && recordType !== '1') return null;
+
     const dateRaw = line.substring(1, 9);
     const timeRaw = line.substring(9, 13);
     const kettoNum = line.substring(13, 23);
-    
-    // コース調教のタイム位置（47バイトレコード）
-    // 位置23以降にタイム情報
+
+    // コース調教タイム（HC 47バイトレコード）
+    // 位置23: 5Fタイム(4B), 位置27: 5F-3F差(3B), 位置30: 3Fタイム(4B)
+    // 位置34: Lap3(3B), 位置37: 2Fタイム(4B), 位置41: Lap2(3B), 位置44: Lap1(3B)
     const time5fRaw = line.substring(23, 27);
-    const time4fRaw = line.substring(27, 31);
-    const time3fRaw = line.substring(31, 35);
-    
-    // 末尾のLap情報
-    const len = line.length;
-    const lap1Alt = line.substring(len - 6, len - 3);
-    const lap2Alt = line.substring(len - 9, len - 6);
-    
+    const time3fRaw = line.substring(30, 34);
+    const time2fRaw = line.substring(37, 41);
+    const lap2Raw = line.substring(41, 44);
+    const lap1Raw = line.substring(44, 47);
+
     const date = `${dateRaw.substring(0, 4)}/${dateRaw.substring(4, 6)}/${dateRaw.substring(6, 8)}`;
     const time = `${timeRaw.substring(0, 2)}:${timeRaw.substring(2, 4)}`;
-    
+
     return {
       recordType: 'course',
       date,
@@ -448,10 +449,10 @@ function parseHcRecordFromText(line: string, location: string): TrainingRecord |
       kettoNum,
       location: locationCodeToName(location),
       time5f: formatTime(time5fRaw),
-      time4f: formatTime(time4fRaw),
       time3f: formatTime(time3fRaw),
-      lap2: formatLap(lap2Alt),
-      lap1: formatLap(lap1Alt),
+      time2f: formatTime(time2fRaw),
+      lap2: formatLap(lap2Raw),
+      lap1: formatLap(lap1Raw),
     };
   } catch {
     return null;
@@ -595,14 +596,14 @@ function getHorseNameFromUmData(kettoNum: string): string {
 
 /**
  * 血統登録番号から馬名を取得
- * 優先順位: 1. キャッシュ → 2. SE_DATA → 3. UM_DATA
+ * 優先順位: 1. キャッシュ → 2. SE_DATA → 3. UM_DATA → 4. horse master JSON
  */
 export async function getHorseNameByKettoNum(kettoNum: string): Promise<string> {
   // キャッシュチェック
   if (horseNameCache.has(kettoNum)) {
     return horseNameCache.get(kettoNum)!;
   }
-  
+
   try {
     // 1. SE_DATAから馬名を取得（過去レース成績あり）
     const results = await getHorseRaceResultsFromTarget(kettoNum);
@@ -613,14 +614,29 @@ export async function getHorseNameByKettoNum(kettoNum: string): Promise<string> 
   } catch {
     // ignore
   }
-  
+
   // 2. SE_DATAになければUM_DATAから取得（新馬・未出走馬対応）
   const umName = getHorseNameFromUmData(kettoNum);
   if (umName) {
     horseNameCache.set(kettoNum, umName);
     return umName;
   }
-  
+
+  // 3. horse master JSONから取得（data3/masters/horses/{ketto_num}.json）
+  try {
+    const masterPath = path.join(DATA3_ROOT, 'masters', 'horses', `${kettoNum}.json`);
+    if (fs.existsSync(masterPath)) {
+      const content = fs.readFileSync(masterPath, 'utf-8');
+      const master = JSON.parse(content);
+      if (master.name) {
+        horseNameCache.set(kettoNum, master.name);
+        return master.name;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   return '';
 }
 
