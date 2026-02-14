@@ -1,4 +1,4 @@
-import fs from 'fs';
+import { promises as fsp } from 'fs';
 import path from 'path';
 import { remark } from 'remark';
 import html from 'remark-html';
@@ -7,11 +7,46 @@ import { TRACKS, DATA3_ROOT } from '../config';
 import type { RaceSummary, RaceDetail, DateGroup, TrackGroup } from '@/types';
 
 const RACES_DIR = path.join(DATA3_ROOT, 'races');
-import { 
-  getAvailableDatesFromIndex, 
-  getRacesByDateFromIndex, 
-  isRaceIndexAvailable 
+import {
+  getAvailableDatesFromIndex,
+  getRacesByDateFromIndex,
+  isRaceIndexAvailable
 } from './race-date-index';
+
+async function exists(p: string): Promise<boolean> {
+  try {
+    await fsp.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function safeReaddir(p: string): Promise<string[]> {
+  try {
+    return await fsp.readdir(p);
+  } catch {
+    return [];
+  }
+}
+
+async function safeReadJson<T = unknown>(p: string): Promise<T | null> {
+  try {
+    const content = await fsp.readFile(p, 'utf-8');
+    return JSON.parse(content) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function isDirectory(p: string): Promise<boolean> {
+  try {
+    const stat = await fsp.stat(p);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 利用可能な日付一覧を取得
@@ -27,33 +62,37 @@ export async function getAvailableDates(): Promise<string[]> {
   const dates: string[] = [];
   const racesPath = RACES_DIR;
 
-  if (!fs.existsSync(racesPath)) {
+  if (!(await exists(racesPath))) {
     return dates;
   }
 
-  const years = fs.readdirSync(racesPath).filter((f) => /^\d{4}$/.test(f));
+  const years = (await safeReaddir(racesPath)).filter((f) => /^\d{4}$/.test(f));
 
   for (const year of years) {
     const yearPath = path.join(racesPath, year);
-    const months = fs.readdirSync(yearPath).filter((f) => /^\d{2}$/.test(f));
+    const months = (await safeReaddir(yearPath)).filter((f) => /^\d{2}$/.test(f));
 
     for (const month of months) {
       const monthPath = path.join(yearPath, month);
-      const days = fs.readdirSync(monthPath).filter((f) => /^\d{2}$/.test(f));
+      const days = (await safeReaddir(monthPath)).filter((f) => /^\d{2}$/.test(f));
 
       for (const day of days) {
         const dayPath = path.join(monthPath, day);
         let tracks: string[] = [];
         try {
-          tracks = fs.readdirSync(dayPath).filter((f) => {
-            const trackPath = path.join(dayPath, f);
-            return fs.statSync(trackPath).isDirectory() && (TRACKS as readonly string[]).includes(f);
-          });
+          const entries = await fsp.readdir(dayPath);
+          const trackChecks = await Promise.all(
+            entries.map(async (f) => {
+              const trackPath = path.join(dayPath, f);
+              return (await isDirectory(trackPath)) && (TRACKS as readonly string[]).includes(f) ? f : null;
+            })
+          );
+          tracks = trackChecks.filter((t): t is string => t !== null);
         } catch {
           continue;
         }
         // 競馬場フォルダ＋MD出走表(.md) または race_info.json のみの日も「データあり」
-        if (tracks.length > 0 || hasRaceInfoWithKaisai(dayPath)) {
+        if (tracks.length > 0 || (await hasRaceInfoWithKaisai(dayPath))) {
           dates.push(`${year}-${month}-${day}`);
         }
       }
@@ -72,14 +111,9 @@ export async function getRacesByDate(date: string): Promise<DateGroup | null> {
   if (isRaceIndexAvailable()) {
     const indexed = getRacesByDateFromIndex(date);
     if (indexed) {
-      // NOTE:
-      // インデックスは永続化されるため、race_info.json 更新後に内容が古くなることがある。
-      // 特に kai/nichi（= JRAレーシングビュアー用）や startTime がズレると、
-      // レース一覧からのレーシングビュアーURLが「間違って見える」原因になる。
-      // ここでは、日付単位で race_info.json を読み直してインデックス値を上書きする。
       const [year, month, day] = date.split('-');
       const dayPath = path.join(RACES_DIR, year, month, day);
-      const infoByRaceId = loadRaceInfoByRaceId(dayPath);
+      const infoByRaceId = await loadRaceInfoByRaceId(dayPath);
 
       // インデックスデータをRaceSummary形式に変換
       const trackGroups: TrackGroup[] = indexed.tracks.map(t => ({
@@ -107,7 +141,7 @@ export async function getRacesByDate(date: string): Promise<DateGroup | null> {
           };
         }),
       }));
-      
+
       return {
         date,
         displayDate: indexed.displayDate,
@@ -120,16 +154,20 @@ export async function getRacesByDate(date: string): Promise<DateGroup | null> {
   const [year, month, day] = date.split('-');
   const dayPath = path.join(RACES_DIR, year, month, day);
 
-  if (!fs.existsSync(dayPath)) {
+  if (!(await exists(dayPath))) {
     return null;
   }
 
   let trackDirs: string[] = [];
   try {
-    trackDirs = fs.readdirSync(dayPath).filter((f) => {
-      const trackPath = path.join(dayPath, f);
-      return fs.statSync(trackPath).isDirectory() && (TRACKS as readonly string[]).includes(f);
-    });
+    const entries = await fsp.readdir(dayPath);
+    const trackChecks = await Promise.all(
+      entries.map(async (f) => {
+        const trackPath = path.join(dayPath, f);
+        return (await isDirectory(trackPath)) && (TRACKS as readonly string[]).includes(f) ? f : null;
+      })
+    );
+    trackDirs = trackChecks.filter((t): t is string => t !== null);
   } catch {
     return null;
   }
@@ -140,15 +178,20 @@ export async function getRacesByDate(date: string): Promise<DateGroup | null> {
   }
 
   const trackGroups: TrackGroup[] = [];
-  const infoByRaceId = loadRaceInfoByRaceId(dayPath);
+  const infoByRaceId = await loadRaceInfoByRaceId(dayPath);
   for (const track of trackDirs) {
     const trackPath = path.join(dayPath, track);
-    const mdFiles = fs.readdirSync(trackPath).filter((f) => f.endsWith('.md'));
+    const mdFiles = (await safeReaddir(trackPath)).filter((f) => f.endsWith('.md'));
 
     const races: RaceSummary[] = [];
     for (const file of mdFiles) {
       const filePath = path.join(trackPath, file);
-      const content = fs.readFileSync(filePath, 'utf-8');
+      let content: string;
+      try {
+        content = await fsp.readFile(filePath, 'utf-8');
+      } catch {
+        continue;
+      }
       const summary = parseRaceSummary(content, file, date, track, filePath);
       if (summary) {
         const info = infoByRaceId.get(summary.id);
@@ -246,41 +289,35 @@ function parseRaceSummary(
   };
 }
 
-function loadRaceInfoByRaceId(dayPath: string): Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string; raceName?: string }> {
+async function loadRaceInfoByRaceId(dayPath: string): Promise<Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string; raceName?: string }>> {
   const infoMap = new Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string; raceName?: string }>();
   const raceInfoPath = path.join(dayPath, 'race_info.json');
 
-  if (!fs.existsSync(raceInfoPath)) {
-    return infoMap;
-  }
+  const data = await safeReadJson<{
+    kaisai_data?: Record<string, Array<{ race_id?: string; race_id_16?: string; course?: string; race_no?: string; race_name?: string; start_time?: string }>>;
+  }>(raceInfoPath);
 
-  try {
-    const content = fs.readFileSync(raceInfoPath, 'utf-8');
-    const data = JSON.parse(content) as {
-      kaisai_data?: Record<string, Array<{ race_id?: string; race_id_16?: string; course?: string; race_no?: string; race_name?: string; start_time?: string }>>;
-    };
-    const kaisaiData = data.kaisai_data || {};
-    for (const [kaisaiKey, raceList] of Object.entries(kaisaiData)) {
-      const kaisaiInfo = parseKaisaiKey(kaisaiKey);
-      for (const race of raceList) {
-        if (!race.race_id) continue;
-        const info = {
-          course: race.course,
-          kai: kaisaiInfo?.kai,
-          nichi: kaisaiInfo?.nichi,
-          track: kaisaiInfo?.track,
-          startTime: race.start_time,
-          raceName: race.race_name,
-        };
-        // 12桁IDと16桁IDの両方でマッチできるように登録
-        infoMap.set(race.race_id, info);
-        if (race.race_id_16) {
-          infoMap.set(race.race_id_16, info);
-        }
+  if (!data) return infoMap;
+
+  const kaisaiData = data.kaisai_data || {};
+  for (const [kaisaiKey, raceList] of Object.entries(kaisaiData)) {
+    const kaisaiInfo = parseKaisaiKey(kaisaiKey);
+    for (const race of raceList) {
+      if (!race.race_id) continue;
+      const info = {
+        course: race.course,
+        kai: kaisaiInfo?.kai,
+        nichi: kaisaiInfo?.nichi,
+        track: kaisaiInfo?.track,
+        startTime: race.start_time,
+        raceName: race.race_name,
+      };
+      // 12桁IDと16桁IDの両方でマッチできるように登録
+      infoMap.set(race.race_id, info);
+      if (race.race_id_16) {
+        infoMap.set(race.race_id_16, info);
       }
     }
-  } catch {
-    return infoMap;
   }
 
   return infoMap;
@@ -305,27 +342,18 @@ function extractClassNameFromRaceName(raceName: string): string {
   return '';
 }
 
-function hasRaceInfoWithKaisai(dayPath: string): boolean {
+async function hasRaceInfoWithKaisai(dayPath: string): Promise<boolean> {
   const p = path.join(dayPath, 'race_info.json');
-  if (!fs.existsSync(p)) return false;
-  try {
-    const data = JSON.parse(fs.readFileSync(p, 'utf-8')) as { kaisai_data?: Record<string, unknown[]> };
-    const k = data.kaisai_data && Object.keys(data.kaisai_data).length > 0;
-    return !!k;
-  } catch {
-    return false;
-  }
+  const data = await safeReadJson<{ kaisai_data?: Record<string, unknown[]> }>(p);
+  if (!data) return false;
+  return !!(data.kaisai_data && Object.keys(data.kaisai_data).length > 0);
 }
 
-function buildDateGroupFromRaceInfoOnly(dayPath: string, date: string): DateGroup | null {
+async function buildDateGroupFromRaceInfoOnly(dayPath: string, date: string): Promise<DateGroup | null> {
   const raceInfoPath = path.join(dayPath, 'race_info.json');
-  if (!fs.existsSync(raceInfoPath)) return null;
-  let data: { kaisai_data?: Record<string, Array<{ race_id?: string; race_id_16?: string; race_no?: string; race_name?: string; course?: string; start_time?: string }>> };
-  try {
-    data = JSON.parse(fs.readFileSync(raceInfoPath, 'utf-8'));
-  } catch {
-    return null;
-  }
+  const data = await safeReadJson<{ kaisai_data?: Record<string, Array<{ race_id?: string; race_id_16?: string; race_no?: string; race_name?: string; course?: string; start_time?: string }>> }>(raceInfoPath);
+  if (!data) return null;
+
   const kaisaiData = data.kaisai_data || {};
   if (Object.keys(kaisaiData).length === 0) return null;
 
@@ -383,11 +411,11 @@ export async function getRaceDetail(
   const [year, month, day] = date.split('-');
   const dayPath = path.join(RACES_DIR, year, month, day);
   const filePath = path.join(dayPath, track, `${raceId}.md`);
-  const infoByRaceId = loadRaceInfoByRaceId(dayPath);
+  const infoByRaceId = await loadRaceInfoByRaceId(dayPath);
 
   // 1. Markdownファイルがあればそちらを使用
-  if (fs.existsSync(filePath)) {
-    const content = fs.readFileSync(filePath, 'utf-8');
+  try {
+    const content = await fsp.readFile(filePath, 'utf-8');
     const summary = parseRaceSummary(content, `${raceId}.md`, date, track, filePath);
     const info = infoByRaceId.get(raceId);
     if (summary && info?.course) {
@@ -412,6 +440,8 @@ export async function getRaceDetail(
       htmlContent,
       horses: [],
     };
+  } catch {
+    // MDファイルなし → v4 JSONフォールバック
   }
 
   // 2. v4レースJSON フォールバック
@@ -421,80 +451,72 @@ export async function getRaceDetail(
 /**
  * v4レースJSON(race_*.json)からRaceDetailを構築
  */
-function getRaceDetailFromJson(
+async function getRaceDetailFromJson(
   date: string,
   track: string,
   raceId: string,
   dayPath: string,
   infoByRaceId: Map<string, { course?: string; kai?: number; nichi?: number; track?: string; startTime?: string; raceName?: string }>
-): RaceDetail | null {
+): Promise<RaceDetail | null> {
   const jsonPath = path.join(dayPath, `race_${raceId}.json`);
-  if (!fs.existsSync(jsonPath)) return null;
+  const data = await safeReadJson<any>(jsonPath);
+  if (!data) return null;
 
-  try {
-    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-    const info = infoByRaceId.get(raceId);
-    const raceNumber = data.race_number || parseInt(raceId.slice(-2), 10);
+  const info = infoByRaceId.get(raceId);
+  const raceNumber = data.race_number || parseInt(raceId.slice(-2), 10);
 
-    // distance構築: JSON直接 or race_info.json
-    let distance = info?.course || '';
-    if (!distance && data.track_type && data.distance) {
-      distance = `${data.track_type}${data.distance}m`;
-    }
-
-    return {
-      id: raceId,
-      date,
-      track: data.venue_name || track,
-      raceNumber,
-      raceName: info?.raceName || data.race_name || `${raceNumber}R`,
-      className: data.grade || '',
-      distance,
-      startTime: info?.startTime || '',
-      kai: data.kai || info?.kai,
-      nichi: data.nichi || info?.nichi,
-      filePath: jsonPath,
-      content: '',     // JSON源 — Markdown無し
-      htmlContent: '',
-      horses: [],
-    };
-  } catch {
-    return null;
+  // distance構築: JSON直接 or race_info.json
+  let distance = info?.course || '';
+  if (!distance && data.track_type && data.distance) {
+    distance = `${data.track_type}${data.distance}m`;
   }
+
+  return {
+    id: raceId,
+    date,
+    track: data.venue_name || track,
+    raceNumber,
+    raceName: info?.raceName || data.race_name || `${raceNumber}R`,
+    className: data.grade || '',
+    distance,
+    startTime: info?.startTime || '',
+    kai: data.kai || info?.kai,
+    nichi: data.nichi || info?.nichi,
+    filePath: jsonPath,
+    content: '',     // JSON源 — Markdown無し
+    htmlContent: '',
+    horses: [],
+  };
 }
 
 /**
  * v4レースJSONからエントリー情報を取得（HorseData形式）
  */
-export function loadV4RaceEntries(date: string, raceId: string) {
+export async function loadV4RaceEntries(date: string, raceId: string) {
   const [year, month, day] = date.split('-');
   const jsonPath = path.join(RACES_DIR, year, month, day, `race_${raceId}.json`);
-  if (!fs.existsSync(jsonPath)) return null;
+  const data = await safeReadJson<any>(jsonPath);
+  if (!data) return null;
 
-  try {
-    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-    const sexMap: Record<string, string> = { '1': '牡', '2': '牝', '3': 'セ' };
-    return (data.entries || []).map((e: any) => ({
-      waku: e.wakuban || 0,
-      umaban: e.umaban || 0,
-      name: e.horse_name || '',
-      sex: sexMap[e.sex_cd] || '',
-      age: e.age || 0,
-      weight: e.futan || 0,
-      jockey: e.jockey_name || '',
-      trainer: e.trainer_name || '',
-      odds: e.odds || 0,
-      popularity: e.popularity || 0,
-      horseWeight: e.horse_weight || 0,
-      horseWeightDiff: e.horse_weight_diff ?? null,
-      kettoNum: e.ketto_num || '',
-      finishPosition: e.finish_position || 0,
-      time: e.time || '',
-      last3f: e.last_3f || 0,
-    }));
-  } catch {
-    return null;
-  }
+  const sexMap: Record<string, string> = { '1': '牡', '2': '牝', '3': 'セ' };
+  return (data.entries || []).map((e: any) => ({
+    waku: e.wakuban || 0,
+    umaban: e.umaban || 0,
+    name: e.horse_name || '',
+    sex: sexMap[e.sex_cd] || '',
+    age: e.age || 0,
+    weight: e.futan || 0,
+    jockey: e.jockey_name || '',
+    trainer: e.trainer_name || '',
+    odds: e.odds || 0,
+    popularity: e.popularity || 0,
+    horseWeight: e.horse_weight || 0,
+    horseWeightDiff: e.horse_weight_diff ?? null,
+    kettoNum: e.ketto_num || '',
+    finishPosition: e.finish_position || 0,
+    time: e.time || '',
+    last3f: e.last_3f || 0,
+  }));
 }
 
 /**
@@ -539,7 +561,7 @@ export async function getRaceNavigation(
   const [year, month, day] = date.split('-');
   const dayPath = path.join(RACES_DIR, year, month, day);
 
-  if (!fs.existsSync(dayPath)) {
+  if (!(await exists(dayPath))) {
     return null;
   }
 
@@ -575,61 +597,53 @@ async function getRaceNavigationFromIndex(
   nextRace: { track: string; raceId: string } | null;
 } | null> {
   const indexPath = path.join(dayPath, 'temp', 'navigation_index.json');
-  
-  if (!fs.existsSync(indexPath)) {
-    return null;
-  }
 
-  try {
-    const content = fs.readFileSync(indexPath, 'utf-8');
-    const index = JSON.parse(content) as {
-      tracks: { name: string; firstRaceId: string; raceByNumber: Record<number, string> }[];
-      allRacesByTime: { track: string; raceNumber: number; raceId: string; startTime: string; raceName?: string }[];
-    };
+  const index = await safeReadJson<{
+    tracks: { name: string; firstRaceId: string; raceByNumber: Record<number, string> }[];
+    allRacesByTime: { track: string; raceNumber: number; raceId: string; startTime: string; raceName?: string }[];
+  }>(indexPath);
 
-    // 現在の競馬場のレース一覧を抽出
-    const currentTrackRaces = index.allRacesByTime
-      .filter(r => r.track === currentTrack)
-      .map(r => ({
-        raceNumber: r.raceNumber,
-        raceId: r.raceId,
-        raceName: r.raceName || `${r.raceNumber}R`,
-        startTime: r.startTime,
-      }))
-      .sort((a, b) => a.raceNumber - b.raceNumber);
+  if (!index) return null;
 
-    // 前後レースを計算
-    let prevRace: { track: string; raceId: string } | null = null;
-    let nextRace: { track: string; raceId: string } | null = null;
+  // 現在の競馬場のレース一覧を抽出
+  const currentTrackRaces = index.allRacesByTime
+    .filter(r => r.track === currentTrack)
+    .map(r => ({
+      raceNumber: r.raceNumber,
+      raceId: r.raceId,
+      raceName: r.raceName || `${r.raceNumber}R`,
+      startTime: r.startTime,
+    }))
+    .sort((a, b) => a.raceNumber - b.raceNumber);
 
-    if (currentRaceNumber !== undefined) {
-      // 現在のレースのインデックスを見つける
-      const currentIdx = index.allRacesByTime.findIndex(
-        r => r.track === currentTrack && r.raceNumber === currentRaceNumber
-      );
+  // 前後レースを計算
+  let prevRace: { track: string; raceId: string } | null = null;
+  let nextRace: { track: string; raceId: string } | null = null;
 
-      if (currentIdx > 0) {
-        const prev = index.allRacesByTime[currentIdx - 1];
-        prevRace = { track: prev.track, raceId: prev.raceId };
-      }
+  if (currentRaceNumber !== undefined) {
+    // 現在のレースのインデックスを見つける
+    const currentIdx = index.allRacesByTime.findIndex(
+      r => r.track === currentTrack && r.raceNumber === currentRaceNumber
+    );
 
-      if (currentIdx >= 0 && currentIdx < index.allRacesByTime.length - 1) {
-        const next = index.allRacesByTime[currentIdx + 1];
-        nextRace = { track: next.track, raceId: next.raceId };
-      }
+    if (currentIdx > 0) {
+      const prev = index.allRacesByTime[currentIdx - 1];
+      prevRace = { track: prev.track, raceId: prev.raceId };
     }
 
-    return {
-      tracks: index.tracks,
-      races: currentTrackRaces,
-      allRacesByTime: index.allRacesByTime,
-      prevRace,
-      nextRace,
-    };
-  } catch {
-    // パースエラーは無視してフォールバック
-    return null;
+    if (currentIdx >= 0 && currentIdx < index.allRacesByTime.length - 1) {
+      const next = index.allRacesByTime[currentIdx + 1];
+      nextRace = { track: next.track, raceId: next.raceId };
+    }
   }
+
+  return {
+    tracks: index.tracks,
+    races: currentTrackRaces,
+    allRacesByTime: index.allRacesByTime,
+    prevRace,
+    nextRace,
+  };
 }
 
 /**
@@ -649,39 +663,24 @@ async function getRaceNavigationFromJson(
 } | null> {
   // race_info.json を試す
   const raceInfoPath = path.join(dayPath, 'race_info.json');
-  let kaisaiData: Record<string, Array<{
-    race_no: string;
-    race_name: string;
-    course: string;
-    race_id: string;
-    race_id_16?: string;
-    start_time?: string;
-  }>> | null = null;
+  type KaisaiRace = { race_no: string; race_name: string; course: string; race_id: string; race_id_16?: string; start_time?: string };
+  type KaisaiData = Record<string, KaisaiRace[]>;
+  let kaisaiData: KaisaiData | null = null;
 
-  if (fs.existsSync(raceInfoPath)) {
-    try {
-      const content = fs.readFileSync(raceInfoPath, 'utf-8');
-      const data = JSON.parse(content);
-      kaisaiData = data.kaisai_data;
-    } catch {
-      // JSONパースエラーは無視
-    }
+  const raceInfoData = await safeReadJson<{ kaisai_data?: KaisaiData }>(raceInfoPath);
+  if (raceInfoData?.kaisai_data) {
+    kaisaiData = raceInfoData.kaisai_data;
   }
 
   // race_info.json がなければ temp/nittei_*.json を試す
   if (!kaisaiData) {
     const tempPath = path.join(dayPath, 'temp');
-    if (fs.existsSync(tempPath)) {
+    if (await exists(tempPath)) {
       const dateStr = date.replace(/-/g, '');
       const nitteiPath = path.join(tempPath, `nittei_${dateStr}.json`);
-      if (fs.existsSync(nitteiPath)) {
-        try {
-          const content = fs.readFileSync(nitteiPath, 'utf-8');
-          const data = JSON.parse(content);
-          kaisaiData = data.kaisai_data;
-        } catch {
-          // JSONパースエラーは無視
-        }
+      const nitteiData = await safeReadJson<{ kaisai_data?: KaisaiData }>(nitteiPath);
+      if (nitteiData?.kaisai_data) {
+        kaisaiData = nitteiData.kaisai_data;
       }
     }
   }
@@ -809,10 +808,14 @@ async function getRaceNavigationFromMd(
   nextRace: { track: string; raceId: string } | null;
 } | null> {
   // 競馬場一覧を取得
-  const trackDirs = fs.readdirSync(dayPath).filter((f) => {
-    const trackPath = path.join(dayPath, f);
-    return fs.statSync(trackPath).isDirectory() && TRACKS.includes(f as any);
-  });
+  const entries = await safeReaddir(dayPath);
+  const trackDirChecks = await Promise.all(
+    entries.map(async (f) => {
+      const trackPath = path.join(dayPath, f);
+      return (await isDirectory(trackPath)) && TRACKS.includes(f as any) ? f : null;
+    })
+  );
+  const trackDirs = trackDirChecks.filter((t): t is string => t !== null);
 
   if (trackDirs.length === 0) {
     return null;
@@ -825,28 +828,30 @@ async function getRaceNavigationFromMd(
   const tracks: { name: string; firstRaceId: string; raceByNumber: Record<number, string> }[] = [];
   for (const track of trackDirs) {
     const trackPath = path.join(dayPath, track);
-    const mdFiles = fs
-      .readdirSync(trackPath)
+    const mdFiles = (await safeReaddir(trackPath))
       .filter((f) => f.endsWith('.md'))
       .sort();
-    
+
     if (mdFiles.length > 0) {
       const raceByNumber: Record<number, string> = {};
-      
+
       for (const file of mdFiles) {
         const raceId = file.replace('.md', '');
         const raceNumber = parseInt(raceId.slice(-2), 10);
         raceByNumber[raceNumber] = raceId;
-        
+
         // 発走時刻を取得
         const filePath = path.join(trackPath, file);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const timeMatch = content.match(/発走予定\**[:\s]*(\d{1,2}:\d{2})/);
-        const startTime = timeMatch ? timeMatch[1] : '99:99';
-        
+        let startTime = '99:99';
+        try {
+          const content = await fsp.readFile(filePath, 'utf-8');
+          const timeMatch = content.match(/発走予定\**[:\s]*(\d{1,2}:\d{2})/);
+          startTime = timeMatch ? timeMatch[1] : '99:99';
+        } catch { /* ignore */ }
+
         allRaces.push({ track, raceNumber, raceId, startTime });
       }
-      
+
       tracks.push({
         name: track,
         firstRaceId: mdFiles[0].replace('.md', ''),
@@ -898,20 +903,18 @@ async function getRaceNavigationFromMd(
   const currentTrackPath = path.join(dayPath, currentTrack);
   const races: { raceNumber: number; raceId: string; raceName: string; startTime: string }[] = [];
 
-  if (fs.existsSync(currentTrackPath)) {
-    const mdFiles = fs
-      .readdirSync(currentTrackPath)
-      .filter((f) => f.endsWith('.md'));
+  const currentTrackFiles = (await safeReaddir(currentTrackPath)).filter((f) => f.endsWith('.md'));
+  for (const file of currentTrackFiles) {
+    const filePath = path.join(currentTrackPath, file);
+    const raceId = file.replace('.md', '');
+    const raceNumber = parseInt(raceId.slice(-2), 10);
 
-    for (const file of mdFiles) {
-      const filePath = path.join(currentTrackPath, file);
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const raceId = file.replace('.md', '');
-      const raceNumber = parseInt(raceId.slice(-2), 10);
-
+    let raceName = `${raceNumber}R`;
+    let startTime = '';
+    try {
+      const content = await fsp.readFile(filePath, 'utf-8');
       // レース名を抽出
       const titleMatch = content.match(/^# (.+)$/m);
-      let raceName = `${raceNumber}R`;
       if (titleMatch) {
         const titleLine = titleMatch[1];
         const raceMatch = titleLine.match(/\d+R\s*(?:\([^)]+\))?\s*(.+)?/);
@@ -919,16 +922,15 @@ async function getRaceNavigationFromMd(
           raceName = raceMatch[1].trim();
         }
       }
-
       // 発走時刻を抽出
       const timeMatch = content.match(/発走予定\**[:\s]*(\d{1,2}:\d{2})/);
-      const startTime = timeMatch ? timeMatch[1] : '';
+      startTime = timeMatch ? timeMatch[1] : '';
+    } catch { /* ignore */ }
 
-      races.push({ raceNumber, raceId, raceName, startTime });
-    }
-
-    races.sort((a, b) => a.raceNumber - b.raceNumber);
+    races.push({ raceNumber, raceId, raceName, startTime });
   }
+
+  races.sort((a, b) => a.raceNumber - b.raceNumber);
 
   return { tracks, races, allRacesByTime: allRaces, prevRace, nextRace };
 }
@@ -954,37 +956,31 @@ async function getRaceNavigationFromV4(
   prevRace: { track: string; raceId: string } | null;
   nextRace: { track: string; raceId: string } | null;
 } | null> {
-  let raceFiles: string[];
-  try {
-    raceFiles = fs.readdirSync(dayPath)
-      .filter(f => f.startsWith('race_') && f.endsWith('.json'));
-  } catch {
-    return null;
-  }
+  const raceFiles = (await safeReaddir(dayPath))
+    .filter(f => f.startsWith('race_') && f.endsWith('.json'));
   if (raceFiles.length === 0) return null;
 
   const allRaces: { track: string; raceNumber: number; raceId: string; startTime: string }[] = [];
   const trackMap = new Map<string, { raceByNumber: Record<number, string>; firstRaceId: string }>();
 
   for (const file of raceFiles) {
-    try {
-      const content = fs.readFileSync(path.join(dayPath, file), 'utf-8');
-      const raceData = JSON.parse(content);
-      const venueName = raceData.venue_name || VENUE_CODE_MAP[raceData.venue_code] || '';
-      if (!venueName) continue;
+    const raceData = await safeReadJson<any>(path.join(dayPath, file));
+    if (!raceData) continue;
 
-      const raceNumber = raceData.race_number || 0;
-      const raceId = raceData.race_id || '';
+    const venueName = raceData.venue_name || VENUE_CODE_MAP[raceData.venue_code] || '';
+    if (!venueName) continue;
 
-      allRaces.push({ track: venueName, raceNumber, raceId, startTime: '' });
+    const raceNumber = raceData.race_number || 0;
+    const raceId = raceData.race_id || '';
 
-      if (!trackMap.has(venueName)) {
-        trackMap.set(venueName, { raceByNumber: {}, firstRaceId: raceId });
-      }
-      const trackData = trackMap.get(venueName)!;
-      trackData.raceByNumber[raceNumber] = raceId;
-      if (raceNumber === 1) trackData.firstRaceId = raceId;
-    } catch { /* skip */ }
+    allRaces.push({ track: venueName, raceNumber, raceId, startTime: '' });
+
+    if (!trackMap.has(venueName)) {
+      trackMap.set(venueName, { raceByNumber: {}, firstRaceId: raceId });
+    }
+    const trackData = trackMap.get(venueName)!;
+    trackData.raceByNumber[raceNumber] = raceId;
+    if (raceNumber === 1) trackData.firstRaceId = raceId;
   }
 
   if (trackMap.size === 0) return null;
@@ -1029,15 +1025,11 @@ async function getRaceNavigationFromV4(
  */
 function convertLocalPaths(content: string): string {
   // 馬プロファイルへのリンクを変換
-  // [馬名](Z:/KEIBA-CICD/data2/horses/profiles/0953665_イッツソーブライト.md)
-  // → [馬名](/horses/0953665)
   const horsePattern =
     /\[([^\]]+)\]\((?:Z:|\/)?[^)]*horses\/profiles\/(\d+)_[^)]+\.md\)/g;
   content = content.replace(horsePattern, '[$1](/horses/$2)');
 
   // レースへのリンクを変換
-  // [レース](Z:/KEIBA-CICD/data2/races/2025/12/28/中山/202505050811.md)
-  // → [レース](/races/2025-12-28/中山/202505050811)
   const racePattern =
     /\[([^\]]+)\]\((?:Z:|\/)?[^)]*races\/(\d{4})\/(\d{2})\/(\d{2})\/([^/]+)\/(\d+)\.md\)/g;
   content = content.replace(racePattern, '[$1](/races/$2-$3-$4/$5/$6)');
@@ -1064,12 +1056,8 @@ export async function getRaceInfo(date: string): Promise<RaceInfoData | null> {
   const [year, month, day] = date.split('-');
   const filePath = path.join(RACES_DIR, year, month, day, 'race_info.json');
 
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
-
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = await fsp.readFile(filePath, 'utf-8');
     return JSON.parse(content) as RaceInfoData;
   } catch (error) {
     console.error(`Error reading race_info.json for ${date}:`, error);

@@ -1,6 +1,6 @@
 /**
  * 統合馬プロファイルデータ読み込みユーティリティ
- * 
+ *
  * データソース優先順位:
  * 1. TARGET JV-Data (Y:/UM_DATA) - 高速な基本情報取得
  * 2. TARGET SE_DATA (Y:/SE_DATA) - 過去レース成績ベース
@@ -8,7 +8,7 @@
  * 4. MDプロファイル (Z:/KEIBA-CICD/data2/horses/profiles) - ユーザーメモ
  */
 
-import fs from 'fs';
+import { promises as fsp } from 'fs';
 import path from 'path';
 import { findHorseFromTarget, calculateHorseAge, isTargetDataAvailable, type TargetHorseData } from './target-horse-reader';
 import { getHorseRaceResultsFromTarget, isTargetSeDataAvailable, type TargetRaceResult } from './target-race-result-reader';
@@ -31,53 +31,51 @@ const trainingSummaryCache = new Map<string, Map<string, TrainingSummaryEntry>>(
 /**
  * 指定日の training_summary.json を読み込み、馬名でインデックス化
  */
-function loadTrainingSummary(datePath: string): Map<string, TrainingSummaryEntry> {
+async function loadTrainingSummary(datePath: string): Promise<Map<string, TrainingSummaryEntry>> {
   // datePath形式: YYYY/MM/DD
   if (trainingSummaryCache.has(datePath)) {
     return trainingSummaryCache.get(datePath)!;
   }
-  
+
   const result = new Map<string, TrainingSummaryEntry>();
-  
+
   try {
     const [year, month, day] = datePath.split('/');
     const filePath = path.join(
       DATA3_ROOT,
       'races', year, month, day, 'temp', 'training_summary.json'
     );
-    
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const data = JSON.parse(content);
-      const summaries = data.summaries || {};
-      
-      for (const [horseName, entry] of Object.entries(summaries)) {
-        const typedEntry = entry as Record<string, unknown>;
-        result.set(horseName, {
-          detail: typedEntry.detail as string || '',
-          lapRank: typedEntry.lapRank as string || '',
-          finalSpeed: typedEntry.finalSpeed as string || '',
-        });
-      }
+
+    const content = await fsp.readFile(filePath, 'utf-8');
+    const data = JSON.parse(content);
+    const summaries = data.summaries || {};
+
+    for (const [horseName, entry] of Object.entries(summaries)) {
+      const typedEntry = entry as Record<string, unknown>;
+      result.set(horseName, {
+        detail: typedEntry.detail as string || '',
+        lapRank: typedEntry.lapRank as string || '',
+        finalSpeed: typedEntry.finalSpeed as string || '',
+      });
     }
   } catch (e) {
-    // ファイル読み込みエラーは無視
+    // ファイル読み込みエラーは無視（ファイルが存在しない場合も含む）
   }
-  
+
   trainingSummaryCache.set(datePath, result);
   return result;
 }
 
-function readdirCached(dirPath: string): string[] {
+async function readdirCached(dirPath: string): Promise<string[]> {
   const now = Date.now();
   const cached = dirCache.get(dirPath);
-  
+
   if (cached && (now - cached.timestamp) < DIR_CACHE_TTL) {
     return cached.entries;
   }
-  
+
   try {
-    const entries = fs.readdirSync(dirPath);
+    const entries = await fsp.readdir(dirPath);
     dirCache.set(dirPath, { entries, timestamp: now });
     return entries;
   } catch {
@@ -85,9 +83,10 @@ function readdirCached(dirPath: string): string[] {
   }
 }
 
-function existsCached(filePath: string): boolean {
+async function existsCached(filePath: string): Promise<boolean> {
   try {
-    return fs.existsSync(filePath);
+    await fsp.access(filePath);
+    return true;
   } catch {
     return false;
   }
@@ -100,7 +99,7 @@ const raceInfoCache = new Map<string, Record<string, { track: string; raceName: 
  * race_info.jsonから正しい競馬場名を取得
  * integrated_*.jsonのvenueが間違っている場合の補正用
  */
-function getTrackFromRaceInfo(integratedFilePath: string, raceId: string): string | null {
+async function getTrackFromRaceInfo(integratedFilePath: string, raceId: string): Promise<string | null> {
   try {
     // ファイルパスから日付フォルダを取得
     // 例: Z:\KEIBA-CICD\data2\races\2026\01\24\temp\integrated_xxx.json
@@ -109,7 +108,7 @@ function getTrackFromRaceInfo(integratedFilePath: string, raceId: string): strin
 
     const [, year, month, day] = pathMatch;
     const dateKey = `${year}/${month}/${day}`;
-    
+
     // キャッシュを確認
     if (raceInfoCache.has(dateKey)) {
       const cached = raceInfoCache.get(dateKey)!;
@@ -121,21 +120,24 @@ function getTrackFromRaceInfo(integratedFilePath: string, raceId: string): strin
       DATA3_ROOT,
       'races', year, month, day, 'race_info.json'
     );
-    
-    if (!fs.existsSync(raceInfoPath)) {
+
+    let raceInfo: Record<string, unknown>;
+    try {
+      const content = await fsp.readFile(raceInfoPath, 'utf-8');
+      raceInfo = JSON.parse(content);
+    } catch {
       raceInfoCache.set(dateKey, {});
       return null;
     }
 
-    const raceInfo = JSON.parse(fs.readFileSync(raceInfoPath, 'utf-8'));
     const raceMap: Record<string, { track: string; raceName: string; distance: string }> = {};
-    
+
     // kaisai_dataからraceId→競馬場マッピングを作成
-    for (const [kaisaiKey, races] of Object.entries(raceInfo.kaisai_data || {})) {
+    for (const [kaisaiKey, races] of Object.entries((raceInfo as Record<string, unknown>).kaisai_data as Record<string, unknown> || {})) {
       // kaisaiKeyの例: "1回中山8日目"
       const trackMatch = kaisaiKey.match(/\d+回(.+?)\d+日目/);
       const track = trackMatch ? trackMatch[1] : '';
-      
+
       for (const race of (races as Array<{ race_id: string; race_name?: string; course?: string }>)) {
         raceMap[race.race_id] = {
           track,
@@ -144,7 +146,7 @@ function getTrackFromRaceInfo(integratedFilePath: string, raceId: string): strin
         };
       }
     }
-    
+
     raceInfoCache.set(dateKey, raceMap);
     return raceMap[raceId]?.track || null;
   } catch {
@@ -155,15 +157,15 @@ function getTrackFromRaceInfo(integratedFilePath: string, raceId: string): strin
 /**
  * race_info.jsonからレース情報を取得（キャッシュ構築も行う）
  */
-function getRaceInfoFromCache(datePath: string, raceId: string): { track: string; raceName: string; distance: string } | null {
+async function getRaceInfoFromCache(datePath: string, raceId: string): Promise<{ track: string; raceName: string; distance: string } | null> {
   const dateKey = datePath; // YYYY/MM/DD形式
-  
+
   // キャッシュがあればそこから返す
   if (raceInfoCache.has(dateKey)) {
     const cached = raceInfoCache.get(dateKey)!;
     return cached[raceId] || null;
   }
-  
+
   // キャッシュがなければ構築する
   try {
     const [year, month, day] = datePath.split('/');
@@ -171,20 +173,23 @@ function getRaceInfoFromCache(datePath: string, raceId: string): { track: string
       DATA3_ROOT,
       'races', year, month, day, 'race_info.json'
     );
-    
-    if (!fs.existsSync(raceInfoPath)) {
+
+    let raceInfo: Record<string, unknown>;
+    try {
+      const content = await fsp.readFile(raceInfoPath, 'utf-8');
+      raceInfo = JSON.parse(content);
+    } catch {
       raceInfoCache.set(dateKey, {});
       return null;
     }
 
-    const raceInfo = JSON.parse(fs.readFileSync(raceInfoPath, 'utf-8'));
     const raceMap: Record<string, { track: string; raceName: string; distance: string }> = {};
-    
+
     // kaisai_dataからraceId→レース情報マッピングを作成
-    for (const [kaisaiKey, races] of Object.entries(raceInfo.kaisai_data || {})) {
+    for (const [kaisaiKey, races] of Object.entries((raceInfo as Record<string, unknown>).kaisai_data as Record<string, unknown> || {})) {
       const trackMatch = kaisaiKey.match(/\d+回(.+?)\d+日目/);
       const track = trackMatch ? trackMatch[1] : '';
-      
+
       for (const race of (races as Array<{ race_id: string; race_name?: string; course?: string }>)) {
         raceMap[race.race_id] = {
           track,
@@ -193,7 +198,7 @@ function getRaceInfoFromCache(datePath: string, raceId: string): { track: string
         };
       }
     }
-    
+
     raceInfoCache.set(dateKey, raceMap);
     return raceMap[raceId] || null;
   } catch {
@@ -206,24 +211,31 @@ function getRaceInfoFromCache(datePath: string, raceId: string): { track: string
  * 直近のintegrated_*.jsonから馬ID（競馬ブックID）で馬名を検索
  * 初出走馬で他のソースに情報がない場合のフォールバック
  */
-function findHorseNameFromRecentRaces(horseId: string): { horseName: string; kettoNum: string } | null {
+async function findHorseNameFromRecentRaces(horseId: string): Promise<{ horseName: string; kettoNum: string } | null> {
   const racesDir = path.join(DATA3_ROOT, 'races');
   try {
-    const years = fs.readdirSync(racesDir).filter(d => /^\d{4}$/.test(d)).sort().reverse();
+    const years = (await fsp.readdir(racesDir)).filter(d => /^\d{4}$/.test(d)).sort().reverse();
     let daysChecked = 0;
     for (const year of years) {
-      const months = fs.readdirSync(path.join(racesDir, year)).filter(d => /^\d{2}$/.test(d)).sort().reverse();
+      const months = (await fsp.readdir(path.join(racesDir, year))).filter(d => /^\d{2}$/.test(d)).sort().reverse();
       for (const month of months) {
-        const days = fs.readdirSync(path.join(racesDir, year, month)).filter(d => /^\d{2}$/.test(d)).sort().reverse();
+        const days = (await fsp.readdir(path.join(racesDir, year, month))).filter(d => /^\d{2}$/.test(d)).sort().reverse();
         for (const day of days) {
           if (daysChecked >= 5) return null;
           daysChecked++;
           const tempDir = path.join(racesDir, year, month, day, 'temp');
-          if (!fs.existsSync(tempDir)) continue;
-          const files = fs.readdirSync(tempDir).filter(f => f.startsWith('integrated_') && f.endsWith('.json'));
+          let tempExists = false;
+          try {
+            await fsp.access(tempDir);
+            tempExists = true;
+          } catch {
+            // directory doesn't exist
+          }
+          if (!tempExists) continue;
+          const files = (await fsp.readdir(tempDir)).filter(f => f.startsWith('integrated_') && f.endsWith('.json'));
           for (const file of files) {
             try {
-              const content = fs.readFileSync(path.join(tempDir, file), 'utf-8');
+              const content = await fsp.readFile(path.join(tempDir, file), 'utf-8');
               const data = JSON.parse(content);
               for (const entry of data.entries || []) {
                 const entryHorseId = String(entry.horse_id || entry.horse_profile_id || '');
@@ -232,13 +244,11 @@ function findHorseNameFromRecentRaces(horseId: string): { horseName: string; ket
                   const tsPath = path.join(tempDir, 'training_summary.json');
                   let kettoNum = '';
                   try {
-                    if (fs.existsSync(tsPath)) {
-                      const tsContent = fs.readFileSync(tsPath, 'utf-8');
-                      const tsData = JSON.parse(tsContent);
-                      const summary = tsData.summaries?.[entry.horse_name];
-                      if (summary?.kettoNum) {
-                        kettoNum = summary.kettoNum;
-                      }
+                    const tsContent = await fsp.readFile(tsPath, 'utf-8');
+                    const tsData = JSON.parse(tsContent);
+                    const summary = tsData.summaries?.[entry.horse_name];
+                    if (summary?.kettoNum) {
+                      kettoNum = summary.kettoNum;
                     }
                   } catch { /* ignore */ }
                   return { horseName: entry.horse_name, kettoNum };
@@ -369,19 +379,19 @@ export interface IntegratedHorseData {
 /**
  * 馬IDからプロファイルMDファイルパスを取得
  */
-function findHorseProfilePath(horseId: string): string | null {
-  if (!fs.existsSync(HORSES_DIR)) {
+async function findHorseProfilePath(horseId: string): Promise<string | null> {
+  try {
+    const files = await fsp.readdir(HORSES_DIR);
+    const targetFile = files.find((f) => f.startsWith(`${horseId}_`) && f.endsWith('.md'));
+
+    if (!targetFile) {
+      return null;
+    }
+
+    return path.join(HORSES_DIR, targetFile);
+  } catch {
     return null;
   }
-
-  const files = fs.readdirSync(HORSES_DIR);
-  const targetFile = files.find((f) => f.startsWith(`${horseId}_`) && f.endsWith('.md'));
-  
-  if (!targetFile) {
-    return null;
-  }
-
-  return path.join(HORSES_DIR, targetFile);
 }
 
 /**
@@ -389,40 +399,40 @@ function findHorseProfilePath(horseId: string): string | null {
  */
 function extractBasicInfoFromMd(content: string, horseId: string): HorseBasicInfo {
   const lines = content.split('\n');
-  
+
   let name = '';
   let age = '';
   let trainer = '';
   let jockey = '';
   let updatedAt = '';
-  
+
   // ファイル冒頭の # 馬プロファイル: XXX から馬名を抽出
   const titleMatch = content.match(/^# 馬プロファイル:\s*(.+)/m);
   if (titleMatch) {
     name = titleMatch[1].trim();
   }
-  
+
   // 基本情報セクションから抽出
   const ageMatch = content.match(/\*?\*?性齢\*?\*?[:\s]*\*?\*?([^\n*]+)/);
   if (ageMatch) {
     age = ageMatch[1].trim();
   }
-  
+
   const trainerMatch = content.match(/\*?\*?調教師\*?\*?[:\s]*\*?\*?([^\n*]+)/);
   if (trainerMatch) {
     trainer = trainerMatch[1].trim();
   }
-  
+
   const jockeyMatch = content.match(/\*?\*?騎手\*?\*?[:\s]*\*?\*?([^\n*]+)/);
   if (jockeyMatch) {
     jockey = jockeyMatch[1].trim();
   }
-  
+
   const updateMatch = content.match(/\*最終更新:\s*([^*]+)\*/);
   if (updateMatch) {
     updatedAt = updateMatch[1].trim();
   }
-  
+
   return {
     id: horseId,
     name,
@@ -458,9 +468,9 @@ function extractUserMemoFromMd(content: string): string {
 /**
  * レースファイルからレース結果を抽出
  */
-function extractRaceResultFromFile(filePath: string, horseId: string, horseName: string): HorseRaceResult | null {
+async function extractRaceResultFromFile(filePath: string, horseId: string, horseName: string): Promise<HorseRaceResult | null> {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = await fsp.readFile(filePath, 'utf-8');
     const data = JSON.parse(content);
 
     // entriesから該当馬を探す
@@ -544,15 +554,15 @@ function extractRaceResultFromFile(filePath: string, horseId: string, horseName:
 function targetResultToHorseRaceResult(target: TargetRaceResult): HorseRaceResult {
   // 日付をYYYY/MM/DD形式に変換
   const dateStr = target.raceDate;
-  const formattedDate = dateStr.length === 8 
+  const formattedDate = dateStr.length === 8
     ? `${dateStr.substring(0, 4)}/${dateStr.substring(4, 6)}/${dateStr.substring(6, 8)}`
     : dateStr;
-  
+
   // コーナー通過順を文字列化
   const corners = [target.corner1, target.corner2, target.corner3, target.corner4]
     .filter(c => c > 0)
     .join('-');
-  
+
   return {
     date: formattedDate,
     track: target.venue,
@@ -628,19 +638,19 @@ function mergeKeibabookData(base: HorseRaceResult, keibabook: HorseRaceResult): 
 
 /**
  * 過去レースデータを集約
- * 
+ *
  * データソース優先順位:
  * 1. TARGET SE_DATA（基本成績データ）- 高速・全履歴
  * 2. integrated_*.json（競馬ブックコメント等）- 付加情報
- * 
+ *
  * @param horseId 競馬ブック馬ID（7桁）
  * @param horseName 馬名
  * @param maxRaces 最大取得件数
  * @param targetKettoNum TARGET血統登録番号（10桁）- SE_DATA検索用
  */
 async function collectPastRaces(
-  horseId: string, 
-  horseName: string, 
+  horseId: string,
+  horseName: string,
   maxRaces: number = 30,
   targetKettoNum: string = ''
 ): Promise<HorseRaceResult[]> {
@@ -651,16 +661,16 @@ async function collectPastRaces(
   // 1. TARGET SE_DATAから基本成績を取得（高速）
   // targetKettoNumがあればそれを使用、なければhorseIdをパディング
   const kettoNumForSearch = targetKettoNum || horseId.padStart(10, '0');
-  
+
   if (isTargetSeDataAvailable()) {
     try {
       const targetResults = await getHorseRaceResultsFromTarget(kettoNumForSearch);
-      
+
       for (const tr of targetResults) {
         if (results.length >= maxRaces) break;
         results.push(targetResultToHorseRaceResult(tr));
       }
-      
+
       const elapsed = Date.now() - startTime;
       if (elapsed > 100 || results.length === 0) {
         console.log(`[IntegratedHorseReader] TARGET SE_DATA lookup (kettoNum=${kettoNumForSearch}) took ${elapsed}ms for ${results.length} results`);
@@ -673,19 +683,19 @@ async function collectPastRaces(
   // 2. 競馬ブックデータから付加情報を収集
   // raceIdの形式が異なるため、日付+競馬場+レース番号でマッチング
   const keibabookDataByMatchKey = new Map<string, HorseRaceResult>();
-  
+
   if (isIndexAvailable()) {
     const raceFiles = getRaceFilesForHorse(horseId);
-    
+
     console.log(`[IntegratedHorseReader] Processing ${raceFiles.length} race files for horseId=${horseId}`);
-    
+
     for (const filePath of raceFiles) {
-      const kbResult = extractRaceResultFromFile(filePath, horseId, horseName);
+      const kbResult = await extractRaceResultFromFile(filePath, horseId, horseName);
       if (kbResult) {
         const originalTrack = kbResult.track;
-        
+
         // race_info.jsonから正しい競馬場・距離・レース名を取得
-        const raceInfoData = getRaceInfoFromCache(kbResult.date, kbResult.raceId);
+        const raceInfoData = await getRaceInfoFromCache(kbResult.date, kbResult.raceId);
         if (raceInfoData) {
           kbResult.track = raceInfoData.track || kbResult.track;
           kbResult.distance = raceInfoData.distance || kbResult.distance;
@@ -694,7 +704,7 @@ async function collectPastRaces(
         } else {
           console.log(`[IntegratedHorseReader] No race_info data for date=${kbResult.date}, raceId=${kbResult.raceId}`);
         }
-        
+
         // 日付+競馬場+レース番号でマッチングキーを生成
         // date形式: YYYY/MM/DD, track: 中山, raceNumber: 7
         const matchKey = `${kbResult.date.replace(/\//g, '')}|${kbResult.track}|${kbResult.raceNumber}`;
@@ -723,24 +733,24 @@ async function collectPastRaces(
     // 4. TARGETベースに競馬ブックデータをマージ
     let matchCount = 0;
     const unmatchedKeys: string[] = [];
-    
+
     // デバッグ: 最初の3件のTARGET matchKeyを表示
-    const targetSampleKeys = results.slice(0, 3).map(r => 
+    const targetSampleKeys = results.slice(0, 3).map(r =>
       `${r.date.replace(/\//g, '')}|${r.track}|${r.raceNumber}`
     );
     console.log(`[IntegratedHorseReader] Sample TARGET matchKeys: ${targetSampleKeys.join(', ')}`);
-    
+
     for (let i = 0; i < results.length; i++) {
       // 日付+競馬場+レース番号でマッチング
       // date形式: YYYY/MM/DD, track: 中山, raceNumber: 7
       const matchKey = `${results[i].date.replace(/\//g, '')}|${results[i].track}|${results[i].raceNumber}`;
       let kbData = keibabookDataByMatchKey.get(matchKey);
-      
+
       // マッチしない場合はraceIdでフォールバック
       if (!kbData) {
         kbData = keibabookDataByRaceId.get(results[i].raceId);
       }
-      
+
       if (kbData) {
         results[i] = mergeKeibabookData(results[i], kbData);
         matchCount++;
@@ -754,28 +764,27 @@ async function collectPastRaces(
             DATA3_ROOT,
             'races', year, month, day, 'race_info.json'
           );
-          
+
           // race_info.jsonから情報取得を試みる
           try {
-            if (fs.existsSync(raceInfoPath)) {
-              const raceInfo = JSON.parse(fs.readFileSync(raceInfoPath, 'utf-8'));
-              for (const [kaisaiKey, races] of Object.entries(raceInfo.kaisai_data || {})) {
-                const trackMatch = kaisaiKey.match(/\d+回(.+?)\d+日目/);
-                const track = trackMatch ? trackMatch[1] : '';
-                
-                // 競馬場が一致するレースを探す
-                if (track === results[i].track) {
-                  for (const race of (races as Array<{ race_no: string; race_name?: string; course?: string; race_id?: string }>)) {
-                    const raceNo = parseInt(race.race_no?.replace('R', '') || '0', 10);
-                    if (raceNo === results[i].raceNumber) {
-                      results[i].raceName = race.race_name || '';
-                      results[i].distance = race.course || '';
-                      // 正しいraceIdを取得（競馬ブック形式）
-                      if (race.race_id) {
-                        results[i].raceId = race.race_id;
-                      }
-                      break;
+            const raceInfoContent = await fsp.readFile(raceInfoPath, 'utf-8');
+            const raceInfo = JSON.parse(raceInfoContent);
+            for (const [kaisaiKey, races] of Object.entries(raceInfo.kaisai_data || {})) {
+              const trackMatch = kaisaiKey.match(/\d+回(.+?)\d+日目/);
+              const track = trackMatch ? trackMatch[1] : '';
+
+              // 競馬場が一致するレースを探す
+              if (track === results[i].track) {
+                for (const race of (races as Array<{ race_no: string; race_name?: string; course?: string; race_id?: string }>)) {
+                  const raceNo = parseInt(race.race_no?.replace('R', '') || '0', 10);
+                  if (raceNo === results[i].raceNumber) {
+                    results[i].raceName = race.race_name || '';
+                    results[i].distance = race.course || '';
+                    // 正しいraceIdを取得（競馬ブック形式）
+                    if (race.race_id) {
+                      results[i].raceId = race.race_id;
                     }
+                    break;
                   }
                 }
               }
@@ -786,7 +795,7 @@ async function collectPastRaces(
         }
       }
     }
-    
+
     // マッチング結果ログ
     console.log(`[IntegratedHorseReader] Merge result: ${matchCount}/${results.length} matched`);
     if (unmatchedKeys.length > 0 && unmatchedKeys.length <= 5) {
@@ -798,8 +807,8 @@ async function collectPastRaces(
   let trainingCount = 0;
   for (const result of results) {
     // date形式: YYYY/MM/DD
-    const trainingSummary = loadTrainingSummary(result.date);
-    
+    const trainingSummary = await loadTrainingSummary(result.date);
+
     // 馬名で検索
     const trainingEntry = trainingSummary.get(horseName);
     if (trainingEntry) {
@@ -809,7 +818,7 @@ async function collectPastRaces(
       trainingCount++;
     }
   }
-  
+
   if (trainingCount > 0) {
     console.log(`[IntegratedHorseReader] Training data added: ${trainingCount}/${results.length} races`);
   }
@@ -950,14 +959,14 @@ function calculateStats(pastRaces: HorseRaceResult[]): HorseStats {
 
 /**
  * 統合馬プロファイルデータを取得
- * 
+ *
  * データソース優先順位:
  * 1. TARGET JV-Data (高速) - 基本情報
  * 2. JSON/MD - 過去レース詳細、ユーザーメモ
  */
 export async function getIntegratedHorseData(horseId: string): Promise<IntegratedHorseData | null> {
   const totalStart = Date.now();
-  
+
   try {
     let basic: HorseBasicInfo;
     let userMemo = '';
@@ -966,23 +975,27 @@ export async function getIntegratedHorseData(horseId: string): Promise<Integrate
 
     // 0. 馬名を取得（TARGET検索のため）
     // 優先順位: 1. MDファイル, 2. integrated_*.json
-    const profilePath = findHorseProfilePath(horseId);
+    const profilePath = await findHorseProfilePath(horseId);
     let knownHorseName = '';
-    
+
     // MDファイルから馬名を取得
-    if (profilePath && fs.existsSync(profilePath)) {
-      const content = fs.readFileSync(profilePath, 'utf-8');
-      const basicFromMd = extractBasicInfoFromMd(content, horseId);
-      knownHorseName = basicFromMd.name;
-      userMemo = extractUserMemoFromMd(content);
+    if (profilePath) {
+      try {
+        const content = await fsp.readFile(profilePath, 'utf-8');
+        const basicFromMd = extractBasicInfoFromMd(content, horseId);
+        knownHorseName = basicFromMd.name;
+        userMemo = extractUserMemoFromMd(content);
+      } catch {
+        // file read error
+      }
     }
-    
+
     // MDにない場合はintegrated_*.jsonから馬名を取得
     if (!knownHorseName && isIndexAvailable()) {
       const raceFiles = getRaceFilesForHorse(horseId);
       if (raceFiles.length > 0) {
         try {
-          const content = fs.readFileSync(raceFiles[0], 'utf-8');
+          const content = await fsp.readFile(raceFiles[0], 'utf-8');
           const data = JSON.parse(content);
           for (const entry of data.entries || []) {
             const entryHorseId = String(entry.horse_id || entry.horse_profile_id || '');
@@ -1006,7 +1019,7 @@ export async function getIntegratedHorseData(horseId: string): Promise<Integrate
     if (targetElapsed > 500) {
       console.log(`[IntegratedHorseReader] TARGET lookup took ${targetElapsed}ms`);
     }
-    
+
     if (targetData) {
       const age = calculateHorseAge(targetData.birthDate);
       basic = {
@@ -1044,15 +1057,19 @@ export async function getIntegratedHorseData(horseId: string): Promise<Integrate
           updatedAt: '',
         };
         horseName = knownHorseName;
-        
+
         // MDから詳細情報を再取得（あれば）
-        if (profilePath && fs.existsSync(profilePath)) {
-          const content = fs.readFileSync(profilePath, 'utf-8');
-          basic = extractBasicInfoFromMd(content, horseId);
+        if (profilePath) {
+          try {
+            const content = await fsp.readFile(profilePath, 'utf-8');
+            basic = extractBasicInfoFromMd(content, horseId);
+          } catch {
+            // file read error
+          }
         }
       } else {
         // フォールバック: 直近のintegrated_*.jsonから馬名を検索（初出走馬対応）
-        const recentData = findHorseNameFromRecentRaces(horseId);
+        const recentData = await findHorseNameFromRecentRaces(horseId);
         if (recentData) {
           console.log(`[IntegratedHorseReader] Found horse from recent races: ${recentData.horseName} (KettoNum=${recentData.kettoNum})`);
           horseName = recentData.horseName;
@@ -1115,11 +1132,15 @@ export async function getIntegratedHorseData(horseId: string): Promise<Integrate
     }
 
     // 3. MDから更新日時を取得（TARGETで取得した場合）
-    if (targetData && profilePath && fs.existsSync(profilePath)) {
-      const content = fs.readFileSync(profilePath, 'utf-8');
-      const updateMatch = content.match(/\*最終更新:\s*([^*]+)\*/);
-      if (updateMatch) {
-        basic.updatedAt = updateMatch[1].trim();
+    if (targetData && profilePath) {
+      try {
+        const content = await fsp.readFile(profilePath, 'utf-8');
+        const updateMatch = content.match(/\*最終更新:\s*([^*]+)\*/);
+        if (updateMatch) {
+          basic.updatedAt = updateMatch[1].trim();
+        }
+      } catch {
+        // file read error
       }
     }
 
@@ -1131,12 +1152,12 @@ export async function getIntegratedHorseData(horseId: string): Promise<Integrate
     // 騎手情報・調教師情報を最新レースから補完
     if (pastRaces.length > 0) {
       const latestRace = pastRaces[0];
-      
+
       // 騎手情報補完
       if (!basic.jockey && latestRace.jockey) {
         basic.jockey = latestRace.jockey;
       }
-      
+
       // 調教師情報補完（競馬ブックデータから取得）
       if (!basic.trainerId && latestRace.trainerId) {
         basic.trainerId = latestRace.trainerId;
@@ -1147,7 +1168,7 @@ export async function getIntegratedHorseData(horseId: string): Promise<Integrate
           basic.trainer = latestRace.trainer;
         }
       }
-      
+
       // 調教師インデックスからJRA-VANコードとコメントを取得
       if (basic.trainerId) {
         const trainerInfo = getTrainerInfo(basic.trainerId);
@@ -1188,12 +1209,14 @@ export async function getIntegratedHorseData(horseId: string): Promise<Integrate
 export async function searchHorsesByName(query: string): Promise<Array<{ id: string; name: string; age: string }>> {
   const results: Array<{ id: string; name: string; age: string }> = [];
 
-  if (!fs.existsSync(HORSES_DIR)) {
+  let files: string[];
+  try {
+    files = await fsp.readdir(HORSES_DIR);
+  } catch {
     return results;
   }
 
   const normalizedQuery = query.toLowerCase();
-  const files = fs.readdirSync(HORSES_DIR);
 
   for (const file of files) {
     if (!file.endsWith('.md')) continue;
@@ -1206,11 +1229,14 @@ export async function searchHorsesByName(query: string): Promise<Array<{ id: str
     if (name.toLowerCase().includes(normalizedQuery)) {
       // 性齢を抽出
       const filePath = path.join(HORSES_DIR, file);
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const ageMatch = content.match(/性齢[:\s]*\*?\*?(\S+)\*?\*?/);
-      const age = ageMatch ? ageMatch[1] : '';
-
-      results.push({ id, name, age });
+      try {
+        const content = await fsp.readFile(filePath, 'utf-8');
+        const ageMatch = content.match(/性齢[:\s]*\*?\*?(\S+)\*?\*?/);
+        const age = ageMatch ? ageMatch[1] : '';
+        results.push({ id, name, age });
+      } catch {
+        results.push({ id, name, age: '' });
+      }
     }
 
     if (results.length >= 50) break;

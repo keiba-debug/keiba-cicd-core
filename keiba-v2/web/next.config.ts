@@ -9,7 +9,6 @@ const nextConfig: NextConfig = {
     // 大きなパッケージのインポートを最適化（Tree Shaking強化）
     optimizePackageImports: [
       'lucide-react',
-      'date-fns',
       '@radix-ui/react-tabs',
       '@radix-ui/react-select',
       '@radix-ui/react-popover',

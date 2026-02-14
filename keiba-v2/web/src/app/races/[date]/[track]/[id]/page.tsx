@@ -168,7 +168,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
     horses = extractHorsesFromMarkdown(raceData.content);
   } else {
     // JSONソース (v4): race_*.json の entries から取得
-    horses = loadV4RaceEntries(date, id) || [];
+    horses = (await loadV4RaceEntries(date, id)) || [];
   }
   // raceDataにhorsesをマージしたオブジェクトを作成
   const race = { ...raceData, horses };
