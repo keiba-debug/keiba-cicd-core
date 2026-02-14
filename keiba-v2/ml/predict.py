@@ -49,8 +49,11 @@ def load_model_and_meta():
 
     model_a_path = ml_dir / "model_a.txt"
     model_b_path = ml_dir / "model_b.txt"
+    model_w_path = ml_dir / "model_w.txt"
+    model_wv_path = ml_dir / "model_wv.txt"
     meta_path = ml_dir / "model_meta.json"
 
+    # Place モデル (A/B) は必須
     missing = [p for p in [model_a_path, model_b_path, meta_path] if not p.exists()]
     if missing:
         names = ", ".join(p.name for p in missing)
@@ -62,10 +65,20 @@ def load_model_and_meta():
     model_a = lgb.Booster(model_file=str(model_a_path))
     model_b = lgb.Booster(model_file=str(model_b_path))
 
+    # Win モデル (W/WV) はオプション（後方互換）
+    model_w = None
+    model_wv = None
+    if model_w_path.exists() and model_wv_path.exists():
+        model_w = lgb.Booster(model_file=str(model_w_path))
+        model_wv = lgb.Booster(model_file=str(model_wv_path))
+        print(f"[Model] Win models loaded: model_w.txt, model_wv.txt")
+    else:
+        print(f"[Model] Win models not found — running without win predictions")
+
     with open(meta_path, encoding='utf-8') as f:
         meta = json.load(f)
 
-    return model_a, model_b, meta
+    return model_a, model_b, model_w, model_wv, meta
 
 
 def load_master_data():
@@ -148,12 +161,18 @@ def predict_race(
     pace_index: dict,
     db_odds: Optional[Dict[int, dict]] = None,
     training_summary_day: Optional[dict] = None,
+    model_w=None,
+    model_wv=None,
+    db_place_odds: Optional[Dict[int, dict]] = None,
 ) -> dict:
     """1レースの予測を実行
 
     Args:
-        db_odds: mykeibadbから取得した事前オッズ {umaban: {'odds': float, 'ninki': int}}
+        db_odds: mykeibadbから取得した事前単勝オッズ {umaban: {'odds': float, 'ninki': int}}
         training_summary_day: CK_DATA調教サマリ {ketto_num: summary} (当日分)
+        model_w: Win精度モデル (Optional)
+        model_wv: Winバリューモデル (Optional)
+        db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
     """
     features_all = meta['features_all']
     features_value = meta['features_value']
@@ -298,7 +317,7 @@ def predict_race(
     arr_a = np.array(feature_rows_a)
     arr_v = np.array(feature_rows_v)
 
-    # 予測
+    # === Place予測 (is_top3) ===
     pred_a_raw = model_a.predict(arr_a)
     pred_b_raw = model_b.predict(arr_v)
 
@@ -308,14 +327,28 @@ def predict_race(
     pred_a = pred_a_raw / sum_a if sum_a > 0 else pred_a_raw
     pred_b = pred_b_raw / sum_b if sum_b > 0 else pred_b_raw
 
-    # ランク計算
-    rank_a = np.argsort(-pred_a) + 1
-    rank_v = np.argsort(-pred_b) + 1
+    # === Win予測 (is_win) ===
+    has_win_model = model_w is not None and model_wv is not None
+    pred_w = None
+    pred_wv = None
+    rank_w_dict = {}
+    rank_wv_dict = {}
 
-    # 結果を格納
+    if has_win_model:
+        pred_w_raw = model_w.predict(arr_a)
+        pred_wv_raw = model_wv.predict(arr_v)
+        sum_w = pred_w_raw.sum()
+        sum_wv = pred_wv_raw.sum()
+        pred_w = pred_w_raw / sum_w if sum_w > 0 else pred_w_raw
+        pred_wv = pred_wv_raw / sum_wv if sum_wv > 0 else pred_wv_raw
+        rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w), 1)}
+        rank_wv_dict = {i: r for r, i in enumerate(np.argsort(-pred_wv), 1)}
+
+    # ランク計算
     rank_a_dict = {i: r for r, i in enumerate(np.argsort(-pred_a), 1)}
     rank_v_dict = {i: r for r, i in enumerate(np.argsort(-pred_b), 1)}
 
+    # 結果を格納
     result_entries = []
     for i, p in enumerate(predictions):
         ra = rank_a_dict[i]
@@ -331,11 +364,25 @@ def predict_race(
         # VB gap: odds_rankが有効な場合のみ計算
         gap = (odds_rank - rv) if odds_rank > 0 else 0
 
-        result_entries.append({
-            'umaban': p['umaban'],
+        # Win ranks & gap
+        rw = rank_w_dict.get(i) if has_win_model else None
+        rwv = rank_wv_dict.get(i) if has_win_model else None
+        win_gap = int(odds_rank - rwv) if has_win_model and rwv and odds_rank > 0 else 0
+
+        # 複勝オッズ
+        umaban = p['umaban']
+        place_low = None
+        place_high = None
+        if db_place_odds and umaban in db_place_odds:
+            place_low = db_place_odds[umaban].get('odds_low')
+            place_high = db_place_odds[umaban].get('odds_high')
+
+        entry = {
+            'umaban': umaban,
             'horse_name': p['horse_name'],
             'odds': p['odds'],
             'popularity': p['popularity'],
+            # Place predictions (is_top3)
             'pred_proba_a': round(float(pred_a[i]), 4),
             'pred_proba_v': round(float(pred_b[i]), 4),
             'rank_a': int(ra),
@@ -343,13 +390,23 @@ def predict_race(
             'odds_rank': odds_rank,
             'vb_gap': int(gap),
             'is_value_bet': gap >= VALUE_BET_MIN_GAP and odds_rank > 0,
+            # Win predictions (is_win)
+            'pred_proba_w': round(float(pred_w[i]), 4) if has_win_model else None,
+            'pred_proba_wv': round(float(pred_wv[i]), 4) if has_win_model else None,
+            'rank_w': int(rw) if rw is not None else None,
+            'rank_wv': int(rwv) if rwv is not None else None,
+            'win_vb_gap': win_gap,
+            # Place odds
+            'place_odds_min': place_low,
+            'place_odds_max': place_high,
             # keibabook情報
             'kb_mark': p['kb_mark'],
             'kb_mark_point': p['kb_mark_point'],
             'kb_training_arrow': p['kb_training_arrow'],
             'kb_rating': p['kb_rating'],
             'kb_comment': p['kb_comment'],
-        })
+        }
+        result_entries.append(entry)
 
     # ソート: Model B確率の高い順
     result_entries.sort(key=lambda x: -x['pred_proba_v'])
@@ -411,9 +468,10 @@ def main():
 
     # モデルロード
     print("[Load] Loading models...")
-    model_a, model_b, meta = load_model_and_meta()
-    print(f"  Model A features: {len(meta['features_all'])}")
-    print(f"  Model B features: {len(meta['features_value'])}")
+    model_a, model_b, model_w, model_wv, meta = load_model_and_meta()
+    print(f"  Place model features: A={len(meta['features_all'])}, V={len(meta['features_value'])}")
+    if model_w:
+        print(f"  Win model features:   W={len(meta['features_all'])}, WV={len(meta['features_value'])}")
 
     # マスタデータロード
     print("[Load] Loading master data...")
@@ -455,13 +513,16 @@ def main():
 
     # DB事前オッズ取得
     db_odds_index = {}
+    db_place_odds_index = {}
     if use_db_odds:
         try:
-            from core.odds_db import batch_get_pre_race_odds, is_db_available
+            from core.odds_db import batch_get_pre_race_odds, batch_get_place_odds, is_db_available
             if is_db_available():
                 race_codes = [r['race_id'] for r in races]
                 db_odds_index = batch_get_pre_race_odds(race_codes)
-                print(f"[DB Odds] {len(db_odds_index)}/{len(races)} races with DB odds")
+                db_place_odds_index = batch_get_place_odds(race_codes)
+                print(f"[DB Odds] Win: {len(db_odds_index)}/{len(races)}, "
+                      f"Place: {len(db_place_odds_index)}/{len(races)} races")
             else:
                 print("[DB Odds] mykeibadb not available, using JSON odds")
         except Exception as e:
@@ -496,6 +557,9 @@ def main():
             history_cache, trainer_index, jockey_index, pace_index,
             db_odds=db_odds_index.get(race['race_id']),
             training_summary_day=training_summary_day,
+            model_w=model_w,
+            model_wv=model_wv,
+            db_place_odds=db_place_odds_index.get(race['race_id']),
         )
         all_predictions.append(pred)
 
@@ -514,7 +578,7 @@ def main():
 
     # 結果保存
     output = {
-        'version': '3.4',
+        'version': '4.0',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'date': date,
         'model_version': meta.get('version', '?'),

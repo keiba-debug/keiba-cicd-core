@@ -171,9 +171,23 @@ function getPlaceOddsMin(odds: OddsMap, raceId: string, umaban: number): number 
   return entry?.placeOddsMin ?? null;
 }
 
-function calcEv(probV: number, winOdds: number | null): number | null {
+/** 単勝EV = P(win) × 単勝オッズ */
+function calcWinEv(entry: { pred_proba_wv?: number; pred_proba_v: number }, winOdds: number | null): number | null {
   if (!winOdds || winOdds <= 0) return null;
-  return probV * winOdds;
+  const prob = entry.pred_proba_wv ?? entry.pred_proba_v; // fallback to place prob
+  return prob * winOdds;
+}
+
+/** 複勝EV = P(top3) × 複勝オッズ最低値 */
+function calcPlaceEv(probV: number, placeOddsMin: number | undefined | null): number | null {
+  if (!placeOddsMin || placeOddsMin <= 0) return null;
+  return probV * placeOddsMin;
+}
+
+/** 頭向き度 = P(win) / P(top3) */
+function calcHeadRatio(probWV: number | undefined, probV: number): number | null {
+  if (!probWV || probV <= 0) return null;
+  return probWV / probV;
 }
 
 function getFinishColor(pos: number): string {
@@ -316,6 +330,10 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   // VBテーブルソート
   const [vbSort, setVbSort] = useState<SortState>({ key: 'gap', dir: 'desc' });
 
+  // TARGET馬印2 VB印反映
+  const [markSyncing, setMarkSyncing] = useState(false);
+  const [markResult, setMarkResult] = useState<{ marks: Record<string, number>; markedHorses: number } | null>(null);
+
   const isToday = useMemo(() => {
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -454,7 +472,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     if (minEv > 0) {
       entries = entries.filter(e => {
         const winOdds = getWinOdds(oddsMap, e.race.race_id, e.entry.umaban, e.entry.odds);
-        const ev = calcEv(e.entry.pred_proba_v, winOdds);
+        const ev = calcWinEv(e.entry, winOdds);
         return ev !== null && ev >= minEv;
       });
     }
@@ -499,7 +517,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
       for (const entry of race.entries) {
         const odds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
-        const ev = calcEv(entry.pred_proba_v, odds);
+        const ev = calcWinEv(entry, odds);
         if (ev !== null && ev >= 1.0) evPositiveCount++;
       }
     }
@@ -519,6 +537,31 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     return jsonEntry?.finish_position ?? 0;
   }, [dbResults, results]);
 
+  // TARGET馬印2にVB印を一括反映
+  const syncVbMarks = useCallback(async () => {
+    setMarkSyncing(true);
+    setMarkResult(null);
+    try {
+      const res = await fetch('/api/target-marks/auto-vb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: isArchive ? currentDate : undefined }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setMarkResult({ marks: data.summary.marks, markedHorses: data.summary.markedHorses });
+    } catch (error) {
+      console.error('[syncVbMarks] Error:', error);
+      setMarkResult(null);
+      alert(`VB印反映に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setMarkSyncing(false);
+    }
+  }, [isArchive, currentDate]);
+
   // VBテーブル ソート適用
   const sortedVBEntries = useMemo(() => {
     const arr = [...filteredVBEntries];
@@ -537,8 +580,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           break;
         }
         case 'ev': {
-          va = calcEv(a.entry.pred_proba_v, getWinOdds(oddsMap, a.race.race_id, a.entry.umaban, a.entry.odds)) ?? -1;
-          vb = calcEv(b.entry.pred_proba_v, getWinOdds(oddsMap, b.race.race_id, b.entry.umaban, b.entry.odds)) ?? -1;
+          va = calcWinEv(a.entry, getWinOdds(oddsMap, a.race.race_id, a.entry.umaban, a.entry.odds)) ?? -1;
+          vb = calcWinEv(b.entry, getWinOdds(oddsMap, b.race.race_id, b.entry.umaban, b.entry.odds)) ?? -1;
           break;
         }
         case 'prob_a': va = a.entry.pred_proba_a; vb = b.entry.pred_proba_a; break;
@@ -694,7 +737,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           {['all', ...venues].map(v => (
             <button
               key={v}
-              onClick={() => { setVenueFilter(v); setRaceNumFilter(0); }}
+              onClick={() => setVenueFilter(v)}
               className={`px-2.5 py-1 text-xs rounded transition-colors ${
                 venueFilter === v
                   ? 'bg-blue-600 text-white shadow-sm'
@@ -879,9 +922,30 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       {filteredVBEntries.length > 0 && (
         <Card className="mb-8 border-amber-200 dark:border-amber-800">
           <CardHeader className="pb-2 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950 dark:to-orange-950">
-            <CardTitle className="text-lg flex items-center gap-2">
-              Value Bet 候補 ({filteredVBEntries.length}頭)
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                Value Bet 候補 ({filteredVBEntries.length}頭)
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {markResult && (
+                  <span className="text-xs text-green-700 dark:text-green-400">
+                    {Object.entries(markResult.marks)
+                      .filter(([, v]) => v > 0)
+                      .map(([k, v]) => `${k}${v}`)
+                      .join(' ')}
+                    {' '}反映完了
+                  </span>
+                )}
+                <button
+                  onClick={syncVbMarks}
+                  disabled={markSyncing}
+                  className="px-3 py-1 text-xs font-medium rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-amber-300 dark:border-amber-700 disabled:opacity-50"
+                  title="VB候補の印をTARGET馬印2に一括書込み"
+                >
+                  {markSyncing ? '反映中...' : 'VB印→馬印2'}
+                </button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="pt-4">
             <div className="overflow-x-auto">
@@ -899,9 +963,10 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                     <SortTh sortKey="odds_rank" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="オッズ順人気">人気</SortTh>
                     <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ（DB最新）">オッズ</SortTh>
                     <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="人気 - VR：市場評価とモデル評価の乖離（大きいほど過小評価）">Gap</SortTh>
-                    <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-emerald-50 dark:bg-emerald-900/30" title="期待値 = V確率 × 単勝オッズ（1.0以上がプラス期待値）">EV</SortTh>
-                    <SortTh sortKey="prob_a" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="Model A（精度モデル）の勝率予測 — オッズ情報を含む全特徴量使用">A%</SortTh>
-                    <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="Model V（市場非依存モデル）の勝率予測 — オッズ情報を使わない">V%</SortTh>
+                    <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-emerald-50 dark:bg-emerald-900/30" title="単勝EV = P(win) × 単勝オッズ（1.0以上がプラス期待値）">単EV</SortTh>
+                    <th className="px-2 py-2 text-center border bg-blue-50 dark:bg-blue-900/30" title="複勝EV = P(top3) × 複勝オッズ最低値">複EV</th>
+                    <th className="px-2 py-2 text-center border" title="頭向き度 = P(win)/P(top3) — 高いほど勝ち切る力が強い">頭%</th>
+                    <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="P(top3) 複勝圏予測確率（市場非依存）">V%</SortTh>
                     <th className="px-2 py-2 text-center border" title="競馬ブック調教評価の矢印">調教</th>
                     <th className="px-2 py-2 text-left border" title="競馬ブック短評コメント">短評</th>
                     {hasResults && <SortTh sortKey="finish" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="確定着順">着順</SortTh>}
@@ -912,7 +977,10 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                 <tbody>
                   {sortedVBEntries.map(({ race, entry }) => {
                     const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
-                    const ev = calcEv(entry.pred_proba_v, winOdds);
+                    const ev = calcWinEv(entry, winOdds);
+                    const placeOddsMin = entry.place_odds_min ?? getPlaceOddsMin(oddsMap, race.race_id, entry.umaban);
+                    const placeEv = calcPlaceEv(entry.pred_proba_v, placeOddsMin);
+                    const headRatio = calcHeadRatio(entry.pred_proba_wv, entry.pred_proba_v);
                     const finishPos = getFinishPos(race.race_id, entry.umaban);
                     const placeLimit = getPlaceLimit(race.num_runners);
                     const isPlaceHit = finishPos > 0 && placeLimit > 0 && finishPos <= placeLimit;
@@ -965,8 +1033,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                         <td className={`px-2 py-1.5 border text-center font-mono ${ev !== null ? getEvColor(ev) : 'text-gray-300'} bg-emerald-50/50 dark:bg-emerald-900/10`}>
                           {ev !== null ? ev.toFixed(2) : '-'}
                         </td>
-                        <td className="px-2 py-1.5 border text-center font-mono text-xs">
-                          {(entry.pred_proba_a * 100).toFixed(1)}
+                        <td className={`px-2 py-1.5 border text-center font-mono text-xs ${placeEv !== null && placeEv >= 1.0 ? 'text-blue-600 font-bold' : placeEv !== null ? 'text-blue-400' : 'text-gray-300'} bg-blue-50/30 dark:bg-blue-900/10`}>
+                          {placeEv !== null ? placeEv.toFixed(2) : '-'}
+                        </td>
+                        <td className={`px-2 py-1.5 border text-center font-mono text-xs ${headRatio !== null && headRatio >= 0.35 ? 'text-red-600 font-bold' : headRatio !== null ? '' : 'text-gray-300'}`}>
+                          {headRatio !== null ? `${(headRatio * 100).toFixed(0)}` : '-'}
                         </td>
                         <td className="px-2 py-1.5 border text-center font-mono text-xs">
                           {(entry.pred_proba_v * 100).toFixed(1)}
@@ -1055,8 +1126,8 @@ function RaceCard({ race, oddsMap, results, dbResults }: { race: PredictionRace;
         }
         case 'gap': va = a.vb_gap; vb = b.vb_gap; break;
         case 'ev': {
-          va = calcEv(a.pred_proba_v, getWinOdds(oddsMap, race.race_id, a.umaban, a.odds)) ?? -1;
-          vb = calcEv(b.pred_proba_v, getWinOdds(oddsMap, race.race_id, b.umaban, b.odds)) ?? -1;
+          va = calcWinEv(a, getWinOdds(oddsMap, race.race_id, a.umaban, a.odds)) ?? -1;
+          vb = calcWinEv(b, getWinOdds(oddsMap, race.race_id, b.umaban, b.odds)) ?? -1;
           break;
         }
         case 'prob_a': va = a.pred_proba_a; vb = b.pred_proba_a; break;
@@ -1122,9 +1193,9 @@ function RaceCard({ race, oddsMap, results, dbResults }: { race: PredictionRace;
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="人気 - VR：市場評価とモデル評価の乖離">Gap</SortTh>
-                <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="期待値 = V確率 × オッズ（1.0以上がプラス期待値）">EV</SortTh>
-                <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="Model A 勝率予測（%）">A%</SortTh>
-                <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="Model V 勝率予測（%）">V%</SortTh>
+                <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="単勝EV = P(win) × 単勝オッズ（1.0以上がプラス期待値）">単EV</SortTh>
+                <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="Model A 3着内確率（%） — 全特徴量">A%</SortTh>
+                <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="Model V 3着内確率（%） — 市場非依存">V%</SortTh>
                 <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="競馬ブックレイティング">Rate</SortTh>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック調教評価">調</th>
                 <th className="px-2 py-1.5 text-left border-b" title="競馬ブック短評">短評</th>
@@ -1138,7 +1209,7 @@ function RaceCard({ race, oddsMap, results, dbResults }: { race: PredictionRace;
                 const isVB = entry.is_value_bet;
                 const isTopA = entry.rank_a <= 3;
                 const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
-                const ev = calcEv(entry.pred_proba_v, winOdds);
+                const ev = calcWinEv(entry, winOdds);
                 const dbEntry = dbRaceResult?.[entry.umaban];
                 const jsonEntry = jsonRaceResult?.[entry.umaban];
                 const finishPos = dbEntry?.finishPosition ?? jsonEntry?.finish_position ?? 0;

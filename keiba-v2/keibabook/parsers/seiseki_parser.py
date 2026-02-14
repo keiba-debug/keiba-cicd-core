@@ -219,8 +219,8 @@ def _extract_race_details(soup: BeautifulSoup) -> dict:
     details: dict[str, Any] = {}
     text = soup.get_text()
 
-    # 距離
-    m = re.search(r"(芝|ダート?)\s*(\d{3,4})m", text)
+    # 距離（芝内・2000m, 芝外・1800m 等は芝として扱う）
+    m = re.search(r"(芝(?:内|外)?|ダート?)[・\s]*(\d{3,4})m", text)
     if m:
         details["track_type"] = "芝" if "芝" in m.group(1) else "ダート"
         details["distance"] = int(m.group(2))

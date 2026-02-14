@@ -72,6 +72,26 @@ def parse_nittei_html(html: str, date_str: str = "") -> dict[str, Any]:
                     if ps:
                         race_name = ps[0].get_text(strip=True) if len(ps) > 0 else ""
                         course = ps[1].get_text(strip=True) if len(ps) > 1 else ""
+                    # 2番目のpで「芝内・2000m」「芝外・1800m」のときは芝として正規化
+                    if course:
+                        course_inner = re.search(r"芝(?:内|外)[・\s]*(\d{3,4})\s*m?", course)
+                        if course_inner:
+                            course = f"芝{course_inner.group(1)}m"
+
+                    # 京都など一部で2番目のpが無い場合: セル全文から芝/ダ/障＋距離を抽出
+                    # 京都は「芝内・2000m」「芝外・1800m」表記のため、芝内/芝外を芝として扱う
+                    if not course and link:
+                        full_text = link.get_text(separator=" ", strip=True)
+                        # 芝・1800m / 芝内・2000m / 芝外・2200m / ダ1200m / 障3000m 等
+                        course_m = re.search(
+                            r"(芝(?:内|外)?|ダ|ダート|障)[・\s]*(\d{3,4})\s*m?",
+                            full_text,
+                            re.IGNORECASE,
+                        )
+                        if course_m:
+                            g1 = course_m.group(1)
+                            surface = "芝" if "芝" in g1 else "障" if "障" in g1 else "ダ"
+                            course = f"{surface}{course_m.group(2)}m"
 
             # 発走時刻（3番目のセル）
             start_time = ""

@@ -78,7 +78,7 @@ def _extract_race_info(soup: BeautifulSoup) -> dict:
     if title:
         info["title"] = title.get_text(strip=True)
 
-    # race listからコース情報
+    # race listからコース情報（京都は「芝内・2000m」「芝外・1800m」表記）
     race_list = soup.find("ul", class_="race")
     if race_list:
         active = race_list.find("li", class_="active")
@@ -87,15 +87,16 @@ def _extract_race_info(soup: BeautifulSoup) -> dict:
             parts = val.split("<br>") if "<br>" in val else val.split("<br/>")
             if len(parts) >= 2:
                 info["race_condition"] = parts[0].strip()
-                m = re.match(r"(芝|ダ|ダート)・?(\d+)m", parts[1].strip())
+                # 芝内・2000m, 芝外・1800m, 芝・1800m, ダ・1200m 等
+                m = re.match(r"(芝(?:内|外)?|ダ|ダート)・?(\d+)m", parts[1].strip())
                 if m:
-                    info["track"] = "芝" if m.group(1) == "芝" else "ダ"
+                    info["track"] = "芝" if "芝" in m.group(1) else "ダ"
                     info["distance"] = int(m.group(2))
 
-    # フォールバック
+    # フォールバック（ページ全文から距離を探す）
     if "distance" not in info:
         text = soup.get_text()
-        m = re.search(r"(芝|ダート?)[・\s]*(\d{3,4})m", text)
+        m = re.search(r"(芝(?:内|外)?|ダート?)[・\s]*(\d{3,4})m", text)
         if m:
             info["track"] = "芝" if "芝" in m.group(1) else "ダ"
             info["distance"] = int(m.group(2))

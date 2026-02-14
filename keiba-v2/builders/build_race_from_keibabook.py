@@ -119,11 +119,12 @@ def extract_venue_name(kaisai_key: str) -> str:
 
 
 def extract_track_info(race_info: dict) -> tuple:
-    """race_infoのcourseフィールドからトラック種別と距離を抽出"""
+    """race_infoのcourseフィールドからトラック種別と距離を抽出。芝内/芝外は芝として扱う。"""
     course = race_info.get("course", "")
-    m = re.match(r"(芝|ダ|ダート)\s*(\d+)", course)
+    # 芝内2000m, 芝外・1800m, 芝1800m, ダ1200 等
+    m = re.match(r"(芝(?:内|外)?|ダ|ダート)[・\s]*(\d+)", course)
     if m:
-        track = "芝" if m.group(1) == "芝" else "ダ"
+        track = "芝" if "芝" in m.group(1) else "ダ"
         return track, int(m.group(2))
     return "", 0
 

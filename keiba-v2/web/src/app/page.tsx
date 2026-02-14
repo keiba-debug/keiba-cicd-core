@@ -31,7 +31,12 @@ export default async function HomePage({
   searchParams: Promise<{ year?: string; month?: string; date?: string }>;
 }) {
   const params = await searchParams;
-  const dates = await getAvailableDates();
+  let dates: string[] = [];
+  try {
+    dates = await getAvailableDates();
+  } catch (err) {
+    console.error('[HomePage] getAvailableDates failed:', err);
+  }
 
   // 年月でグループ化
   const groupedDates = groupDatesByYearMonth(dates);

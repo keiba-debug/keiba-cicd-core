@@ -15,13 +15,24 @@ export interface PredictionEntry {
   horse_name: string;
   odds: number;
   popularity: number;
-  pred_proba_a: number;
-  pred_proba_v: number;
+  // Place predictions (is_top3)
+  pred_proba_a: number;   // P(top3) all features
+  pred_proba_v: number;   // P(top3) value features
   rank_a: number;
   rank_v: number;
   odds_rank: number;
   vb_gap: number;
   is_value_bet: boolean;
+  // Win predictions (is_win) — optional for backward compat
+  pred_proba_w?: number;   // P(win) all features
+  pred_proba_wv?: number;  // P(win) value features
+  rank_w?: number;
+  rank_wv?: number;
+  win_vb_gap?: number;
+  // Place odds from DB
+  place_odds_min?: number;
+  place_odds_max?: number;
+  // keibabook
   kb_mark: string;
   kb_mark_point: number;
   kb_training_arrow: string;

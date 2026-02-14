@@ -278,6 +278,85 @@ def batch_get_pre_race_odds(
     return result
 
 
+def batch_get_place_odds(
+    race_codes: List[str],
+) -> Dict[str, Dict[int, dict]]:
+    """複数レースの複勝オッズを一括取得
+
+    時系列複勝オッズの最終スナップショットを取得。
+    時系列データがなければ確定複勝オッズにフォールバック。
+
+    Returns:
+        {race_code: {umaban: {'odds_low': float, 'odds_high': float, 'source': str}}}
+    """
+    from core.db import get_connection
+
+    if not race_codes:
+        return {}
+
+    result = {}
+
+    batch_size = 500
+    for i in range(0, len(race_codes), batch_size):
+        batch = race_codes[i:i + batch_size]
+        placeholders = ','.join(['%s'] * len(batch))
+
+        with get_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+
+            # 1) 時系列複勝オッズ: 各レースの最終スナップショットを取得
+            sql_ts = (
+                "SELECT t.RACE_CODE, t.UMABAN, t.ODDS_SAITEI, t.ODDS_SAIKOU "
+                "FROM odds1_fukusho_jikeiretsu t "
+                "INNER JOIN ("
+                "  SELECT RACE_CODE, MAX(HAPPYO_TSUKIHI_JIFUN) as max_time "
+                "  FROM odds1_fukusho_jikeiretsu "
+                f"  WHERE RACE_CODE IN ({placeholders}) "
+                "  GROUP BY RACE_CODE"
+                ") m ON t.RACE_CODE = m.RACE_CODE "
+                "  AND t.HAPPYO_TSUKIHI_JIFUN = m.max_time"
+            )
+            cursor.execute(sql_ts, tuple(batch))
+            ts_rows = cursor.fetchall()
+
+            ts_races = set()
+            for r in ts_rows:
+                rc = r['RACE_CODE']
+                ts_races.add(rc)
+                if rc not in result:
+                    result[rc] = {}
+                umaban = int(r['UMABAN'])
+                low = parse_odds_value(r.get('ODDS_SAITEI', ''))
+                high = parse_odds_value(r.get('ODDS_SAIKOU', ''))
+                if low is not None:
+                    result[rc][umaban] = {'odds_low': low, 'odds_high': high, 'source': 'timeseries'}
+
+            # 2) 時系列がないレースは確定複勝オッズでフォールバック
+            missing = [rc for rc in batch if rc not in ts_races]
+            if missing:
+                placeholders_m = ','.join(['%s'] * len(missing))
+                sql_final = (
+                    "SELECT RACE_CODE, UMABAN, ODDS_SAITEI, ODDS_SAIKOU FROM odds1_fukusho "
+                    f"WHERE RACE_CODE IN ({placeholders_m})"
+                )
+                cursor.execute(sql_final, tuple(missing))
+                final_rows = cursor.fetchall()
+
+                for r in final_rows:
+                    rc = r['RACE_CODE']
+                    if rc not in result:
+                        result[rc] = {}
+                    umaban = int(r['UMABAN'])
+                    low = parse_odds_value(r.get('ODDS_SAITEI', ''))
+                    high = parse_odds_value(r.get('ODDS_SAIKOU', ''))
+                    if low is not None:
+                        result[rc][umaban] = {'odds_low': low, 'odds_high': high, 'source': 'final'}
+
+            cursor.close()
+
+    return result
+
+
 def is_db_available() -> bool:
     """mykeibadb DBが接続可能かチェック"""
     try:

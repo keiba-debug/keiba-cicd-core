@@ -3,9 +3,11 @@
  * 
  * 利用可能な日付と各日の競馬場・レース情報を高速に取得するためのインデックス
  * JSONファイルに永続化してアプリ再起動時も高速検索を維持
+ * リクエスト経路では非同期読み込みのみ使用し、readFileSync でイベントループをブロックしない
  */
 
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import { TRACKS, DATA3_ROOT } from '../config';
 
@@ -16,6 +18,7 @@ const INDEX_META_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index_meta.j
 let dateIndex: Map<string, DateIndexEntry> = new Map();
 let availableDates: string[] = [];
 let indexLoaded = false;
+let indexLoadAttempted = false; // 非同期読み込みを1回試行済みか（sync にフォールバックしないため）
 let indexBuildInProgress = false;
 
 interface DateIndexEntry {
@@ -91,6 +94,52 @@ function loadIndexFromFile(): boolean {
 }
 
 /**
+ * インデックスを非同期でファイルから読み込み（リクエスト経路用・イベントループをブロックしない）
+ */
+async function loadIndexFromFileAsync(): Promise<boolean> {
+  try {
+    await fsp.access(INDEX_FILE);
+  } catch {
+    return false;
+  }
+  try {
+    const content = await fsp.readFile(INDEX_FILE, 'utf-8');
+    const data = JSON.parse(content);
+    dateIndex = new Map(Object.entries(data).map(([k, v]) => [k, v as DateIndexEntry]));
+    availableDates = Array.from(dateIndex.keys()).sort().reverse();
+
+    try {
+      const metaContent = await fsp.readFile(INDEX_META_FILE, 'utf-8');
+      const meta: IndexMeta = JSON.parse(metaContent);
+      if ((meta.version ?? 1) < INDEX_VERSION) {
+        console.log(`[RaceDateIndex] Cache version ${meta.version ?? 1} < ${INDEX_VERSION}, will rebuild`);
+        dateIndex = new Map();
+        availableDates = [];
+        return false;
+      }
+      console.log(`[RaceDateIndex] Loaded from file (async): ${meta.dateCount} dates, ${meta.raceCount} races`);
+    } catch {
+      // meta が無くてもインデックスは使う
+    }
+    indexLoaded = true;
+    return true;
+  } catch (error) {
+    console.error('[RaceDateIndex] Failed to load index (async):', error);
+    return false;
+  }
+}
+
+/**
+ * リクエスト経路で必ず先に呼ぶ。インデックスが未読み込みなら非同期で1回だけ読み込む。
+ * これにより isRaceIndexAvailable / getAvailableDatesFromIndex は sync 読みをせずメモリだけ参照する。
+ */
+export async function ensureRaceDateIndexLoaded(): Promise<void> {
+  if (indexLoaded || indexLoadAttempted) return;
+  indexLoadAttempted = true;
+  await loadIndexFromFileAsync();
+}
+
+/**
  * インデックスをファイルに保存
  */
 function saveIndexToFile(raceCount: number): void {
@@ -133,10 +182,30 @@ const TRACK_TYPE_MAP: Record<string, string> = {
 };
 
 /**
+ * 全角英数・記号を半角に正規化（G２→G2, 雲雀Ｓ→雲雀S など）
+ */
+function normalizeForClass(str: string): string {
+  return str.replace(/[ＧGg]/g, 'G').replace(/[１２３]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[ＳSs]/g, 'S').replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+}
+
+/**
  * race_nameからクラス名を抽出（gradeが空の場合のフォールバック）
+ * 特別レース（G1/G2/G3、〇〇S、〇〇特別）も判定する
  */
 function extractClassName(raceName: string): string {
-  const patterns = [/G[123]/, /オープン/, /3勝クラス/, /2勝クラス/, /1勝クラス/, /未勝利/, /新馬/, /障害未勝利/, /障害[^\s]*/];
+  const normalized = normalizeForClass(raceName);
+  // G1/G2/G3（全角G3なども正規化済み）
+  const gMatch = normalized.match(/G[123]/);
+  if (gMatch) return gMatch[0];
+  // オープン・リステッド系
+  if (/オープン|Listed|L\s/i.test(raceName)) return raceName.match(/オープン/) ? 'オープン' : 'L';
+  // 特別（春日特別、北山特別など）
+  if (/特別/.test(raceName)) return '特別';
+  // 〇〇S / 〇〇Ｓ（雲雀Ｓ、バレンタインSなどステークス）
+  if (/[ＳS]$/.test(raceName) || /\S[ＳS]$/.test(raceName)) return 'S';
+  // 3勝/2勝/1勝クラス、未勝利、新馬、障害
+  const patterns = [/3勝クラス/, /2勝クラス/, /1勝クラス/, /未勝利/, /新馬/, /障害未勝利/, /障害[^\s]*/];
   for (const p of patterns) {
     const m = raceName.match(p);
     if (m) return m[0];
@@ -360,12 +429,27 @@ export async function buildRaceDateIndex(): Promise<void> {
                 const raceNumber = parseInt((race.race_no || '0').replace('R', ''));
                 if (raceNumber === 0) continue;
 
+                let distance = race.course || '';
+                // course が空のとき、v4 の race_*.json があれば距離を補完
+                if (!distance) {
+                  const v4Path = path.join(dayPath, `race_${raceId}.json`);
+                  try {
+                    if (fs.existsSync(v4Path)) {
+                      const raceData = JSON.parse(fs.readFileSync(v4Path, 'utf-8'));
+                      const trackType = TRACK_TYPE_MAP[raceData.track_type || ''] || '';
+                      if (raceData.distance) {
+                        distance = `${trackType}${raceData.distance}m`;
+                      }
+                    }
+                  } catch { /* 無視 */ }
+                }
+
                 existing.push({
                   id: raceId,
                   raceNumber,
                   raceName: race.race_name || `${raceNumber}R`,
                   className: extractClassName(race.race_name || ''),
-                  distance: race.course || '',
+                  distance,
                   startTime: race.start_time || '',
                   kai,
                   nichi,
@@ -410,31 +494,27 @@ export async function buildRaceDateIndex(): Promise<void> {
 
 /**
  * 利用可能な日付一覧を取得（高速）
+ * 必ず ensureRaceDateIndexLoaded() を await した後に呼ぶこと。未読み込み時は空配列。
  */
 export function getAvailableDatesFromIndex(): string[] {
-  if (!indexLoaded) {
-    loadIndexFromFile();
-  }
+  if (!indexLoaded) return [];
   return availableDates;
 }
 
 /**
  * 指定日のレース一覧を取得（高速）
+ * 必ず ensureRaceDateIndexLoaded() を await した後に呼ぶこと。未読み込み時は null。
  */
 export function getRacesByDateFromIndex(date: string): DateIndexEntry | null {
-  if (!indexLoaded) {
-    loadIndexFromFile();
-  }
+  if (!indexLoaded) return null;
   return dateIndex.get(date) || null;
 }
 
 /**
- * インデックスが利用可能かチェック
+ * インデックスが利用可能か（メモリに読み込み済みかつ中身あり）
+ * 必ず ensureRaceDateIndexLoaded() を await した後に呼ぶこと。
  */
 export function isRaceIndexAvailable(): boolean {
-  if (!indexLoaded) {
-    loadIndexFromFile();
-  }
   return indexLoaded && dateIndex.size > 0;
 }
 
@@ -445,7 +525,8 @@ export function clearRaceDateIndex(): void {
   dateIndex.clear();
   availableDates = [];
   indexLoaded = false;
-  
+  indexLoadAttempted = false;
+
   try {
     if (fs.existsSync(INDEX_FILE)) {
       fs.unlinkSync(INDEX_FILE);

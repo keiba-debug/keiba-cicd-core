@@ -8,10 +8,13 @@ import type { RaceSummary, RaceDetail, DateGroup, TrackGroup } from '@/types';
 
 const RACES_DIR = path.join(DATA3_ROOT, 'races');
 import {
+  ensureRaceDateIndexLoaded,
   getAvailableDatesFromIndex,
   getRacesByDateFromIndex,
   isRaceIndexAvailable
 } from './race-date-index';
+
+const DATA_FETCH_TIMEOUT_MS = 12000; // 12秒でタイムアウト（ハング時はログを出してフォールバック）
 
 async function exists(p: string): Promise<boolean> {
   try {
@@ -51,189 +54,219 @@ async function isDirectory(p: string): Promise<boolean> {
 /**
  * 利用可能な日付一覧を取得
  * インデックスが利用可能な場合は高速取得
+ * 例外・タイムアウト時は空配列を返し、スケルトンで止まらないようにする
  */
 export async function getAvailableDates(): Promise<string[]> {
-  // インデックスが利用可能ならそれを使用（高速）
-  if (isRaceIndexAvailable()) {
-    return getAvailableDatesFromIndex();
-  }
+  const run = async (): Promise<string[]> => {
+    try {
+      await ensureRaceDateIndexLoaded();
+      if (isRaceIndexAvailable()) {
+        return getAvailableDatesFromIndex();
+      }
 
-  // フォールバック: ディレクトリ走査
-  const dates: string[] = [];
-  const racesPath = RACES_DIR;
+      const dates: string[] = [];
+      const racesPath = RACES_DIR;
 
-  if (!(await exists(racesPath))) {
-    return dates;
-  }
+      if (!(await exists(racesPath))) {
+        return dates;
+      }
 
-  const years = (await safeReaddir(racesPath)).filter((f) => /^\d{4}$/.test(f));
+      const years = (await safeReaddir(racesPath)).filter((f) => /^\d{4}$/.test(f));
 
-  for (const year of years) {
-    const yearPath = path.join(racesPath, year);
-    const months = (await safeReaddir(yearPath)).filter((f) => /^\d{2}$/.test(f));
+      for (const year of years) {
+        const yearPath = path.join(racesPath, year);
+        const months = (await safeReaddir(yearPath)).filter((f) => /^\d{2}$/.test(f));
 
-    for (const month of months) {
-      const monthPath = path.join(yearPath, month);
-      const days = (await safeReaddir(monthPath)).filter((f) => /^\d{2}$/.test(f));
+        for (const month of months) {
+          const monthPath = path.join(yearPath, month);
+          const days = (await safeReaddir(monthPath)).filter((f) => /^\d{2}$/.test(f));
 
-      for (const day of days) {
-        const dayPath = path.join(monthPath, day);
-        let tracks: string[] = [];
-        try {
-          const entries = await fsp.readdir(dayPath);
-          const trackChecks = await Promise.all(
-            entries.map(async (f) => {
-              const trackPath = path.join(dayPath, f);
-              return (await isDirectory(trackPath)) && (TRACKS as readonly string[]).includes(f) ? f : null;
-            })
-          );
-          tracks = trackChecks.filter((t): t is string => t !== null);
-        } catch {
-          continue;
-        }
-        // 競馬場フォルダ＋MD出走表(.md) または race_info.json のみの日も「データあり」
-        if (tracks.length > 0 || (await hasRaceInfoWithKaisai(dayPath))) {
-          dates.push(`${year}-${month}-${day}`);
+          for (const day of days) {
+            const dayPath = path.join(monthPath, day);
+            let tracks: string[] = [];
+            try {
+              const entries = await fsp.readdir(dayPath);
+              const trackChecks = await Promise.all(
+                entries.map(async (f) => {
+                  const trackPath = path.join(dayPath, f);
+                  return (await isDirectory(trackPath)) && (TRACKS as readonly string[]).includes(f) ? f : null;
+                })
+              );
+              tracks = trackChecks.filter((t): t is string => t !== null);
+            } catch {
+              continue;
+            }
+            if (tracks.length > 0 || (await hasRaceInfoWithKaisai(dayPath))) {
+              dates.push(`${year}-${month}-${day}`);
+            }
+          }
         }
       }
-    }
-  }
 
-  return dates.sort().reverse();
+      return dates.sort().reverse();
+    } catch (err) {
+      console.error('[getAvailableDates]', err);
+      return [];
+    }
+  };
+
+  const timeout = new Promise<string[]>((_, reject) => {
+    setTimeout(() => reject(new Error('getAvailableDates timeout')), DATA_FETCH_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([run(), timeout]);
+  } catch (err) {
+    console.error('[getAvailableDates]', err);
+    return [];
+  }
 }
 
 /**
  * 指定日のレース一覧を取得
  * インデックスが利用可能な場合は高速取得
+ * 例外・タイムアウト時は null を返し、スケルトンで止まらないようにする
  */
 export async function getRacesByDate(date: string): Promise<DateGroup | null> {
-  // インデックスが利用可能ならそれを使用（高速）
-  if (isRaceIndexAvailable()) {
-    const indexed = getRacesByDateFromIndex(date);
-    if (indexed) {
+  const run = async (): Promise<DateGroup | null> => {
+    try {
+      await ensureRaceDateIndexLoaded();
+      if (isRaceIndexAvailable()) {
+        const indexed = getRacesByDateFromIndex(date);
+        if (indexed) {
+        const [year, month, day] = date.split('-');
+        const dayPath = path.join(RACES_DIR, year, month, day);
+        const infoByRaceId = await loadRaceInfoByRaceId(dayPath);
+
+        // インデックスデータをRaceSummary形式に変換
+        const trackGroups: TrackGroup[] = indexed.tracks.map(t => ({
+          track: t.track,
+          races: t.races.map((r) => {
+            const info = infoByRaceId.get(r.id);
+            return {
+              id: r.id,
+              date,
+              track: t.track,
+              raceNumber: r.raceNumber,
+              raceName: info?.raceName || r.raceName,
+              className: r.className,
+              distance: info?.course || r.distance,
+              startTime: info?.startTime || r.startTime,
+              kai: info?.kai ?? r.kai,
+              nichi: info?.nichi ?? r.nichi,
+              filePath: '',
+              // ペース情報を追加
+              paceType: r.paceType,
+              winnerFirst3f: r.winnerFirst3f,
+              winnerLast3f: r.winnerLast3f,
+              paceDiff: r.paceDiff,
+              rpci: r.rpci,
+            };
+          }),
+        }));
+
+          return {
+            date,
+            displayDate: indexed.displayDate,
+            tracks: trackGroups,
+          };
+        }
+      }
+
+      // フォールバック: ファイル走査
       const [year, month, day] = date.split('-');
       const dayPath = path.join(RACES_DIR, year, month, day);
-      const infoByRaceId = await loadRaceInfoByRaceId(dayPath);
 
-      // インデックスデータをRaceSummary形式に変換
-      const trackGroups: TrackGroup[] = indexed.tracks.map(t => ({
-        track: t.track,
-        races: t.races.map((r) => {
-          const info = infoByRaceId.get(r.id);
-          return {
-            id: r.id,
-            date,
-            track: t.track,
-            raceNumber: r.raceNumber,
-            raceName: info?.raceName || r.raceName,
-            className: r.className,
-            distance: info?.course || r.distance,
-            startTime: info?.startTime || r.startTime,
-            kai: info?.kai ?? r.kai,
-            nichi: info?.nichi ?? r.nichi,
-            filePath: '',
-            // ペース情報を追加
-            paceType: r.paceType,
-            winnerFirst3f: r.winnerFirst3f,
-            winnerLast3f: r.winnerLast3f,
-            paceDiff: r.paceDiff,
-            rpci: r.rpci,
-          };
-        }),
-      }));
+      if (!(await exists(dayPath))) {
+        return null;
+      }
+
+      let trackDirs: string[] = [];
+      try {
+        const entries = await fsp.readdir(dayPath);
+        const trackChecks = await Promise.all(
+          entries.map(async (f) => {
+            const trackPath = path.join(dayPath, f);
+            return (await isDirectory(trackPath)) && (TRACKS as readonly string[]).includes(f) ? f : null;
+          })
+        );
+        trackDirs = trackChecks.filter((t): t is string => t !== null);
+      } catch {
+        return null;
+      }
+
+      if (trackDirs.length === 0) {
+        return buildDateGroupFromRaceInfoOnly(dayPath, date);
+      }
+
+      const trackGroups: TrackGroup[] = [];
+      const infoByRaceId = await loadRaceInfoByRaceId(dayPath);
+      for (const track of trackDirs) {
+        const trackPath = path.join(dayPath, track);
+        const mdFiles = (await safeReaddir(trackPath)).filter((f) => f.endsWith('.md'));
+
+        const races: RaceSummary[] = [];
+        for (const file of mdFiles) {
+          const filePath = path.join(trackPath, file);
+          let content: string;
+          try {
+            content = await fsp.readFile(filePath, 'utf-8');
+          } catch {
+            continue;
+          }
+          const summary = parseRaceSummary(content, file, date, track, filePath);
+          if (summary) {
+            const info = infoByRaceId.get(summary.id);
+            if (info?.course) {
+              summary.distance = info.course;
+            }
+            if (info?.kai) {
+              summary.kai = info.kai;
+            }
+            if (info?.nichi) {
+              summary.nichi = info.nichi;
+            }
+            if (info?.startTime) {
+              summary.startTime = info.startTime;
+            }
+            races.push(summary);
+          }
+        }
+
+        races.sort((a, b) => a.raceNumber - b.raceNumber);
+
+        if (races.length > 0) {
+          trackGroups.push({ track, races });
+        }
+      }
+
+      trackGroups.sort((a, b) => {
+        const indexA = TRACKS.indexOf(a.track as any);
+        const indexB = TRACKS.indexOf(b.track as any);
+        return indexA - indexB;
+      });
+
+      const displayDate = `${year}年${parseInt(month)}月${parseInt(day)}日`;
 
       return {
         date,
-        displayDate: indexed.displayDate,
+        displayDate,
         tracks: trackGroups,
       };
+    } catch (err) {
+      console.error('[getRacesByDate]', err);
+      return null;
     }
-  }
-
-  // フォールバック: ファイル走査
-  const [year, month, day] = date.split('-');
-  const dayPath = path.join(RACES_DIR, year, month, day);
-
-  if (!(await exists(dayPath))) {
-    return null;
-  }
-
-  let trackDirs: string[] = [];
-  try {
-    const entries = await fsp.readdir(dayPath);
-    const trackChecks = await Promise.all(
-      entries.map(async (f) => {
-        const trackPath = path.join(dayPath, f);
-        return (await isDirectory(trackPath)) && (TRACKS as readonly string[]).includes(f) ? f : null;
-      })
-    );
-    trackDirs = trackChecks.filter((t): t is string => t !== null);
-  } catch {
-    return null;
-  }
-
-  // MD出走表(.md)が無くても race_info.json のみでレース一覧を返す
-  if (trackDirs.length === 0) {
-    return buildDateGroupFromRaceInfoOnly(dayPath, date);
-  }
-
-  const trackGroups: TrackGroup[] = [];
-  const infoByRaceId = await loadRaceInfoByRaceId(dayPath);
-  for (const track of trackDirs) {
-    const trackPath = path.join(dayPath, track);
-    const mdFiles = (await safeReaddir(trackPath)).filter((f) => f.endsWith('.md'));
-
-    const races: RaceSummary[] = [];
-    for (const file of mdFiles) {
-      const filePath = path.join(trackPath, file);
-      let content: string;
-      try {
-        content = await fsp.readFile(filePath, 'utf-8');
-      } catch {
-        continue;
-      }
-      const summary = parseRaceSummary(content, file, date, track, filePath);
-      if (summary) {
-        const info = infoByRaceId.get(summary.id);
-        if (info?.course) {
-          summary.distance = info.course;
-        }
-        if (info?.kai) {
-          summary.kai = info.kai;
-        }
-        if (info?.nichi) {
-          summary.nichi = info.nichi;
-        }
-        // race_info.jsonの発走時刻を優先
-        if (info?.startTime) {
-          summary.startTime = info.startTime;
-        }
-        races.push(summary);
-      }
-    }
-
-    // レース番号順にソート
-    races.sort((a, b) => a.raceNumber - b.raceNumber);
-
-    if (races.length > 0) {
-      trackGroups.push({ track, races });
-    }
-  }
-
-  // 競馬場順にソート（TRACKS配列の順序）
-  trackGroups.sort((a, b) => {
-    const indexA = TRACKS.indexOf(a.track as any);
-    const indexB = TRACKS.indexOf(b.track as any);
-    return indexA - indexB;
-  });
-
-  const displayDate = `${year}年${parseInt(month)}月${parseInt(day)}日`;
-
-  return {
-    date,
-    displayDate,
-    tracks: trackGroups,
   };
+
+  const timeout = new Promise<DateGroup | null>((_, reject) => {
+    setTimeout(() => reject(new Error('getRacesByDate timeout')), DATA_FETCH_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([run(), timeout]);
+  } catch (err) {
+    console.error('[getRacesByDate]', err);
+    return null;
+  }
 }
 
 /**

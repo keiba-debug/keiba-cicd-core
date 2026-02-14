@@ -164,6 +164,17 @@ PARAMS_B = {
     'verbose': -1,
 }
 
+# Win モデル用パラメータ（is_win は ~6-7% と不均衡 → scale_pos_weight で補正）
+PARAMS_W = {
+    **PARAMS_A,
+    'scale_pos_weight': 5.0,
+}
+
+PARAMS_WV = {
+    **PARAMS_B,
+    'scale_pos_weight': 5.0,
+}
+
 
 def load_race_json(race_id: str, date: str) -> dict:
     """レースJSONを読み込む"""
@@ -689,9 +700,9 @@ def calc_roi_analysis(df: pd.DataFrame, pred_col: str) -> dict:
     }
 
 
-def calc_value_bet_analysis(df: pd.DataFrame) -> List[dict]:
-    """Value Bet分析: Model AとModel Bの順位乖離を利用"""
-    if 'pred_rank_a' not in df.columns or 'pred_rank_v' not in df.columns:
+def calc_value_bet_analysis(df: pd.DataFrame, rank_col: str = 'pred_rank_v') -> List[dict]:
+    """Value Bet分析: モデル順位とオッズ順位の乖離を利用"""
+    if rank_col not in df.columns or 'odds_rank' not in df.columns:
         return []
 
     results = []
@@ -704,10 +715,10 @@ def calc_value_bet_analysis(df: pd.DataFrame) -> List[dict]:
         total_count = 0
 
         for race_id, group in df.groupby('race_id'):
-            # Value Bet候補: Model Bで上位3位以内 かつ odds_rankとの乖離がmin_gap以上
+            # Value Bet候補: モデルで上位3位以内 かつ odds_rankとの乖離がmin_gap以上
             candidates = group[
-                (group['pred_rank_v'] <= 3) &
-                (group['odds_rank'] >= group['pred_rank_v'] + min_gap)
+                (group[rank_col] <= 3) &
+                (group['odds_rank'] >= group[rank_col] + min_gap)
             ]
 
             for _, row in candidates.iterrows():
@@ -989,6 +1000,7 @@ def main():
     print(f"[Dataset] Test:  {len(df_test):,} entries from "
           f"{df_test['race_id'].nunique():,} races")
 
+    # === Place モデル (is_top3) ===
     # Model A: 全特徴量
     model_a, metrics_a, importance_a, pred_a = train_model(
         df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Model_A'
@@ -997,6 +1009,17 @@ def main():
     # Model B: Value特徴量（市場系除外）
     model_b, metrics_b, importance_b, pred_b = train_model(
         df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Model_B'
+    )
+
+    # === Win モデル (is_win) ===
+    # Model W: 全特徴量
+    model_w, metrics_w, importance_w, pred_w = train_model(
+        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_W, 'is_win', 'Model_W'
+    )
+
+    # Model WV: Value特徴量（市場系除外）
+    model_wv, metrics_wv, importance_wv, pred_wv = train_model(
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_WV, 'is_win', 'Model_WV'
     )
 
     # 予測結果をDataFrameに追加
@@ -1008,6 +1031,15 @@ def main():
     df_test['pred_rank_v'] = df_test.groupby('race_id')['pred_proba_v'].rank(
         ascending=False, method='min'
     )
+    # Win モデル
+    df_test['pred_proba_w'] = pred_w
+    df_test['pred_proba_wv'] = pred_wv
+    df_test['pred_rank_w'] = df_test.groupby('race_id')['pred_proba_w'].rank(
+        ascending=False, method='min'
+    )
+    df_test['pred_rank_wv'] = df_test.groupby('race_id')['pred_proba_wv'].rank(
+        ascending=False, method='min'
+    )
 
     # 分析
     print("\n[Analysis] Hit rate analysis...")
@@ -1016,11 +1048,17 @@ def main():
 
     roi_a = calc_roi_analysis(df_test, 'pred_proba_a')
     roi_b = calc_roi_analysis(df_test, 'pred_proba_v')
+    roi_w = calc_roi_analysis(df_test, 'pred_proba_w')
+    roi_wv = calc_roi_analysis(df_test, 'pred_proba_wv')
 
-    print("\n[Analysis] Value Bet analysis...")
-    vb_analysis = calc_value_bet_analysis(df_test)
+    print("\n[Analysis] Value Bet analysis (Place model)...")
+    vb_analysis = calc_value_bet_analysis(df_test, rank_col='pred_rank_v')
     vb_picks = collect_value_bet_picks(df_test, min_gap=VALUE_BET_MIN_GAP)
     print(f"  Value Bet picks: {len(vb_picks)} entries (gap >= {VALUE_BET_MIN_GAP})")
+
+    print("\n[Analysis] Value Bet analysis (Win model)...")
+    vb_win_analysis = calc_value_bet_analysis(df_test, rank_col='pred_rank_wv')
+    print(f"  Win VB analysis done")
 
     print("\n[Analysis] Collecting race predictions...")
     race_preds = collect_race_predictions(df_test)
@@ -1030,27 +1068,42 @@ def main():
     print(f"\n{'='*60}")
     print(f"  Results")
     print(f"{'='*60}")
-    print(f"\n  Model A (Accuracy): AUC={metrics_a['auc']}, Brier={metrics_a['brier_score']}, "
+    print(f"\n  --- Place Models (target=is_top3) ---")
+    print(f"  Model A (Accuracy): AUC={metrics_a['auc']}, Brier={metrics_a['brier_score']}, "
           f"ECE={metrics_a['ece']}, Iter={metrics_a['best_iteration']}")
     print(f"  Model B (Value):    AUC={metrics_b['auc']}, Brier={metrics_b['brier_score']}, "
           f"ECE={metrics_b['ece']}, Iter={metrics_b['best_iteration']}")
 
-    print(f"\n  Hit Analysis (Model A):")
+    print(f"\n  --- Win Models (target=is_win) ---")
+    print(f"  Model W (Accuracy): AUC={metrics_w['auc']}, Brier={metrics_w['brier_score']}, "
+          f"ECE={metrics_w['ece']}, Iter={metrics_w['best_iteration']}")
+    print(f"  Model WV (Value):   AUC={metrics_wv['auc']}, Brier={metrics_wv['brier_score']}, "
+          f"ECE={metrics_wv['ece']}, Iter={metrics_wv['best_iteration']}")
+
+    print(f"\n  Hit Analysis (Model A - Place):")
     for h in hit_a:
         print(f"    Top{h['top_n']}: {h['hit_rate']:.1%} ({h['hits']}/{h['total']})")
 
-    print(f"\n  Hit Analysis (Model B):")
+    print(f"\n  Hit Analysis (Model B - Place Value):")
     for h in hit_b:
         print(f"    Top{h['top_n']}: {h['hit_rate']:.1%} ({h['hits']}/{h['total']})")
 
     print(f"\n  ROI (Model A): Win={roi_a['top1_win_roi']:.1f}%, Place={roi_a['top1_place_roi']:.1f}%")
     print(f"  ROI (Model B): Win={roi_b['top1_win_roi']:.1f}%, Place={roi_b['top1_place_roi']:.1f}%")
+    print(f"  ROI (Model W): Win={roi_w['top1_win_roi']:.1f}%, Place={roi_w['top1_place_roi']:.1f}%")
+    print(f"  ROI (Model WV):Win={roi_wv['top1_win_roi']:.1f}%, Place={roi_wv['top1_place_roi']:.1f}%")
 
-    print(f"\n  Value Bet Analysis:")
+    print(f"\n  Value Bet Analysis (Place):")
     for vb in vb_analysis:
         marker = " ***" if vb['place_roi'] >= 100 else ""
         print(f"    gap>={vb['min_gap']}: {vb['bet_count']:,} bets, "
               f"hit={vb['place_hit_rate']:.1%}, ROI={vb['place_roi']:.1f}%{marker}")
+
+    print(f"\n  Value Bet Analysis (Win):")
+    for vb in vb_win_analysis:
+        marker = " ***" if vb['win_roi'] >= 100 else ""
+        print(f"    gap>={vb['min_gap']}: {vb['bet_count']:,} bets, "
+              f"win_hit={vb['win_hits']}, win_ROI={vb['win_roi']:.1f}%{marker}")
 
     print(f"\n  Feature Importance (Model A Top 10):")
     sorted_imp_a = sorted(importance_a.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -1084,19 +1137,22 @@ def main():
         archive_before_save(
             base_dir=model_dir,
             version=old_ver,
-            files=["model_a.txt", "model_b.txt", "model_meta.json",
-                   "ml_experiment_v3_result.json"],
+            files=["model_a.txt", "model_b.txt", "model_w.txt", "model_wv.txt",
+                   "model_meta.json", "ml_experiment_v3_result.json"],
             metadata={"created_at": old_meta.get("created_at", "")},
         )
 
     model_a.save_model(str(model_dir / "model_a.txt"))
     model_b.save_model(str(model_dir / "model_b.txt"))
+    model_w.save_model(str(model_dir / "model_w.txt"))
+    model_wv.save_model(str(model_dir / "model_wv.txt"))
 
     meta = {
-        'version': '4.0',
+        'version': '5.0',
         'features_all': FEATURE_COLS_ALL,
         'features_value': FEATURE_COLS_VALUE,
         'market_features': list(MARKET_FEATURES),
+        'targets': {'place': 'is_top3', 'win': 'is_win'},
         'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
         'created_at': datetime.now().isoformat(timespec='seconds'),
     }
@@ -1106,7 +1162,7 @@ def main():
 
     # 結果JSON保存
     result = {
-        'version': '4.0',
+        'version': '5.0',
         'experiment': 'ml_experiment_v3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {
@@ -1116,6 +1172,7 @@ def main():
         },
         'models': {
             'accuracy': {
+                'target': 'is_top3',
                 'features': FEATURE_COLS_ALL,
                 'feature_count': len(FEATURE_COLS_ALL),
                 'metrics': metrics_a,
@@ -1125,12 +1182,33 @@ def main():
                 ],
             },
             'value': {
+                'target': 'is_top3',
                 'features': FEATURE_COLS_VALUE,
                 'feature_count': len(FEATURE_COLS_VALUE),
                 'metrics': metrics_b,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
                     for f, i in sorted(importance_b.items(), key=lambda x: -x[1])
+                ],
+            },
+            'win_accuracy': {
+                'target': 'is_win',
+                'features': FEATURE_COLS_ALL,
+                'feature_count': len(FEATURE_COLS_ALL),
+                'metrics': metrics_w,
+                'feature_importance': [
+                    {'feature': f, 'importance': int(i)}
+                    for f, i in sorted(importance_w.items(), key=lambda x: -x[1])
+                ],
+            },
+            'win_value': {
+                'target': 'is_win',
+                'features': FEATURE_COLS_VALUE,
+                'feature_count': len(FEATURE_COLS_VALUE),
+                'metrics': metrics_wv,
+                'feature_importance': [
+                    {'feature': f, 'importance': int(i)}
+                    for f, i in sorted(importance_wv.items(), key=lambda x: -x[1])
                 ],
             },
         },
@@ -1141,9 +1219,12 @@ def main():
         'roi_analysis': {
             'accuracy': roi_a,
             'value': roi_b,
+            'win_accuracy': roi_w,
+            'win_value': roi_wv,
         },
         'value_bets': {
             'by_rank_gap': vb_analysis,
+            'win_by_rank_gap': vb_win_analysis,
         },
         'value_bet_picks': vb_picks,
         'race_predictions': race_preds,
