@@ -123,11 +123,29 @@ const VENUE_CODE_MAP: Record<string, string> = {
   '06': '中山', '07': '中京', '08': '京都', '09': '阪神', '10': '小倉',
 };
 
-// track_type → 表示用
+// track_type → 表示用（JRA-VAN英語 + keibabook日本語の両方に対応）
 const TRACK_TYPE_MAP: Record<string, string> = {
   turf: '芝',
   dirt: 'ダ',
+  '芝': '芝',
+  'ダ': 'ダ',
+  '障': '障',
 };
+
+/**
+ * race_nameからクラス名を抽出（gradeが空の場合のフォールバック）
+ */
+function extractClassName(raceName: string): string {
+  const patterns = [/G[123]/, /オープン/, /3勝クラス/, /2勝クラス/, /1勝クラス/, /未勝利/, /新馬/, /障害未勝利/, /障害[^\s]*/];
+  for (const p of patterns) {
+    const m = raceName.match(p);
+    if (m) return m[0];
+  }
+  // "4歳以上1勝クラス" → "1勝クラス" など
+  const classMatch = raceName.match(/(\d勝クラス)/);
+  if (classMatch) return classMatch[1];
+  return '';
+}
 
 /**
  * v4レースJSONからRaceIndexEntryを構築
@@ -146,7 +164,7 @@ function buildRaceEntryFromV4(raceData: {
 }): RaceIndexEntry {
   const raceNumber = raceData.race_number;
   const raceName = raceData.race_name || `${raceNumber}R`;
-  const grade = raceData.grade || '';
+  const grade = raceData.grade || extractClassName(raceName);
   const trackType = TRACK_TYPE_MAP[raceData.track_type || ''] || '';
   const distance = raceData.distance
     ? `${trackType}${raceData.distance}m`
@@ -346,7 +364,7 @@ export async function buildRaceDateIndex(): Promise<void> {
                   id: raceId,
                   raceNumber,
                   raceName: race.race_name || `${raceNumber}R`,
-                  className: '',
+                  className: extractClassName(race.race_name || ''),
                   distance: race.course || '',
                   startTime: race.start_time || '',
                   kai,
