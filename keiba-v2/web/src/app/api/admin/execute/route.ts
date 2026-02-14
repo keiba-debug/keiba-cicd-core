@@ -94,10 +94,16 @@ export async function POST(request: NextRequest) {
 
         // v4パイプラインのコマンド生成ヘルパー（スクレイピング後用）
         // batch_scraperがkb_extを直接構築するため、ext_builderは不要
+        // レース前はJRA-VAN SE_DATAが無いため build_race_master だけでは race_*.json ができない。
+        // build_race_from_keibabook で race_info + 出馬表から race_*.json を先に生成し、
+        // その後 build_race_master でJRA-VANデータがあれば上書きする。
         const buildV4AfterScrapeCommands = (dateArg: string, includeRaceBuild: boolean): string[][] => {
           const cmds: string[][] = [];
-          if (includeRaceBuild) {
-            cmds.push(dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']);
+          if (includeRaceBuild && dateArg) {
+            cmds.push(['-m', 'builders.build_race_from_keibabook', '--date', dateArg]);
+            cmds.push(['-m', 'builders.build_race_master', '--date', dateArg]);
+          } else if (includeRaceBuild) {
+            cmds.push(['-m', 'builders.build_race_master']);
           }
           cmds.push(dateArg ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg] : ['-m', 'keibabook.cyokyo_enricher']);
           cmds.push(dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']);
@@ -126,19 +132,25 @@ export async function POST(request: NextRequest) {
             ];
           }
         } else if (action === 'batch_after_race') {
-          // レース後更新: paddok → seiseki → cyokyo_enrich → predict
+          // レース後更新: paddok → seiseki → build_race_master のみ（SE_DATAでrace_*.jsonを成績付きで上書き）→ cyokyo_enrich → predict
+          // 成績（着・タイム・上り）は race_*.json の entries にのみ格納。build_race_from_keibabook は実行しない（出馬表で上書きすると成績が消える）
           const dateArg = date || '';
+          const afterRaceV4 = (d: string): string[][] => [
+            ['-m', 'builders.build_race_master', '--date', d],
+            ['-m', 'keibabook.cyokyo_enricher', '--date', d],
+            ['-m', 'ml.predict', '--date', d],
+          ];
           if (isRangeAction && startDate && endDate) {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'paddok'],
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
-              ...buildV4AfterScrapeCommands(dateArg, false),
+              ...afterRaceV4(dateArg || startDate),
             ];
           } else {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'paddok'],
               ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'seiseki'],
-              ...buildV4AfterScrapeCommands(dateArg, false),
+              ...afterRaceV4(dateArg),
             ];
           }
         } else if (action === 'sunpyo_update') {

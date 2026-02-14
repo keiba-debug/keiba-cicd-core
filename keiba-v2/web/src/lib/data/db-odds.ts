@@ -359,3 +359,126 @@ export async function getDbLatestOdds(raceCode: string): Promise<DbOddsResult> {
     };
   }
 }
+
+// --- 確定成績取得 ---
+
+export interface DbRaceResultEntry {
+  umaban: number;
+  finishPosition: number;
+  time: string;
+  last3f: number;
+  confirmedWinOdds: number;
+  confirmedPlaceOddsMin: number | null;
+  confirmedPlaceOddsMax: number | null;
+  ninki: number;
+}
+
+export interface DbRaceResultsResponse {
+  date: string;
+  results: Record<string, DbRaceResultEntry[]>; // raceId → entries
+  totalRaces: number;
+}
+
+interface ResultRow {
+  RACE_CODE: string;
+  UMABAN: string;
+  KAKUTEI_CHAKUJUN: string;
+  SOHA_TIME: string;
+  KOHAN_3F: string;
+  TANSHO_ODDS: string;
+  TANSHO_NINKIJUN: string;
+}
+
+interface FukushoRow {
+  RACE_CODE: string;
+  UMABAN: string;
+  ODDS_SAITEI: string;
+  ODDS_SAIKOU: string;
+}
+
+/**
+ * 指定日の全レース確定成績をmykeibadbから取得
+ * umagoto_race_joho + odds1_fukusho を結合
+ */
+export async function getDbRaceResultsByDate(date: string): Promise<DbRaceResultsResponse> {
+  try {
+    const datePrefix = date.replace(/-/g, '');
+    const db = getPool();
+
+    // 成績データ取得
+    const [resultRows] = await db.query<mysql.RowDataPacket[]>(
+      `SELECT RACE_CODE, UMABAN, KAKUTEI_CHAKUJUN, SOHA_TIME, KOHAN_3F, TANSHO_ODDS, TANSHO_NINKIJUN
+       FROM umagoto_race_joho
+       WHERE RACE_CODE LIKE ? AND KAKUTEI_CHAKUJUN IS NOT NULL AND KAKUTEI_CHAKUJUN != '' AND KAKUTEI_CHAKUJUN != '00'
+       ORDER BY RACE_CODE, CAST(UMABAN AS UNSIGNED)`,
+      [`${datePrefix}%`]
+    );
+
+    if (resultRows.length === 0) {
+      return { date, results: {}, totalRaces: 0 };
+    }
+
+    // 確定複勝オッズ取得
+    const [fukushoRows] = await db.query<mysql.RowDataPacket[]>(
+      `SELECT RACE_CODE, UMABAN, ODDS_SAITEI, ODDS_SAIKOU
+       FROM odds1_fukusho
+       WHERE RACE_CODE LIKE ?`,
+      [`${datePrefix}%`]
+    );
+
+    // 複勝オッズをマップ化
+    const fukushoMap = new Map<string, { min: number | null; max: number | null }>();
+    for (const r of fukushoRows as FukushoRow[]) {
+      const key = `${r.RACE_CODE}-${parseInt(r.UMABAN, 10)}`;
+      fukushoMap.set(key, {
+        min: parseOddsValue(r.ODDS_SAITEI),
+        max: parseOddsValue(r.ODDS_SAIKOU),
+      });
+    }
+
+    // レース別にグループ化
+    const results: Record<string, DbRaceResultEntry[]> = {};
+    for (const r of resultRows as ResultRow[]) {
+      const raceCode = r.RACE_CODE;
+      const umaban = parseInt(r.UMABAN, 10);
+      const pos = parseInt(r.KAKUTEI_CHAKUJUN, 10);
+      if (isNaN(pos) || pos <= 0) continue;
+
+      const fukushoKey = `${raceCode}-${umaban}`;
+      const fukusho = fukushoMap.get(fukushoKey);
+
+      // SOHA_TIME: "1258" → "1:25.8"
+      const rawTime = r.SOHA_TIME?.trim() || '';
+      let timeStr = '';
+      if (rawTime.length === 4) {
+        const m = parseInt(rawTime[0], 10);
+        const s = parseInt(rawTime.substring(1, 3), 10);
+        const t = rawTime[3];
+        timeStr = `${m}:${s.toString().padStart(2, '0')}.${t}`;
+      }
+
+      const entry: DbRaceResultEntry = {
+        umaban,
+        finishPosition: pos,
+        time: timeStr,
+        last3f: parseInt(r.KOHAN_3F || '0', 10) / 10,
+        confirmedWinOdds: parseOddsValue(r.TANSHO_ODDS) ?? 0,
+        confirmedPlaceOddsMin: fukusho?.min ?? null,
+        confirmedPlaceOddsMax: fukusho?.max ?? null,
+        ninki: parseInt(r.TANSHO_NINKIJUN || '0', 10),
+      };
+
+      if (!results[raceCode]) results[raceCode] = [];
+      results[raceCode].push(entry);
+    }
+
+    return {
+      date,
+      results,
+      totalRaces: Object.keys(results).length,
+    };
+  } catch (error) {
+    console.error('[db-odds] Error fetching race results:', error);
+    return { date, results: {}, totalRaces: 0 };
+  }
+}

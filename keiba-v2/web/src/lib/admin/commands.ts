@@ -79,14 +79,14 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'batch_prepare',
     label: '基本情報構築',
-    description: '日程取得 → 基本データ取得 → kb_ext構築 → v4パイプライン（レース構築・調教補強・ML予測）',
+    description: '日程取得 → 基本データ取得 → kb_ext構築 → レースJSON(keibabook) → レースJSON(JRA-VAN上書き) → 調教補強・ML予測',
     icon: '🌅',
     category: 'batch',
   },
   {
     id: 'batch_after_race',
     label: '直前情報・結果情報構築',
-    description: 'パドック → 成績 → kb_ext更新 → v4パイプライン（調教補強・ML予測）',
+    description: 'パドック → 成績 → kb_ext更新 → レースJSONを成績で更新(JRA-VAN) → 調教補強・ML予測',
     icon: '🔄',
     category: 'batch',
   },

@@ -1,4 +1,4 @@
-import { getPredictionsLive, getPredictionsByDate, getAvailablePredictionDates } from '@/lib/data/predictions-reader';
+import { getPredictionsLive, getPredictionsByDate, getAvailablePredictionDates, getResultsByDate } from '@/lib/data/predictions-reader';
 import { PredictionsContent } from './predictions-content';
 import Link from 'next/link';
 
@@ -44,12 +44,15 @@ export default async function PredictionsPage({
     );
   }
 
+  const results = getResultsByDate(data.date);
+
   return (
     <PredictionsContent
       data={data}
       availableDates={dates}
       currentDate={data.date}
       isArchive={!!targetDate}
+      results={results}
     />
   );
 }

@@ -147,11 +147,13 @@ def predict_race(
     jockey_index: dict,
     pace_index: dict,
     db_odds: Optional[Dict[int, dict]] = None,
+    training_summary_day: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
     Args:
         db_odds: mykeibadbから取得した事前オッズ {umaban: {'odds': float, 'ninki': int}}
+        training_summary_day: CK_DATA調教サマリ {ketto_num: summary} (当日分)
     """
     features_all = meta['features_all']
     features_value = meta['features_value']
@@ -235,11 +237,13 @@ def predict_race(
         )
         feat.update(pace_feat)
 
-        # 調教特徴量 (v3.3)
+        # 調教特徴量 (v3.3 + v4.1 CK_DATA)
         kb_e = kb_entries.get(str(umaban))
+        ck_training = (training_summary_day or {}).get(ketto_num) if ketto_num else None
         train_feat = compute_training_features(
             umaban=str(umaban),
             kb_ext=kb_ext,
+            ck_training=ck_training,
         )
         feat.update(train_feat)
 
@@ -463,6 +467,23 @@ def main():
         except Exception as e:
             print(f"[DB Odds] Error: {e}, using JSON odds")
 
+    # CK_DATA調教サマリ読み込み
+    training_summary_day = {}
+    date_parts = date.split('-')
+    ts_path = (config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2]
+               / "temp" / "training_summary.json")
+    if ts_path.exists():
+        try:
+            with open(ts_path, encoding='utf-8') as f:
+                ts_data = json.load(f)
+            for _name, entry in ts_data.get('summaries', {}).items():
+                kn = entry.get('kettoNum', '')
+                if kn:
+                    training_summary_day[kn] = entry
+            print(f"[CK_DATA] {len(training_summary_day):,} horses with training summary")
+        except Exception as e:
+            print(f"[CK_DATA] Error loading training_summary: {e}")
+
     # 予測実行
     all_predictions = []
     vb_count = 0
@@ -474,6 +495,7 @@ def main():
             model_a, model_b, meta,
             history_cache, trainer_index, jockey_index, pace_index,
             db_odds=db_odds_index.get(race['race_id']),
+            training_summary_day=training_summary_day,
         )
         all_predictions.append(pred)
 

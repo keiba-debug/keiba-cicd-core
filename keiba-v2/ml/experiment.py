@@ -95,6 +95,10 @@ TRAINING_FEATURES = [
     'training_session_count', 'rest_weeks', 'oikiri_is_slope',
     # v4.0: KB印・レーティング
     'kb_rating',
+    # v4.1: CK_DATA lapRank
+    'ck_laprank_score', 'ck_laprank_class', 'ck_laprank_accel',
+    'ck_time_rank', 'ck_final_laprank_score',
+    'ck_final_time4f', 'ck_final_lap1',
 ]
 
 # KB印（市場相関が高いためMARKET扱い）
@@ -110,6 +114,9 @@ SPEED_FEATURES = [
 MARKET_FEATURES = {
     'odds', 'popularity', 'odds_rank', 'popularity_trend',
     'kb_mark_point', 'kb_aggregate_mark_point',  # v4.0: 印は市場と相関
+    # v4.1: CK_DATA調教は市場に織り込み済み → Model Bから除外
+    'ck_laprank_score', 'ck_laprank_class', 'ck_laprank_accel',
+    'ck_time_rank', 'ck_final_laprank_score', 'ck_final_time4f', 'ck_final_lap1',
 }
 
 # 派生特徴量
@@ -235,7 +242,45 @@ def build_kb_ext_index(date_index: dict) -> dict:
     return kb_index
 
 
-def load_data() -> Tuple[dict, dict, dict, dict, dict, dict]:
+def build_training_summary_index(date_index: dict) -> dict:
+    """training_summary.jsonからCK_DATA調教インデックスを構築
+
+    Returns:
+        dict: date_str -> ketto_num -> summary_dict
+    """
+    print("[Load] Building CK_DATA training summary index...")
+    ts_index = {}
+    file_count = 0
+    horse_count = 0
+
+    for date_str in sorted(date_index.keys()):
+        parts = date_str.split('-')
+        ts_path = (config.races_dir() / parts[0] / parts[1] / parts[2]
+                   / "temp" / "training_summary.json")
+        if not ts_path.exists():
+            continue
+        try:
+            with open(ts_path, encoding='utf-8') as f:
+                data = json.load(f)
+            summaries = data.get('summaries', {})
+            day_index = {}
+            for _name, entry in summaries.items():
+                kn = entry.get('kettoNum', '')
+                if kn:
+                    day_index[kn] = entry
+            if day_index:
+                ts_index[date_str] = day_index
+                horse_count += len(day_index)
+            file_count += 1
+        except Exception:
+            pass
+
+    print(f"  Training summary: {file_count:,} dates, "
+          f"{horse_count:,} horse-entries")
+    return ts_index
+
+
+def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict]:
     """data3からデータをロード"""
     print("[Load] Loading data3...")
 
@@ -271,7 +316,11 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict, dict]:
     # Keibabook ext index
     kb_ext_index = build_kb_ext_index(date_index)
 
-    return history_cache, trainer_index, jockey_index, date_index, pace_index, kb_ext_index
+    # CK_DATA training summary index
+    training_summary_index = build_training_summary_index(date_index)
+
+    return (history_cache, trainer_index, jockey_index,
+            date_index, pace_index, kb_ext_index, training_summary_index)
 
 
 def compute_features_for_race(
@@ -282,12 +331,13 @@ def compute_features_for_race(
     pace_index: dict,
     kb_ext_index: dict,
     db_odds: dict = None,
+    training_summary_index: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
     Args:
         db_odds: mykeibadbから取得した事前オッズ {umaban: {'odds': float, 'ninki': int}}
-                 Noneの場合はJSON確定オッズを使用（従来動作）
+        training_summary_index: CK_DATA調教サマリ {date_str: {ketto_num: summary}}
     """
     from ml.features.base_features import extract_base_features
     from ml.features.past_features import compute_past_features
@@ -308,6 +358,9 @@ def compute_features_for_race(
 
     # kb_ext（調教データ等）
     kb_ext = kb_ext_index.get(race_id)
+
+    # CK_DATA調教サマリ（日付単位）
+    ts_day = (training_summary_index or {}).get(race_date, {})
 
     rows = []
     for entry in race.get('entries', []):
@@ -381,10 +434,12 @@ def compute_features_for_race(
         )
         feat.update(pace_feat)
 
-        # 調教特徴量 (v3.3)
+        # 調教特徴量 (v3.3 + v4.1 CK_DATA)
+        ck_training = ts_day.get(ketto_num) if ketto_num else None
         train_feat = compute_training_features(
             umaban=str(entry.get('umaban', '')),
             kb_ext=kb_ext,
+            ck_training=ck_training,
         )
         feat.update(train_feat)
 
@@ -422,11 +477,13 @@ def build_dataset(
     min_year: int,
     max_year: int,
     use_db_odds: bool = True,
+    training_summary_index: dict = None,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
 
     Args:
         use_db_odds: True=mykeibadbから事前オッズ取得, False=JSON確定オッズ（従来動作）
+        training_summary_index: CK_DATA調教サマリインデックス
     """
     print(f"\n[Build] Building dataset for {min_year}-{max_year}...")
 
@@ -469,6 +526,7 @@ def build_dataset(
                 race, history_cache, trainer_index, jockey_index,
                 pace_index, kb_ext_index,
                 db_odds=db_odds_index.get(race_id),
+                training_summary_index=training_summary_index,
             )
             all_rows.extend(rows)
             race_count += 1
@@ -749,6 +807,125 @@ def collect_race_predictions(df: pd.DataFrame) -> List[dict]:
     return races
 
 
+def run_track_split_experiment(
+    df_train: pd.DataFrame,
+    df_val: pd.DataFrame,
+    df_test: pd.DataFrame,
+    feature_cols_all: List[str],
+    feature_cols_value: List[str],
+    params_a: dict,
+    params_b: dict,
+    unified_pred_a: np.ndarray,
+    unified_pred_b: np.ndarray,
+):
+    """芝/ダート分離モデル実験 (H-21)
+
+    統一モデルと分離モデルの性能を比較する。
+    track_type特徴量は分離後に定数になるため除外する。
+    """
+    from sklearn.metrics import roc_auc_score
+
+    print(f"\n{'='*60}")
+    print("  H-21: 芝/ダート分離モデル実験")
+    print(f"{'='*60}")
+
+    # track_type を除外（分離後は定数）
+    split_features_all = [f for f in feature_cols_all if f != 'track_type']
+    split_features_value = [f for f in feature_cols_value if f != 'track_type']
+    print(f"  Features (excl track_type): A={len(split_features_all)}, B={len(split_features_value)}")
+
+    # track_type: 0=turf, 1=dirt（base_features.pyのtrack_map）
+    results = {}
+    for track_label, track_val in [('turf', 0), ('dirt', 1)]:
+        print(f"\n--- {track_label.upper()} ---")
+        tr = df_train[df_train['track_type'] == track_val]
+        vl = df_val[df_val['track_type'] == track_val]
+        ts = df_test[df_test['track_type'] == track_val]
+        print(f"  Train: {len(tr):,}, Val: {len(vl):,}, Test: {len(ts):,}")
+
+        if len(ts) < 100:
+            print(f"  SKIP: insufficient test data")
+            continue
+
+        # Model A (split)
+        model_a_s, metrics_a_s, _, pred_a_s = train_model(
+            tr, vl, ts, split_features_all, params_a, 'is_top3', f'A_{track_label}'
+        )
+
+        # Model B (split)
+        model_b_s, metrics_b_s, _, pred_b_s = train_model(
+            tr, vl, ts, split_features_value, params_b, 'is_top3', f'B_{track_label}'
+        )
+
+        # 統一モデルの同じサブセットでの性能
+        test_mask = df_test['track_type'] == track_val
+        unified_a_sub = unified_pred_a[test_mask.values]
+        unified_b_sub = unified_pred_b[test_mask.values]
+        y_test_sub = ts['is_top3']
+
+        unified_auc_a = roc_auc_score(y_test_sub, unified_a_sub)
+        unified_auc_b = roc_auc_score(y_test_sub, unified_b_sub)
+
+        # VB分析（分離モデル）
+        ts_copy = ts.copy()
+        ts_copy['pred_proba_a'] = pred_a_s
+        ts_copy['pred_proba_v'] = pred_b_s
+        ts_copy['pred_rank_a'] = ts_copy.groupby('race_id')['pred_proba_a'].rank(ascending=False, method='min')
+        ts_copy['pred_rank_v'] = ts_copy.groupby('race_id')['pred_proba_v'].rank(ascending=False, method='min')
+        vb_split = calc_value_bet_analysis(ts_copy)
+
+        # 統一モデルのVB分析（同サブセット）
+        ts_unified = ts.copy()
+        ts_unified['pred_proba_a'] = unified_a_sub
+        ts_unified['pred_proba_v'] = unified_b_sub
+        ts_unified['pred_rank_a'] = ts_unified.groupby('race_id')['pred_proba_a'].rank(ascending=False, method='min')
+        ts_unified['pred_rank_v'] = ts_unified.groupby('race_id')['pred_proba_v'].rank(ascending=False, method='min')
+        vb_unified = calc_value_bet_analysis(ts_unified)
+
+        # ROI分析
+        roi_split_a = calc_roi_analysis(ts_copy, 'pred_proba_a')
+        roi_split_b = calc_roi_analysis(ts_copy, 'pred_proba_v')
+        roi_unified_a = calc_roi_analysis(ts_unified, 'pred_proba_a')
+        roi_unified_b = calc_roi_analysis(ts_unified, 'pred_proba_v')
+
+        # 比較表示
+        print(f"\n  === {track_label.upper()} 比較 ===")
+        print(f"  {'Model':<15} {'統一AUC':>10} {'分離AUC':>10} {'差分':>10}")
+        print(f"  {'A (Accuracy)':<15} {unified_auc_a:>10.4f} {metrics_a_s['auc']:>10.4f} {metrics_a_s['auc']-unified_auc_a:>+10.4f}")
+        print(f"  {'B (Value)':<15} {unified_auc_b:>10.4f} {metrics_b_s['auc']:>10.4f} {metrics_b_s['auc']-unified_auc_b:>+10.4f}")
+
+        print(f"\n  ROI (Top1):")
+        print(f"  {'Model':<15} {'統一Win':>10} {'分離Win':>10} {'統一Place':>12} {'分離Place':>12}")
+        print(f"  {'A':<15} {roi_unified_a['top1_win_roi']:>9.1f}% {roi_split_a['top1_win_roi']:>9.1f}% "
+              f"{roi_unified_a['top1_place_roi']:>11.1f}% {roi_split_a['top1_place_roi']:>11.1f}%")
+        print(f"  {'B':<15} {roi_unified_b['top1_win_roi']:>9.1f}% {roi_split_b['top1_win_roi']:>9.1f}% "
+              f"{roi_unified_b['top1_place_roi']:>11.1f}% {roi_split_b['top1_place_roi']:>11.1f}%")
+
+        print(f"\n  VB Place ROI:")
+        print(f"  {'Gap':<10} {'統一':>10} {'分離':>10} {'差分':>10}")
+        for vu, vs in zip(vb_unified, vb_split):
+            diff = vs['place_roi'] - vu['place_roi']
+            marker = " ***" if diff > 0 else ""
+            print(f"  >={vu['min_gap']:<8} {vu['place_roi']:>9.1f}% {vs['place_roi']:>9.1f}% {diff:>+9.1f}%{marker}")
+
+        results[track_label] = {
+            'split_metrics_a': metrics_a_s,
+            'split_metrics_b': metrics_b_s,
+            'unified_auc_a': round(unified_auc_a, 4),
+            'unified_auc_b': round(unified_auc_b, 4),
+            'split_vb': vb_split,
+            'unified_vb': vb_unified,
+            'split_roi_a': roi_split_a,
+            'split_roi_b': roi_split_b,
+            'unified_roi_a': roi_unified_a,
+            'unified_roi_b': roi_unified_b,
+            'test_races': int(ts['race_id'].nunique()),
+            'test_entries': len(ts),
+        }
+
+    return results
+
+
 def parse_year_range(s: str) -> Tuple[int, int]:
     if '-' in s:
         parts = s.split('-', 1)
@@ -763,6 +940,7 @@ def main():
     parser.add_argument('--val-years', default='2024', help='Validation year range (early stopping)')
     parser.add_argument('--test-years', default='2025-2026', help='Test year range (pure evaluation)')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用（JSON確定オッズ）')
+    parser.add_argument('--split-track', action='store_true', help='芝/ダート分離モデル実験 (H-21)')
     args = parser.parse_args()
 
     train_min, train_max = parse_year_range(args.train_years)
@@ -784,20 +962,24 @@ def main():
     t0 = time.time()
 
     # データロード
-    history_cache, trainer_index, jockey_index, date_index, pace_index, kb_ext_index = load_data()
+    (history_cache, trainer_index, jockey_index,
+     date_index, pace_index, kb_ext_index, training_summary_index) = load_data()
 
     # データセット構築（3-way split）
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, train_min, train_max, use_db_odds=use_db_odds,
+        training_summary_index=training_summary_index,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, val_min, val_max, use_db_odds=use_db_odds,
+        training_summary_index=training_summary_index,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, test_min, test_max, use_db_odds=use_db_odds,
+        training_summary_index=training_summary_index,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
@@ -880,6 +1062,16 @@ def main():
     for fname, imp in sorted_imp_b:
         print(f"    {fname:>25}: {imp:,.0f}")
 
+    # H-21: 芝/ダート分離モデル実験
+    track_split_results = None
+    if args.split_track:
+        track_split_results = run_track_split_experiment(
+            df_train, df_val, df_test,
+            FEATURE_COLS_ALL, FEATURE_COLS_VALUE,
+            PARAMS_A, PARAMS_B,
+            pred_a, pred_b,
+        )
+
     # モデル保存（旧バージョンをアーカイブしてから上書き）
     model_dir = config.ml_dir()
     config.ensure_dir(model_dir)
@@ -956,6 +1148,9 @@ def main():
         'value_bet_picks': vb_picks,
         'race_predictions': race_preds,
     }
+
+    if track_split_results:
+        result['track_split_experiment'] = track_split_results
 
     result_path = model_dir / "ml_experiment_v3_result.json"
     result_path.write_text(

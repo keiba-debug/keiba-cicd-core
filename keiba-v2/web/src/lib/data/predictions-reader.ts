@@ -1,6 +1,7 @@
 /**
  * predictions_live.json リーダー
  * predict.py が生成する当日予測データを読み込む
+ * + レース結果読み込み（着順・確定オッズ）
  */
 
 import fs from 'fs';
@@ -111,5 +112,67 @@ export function getAvailablePredictionDates(): string[] {
     return dates.sort().reverse();
   } catch {
     return [];
+  }
+}
+
+// --- レース結果 ---
+
+export interface RaceResultEntry {
+  umaban: number;
+  finish_position: number;  // 0 = 未確定/取消
+  time: string;
+  last_3f: number;
+  odds: number;             // 確定単勝オッズ
+}
+
+// raceId → umaban → RaceResultEntry
+export type RaceResultsMap = Record<string, Record<number, RaceResultEntry>>;
+
+/**
+ * 指定日のレース結果を読み込む
+ * race_*.json からfinish_position等を抽出
+ */
+export function getResultsByDate(date: string): RaceResultsMap {
+  try {
+    const [y, m, d] = date.split('-');
+    if (!y || !m || !d) return {};
+    const dayPath = path.join(DATA3_ROOT, 'races', y, m, d);
+    if (!fs.existsSync(dayPath)) return {};
+
+    const files = fs.readdirSync(dayPath).filter(f => /^race_\d.*\.json$/.test(f));
+    const results: RaceResultsMap = {};
+
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(dayPath, file), 'utf-8');
+        const data = JSON.parse(content);
+        const raceId = data.race_id as string;
+        if (!raceId || !data.entries) continue;
+
+        const entries: Record<number, RaceResultEntry> = {};
+        let hasResults = false;
+
+        for (const e of data.entries) {
+          if (e.finish_position > 0) hasResults = true;
+          entries[e.umaban] = {
+            umaban: e.umaban,
+            finish_position: e.finish_position || 0,
+            time: e.time || '',
+            last_3f: e.last_3f || 0,
+            odds: e.odds || 0,
+          };
+        }
+
+        if (hasResults) {
+          results[raceId] = entries;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return results;
+  } catch {
+    return {};
   }
 }
