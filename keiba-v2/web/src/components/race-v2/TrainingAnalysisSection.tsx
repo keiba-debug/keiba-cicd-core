@@ -350,7 +350,10 @@ const TrainingAnalysisRow = React.memo(function TrainingAnalysisRow({ entry, tra
           <div className="space-y-0.5">
             {(previousTraining?.date || previousRaceForm) && (
               <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5">
-                {previousTraining?.date && <span>{previousTraining.date}</span>}
+                {previousTraining?.date && <span>{(() => {
+                  const parts = previousTraining.date.split('-');
+                  return parts.length === 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : previousTraining.date;
+                })()}</span>}
                 {previousRaceForm && (
                   <>
                     <span className={`font-bold ${

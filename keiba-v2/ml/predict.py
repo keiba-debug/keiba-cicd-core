@@ -37,6 +37,9 @@ from ml.features.pace_features import compute_pace_features
 from ml.features.training_features import compute_training_features
 from ml.features.speed_features import compute_speed_features
 
+# === Value Bet閾値 ===
+VALUE_BET_MIN_GAP = 3  # experiment_v3.pyと統一
+
 
 def load_model_and_meta():
     """学習済みモデルとメタ情報をロード"""
@@ -44,10 +47,22 @@ def load_model_and_meta():
 
     ml_dir = config.ml_dir()
 
-    model_a = lgb.Booster(model_file=str(ml_dir / "model_a.txt"))
-    model_b = lgb.Booster(model_file=str(ml_dir / "model_b.txt"))
+    model_a_path = ml_dir / "model_a.txt"
+    model_b_path = ml_dir / "model_b.txt"
+    meta_path = ml_dir / "model_meta.json"
 
-    with open(ml_dir / "model_meta.json", encoding='utf-8') as f:
+    missing = [p for p in [model_a_path, model_b_path, meta_path] if not p.exists()]
+    if missing:
+        names = ", ".join(p.name for p in missing)
+        raise FileNotFoundError(
+            f"モデルファイルが見つかりません: {names} (in {ml_dir})\n"
+            "先に python -m ml.experiment_v3 を実行してください"
+        )
+
+    model_a = lgb.Booster(model_file=str(model_a_path))
+    model_b = lgb.Booster(model_file=str(model_b_path))
+
+    with open(meta_path, encoding='utf-8') as f:
         meta = json.load(f)
 
     return model_a, model_b, meta
@@ -322,7 +337,7 @@ def predict_race(
             'rank_v': int(rv),
             'odds_rank': odds_rank,
             'vb_gap': int(gap),
-            'is_value_bet': gap >= 3 and odds_rank > 0,
+            'is_value_bet': gap >= VALUE_BET_MIN_GAP and odds_rank > 0,
             # keibabook情報
             'kb_mark': p['kb_mark'],
             'kb_mark_point': p['kb_mark_point'],

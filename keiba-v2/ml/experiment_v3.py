@@ -55,6 +55,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 
+# === Value Bet閾値 ===
+VALUE_BET_MIN_GAP = 3  # predict.pyと統一
+
 # === 特徴量定義 ===
 
 # JRA-VAN基本特徴量
@@ -321,7 +324,7 @@ def compute_features_for_race(
         if fp <= 0:
             continue
 
-        ketto_num = entry['ketto_num']
+        ketto_num = entry.get('ketto_num', '')
 
         # 基本特徴量
         feat = extract_base_features(entry, race)
@@ -842,8 +845,8 @@ def main():
 
     print("\n[Analysis] Value Bet analysis...")
     vb_analysis = calc_value_bet_analysis(df_test)
-    vb_picks = collect_value_bet_picks(df_test, min_gap=2)
-    print(f"  Value Bet picks: {len(vb_picks)} entries (gap >= 2)")
+    vb_picks = collect_value_bet_picks(df_test, min_gap=VALUE_BET_MIN_GAP)
+    print(f"  Value Bet picks: {len(vb_picks)} entries (gap >= {VALUE_BET_MIN_GAP})")
 
     print("\n[Analysis] Collecting race predictions...")
     race_preds = collect_race_predictions(df_test)

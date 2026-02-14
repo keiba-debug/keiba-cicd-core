@@ -364,10 +364,13 @@ export async function getPreviousTrainingBatch(
     const missingHorses: string[] = [];
 
     for (const horseName of horseNames) {
-      if (summaries[horseName]) {
+      // 完全一致 → normalize済み名前でフォールバック
+      const normalizedName = horseName.replace(/^[\(（][外地父市][）\)]/g, '');
+      const matched = summaries[horseName] || summaries[normalizedName];
+      if (matched) {
         result[horseName] = {
           date,
-          training: summaries[horseName]
+          training: matched
         };
         matchedInThisDate++;
       } else {

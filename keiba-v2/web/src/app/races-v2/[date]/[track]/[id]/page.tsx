@@ -162,12 +162,18 @@ export default async function RaceDetailPage({ params }: PageParams) {
   }
 
   // 2段階目: raceDataに依存するデータを並列取得
-  const horsesForPrevTraining = Object.entries(trainingSummaryMap)
-    .filter(([_, data]) => data.kettoNum)
-    .map(([horseName, data]) => ({
-      horseName,
-      kettoNum: data.kettoNum!
-    }));
+  // 現在のレースの馬のみ前走調教を取得（全馬3700件→レース出走馬~16頭に限定）
+  const horsesForPrevTraining: Array<{ horseName: string; kettoNum: string }> = [];
+  for (const e of raceData.entries) {
+    const normalizedName = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
+    const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalizedName];
+    if (summary?.kettoNum) {
+      horsesForPrevTraining.push({
+        horseName: e.horse_name,
+        kettoNum: summary.kettoNum,
+      });
+    }
+  }
 
   // 馬場状態をRPCI基準値用に変換（"良" → "良", それ以外 → "稍重以上"）
   const trackCondition = raceData.race_info.track_condition || '';
