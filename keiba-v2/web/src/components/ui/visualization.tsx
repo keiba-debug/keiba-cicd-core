@@ -137,6 +137,8 @@ interface TrendIndicatorProps {
   maxShow?: number;
   size?: 'sm' | 'md';
   className?: string;
+  /** true のとき連勝/連敗バッジを表示しない（馬名行で別表示する場合など） */
+  hideStreak?: boolean;
 }
 
 const resultStyles: Record<RaceResult, { bg: string; label: string }> = {
@@ -153,7 +155,8 @@ export function TrendIndicator({
   entries,
   maxShow = 5,
   size = 'sm',
-  className
+  className,
+  hideStreak = false,
 }: TrendIndicatorProps) {
   // entries が提供されていればそちらを優先
   const displayEntries: RecentFormEntry[] = entries
@@ -225,19 +228,19 @@ export function TrendIndicator({
           return dotElement;
         })}
       </div>
-      {streak && (
+      {!hideStreak && streak && (
         <StreakBadge streak={streak} />
       )}
     </div>
   );
 }
 
-interface Streak {
+export interface Streak {
   type: 'win' | 'place' | 'lose';
   count: number;
 }
 
-function calculateStreak(results: RaceResult[]): Streak | null {
+export function calculateStreak(results: RaceResult[]): Streak | null {
   if (results.length === 0) return null;
   
   let winCount = 0;
@@ -266,7 +269,7 @@ function calculateStreak(results: RaceResult[]): Streak | null {
   return null;
 }
 
-function StreakBadge({ streak }: { streak: Streak }) {
+export function StreakBadge({ streak }: { streak: Streak }) {
   const styles = {
     win: 'bg-emerald-500 text-white',
     place: 'bg-blue-500 text-white',
@@ -287,7 +290,7 @@ function StreakBadge({ streak }: { streak: Streak }) {
   
   return (
     <span className={cn(
-      'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium',
+      'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap flex-shrink-0',
       styles[streak.type]
     )}>
       {icons[streak.type]} {labels[streak.type]}

@@ -30,7 +30,7 @@ import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH,
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { MessageSquareText } from 'lucide-react';
-import { TrendIndicator, type RecentFormEntry } from '@/components/ui/visualization';
+import { TrendIndicator, StreakBadge, calculateStreak, type RecentFormEntry } from '@/components/ui/visualization';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
 import type { RecentFormData } from '@/lib/data/target-race-result-reader';
@@ -182,15 +182,32 @@ function getMyMark2BgColor(mark?: string): string {
   }
 }
 
-// パドック評価の背景色
+// パドック評価マークの正規化（全角→半角・前後空白除去）
+function normalizePaddockMark(mark?: string): string {
+  if (!mark || typeof mark !== 'string') return '';
+  const t = mark.trim();
+  if (!t) return '';
+  // 全角英数・スペースを半角に（Ａ→A, Ｂ→B など）
+  const half = t.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0xfee0)
+  ).trim();
+  return half || t;
+}
+
+// パドック評価の背景色・文字色（S/A/B/穴 + ◎○▲△）— 目立つように濃いめ・枠付き
 function getPaddockMarkBgColor(mark?: string): string {
-  if (!mark) return '';
-  switch (mark) {
-    case '◎': return 'bg-green-100 dark:bg-green-900/30';
-    case '○': return 'bg-teal-100 dark:bg-teal-900/30';
-    case '▲': return 'bg-amber-100 dark:bg-amber-900/30';
-    case '△': return 'bg-gray-100 dark:bg-gray-700/30';
-    default: return '';
+  const m = normalizePaddockMark(mark);
+  if (!m) return '';
+  switch (m) {
+    case 'S': return 'bg-amber-200 text-amber-900 border-2 border-amber-400 dark:bg-amber-500/50 dark:text-amber-950 dark:border-amber-400';
+    case 'A': return 'bg-emerald-200 text-emerald-900 border-2 border-emerald-500 dark:bg-emerald-500/50 dark:text-emerald-950 dark:border-emerald-400';
+    case 'B': return 'bg-sky-200 text-sky-900 border-2 border-sky-500 dark:bg-sky-500/50 dark:text-sky-950 dark:border-sky-400';
+    case '穴': return 'bg-violet-200 text-violet-900 border-2 border-violet-500 dark:bg-violet-500/50 dark:text-violet-950 dark:border-violet-400';
+    case '◎': return 'bg-green-200 text-green-900 border-2 border-green-500 dark:bg-green-500/50 dark:text-green-950 dark:border-green-400';
+    case '○': return 'bg-teal-200 text-teal-900 border-2 border-teal-500 dark:bg-teal-500/50 dark:text-teal-950 dark:border-teal-400';
+    case '▲': return 'bg-amber-200 text-amber-900 border-2 border-amber-500 dark:bg-amber-500/50 dark:text-amber-950 dark:border-amber-400';
+    case '△': return 'bg-gray-200 text-gray-800 border-2 border-gray-400 dark:bg-gray-500/50 dark:text-gray-100 dark:border-gray-400';
+    default: return 'bg-gray-200 text-gray-800 border-2 border-gray-400 dark:bg-gray-500/50 dark:text-gray-100 dark:border-gray-400';
   }
 }
 
@@ -509,46 +526,49 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         </td>
       )}
 
-      {/* 馬名 + TARGETコメント + 直近戦績 */}
-      <td className="px-2 py-1.5 border">
-        <div className="flex items-center gap-1">
-          <Link
-            href={`/horses-v2/${entry.horse_id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-          >
-            {entry.horse_name}
-          </Link>
-          {/* TARGETコメントアイコン */}
-          {(horseComment || predictionComment || resultComment) && (
-            <span
-              className={cn(
-                "inline-flex items-center justify-center w-4 h-4 rounded cursor-help",
-                resultComment
-                  ? "text-orange-500 hover:text-orange-600"
-                  : horseComment
-                    ? "text-emerald-500 hover:text-emerald-600"
-                    : "text-blue-500 hover:text-blue-600"
-              )}
-              title={[
-                horseComment && `【馬】${horseComment.comment}`,
-                predictionComment && `【予想】${predictionComment.comment}`,
-                resultComment && `【結果】${resultComment.comment}`,
-              ].filter(Boolean).join('\n')}
+      {/* 馬名 + TARGETコメント + 直近戦績ドット（連勝/連敗バッジは着順セルに表示） */}
+      <td className="px-2 py-1.5 border min-w-[10rem]">
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1 flex-nowrap min-w-0">
+            <Link
+              href={`/horses-v2/${entry.horse_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 dark:text-blue-400 hover:underline font-medium truncate"
             >
-              <MessageSquareText className="w-3.5 h-3.5" />
-            </span>
+              {entry.horse_name}
+            </Link>
+            {/* TARGETコメントアイコン */}
+            {(horseComment || predictionComment || resultComment) && (
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center w-4 h-4 rounded cursor-help flex-shrink-0",
+                  resultComment
+                    ? "text-orange-500 hover:text-orange-600"
+                    : horseComment
+                      ? "text-emerald-500 hover:text-emerald-600"
+                      : "text-blue-500 hover:text-blue-600"
+                )}
+                title={[
+                  horseComment && `【馬】${horseComment.comment}`,
+                  predictionComment && `【予想】${predictionComment.comment}`,
+                  resultComment && `【結果】${resultComment.comment}`,
+                ].filter(Boolean).join('\n')}
+              >
+                <MessageSquareText className="w-3.5 h-3.5" />
+              </span>
+            )}
+          </div>
+          {recentForm && recentForm.length > 0 && (
+            <TrendIndicator
+              results={[]}
+              entries={toRecentFormEntries(recentForm)}
+              size="sm"
+              className="mt-0"
+              hideStreak
+            />
           )}
         </div>
-        {recentForm && recentForm.length > 0 && (
-          <TrendIndicator
-            results={[]}
-            entries={toRecentFormEntries(recentForm)}
-            size="sm"
-            className="mt-0.5"
-          />
-        )}
       </td>
 
       {/* 性齢 */}
@@ -642,21 +662,40 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
 
 
 
-      {/* パドック評価 */}
-      <td className={`px-2 py-1.5 text-center border text-lg font-bold ${getPaddockMarkBgColor(entry.paddock_info?.mark)}`}>
-        {entry.paddock_info?.mark || '-'}
-      </td>
-
-      {/* パドックコメント */}
+      {/* パドック評価・コメント（1列）：評価を上段・色付き、コメントを下段で改行表示 */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
-        {entry.paddock_info?.comment || '-'}
+        {entry.paddock_info?.mark || entry.paddock_info?.comment ? (
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <span className={cn(
+              "flex-shrink-0 w-fit inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 rounded text-sm font-extrabold shadow-sm",
+              getPaddockMarkBgColor(entry.paddock_info?.mark)
+            )}>
+              {entry.paddock_info?.mark || '－'}
+            </span>
+            {entry.paddock_info?.comment && (
+              <span className="leading-tight break-words line-clamp-2" title={entry.paddock_info.comment}>
+                {entry.paddock_info.comment}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-gray-400">－</span>
+        )}
       </td>
 
-      {/* 結果（オプション） */}
+      {/* 結果（オプション）：着順の横に連勝/連敗バッジを表示 */}
       {showResult && result && (
         <>
           <td className="px-2 py-1.5 text-center border font-bold">
-            <FinishPositionBadge position={result.finish_position} />
+            <div className="flex items-center justify-center gap-1 flex-wrap">
+              <FinishPositionBadge position={result.finish_position} />
+              {recentForm && recentForm.length > 0 && (() => {
+                const formEntries = toRecentFormEntries(recentForm);
+                const results = formEntries.map(e => e.result);
+                const streak = calculateStreak(results);
+                return streak ? <StreakBadge streak={streak} /> : null;
+              })()}
+            </div>
           </td>
           <td className="px-2 py-1.5 text-center border font-mono">
             {result.time}
@@ -668,7 +707,17 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
       )}
       {showResult && !result && (
         <>
-          <td className="px-2 py-1.5 text-center border">-</td>
+          <td className="px-2 py-1.5 text-center border">
+            <div className="flex items-center justify-center gap-1 flex-wrap">
+              <span>-</span>
+              {recentForm && recentForm.length > 0 && (() => {
+                const formEntries = toRecentFormEntries(recentForm);
+                const results = formEntries.map(e => e.result);
+                const streak = calculateStreak(results);
+                return streak ? <StreakBadge streak={streak} /> : null;
+              })()}
+            </div>
+          </td>
           <td className="px-2 py-1.5 text-center border">-</td>
           <td className="px-2 py-1.5 text-center border">-</td>
         </>
@@ -803,8 +852,7 @@ export default function HorseEntryTable({
             <th className="px-2 py-2 text-center border w-12">レート</th>
             <th className="px-2 py-2 text-center border w-10">P</th>
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
-            <th className="px-2 py-2 text-center border w-12">パ評価</th>
-            <th className="px-2 py-2 text-left border min-w-24">パコメント</th>
+            <th className="px-2 py-2 text-left border min-w-20" title="パドック評価・コメント">パ</th>
             {showResult && (
               <>
                 <th className="px-2 py-2 text-center border w-10">着</th>
