@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { PredictionsLive, PredictionRace, PredictionEntry } from '@/lib/data/predictions-reader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -78,9 +79,78 @@ function calcEv(probV: number, winOdds: number | null): number | null {
   return probV * winOdds;
 }
 
+// --- 日付ナビゲーション ---
+
+function getDayOfWeek(dateStr: string): string {
+  const date = new Date(dateStr + 'T00:00:00');
+  return ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
+}
+
+function getDayColor(dateStr: string): string {
+  const day = new Date(dateStr + 'T00:00:00').getDay();
+  if (day === 0) return 'text-red-500';
+  if (day === 6) return 'text-blue-500';
+  return 'text-muted-foreground';
+}
+
+interface DateNavProps {
+  dates: string[];
+  currentDate: string;
+  isArchive: boolean;
+}
+
+function DateNav({ dates, currentDate, isArchive }: DateNavProps) {
+  const router = useRouter();
+
+  if (dates.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 items-center mb-6">
+      <button
+        onClick={() => router.push('/predictions')}
+        className={`px-3 py-2 rounded border text-sm transition-colors ${
+          !isArchive
+            ? 'bg-primary text-primary-foreground shadow-md'
+            : 'bg-background hover:bg-muted/50'
+        }`}
+      >
+        最新
+      </button>
+      <span className="text-muted-foreground text-xs mx-1">|</span>
+      {dates.map(date => {
+        const [, , day] = date.split('-');
+        const isActive = isArchive && date === currentDate;
+        return (
+          <button
+            key={date}
+            onClick={() => router.push(`/predictions?date=${date}`)}
+            className={`px-3 py-2 rounded border text-sm transition-colors flex flex-col items-center min-w-[3.5rem] ${
+              isActive
+                ? 'bg-primary text-primary-foreground shadow-md'
+                : 'bg-background hover:bg-muted/50'
+            }`}
+          >
+            <span className="font-bold leading-none">{parseInt(day)}</span>
+            <span className={`text-[10px] mt-0.5 ${isActive ? 'text-primary-foreground/80' : getDayColor(date)}`}>
+              {getDayOfWeek(date)}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // --- メインコンポーネント ---
 
-export function PredictionsContent({ data }: { data: PredictionsLive }) {
+interface PredictionsContentProps {
+  data: PredictionsLive;
+  availableDates?: string[];
+  currentDate?: string;
+  isArchive?: boolean;
+}
+
+export function PredictionsContent({ data, availableDates = [], currentDate = '', isArchive = false }: PredictionsContentProps) {
   const [oddsMap, setOddsMap] = useState<OddsMap>({});
   const [oddsSource, setOddsSource] = useState<string>('');
   const [oddsTime, setOddsTime] = useState<string | null>(null);
@@ -192,6 +262,11 @@ export function PredictionsContent({ data }: { data: PredictionsLive }) {
 
   return (
     <div className="py-6">
+      {/* 日付ナビゲーション */}
+      {availableDates.length > 0 && (
+        <DateNav dates={availableDates} currentDate={currentDate} isArchive={isArchive} />
+      )}
+
       {/* ヘッダー */}
       <div className="flex items-center justify-between mb-6">
         <div>

@@ -484,11 +484,18 @@ def main():
         },
     }
 
+    out_json = json.dumps(output, ensure_ascii=False, indent=2)
+
     out_path = config.ml_dir() / "predictions_live.json"
-    out_path.write_text(
-        json.dumps(output, ensure_ascii=False, indent=2),
-        encoding='utf-8'
-    )
+    out_path.write_text(out_json, encoding='utf-8')
+
+    # 日別アーカイブ: races/YYYY/MM/DD/predictions.json
+    date_parts = date.split('-')
+    archive_dir = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2]
+    if archive_dir.exists():
+        archive_path = archive_dir / "predictions.json"
+        archive_path.write_text(out_json, encoding='utf-8')
+        print(f"\n[Archive] {archive_path}")
 
     elapsed = time.time() - t0
 

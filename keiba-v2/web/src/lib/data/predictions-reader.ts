@@ -67,3 +67,49 @@ export function getPredictionsLive(): PredictionsLive | null {
     return null;
   }
 }
+
+/**
+ * 日別アーカイブ (races/YYYY/MM/DD/predictions.json) を読み込む
+ */
+export function getPredictionsByDate(date: string): PredictionsLive | null {
+  try {
+    const [y, m, d] = date.split('-');
+    if (!y || !m || !d) return null;
+    const filePath = path.join(DATA3_ROOT, 'races', y, m, d, 'predictions.json');
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(content) as PredictionsLive;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * predictions.json が存在する日付一覧を返す（降順）
+ */
+export function getAvailablePredictionDates(): string[] {
+  try {
+    const racesDir = path.join(DATA3_ROOT, 'races');
+    if (!fs.existsSync(racesDir)) return [];
+    const dates: string[] = [];
+
+    const years = fs.readdirSync(racesDir).filter(y => /^\d{4}$/.test(y));
+    for (const y of years) {
+      const yearDir = path.join(racesDir, y);
+      const months = fs.readdirSync(yearDir).filter(m => /^\d{2}$/.test(m));
+      for (const m of months) {
+        const monthDir = path.join(yearDir, m);
+        const days = fs.readdirSync(monthDir).filter(d => /^\d{2}$/.test(d));
+        for (const d of days) {
+          if (fs.existsSync(path.join(monthDir, d, 'predictions.json'))) {
+            dates.push(`${y}-${m}-${d}`);
+          }
+        }
+      }
+    }
+
+    return dates.sort().reverse();
+  } catch {
+    return [];
+  }
+}
