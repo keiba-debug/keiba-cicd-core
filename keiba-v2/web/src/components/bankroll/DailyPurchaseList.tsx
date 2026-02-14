@@ -59,9 +59,10 @@ interface DailyData {
 
 interface DailyPurchaseListProps {
   dateStr?: string; // YYYYMMDD形式
+  refreshKey?: number; // 変更時に再取得
 }
 
-export function DailyPurchaseList({ dateStr }: DailyPurchaseListProps) {
+export function DailyPurchaseList({ dateStr, refreshKey }: DailyPurchaseListProps) {
   const [data, setData] = useState<DailyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +93,7 @@ export function DailyPurchaseList({ dateStr }: DailyPurchaseListProps) {
     };
 
     fetchDailyData();
-  }, [targetDateStr]);
+  }, [targetDateStr, refreshKey]);
 
   // 行の展開/折りたたみ
   const toggleRaceExpand = (index: number) => {

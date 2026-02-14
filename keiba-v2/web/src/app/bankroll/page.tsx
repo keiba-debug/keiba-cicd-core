@@ -68,6 +68,7 @@ export default function BankrollPage() {
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // 開催日一覧を取得
   const loadRaceDates = useCallback(async () => {
@@ -78,9 +79,11 @@ export default function BankrollPage() {
       // YYYY-MM-DD形式からYYYYMMDD形式に変換
       const yyyymmdd = (dates as string[]).map((d) => d.replace(/-/g, ''));
       setRaceDates(yyyymmdd);
-      // 最新の開催日をデフォルトに
+      // 当日以前の最新開催日をデフォルトに（未来の開催日は選ばない）
       if (yyyymmdd.length > 0) {
-        setSelectedDate((prev) => prev || yyyymmdd[0]);
+        const todayStr = formatDateToStr(today);
+        const defaultDate = yyyymmdd.find(d => d <= todayStr) || yyyymmdd[0];
+        setSelectedDate((prev) => prev || defaultDate);
       } else {
         setSelectedDate(formatDateToStr(today));
       }
@@ -186,7 +189,7 @@ export default function BankrollPage() {
           💰 資金管理
         </h1>
         <div className="flex items-center gap-2">
-          <RefreshButton />
+          <RefreshButton onRefresh={() => setRefreshKey(k => k + 1)} />
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">
@@ -262,10 +265,10 @@ export default function BankrollPage() {
       </Card>
 
       {/* 選択日の成績 */}
-      <TodaySummary dateStr={selectedDate} />
+      <TodaySummary dateStr={selectedDate} refreshKey={refreshKey} />
 
       {/* 選択日の購入リスト */}
-      <DailyPurchaseList dateStr={selectedDate} />
+      <DailyPurchaseList dateStr={selectedDate} refreshKey={refreshKey} />
 
       {/* 年月選択 */}
       <Card className="mb-6">

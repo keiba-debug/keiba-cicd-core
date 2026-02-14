@@ -20,6 +20,7 @@ interface DailySummary {
 interface TodaySummaryProps {
   dateStr?: string; // YYYYMMDD形式
   onSyncComplete?: () => void; // 同期完了時のコールバック
+  refreshKey?: number; // 変更時に再取得
 }
 
 // YYYYMMDD形式から表示用にフォーマット
@@ -30,7 +31,7 @@ const formatDateDisplay = (dateStr: string): string => {
   return `${year}年${month}月${day}日`;
 };
 
-export function TodaySummary({ dateStr, onSyncComplete }: TodaySummaryProps) {
+export function TodaySummary({ dateStr, onSyncComplete, refreshKey }: TodaySummaryProps) {
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +131,7 @@ export function TodaySummary({ dateStr, onSyncComplete }: TodaySummaryProps) {
     };
 
     fetchSummary();
-  }, [targetDateStr]);
+  }, [targetDateStr, refreshKey]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('ja-JP', {
