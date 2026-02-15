@@ -7,6 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import { DATA3_ROOT } from '@/lib/config';
+import { getDbRaceInfoByDate, trackTypeToJapanese } from './db-race';
 
 // --- 型定義 ---
 
@@ -127,6 +128,45 @@ export function getAvailablePredictionDates(): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * predictions の track_type/distance が欠落しているレースをDB (RACE_SHOSAI) で補完
+ * Server Component から呼び出す（async）
+ */
+export async function enrichPredictionsFromDb(data: PredictionsLive): Promise<PredictionsLive> {
+  // Check if any races need enrichment
+  const needsEnrichment = data.races.some(r => !r.track_type || !r.distance);
+  if (!needsEnrichment) return data;
+
+  try {
+    const datePrefix = data.date.replace(/-/g, '');
+    const dbInfo = await getDbRaceInfoByDate(datePrefix);
+    if (dbInfo.size === 0) return data;
+
+    let enriched = 0;
+    for (const race of data.races) {
+      const info = dbInfo.get(race.race_id);
+      if (!info) continue;
+
+      if (!race.track_type && info.trackType) {
+        // Use Japanese format for display consistency (芝/ダ instead of turf/dirt)
+        race.track_type = trackTypeToJapanese(info.trackType) || info.trackType;
+        enriched++;
+      }
+      if (!race.distance && info.distance > 0) {
+        race.distance = info.distance;
+      }
+    }
+
+    if (enriched > 0) {
+      console.log(`[predictions-reader] DB enrichment: ${enriched} races updated with track_type/distance`);
+    }
+  } catch (error) {
+    console.error('[predictions-reader] DB enrichment failed (non-fatal):', error);
+  }
+
+  return data;
 }
 
 // --- レース結果 ---

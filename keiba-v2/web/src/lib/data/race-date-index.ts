@@ -10,6 +10,7 @@ import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
 import { TRACKS, DATA3_ROOT } from '../config';
+import { getDbRaceInfoByDates, trackTypeToJapanese } from './db-race';
 
 const INDEX_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index.json');
 const INDEX_META_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index_meta.json');
@@ -481,6 +482,9 @@ export async function buildRaceDateIndex(): Promise<void> {
     availableDates = Array.from(dateIndex.keys()).sort().reverse();
     indexLoaded = true;
 
+    // DB enrichment: fill missing track/distance from RACE_SHOSAI
+    await enrichMissingFromDb(dateIndex);
+
     saveIndexToFile(raceCount);
 
     const elapsed = Date.now() - startTime;
@@ -489,6 +493,58 @@ export async function buildRaceDateIndex(): Promise<void> {
     console.error('[RaceDateIndex] Build error:', error);
   } finally {
     indexBuildInProgress = false;
+  }
+}
+
+/**
+ * DB (RACE_SHOSAI) からtrack/distance/startTimeが欠落しているレースを補完
+ * mykeibadbにデータがある日のみ実行される
+ */
+async function enrichMissingFromDb(index: Map<string, DateIndexEntry>): Promise<void> {
+  // Collect dates that have races with missing distance
+  const datesToEnrich: string[] = [];
+  for (const [date, entry] of index) {
+    for (const track of entry.tracks) {
+      if (track.races.some(r => !r.distance)) {
+        datesToEnrich.push(date.replace(/-/g, ''));
+        break;
+      }
+    }
+  }
+
+  if (datesToEnrich.length === 0) return;
+
+  try {
+    const dbInfo = await getDbRaceInfoByDates(datesToEnrich);
+    if (dbInfo.size === 0) return;
+
+    let enriched = 0;
+    for (const [, entry] of index) {
+      for (const track of entry.tracks) {
+        for (const race of track.races) {
+          const info = dbInfo.get(race.id);
+          if (!info) continue;
+
+          // Fill missing distance
+          if (!race.distance && info.distance > 0) {
+            const trackTypeJp = trackTypeToJapanese(info.trackType);
+            race.distance = `${trackTypeJp}${info.distance}m`;
+            enriched++;
+          }
+
+          // Fill missing startTime
+          if (!race.startTime && info.hassoJikoku.length === 4) {
+            race.startTime = `${info.hassoJikoku.substring(0, 2)}:${info.hassoJikoku.substring(2, 4)}`;
+          }
+        }
+      }
+    }
+
+    if (enriched > 0) {
+      console.log(`[RaceDateIndex] DB enrichment: ${enriched} races updated from ${datesToEnrich.length} dates`);
+    }
+  } catch (error) {
+    console.error('[RaceDateIndex] DB enrichment failed (non-fatal):', error);
   }
 }
 

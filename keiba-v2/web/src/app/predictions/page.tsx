@@ -1,4 +1,4 @@
-import { getPredictionsLive, getPredictionsByDate, getAvailablePredictionDates, getResultsByDate } from '@/lib/data/predictions-reader';
+import { getPredictionsLive, getPredictionsByDate, getAvailablePredictionDates, getResultsByDate, enrichPredictionsFromDb } from '@/lib/data/predictions-reader';
 import { PredictionsContent } from './predictions-content';
 import Link from 'next/link';
 
@@ -13,7 +13,7 @@ export default async function PredictionsPage({
   const params = await searchParams;
   const dates = getAvailablePredictionDates();
   const targetDate = params.date || null;
-  const data = targetDate ? getPredictionsByDate(targetDate) : getPredictionsLive();
+  let data = targetDate ? getPredictionsByDate(targetDate) : getPredictionsLive();
 
   if (!data) {
     return (
@@ -43,6 +43,9 @@ export default async function PredictionsPage({
       </div>
     );
   }
+
+  // Enrich missing track_type/distance from DB (RACE_SHOSAI)
+  data = await enrichPredictionsFromDb(data);
 
   const results = getResultsByDate(data.date);
 
