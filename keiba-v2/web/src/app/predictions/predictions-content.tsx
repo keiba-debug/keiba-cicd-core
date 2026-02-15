@@ -406,17 +406,31 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
   // VBテーブルソート
   const [vbSort, setVbSort] = useState<SortState>({ key: 'gap', dir: 'desc' });
+  // 推奨買い目テーブルソート
+  const [betSort, setBetSort] = useState<SortState>({ key: 'amount', dir: 'desc' });
 
   // TARGET馬印2 VB印反映
   const [markSyncing, setMarkSyncing] = useState(false);
   const [markResult, setMarkResult] = useState<{ marks: Record<string, number>; markedHorses: number } | null>(null);
 
   // 推奨買い目 予算設定
-  const [dailyBudget, setDailyBudget] = useState<number>(BET_CONFIG.defaultBudget);
+  const [dailyBudget, setDailyBudget] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('keiba_daily_budget');
+      if (saved) return Number(saved);
+    }
+    return BET_CONFIG.defaultBudget;
+  });
+  // 予算変更時にlocalStorageに保存
+  const updateBudget = useCallback((value: number) => {
+    const v = Math.max(1000, Math.round(value / 1000) * 1000);
+    setDailyBudget(v);
+    if (typeof window !== 'undefined') localStorage.setItem('keiba_daily_budget', String(v));
+  }, []);
 
   // TARGET PD CSV 推奨買い目反映
   const [betSyncing, setBetSyncing] = useState(false);
-  const [betSyncResult, setBetSyncResult] = useState<{ totalBets: number; winBets: number; placeBets: number; racesWritten: number; racesSkipped: number; totalAmount: number } | null>(null);
+  const [betSyncResult, setBetSyncResult] = useState<{ totalBets: number; winBets: number; placeBets: number; racesWritten: number; totalAmount: number; filePath: string } | null>(null);
 
   const isToday = useMemo(() => {
     const now = new Date();
@@ -428,9 +442,10 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
   const fetchAllOdds = useCallback(async () => {
     try {
+      const ts = Date.now(); // キャッシュバスト用タイムスタンプ
       const results = await Promise.all(
         raceIds.map(id =>
-          fetch(`/api/odds/db-latest?raceId=${id}`)
+          fetch(`/api/odds/db-latest?raceId=${id}&_t=${ts}`, { cache: 'no-store' })
             .then(r => r.json() as Promise<DbOddsResponse>)
             .catch(() => null)
         )
@@ -754,13 +769,61 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     return { winCount, placeCount, winTotal, placeTotal, totalAmount, avgEv, expectedReturn, totalBets: betRecommendations.length, dangerRaces: dangerRaceIds.size };
   }, [betRecommendations]);
 
-  // TARGET PD CSVに推奨買い目を書込み
+  // 推奨買い目：フィルタ＆ソート
+  const sortedBetRecommendations = useMemo(() => {
+    // フィルタ適用（VBテーブルと同じ条件）
+    let recs = [...betRecommendations];
+    if (venueFilter !== 'all') recs = recs.filter(r => r.race.venue_name === venueFilter);
+    if (trackFilter !== 'all') recs = recs.filter(r => trackFilter === 'turf' ? isTurf(r.race.track_type) : isDirt(r.race.track_type));
+    if (raceNumFilter > 0) recs = recs.filter(r => r.race.race_number === raceNumFilter);
+
+    // ソート
+    const { key, dir } = betSort;
+    const mul = dir === 'asc' ? 1 : -1;
+    recs.sort((a, b) => {
+      let va: number, vb: number;
+      switch (key) {
+        case 'race': va = a.race.race_number; vb = b.race.race_number; break;
+        case 'umaban': va = a.entry.umaban; vb = b.entry.umaban; break;
+        case 'winEv': va = a.winEv ?? -1; vb = b.winEv ?? -1; break;
+        case 'placeEv': va = a.placeEv ?? -1; vb = b.placeEv ?? -1; break;
+        case 'gap': va = a.entry.vb_gap; vb = b.entry.vb_gap; break;
+        case 'kelly': {
+          const ka = a.betType === '複勝' ? a.kellyPlace : a.kellyWin;
+          const kb = b.betType === '複勝' ? b.kellyPlace : b.kellyWin;
+          va = ka; vb = kb; break;
+        }
+        case 'odds': {
+          va = getWinOdds(oddsMap, a.race.race_id, a.entry.umaban, a.entry.odds) ?? 9999;
+          vb = getWinOdds(oddsMap, b.race.race_id, b.entry.umaban, b.entry.odds) ?? 9999;
+          break;
+        }
+        case 'head': {
+          va = calcHeadRatio(a.entry.pred_proba_wv, a.entry.pred_proba_v) ?? -1;
+          vb = calcHeadRatio(b.entry.pred_proba_wv, b.entry.pred_proba_v) ?? -1;
+          break;
+        }
+        case 'danger': va = a.danger?.dangerScore ?? 0; vb = b.danger?.dangerScore ?? 0; break;
+        default: /* amount */ va = a.betAmountWin + a.betAmountPlace; vb = b.betAmountWin + b.betAmountPlace; break;
+      }
+      return (va - vb) * mul;
+    });
+    return recs;
+  }, [betRecommendations, betSort, venueFilter, trackFilter, raceNumFilter, oddsMap]);
+
+  // TARGET FF CSVに推奨買い目を書込み（出力前にオッズ最新化）
   const syncBetMarks = useCallback(async () => {
     setBetSyncing(true);
     setBetSyncResult(null);
     try {
+      // 最新オッズ取得（EV/Kelly再計算のため）
+      await fetchAllOdds();
+      // fetchAllOdds後にoddsMapが更新されbetRecommendationsが再計算される
+      // 少し待ってstateの反映を確認
+      await new Promise(r => setTimeout(r, 500));
+
       // クライアント側で算出した推奨買い目をAPIに送信
-      const bets = betRecommendations.flatMap(r => {
+      const bets = sortedBetRecommendations.flatMap(r => {
         const items: { raceId: string; umaban: number; betType: number; amount: number }[] = [];
         if (r.betAmountWin > 0) {
           items.push({ raceId: r.race.race_id, umaban: r.entry.umaban, betType: 0, amount: r.betAmountWin });
@@ -791,8 +854,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         winBets: data.summary.winBets,
         placeBets: data.summary.placeBets,
         racesWritten: data.summary.racesWritten,
-        racesSkipped: data.summary.racesSkipped,
         totalAmount: data.summary.totalAmount,
+        filePath: data.summary.filePath,
       });
     } catch (error) {
       console.error('[syncBetMarks] Error:', error);
@@ -801,7 +864,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     } finally {
       setBetSyncing(false);
     }
-  }, [betRecommendations]);
+  }, [sortedBetRecommendations, fetchAllOdds]);
 
   // VBテーブル ソート適用
   const sortedVBEntries = useMemo(() => {
@@ -1177,7 +1240,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           <CardHeader className="pb-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
-                推奨買い目 ({betSummary.totalBets}件)
+                推奨買い目 ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
                 <Badge variant="outline" className="text-xs">Stage 1</Badge>
               </CardTitle>
               <div className="flex items-center gap-2">
@@ -1194,7 +1257,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                   <input
                     type="number"
                     value={dailyBudget}
-                    onChange={(e) => setDailyBudget(Math.max(1000, Math.round(Number(e.target.value) / 1000) * 1000))}
+                    onChange={(e) => updateBudget(Number(e.target.value))}
                     step={5000}
                     min={1000}
                     className="w-20 px-1.5 py-0.5 text-xs text-right rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
@@ -1202,19 +1265,16 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                 </label>
                 {betSyncResult && (
                   <span className="text-xs text-green-700 dark:text-green-400">
-                    {betSyncResult.racesWritten > 0
-                      ? `${betSyncResult.racesWritten}R / 単${betSyncResult.winBets} 複${betSyncResult.placeBets} / ¥${betSyncResult.totalAmount.toLocaleString()} 書込み完了`
-                      : `${betSyncResult.racesSkipped}R スキップ（既存あり）`
-                    }
+                    {`${betSyncResult.racesWritten}件 / 単${betSyncResult.winBets} 複${betSyncResult.placeBets} / ¥${betSyncResult.totalAmount.toLocaleString()} → FF CSV出力済`}
                   </span>
                 )}
                 <button
                   onClick={syncBetMarks}
                   disabled={betSyncing}
                   className="px-3 py-1 text-xs font-medium rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-indigo-300 dark:border-indigo-700 disabled:opacity-50"
-                  title="推奨買い目をTARGET PD CSV に書込み（資金管理メニューで読込可能）"
+                  title="推奨買い目をFF CSV出力（TARGETの買い目取り込みメニューで読込）"
                 >
-                  {betSyncing ? '書込中...' : 'TARGET買い目'}
+                  {betSyncing ? '出力中...' : 'FF CSV出力'}
                 </button>
               </div>
             </div>
@@ -1258,22 +1318,22 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                 <thead>
                   <tr className="bg-indigo-50 dark:bg-indigo-900/30 text-xs">
                     <th className="px-2 py-2 text-left border">場</th>
-                    <th className="px-2 py-2 text-center border">R</th>
-                    <th className="px-2 py-2 text-center border">馬番</th>
+                    <SortTh sortKey="race" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">R</SortTh>
+                    <SortTh sortKey="umaban" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">馬番</SortTh>
                     <th className="px-2 py-2 text-left border">馬名</th>
                     <th className="px-2 py-2 text-center border">推奨</th>
-                    <th className="px-2 py-2 text-center border" title="単勝EV">単EV</th>
-                    <th className="px-2 py-2 text-center border" title="複勝EV">複EV</th>
-                    <th className="px-2 py-2 text-center border" title="VB Gap">Gap</th>
-                    <th className="px-2 py-2 text-center border" title="Kelly基準ベット比率">Kelly</th>
-                    <th className="px-2 py-2 text-center border bg-yellow-50 dark:bg-yellow-900/20" title="推奨金額">金額</th>
-                    <th className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</th>
-                    <th className="px-2 py-2 text-center border" title="頭向き度">頭%</th>
-                    <th className="px-2 py-2 text-center border bg-orange-50 dark:bg-orange-900/20" title="危険な人気馬（モデルVが低評価の人気馬）">危険馬</th>
+                    <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝EV">単EV</SortTh>
+                    <SortTh sortKey="placeEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="複勝EV">複EV</SortTh>
+                    <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="VB Gap">Gap</SortTh>
+                    <SortTh sortKey="kelly" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="Kelly基準ベット比率">Kelly</SortTh>
+                    <SortTh sortKey="amount" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-yellow-50 dark:bg-yellow-900/20" title="推奨金額">金額</SortTh>
+                    <SortTh sortKey="odds" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
+                    <SortTh sortKey="head" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="頭向き度">頭%</SortTh>
+                    <SortTh sortKey="danger" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-orange-50 dark:bg-orange-900/20" title="危険な人気馬">危険馬</SortTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {betRecommendations.map((r) => {
+                  {sortedBetRecommendations.map((r) => {
                     const winOdds = getWinOdds(oddsMap, r.race.race_id, r.entry.umaban, r.entry.odds);
                     const headRatio = calcHeadRatio(r.entry.pred_proba_wv, r.entry.pred_proba_v);
                     const totalBet = r.betAmountWin + r.betAmountPlace;

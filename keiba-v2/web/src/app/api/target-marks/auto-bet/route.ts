@@ -1,18 +1,20 @@
 /**
- * 推奨買い目 → TARGET PD CSV 書込みAPI
+ * 推奨買い目 → TARGET FF CSV 書込みAPI
  *
- * POST: クライアントで算出した推奨買い目をTARGET PD CSV に一括書込み
+ * POST: クライアントで算出した推奨買い目をTARGET買い目取り込みCSVに一括書込み
  * Body: {
  *   bets: Array<{ raceId: string, umaban: number, betType: number, amount: number }>
- *   forceOverwrite?: boolean  — 既存レースの買い目を上書きする場合 true
  * }
  *
  * betType: 0=単勝, 1=複勝
  * amount: 金額（円）
+ *
+ * 出力先: C:\TFJV\MY_DATA\FFyyyymmdd.CSV
+ * TARGET側で「買い目取り込み」メニューから読み込む
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { writePdBets, clearPdBets } from '@/lib/data/target-pd-writer';
+import { writePdBets } from '@/lib/data/target-pd-writer';
 import type { PdRaceEntry } from '@/lib/data/target-pd-writer';
 
 interface BetInput {
@@ -26,7 +28,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const bets: BetInput[] = body.bets;
-    const forceOverwrite: boolean = body.forceOverwrite ?? false;
 
     if (!Array.isArray(bets) || bets.length === 0) {
       return NextResponse.json(
@@ -85,13 +86,7 @@ export async function POST(request: NextRequest) {
 
     const entries = [...raceMap.values()];
 
-    // forceOverwrite の場合、既存エントリを先に削除
-    let cleared = 0;
-    if (forceOverwrite) {
-      cleared = clearPdBets(entries.map(e => e.raceId));
-    }
-
-    // PD CSV 書込み
+    // FF CSV 書込み
     const result = writePdBets(entries);
 
     return NextResponse.json({
@@ -103,7 +98,6 @@ export async function POST(request: NextRequest) {
         totalAmount,
         racesWritten: result.written,
         racesSkipped: result.skipped,
-        cleared,
         filePath: result.filePath,
       },
     });
