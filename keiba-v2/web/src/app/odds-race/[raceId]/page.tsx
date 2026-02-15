@@ -432,26 +432,45 @@ function OddsSharePanel({ horses }: { horses: HorseOdds[] }) {
 function TimeSeriesTable({ raceId }: { raceId: string }) {
   const [data, setData] = useState<TimeSeriesData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<string>('');
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await fetch(`/api/odds/ji-timeseries?raceId=${raceId}`);
-        if (!res.ok) {
-          setError('時系列データなし');
-          return;
-        }
-        const json = await res.json();
-        setData(json);
-      } catch {
-        setError('取得失敗');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+  // 当日判定
+  const isToday = useMemo(() => {
+    const dateStr = raceId.substring(0, 8);
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    return dateStr === today;
   }, [raceId]);
+
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    try {
+      const res = await fetch(`/api/odds/ji-timeseries?raceId=${raceId}&_t=${Date.now()}`);
+      if (!res.ok) {
+        setError('時系列データなし');
+        return;
+      }
+      const json = await res.json();
+      setData(json);
+      setDataSource(json.source || '');
+      setError(null);
+    } catch {
+      setError('取得失敗');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [raceId]);
+
+  // 初回読み込み + 当日自動ポーリング (30秒)
+  useEffect(() => {
+    fetchData();
+    if (isToday) {
+      const interval = setInterval(() => fetchData(), 30000);
+      return () => clearInterval(interval);
+    }
+  }, [fetchData, isToday]);
 
   if (loading) {
     return (
@@ -477,6 +496,11 @@ function TimeSeriesTable({ raceId }: { raceId: string }) {
             <Clock className="h-4 w-4" />
             時系列オッズ
           </CardTitle>
+          <div className="flex items-center gap-2 mt-1">
+            <Button onClick={() => fetchData(true)} variant="ghost" size="sm" className="h-6 px-2" disabled={refreshing}>
+              <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="py-4 text-center text-muted-foreground text-sm">
           {error || '時系列データがありません'}
@@ -485,7 +509,7 @@ function TimeSeriesTable({ raceId }: { raceId: string }) {
     );
   }
 
-  // 最新10件を表示（逆順）
+  // 最新15件を表示（逆順）
   const recentTimeSeries = [...data.timeSeries].reverse().slice(0, 15);
 
   // 直前変動がある馬を抽出
@@ -494,10 +518,27 @@ function TimeSeriesTable({ raceId }: { raceId: string }) {
   return (
     <Card>
       <CardHeader className="py-3 px-4 border-b">
-        <CardTitle className="text-sm font-bold flex items-center gap-2">
-          <Clock className="h-4 w-4" />
-          時系列オッズ
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-bold flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            時系列オッズ
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {dataSource && (
+              <Badge variant="outline" className="text-[10px]">
+                {dataSource === 'db' ? 'DB' : 'File'}
+              </Badge>
+            )}
+            {isToday && (
+              <Badge variant="secondary" className="text-[10px]">
+                自動更新中
+              </Badge>
+            )}
+            <Button onClick={() => fetchData(true)} variant="ghost" size="sm" className="h-7 px-2" disabled={refreshing}>
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+        </div>
         <p className="text-xs text-muted-foreground">
           {data.firstTime} 〜 {data.lastTime}（{data.snapshotCount}件中{data.sampledCount}件表示）
         </p>
@@ -558,7 +599,7 @@ function TimeSeriesTable({ raceId }: { raceId: string }) {
             <tbody>
               {recentTimeSeries.map((snapshot, idx) => {
                 const prevSnapshot = idx < recentTimeSeries.length - 1 ? recentTimeSeries[idx + 1] : null;
-                
+
                 return (
                   <tr key={snapshot.timeLabel} className="border-b hover:bg-muted/30">
                     <td className="px-2 py-1 font-mono text-muted-foreground sticky left-0 bg-background z-10">
@@ -569,13 +610,13 @@ function TimeSeriesTable({ raceId }: { raceId: string }) {
                       const prevOdds = prevSnapshot
                         ? prevSnapshot.odds[h.umaban] ?? prevSnapshot.odds[h.umaban.replace(/^0+/, '')]
                         : null;
-                      
+
                       let changeClass = '';
                       if (prevOdds != null && odds != null) {
                         if (odds < prevOdds * 0.95) changeClass = 'text-red-600 dark:text-red-400 font-bold';
                         else if (odds > prevOdds * 1.05) changeClass = 'text-blue-600 dark:text-blue-400';
                       }
-                      
+
                       return (
                         <td
                           key={h.umaban}

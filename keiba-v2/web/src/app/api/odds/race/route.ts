@@ -24,6 +24,8 @@ import {
   getRaceConditionInfo,
 } from '@/lib/data/race-horse-names';
 import { analyzeOddsPattern } from '@/lib/data/rt-data-types';
+import type { HorseOdds } from '@/lib/data/rt-data-types';
+import { getDbLatestOdds, extractTimeLabel } from '@/lib/data/db-odds';
 import path from 'path';
 import { DATA3_ROOT } from '@/lib/config';
 
@@ -43,16 +45,6 @@ export async function GET(request: NextRequest) {
   const date = searchParams.get('date');
   const track = searchParams.get('track');
   const raceNumber = searchParams.get('raceNumber');
-
-  if (!isRtDataAvailable()) {
-    return NextResponse.json(
-      {
-        error: 'RT_DATA not available',
-        hint: '環境変数 JV_DATA_ROOT を設定し、RT_DATA フォルダが存在するか確認してください',
-      },
-      { status: 503 }
-    );
-  }
 
   let targetRaceId: string | null = raceId ?? null;
 
@@ -83,6 +75,79 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // 馬情報（DB/RTパス共通）
+  const horseInfo = getHorseInfoByUmaban(targetRaceId);
+
+  // keibabookRaceId（共通）
+  const year = targetRaceId.substring(0, 4);
+  const month = targetRaceId.substring(4, 6);
+  const day = targetRaceId.substring(6, 8);
+  const dayPath = path.join(DATA3_ROOT, 'races', year, month, day);
+  const keibabookRaceId = resolveKeibabookRaceId(targetRaceId, dayPath);
+
+  // レース条件（共通）
+  const raceCondition = getRaceConditionInfo(targetRaceId);
+
+  // --- 1. DB優先 ---
+  const dbOdds = await getDbLatestOdds(targetRaceId);
+  if (dbOdds.source !== 'none' && dbOdds.horses.length > 0) {
+    const horses: HorseOdds[] = dbOdds.horses.map((h) => {
+      const ub = String(h.umaban);
+      const info = lookupHorseInfo(horseInfo, ub);
+      return {
+        umaban: ub,
+        winOdds: h.winOdds,
+        placeOddsMin: h.placeOddsMin,
+        placeOddsMax: h.placeOddsMax,
+        ninki: h.ninki,
+        horseName: info?.horseName,
+        waku: info?.waku,
+        honshiMark: info?.honshiMark,
+        jockey: info?.jockey,
+        aiIndex: info?.aiIndex,
+        rating: info?.rating,
+        lastResult: info?.lastResult,
+        finishPosition: info?.finishPosition,
+        finishTime: info?.finishTime,
+        finalOdds: info?.finalOdds,
+        finalNinki: info?.finalNinki,
+        oddsTrend: h.oddsTrend ?? undefined,
+        firstOdds: h.firstWinOdds,
+        oddsChange: (h.winOdds != null && h.firstWinOdds != null)
+          ? h.winOdds - h.firstWinOdds : null,
+        oddsChangePercent: (h.winOdds != null && h.firstWinOdds != null && h.firstWinOdds > 0)
+          ? ((h.winOdds - h.firstWinOdds) / h.firstWinOdds) * 100 : null,
+      };
+    });
+
+    const analysis = analyzeOddsPattern(horses);
+
+    const timeSeriesSummary = dbOdds.snapshotCount >= 2 ? {
+      firstTime: dbOdds.firstSnapshotTime ? extractTimeLabel(dbOdds.firstSnapshotTime) : '',
+      lastTime: dbOdds.snapshotTime ? extractTimeLabel(dbOdds.snapshotTime) : '',
+      snapshotCount: dbOdds.snapshotCount,
+      source: 'DB' as const,
+    } : undefined;
+
+    return NextResponse.json({
+      raceId: targetRaceId,
+      source: 'DB',
+      horses,
+      keibabookRaceId: keibabookRaceId ?? undefined,
+      raceCondition: raceCondition ?? undefined,
+      analysis: analysis.pattern !== 'normal' ? analysis : undefined,
+      timeSeriesSummary,
+    });
+  }
+
+  // --- 2. RT_DATAフォールバック ---
+  if (!isRtDataAvailable()) {
+    return NextResponse.json(
+      { error: 'No odds data available', raceId: targetRaceId, hint: 'DBにもRT_DATAにもデータがありません' },
+      { status: 404 }
+    );
+  }
+
   const odds = getRaceOddsFromRt(targetRaceId);
   if (!odds) {
     return NextResponse.json(
@@ -95,8 +160,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // 馬名・枠番・印・騎手・AI指数等・結果情報を races データから取得して付与（馬番の表記ゆれ 08 vs 8 を吸収）
-  const horseInfo = getHorseInfoByUmaban(targetRaceId);
+  // 馬名・枠番等を付与
   if (Object.keys(horseInfo).length > 0) {
     odds.horses = odds.horses.map((h) => {
       const info = lookupHorseInfo(horseInfo, h.umaban);
@@ -109,7 +173,6 @@ export async function GET(request: NextRequest) {
         aiIndex: info?.aiIndex,
         rating: info?.rating,
         lastResult: info?.lastResult,
-        // 結果情報（レース終了後のみ）
         finishPosition: info?.finishPosition,
         finishTime: info?.finishTime,
         finalOdds: info?.finalOdds,
@@ -118,20 +181,9 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // レース詳細ページ用 keibabook race_id（races-v2 の URL で使用）
-  const year = targetRaceId.substring(0, 4);
-  const month = targetRaceId.substring(4, 6);
-  const day = targetRaceId.substring(6, 8);
-  const dayPath = path.join(DATA3_ROOT, 'races', year, month, day);
-  const keibabookRaceId = resolveKeibabookRaceId(targetRaceId, dayPath);
-
-  // レース条件情報を取得
-  const raceCondition = getRaceConditionInfo(targetRaceId);
-
-  // オッズパターン分析
   const analysis = analyzeOddsPattern(odds.horses);
 
-  // 時系列変動情報を取得（JI_2026を優先、なければRT_DATAから）
+  // 時系列変動情報（JI_2026優先→RT_DATA）
   let timeSeries = getJiOddsTimeSeries(targetRaceId);
   let oddsChanges = calculateJiOddsChanges(targetRaceId);
   let timeSeriesSource: 'JI' | 'RT' | undefined;
@@ -139,7 +191,6 @@ export async function GET(request: NextRequest) {
   if (timeSeries.length >= 2) {
     timeSeriesSource = 'JI';
   } else {
-    // JI_2026になければRT_DATAを試す
     timeSeries = getOddsTimeSeries(targetRaceId);
     oddsChanges = calculateOddsChanges(targetRaceId);
     if (timeSeries.length >= 2) {
@@ -147,7 +198,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 変動情報をhorsesにマージ
   if (oddsChanges.length > 0) {
     const changeMap = new Map(oddsChanges.map((c) => [c.umaban, c]));
     odds.horses = odds.horses.map((h) => {
@@ -165,7 +215,6 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 時系列サマリー
   const timeSeriesSummary =
     timeSeries.length >= 2
       ? {

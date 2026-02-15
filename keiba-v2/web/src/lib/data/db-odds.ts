@@ -55,6 +55,7 @@ export interface DbOddsResult {
   raceId: string;
   source: 'timeseries' | 'final' | 'none';
   snapshotTime: string | null;
+  firstSnapshotTime: string | null;
   snapshotCount: number;
   horses: DbHorseOdds[];
 }
@@ -135,7 +136,7 @@ async function getLatestTimeseriesWinOdds(
  */
 async function getFirstTimeseriesWinOdds(
   raceCode: string
-): Promise<Map<number, number>> {
+): Promise<{ odds: Map<number, number>; time: string | null }> {
   const db = getPool();
 
   // 有効オッズが5頭以上ある最初のスナップショットを探す
@@ -151,7 +152,7 @@ async function getFirstTimeseriesWinOdds(
     [raceCode]
   );
   const firstTime = (timeRows[0] as MinTimeRow)?.first_time;
-  if (!firstTime) return new Map();
+  if (!firstTime) return { odds: new Map(), time: null };
 
   const [rows] = await db.query<mysql.RowDataPacket[]>(
     'SELECT UMABAN, ODDS FROM odds1_tansho_jikeiretsu WHERE RACE_CODE = ? AND HAPPYO_TSUKIHI_JIFUN = ?',
@@ -166,7 +167,7 @@ async function getFirstTimeseriesWinOdds(
     }
   }
 
-  return odds;
+  return { odds, time: firstTime };
 }
 
 /**
@@ -259,94 +260,194 @@ async function getFinalPlaceOdds(
   return odds;
 }
 
+// --- 全スナップショット取得（時系列タブ用） ---
+
+export interface DbOddsSnapshot {
+  /** HAPPYO_TSUKIHI_JIFUN 生値 */
+  time: string;
+  /** HH:mm 表示用 */
+  timeLabel: string;
+  /** 各馬のオッズ (馬番文字列 → 単勝オッズ) */
+  odds: Record<string, number>;
+}
+
+export interface DbTimeSeriesResult {
+  raceId: string;
+  source: 'db-timeseries' | 'none';
+  snapshotCount: number;
+  firstTime: string;
+  lastTime: string;
+  snapshots: DbOddsSnapshot[];
+}
+
+interface TimeSeriesRow {
+  HAPPYO_TSUKIHI_JIFUN: string;
+  UMABAN: string;
+  ODDS: string;
+  NINKI: string;
+}
+
+/**
+ * HAPPYO_TSUKIHI_JIFUN (MMDDHHmm等) から HH:mm を抽出
+ */
+export function extractTimeLabel(raw: string): string {
+  const s = raw.trim();
+  // 8桁 MMDDHHmm → HH:mm
+  if (s.length === 8 && /^\d{8}$/.test(s)) {
+    return `${s.substring(4, 6)}:${s.substring(6, 8)}`;
+  }
+  // 4桁 HHmm → HH:mm
+  if (s.length === 4 && /^\d{4}$/.test(s)) {
+    return `${s.substring(0, 2)}:${s.substring(2, 4)}`;
+  }
+  // datetime形式 "YYYY-MM-DD HH:MM:SS" など
+  const m = s.match(/(\d{2}):(\d{2})/);
+  if (m) return `${m[1]}:${m[2]}`;
+  return s;
+}
+
+/**
+ * 全時系列スナップショットをDBから取得
+ * Python側の get_timeseries_win_odds() と同等
+ */
+export async function getDbOddsAllTimeSeries(raceCode: string): Promise<DbTimeSeriesResult> {
+  try {
+    const db = getPool();
+    const [rows] = await db.query<mysql.RowDataPacket[]>(
+      `SELECT HAPPYO_TSUKIHI_JIFUN, UMABAN, ODDS, NINKI
+       FROM odds1_tansho_jikeiretsu
+       WHERE RACE_CODE = ?
+       ORDER BY HAPPYO_TSUKIHI_JIFUN, UMABAN`,
+      [raceCode]
+    );
+
+    if (rows.length === 0) {
+      return { raceId: raceCode, source: 'none', snapshotCount: 0, firstTime: '', lastTime: '', snapshots: [] };
+    }
+
+    // スナップショット単位にグループ化
+    const snapshotMap = new Map<string, Record<string, number>>();
+    for (const r of rows as TimeSeriesRow[]) {
+      const time = r.HAPPYO_TSUKIHI_JIFUN?.trim();
+      if (!time) continue;
+      const val = parseOddsValue(r.ODDS);
+      if (val === null) continue;
+      const umaban = String(parseInt(r.UMABAN, 10));
+
+      if (!snapshotMap.has(time)) {
+        snapshotMap.set(time, {});
+      }
+      snapshotMap.get(time)![umaban] = val;
+    }
+
+    const snapshots: DbOddsSnapshot[] = [];
+    for (const [time, odds] of snapshotMap) {
+      // 有効オッズが3頭未満のスナップショットは初期データ（****等）→スキップ
+      const validCount = Object.values(odds).filter(v => v >= 1.0).length;
+      if (validCount < 3) continue;
+
+      snapshots.push({
+        time,
+        timeLabel: extractTimeLabel(time),
+        odds,
+      });
+    }
+
+    if (snapshots.length === 0) {
+      return { raceId: raceCode, source: 'none', snapshotCount: 0, firstTime: '', lastTime: '', snapshots: [] };
+    }
+
+    return {
+      raceId: raceCode,
+      source: 'db-timeseries',
+      snapshotCount: snapshots.length,
+      firstTime: snapshots[0].timeLabel,
+      lastTime: snapshots[snapshots.length - 1].timeLabel,
+      snapshots,
+    };
+  } catch (error) {
+    console.error('[db-odds] Error fetching all timeseries:', error);
+    return { raceId: raceCode, source: 'none', snapshotCount: 0, firstTime: '', lastTime: '', snapshots: [] };
+  }
+}
+
 // --- メイン関数 ---
 
 /**
- * レースの最新オッズを取得（時系列 → 確定のフォールバック付き）
+ * レースの最新オッズを取得
+ *
+ * 優先順位:
+ *   1. odds1_tansho (OB15速報/確定) ← リアルタイム更新されるため最新
+ *   2. odds1_tansho_jikeiretsu (時系列最新) ← 夜間バッチ配信で遅延あり
+ *
+ * トレンド計算: odds1_tansho_jikeiretsu の朝一スナップショットと比較
  */
 export async function getDbLatestOdds(raceCode: string): Promise<DbOddsResult> {
   try {
-    // 1) 時系列オッズを試行
-    const ts = await getLatestTimeseriesWinOdds(raceCode);
-
-    if (ts.odds.size > 0) {
-      // 朝一オッズ + 複勝も取得
-      const [firstOdds, placeOdds] = await Promise.all([
-        getFirstTimeseriesWinOdds(raceCode),
-        getLatestTimeseriesPlaceOdds(raceCode),
-      ]);
-
-      const horses: DbHorseOdds[] = [];
-      for (const [umaban, data] of ts.odds) {
-        const first = firstOdds.get(umaban) ?? null;
-        const place = placeOdds.get(umaban);
-        let trend: 'up' | 'down' | 'stable' | null = null;
-        if (first !== null && data.odds !== first) {
-          trend = data.odds > first ? 'up' : 'down';
-        } else if (first !== null) {
-          trend = 'stable';
-        }
-
-        horses.push({
-          umaban,
-          winOdds: data.odds,
-          placeOddsMin: place?.low ?? null,
-          placeOddsMax: place?.high ?? null,
-          ninki: data.ninki,
-          firstWinOdds: first,
-          oddsTrend: trend,
-        });
-      }
-
-      horses.sort((a, b) => a.umaban - b.umaban);
-
-      return {
-        raceId: raceCode,
-        source: 'timeseries',
-        snapshotTime: ts.time,
-        snapshotCount: ts.count,
-        horses,
-      };
-    }
-
-    // 2) 確定オッズにフォールバック
-    const [finalWin, finalPlace] = await Promise.all([
-      getFinalWinOdds(raceCode),
-      getFinalPlaceOdds(raceCode),
+    // 全データソースを並列取得
+    const [finalWin, finalPlace, firstResult, tsInfo] = await Promise.all([
+      getFinalWinOdds(raceCode),            // odds1_tansho (OB15速報/確定)
+      getFinalPlaceOdds(raceCode),          // odds1_fukusho
+      getFirstTimeseriesWinOdds(raceCode),  // 朝一オッズ (トレンド計算用)
+      getLatestTimeseriesWinOdds(raceCode), // 時系列情報 (スナップショット数等)
     ]);
 
-    if (finalWin.size > 0) {
-      const horses: DbHorseOdds[] = [];
-      for (const [umaban, data] of finalWin) {
-        const place = finalPlace.get(umaban);
-        horses.push({
-          umaban,
-          winOdds: data.odds,
-          placeOddsMin: place?.low ?? null,
-          placeOddsMax: place?.high ?? null,
-          ninki: data.ninki,
-          firstWinOdds: null,
-          oddsTrend: null,
-        });
-      }
-      horses.sort((a, b) => a.umaban - b.umaban);
+    // オッズソース決定: OB15速報(odds1_tansho) → 時系列最新(jikeiretsu)
+    let winOdds: Map<number, { odds: number; ninki: number | null }>;
+    let source: 'timeseries' | 'final';
+    let placeOdds: Map<number, { low: number; high: number; ninki: number | null }>;
 
+    if (finalWin.size > 0) {
+      winOdds = finalWin;
+      source = 'final';
+      placeOdds = finalPlace;
+    } else if (tsInfo.odds.size > 0) {
+      winOdds = tsInfo.odds;
+      source = 'timeseries';
+      placeOdds = await getLatestTimeseriesPlaceOdds(raceCode);
+    } else {
       return {
         raceId: raceCode,
-        source: 'final',
+        source: 'none',
         snapshotTime: null,
+        firstSnapshotTime: null,
         snapshotCount: 0,
-        horses,
+        horses: [],
       };
     }
 
-    // 3) データなし
+    // 馬データ構築 (トレンドは朝一オッズとの比較)
+    const firstOdds = firstResult.odds;
+    const horses: DbHorseOdds[] = [];
+    for (const [umaban, data] of winOdds) {
+      const first = firstOdds.get(umaban) ?? null;
+      const place = placeOdds.get(umaban);
+      let trend: 'up' | 'down' | 'stable' | null = null;
+      if (first !== null && data.odds !== first) {
+        trend = data.odds > first ? 'up' : 'down';
+      } else if (first !== null) {
+        trend = 'stable';
+      }
+
+      horses.push({
+        umaban,
+        winOdds: data.odds,
+        placeOddsMin: place?.low ?? null,
+        placeOddsMax: place?.high ?? null,
+        ninki: data.ninki,
+        firstWinOdds: first,
+        oddsTrend: trend,
+      });
+    }
+    horses.sort((a, b) => a.umaban - b.umaban);
+
     return {
       raceId: raceCode,
-      source: 'none',
-      snapshotTime: null,
-      snapshotCount: 0,
-      horses: [],
+      source,
+      snapshotTime: tsInfo.time,
+      firstSnapshotTime: firstResult.time,
+      snapshotCount: tsInfo.count,
+      horses,
     };
   } catch (error) {
     console.error('[db-odds] Error fetching odds:', error);
@@ -354,6 +455,7 @@ export async function getDbLatestOdds(raceCode: string): Promise<DbOddsResult> {
       raceId: raceCode,
       source: 'none',
       snapshotTime: null,
+      firstSnapshotTime: null,
       snapshotCount: 0,
       horses: [],
     };

@@ -11,6 +11,7 @@ import { getRaceOddsFromRt, isRtDataAvailable } from '@/lib/data/rt-data-reader'
 import { getHorseInfoByUmaban, lookupHorseInfo } from '@/lib/data/race-horse-names';
 import type { HorseOdds } from '@/lib/data/rt-data-types';
 import type { ExpectedValueHorse, ExpectedValueResponse } from '@/types/prediction';
+import { getDbLatestOdds } from '@/lib/data/db-odds';
 
 /**
  * 勝率を推定する
@@ -102,36 +103,53 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!isRtDataAvailable()) {
-    return NextResponse.json(
-      {
-        error: 'RT_DATA not available',
-        hint: '環境変数 JV_DATA_ROOT を設定し、RT_DATA フォルダが存在するか確認してください',
-      },
-      { status: 503 }
-    );
-  }
-
-  // 1. オッズ取得
-  const odds = getRaceOddsFromRt(raceId);
-  if (!odds) {
-    return NextResponse.json(
-      { error: 'Odds not found', raceId, hint: '該当レースの RT_DATA ファイルが存在しないか、レース前です' },
-      { status: 404 }
-    );
-  }
-
-  // 2. 馬情報を取得（AI指数・レイティング等）
+  // 1. 馬情報を取得（DB/RT共通）
   const horseInfo = getHorseInfoByUmaban(raceId);
-  const horsesWithInfo = odds.horses.map((h) => {
-    const info = lookupHorseInfo(horseInfo, h.umaban);
-    return {
-      ...h,
-      aiIndex: info?.aiIndex,
-      rating: info?.rating,
-      horseName: info?.horseName,
-    };
-  });
+
+  // 2. DB優先でオッズ取得
+  let horsesWithInfo: (HorseOdds & { aiIndex?: number; rating?: number })[];
+
+  const dbOdds = await getDbLatestOdds(raceId);
+  if (dbOdds.source !== 'none' && dbOdds.horses.length > 0) {
+    horsesWithInfo = dbOdds.horses.map((h) => {
+      const ub = String(h.umaban);
+      const info = lookupHorseInfo(horseInfo, ub);
+      return {
+        umaban: ub,
+        winOdds: h.winOdds,
+        placeOddsMin: h.placeOddsMin,
+        placeOddsMax: h.placeOddsMax,
+        ninki: h.ninki,
+        aiIndex: info?.aiIndex,
+        rating: info?.rating,
+        horseName: info?.horseName,
+      };
+    });
+  } else {
+    // RT_DATAフォールバック
+    if (!isRtDataAvailable()) {
+      return NextResponse.json(
+        { error: 'No odds data available', raceId, hint: 'DBにもRT_DATAにもデータがありません' },
+        { status: 404 }
+      );
+    }
+    const odds = getRaceOddsFromRt(raceId);
+    if (!odds) {
+      return NextResponse.json(
+        { error: 'Odds not found', raceId, hint: '該当レースのオッズデータがありません' },
+        { status: 404 }
+      );
+    }
+    horsesWithInfo = odds.horses.map((h) => {
+      const info = lookupHorseInfo(horseInfo, h.umaban);
+      return {
+        ...h,
+        aiIndex: info?.aiIndex,
+        rating: info?.rating,
+        horseName: info?.horseName,
+      };
+    });
+  }
 
   // 3. 各馬の期待値を計算
   const results: ExpectedValueHorse[] = horsesWithInfo.map((horse) => {
