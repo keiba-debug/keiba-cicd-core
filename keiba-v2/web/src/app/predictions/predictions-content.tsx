@@ -413,19 +413,17 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [markSyncing, setMarkSyncing] = useState(false);
   const [markResult, setMarkResult] = useState<{ marks: Record<string, number>; markedHorses: number } | null>(null);
 
-  // 推奨買い目 予算設定
-  const [dailyBudget, setDailyBudget] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('keiba_daily_budget');
-      if (saved) return Number(saved);
-    }
-    return BET_CONFIG.defaultBudget;
-  });
+  // 推奨買い目 予算設定（hydration後にlocalStorageから復元）
+  const [dailyBudget, setDailyBudget] = useState<number>(BET_CONFIG.defaultBudget);
+  useEffect(() => {
+    const saved = localStorage.getItem('keiba_daily_budget');
+    if (saved) setDailyBudget(Number(saved));
+  }, []);
   // 予算変更時にlocalStorageに保存
   const updateBudget = useCallback((value: number) => {
     const v = Math.max(1000, Math.round(value / 1000) * 1000);
     setDailyBudget(v);
-    if (typeof window !== 'undefined') localStorage.setItem('keiba_daily_budget', String(v));
+    localStorage.setItem('keiba_daily_budget', String(v));
   }, []);
 
   // TARGET PD CSV 推奨買い目反映
