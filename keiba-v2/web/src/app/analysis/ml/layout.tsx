@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'ML分析 | KeibaCICD',
+  title: 'VB分析 | KeibaCICD',
 };
 
 export default function MlAnalysisLayout({

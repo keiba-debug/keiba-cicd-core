@@ -20,18 +20,20 @@ const jetBrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: {
     template: '%s | 競馬CICD',
-    default: 'レース一覧 | 競馬CICD',
+    default: '出馬表 | 競馬CICD',
   },
   description: '競馬データビューアー',
   generator: 'v0.app',
   icons: {
     icon: [
       {
-        url: '/icon-light-32x32.png',
+        url: '/icon-light-32x32.svg',
+        type: 'image/svg+xml',
         media: '(prefers-color-scheme: light)',
       },
       {
-        url: '/icon-dark-32x32.png',
+        url: '/icon-dark-32x32.svg',
+        type: 'image/svg+xml',
         media: '(prefers-color-scheme: dark)',
       },
       {
@@ -39,7 +41,7 @@ export const metadata: Metadata = {
         type: 'image/svg+xml',
       },
     ],
-    apple: '/apple-icon.png',
+    apple: '/icon.svg',
   },
 }
 
@@ -63,7 +65,7 @@ export default function RootLayout({
           {/* Footer */}
           <footer className="border-t py-4 mt-auto">
             <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-muted-foreground">
-              KEIBA Data Viewer - ローカル競馬データ閲覧ツール
+              KeibaCICD — Value Bet で競馬をもっと面白く
             </div>
           </footer>
         </div>

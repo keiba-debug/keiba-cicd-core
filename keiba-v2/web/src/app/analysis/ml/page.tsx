@@ -37,7 +37,7 @@ export default function MlAnalysisPage() {
     <div className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold">ML分析</h1>
+          <h1 className="text-2xl font-bold">VB分析</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {data.description ?? data.experiment} — {data.model ?? 'LightGBM'} ({data.experiment})
           </p>

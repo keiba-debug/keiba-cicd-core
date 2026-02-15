@@ -988,7 +988,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       {/* ヘッダー */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold">ML予測一覧</h1>
+          <h1 className="text-3xl font-bold">Value Bet</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {data.date} / Model v{data.model_version} / オッズ: {data.odds_source}
             {data.db_odds_coverage && ` (${data.db_odds_coverage})`}

@@ -2,25 +2,22 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Calendar, Search, Wrench, ShieldCheck, MapPin, DollarSign, ListFilter, Brain } from 'lucide-react';
+import { Calendar, BarChart3, Brain, Wallet, MapPin, Search, ShieldCheck } from 'lucide-react';
 import { RemainingBudget } from '@/components/bankroll/RemainingBudget';
 import { useEffect, useRef } from 'react';
 
 export function Header() {
   const pathname = usePathname();
-  const toolsMenuRef = useRef<HTMLDetailsElement | null>(null);
-  const devMenuRef = useRef<HTMLDetailsElement | null>(null);
-  const aiMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const vbMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const analysisMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const searchMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const adminMenuRef = useRef<HTMLDetailsElement | null>(null);
+
+  const allMenuRefs = [vbMenuRef, analysisMenuRef, searchMenuRef, adminMenuRef];
 
   const closeMenus = () => {
-    if (toolsMenuRef.current) {
-      toolsMenuRef.current.open = false;
-    }
-    if (devMenuRef.current) {
-      devMenuRef.current.open = false;
-    }
-    if (aiMenuRef.current) {
-      aiMenuRef.current.open = false;
+    for (const ref of allMenuRefs) {
+      if (ref.current) ref.current.open = false;
     }
   };
 
@@ -32,16 +29,14 @@ export function Header() {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
-      if (toolsMenuRef.current?.contains(target)) return;
-      if (devMenuRef.current?.contains(target)) return;
-      if (aiMenuRef.current?.contains(target)) return;
+      for (const ref of allMenuRefs) {
+        if (ref.current?.contains(target)) return;
+      }
       closeMenus();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeMenus();
-      }
+      if (event.key === 'Escape') closeMenus();
     };
 
     document.addEventListener('click', handleClickOutside);
@@ -53,11 +48,12 @@ export function Header() {
   }, []);
 
   const navItems = [
-    { href: '/', label: 'レース', icon: Calendar },
-    { href: '/races-search', label: 'レース検索', icon: ListFilter },
-    { href: '/horses', label: '馬', icon: Search },
-    { href: '/bankroll', label: '資金管理', icon: DollarSign },
-    { href: '/admin', label: '管理', icon: ShieldCheck },
+    { href: '/', label: '出馬表', icon: Calendar },
+    { href: '/odds-board', label: 'オッズ', icon: BarChart3 },
+  ];
+
+  const navItemsRight = [
+    { href: '/bankroll', label: '収支', icon: Wallet },
   ];
 
   return (
@@ -88,10 +84,10 @@ export function Header() {
 
           {/* Nav */}
           <nav className="ml-2 flex items-center gap-1 rounded-full bg-muted/40 p-1 border">
+            {/* 出馬表・オッズ */}
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-
               return (
                 <Link
                   key={item.href}
@@ -108,85 +104,64 @@ export function Header() {
               );
             })}
 
-            <details className="relative group" ref={toolsMenuRef}>
-              <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
-                <Wrench className="h-4 w-4" />
-                <span className="hidden sm:inline whitespace-nowrap">ツール</span>
-              </summary>
-              <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
-                <Link
-                  href="/odds-board"
-                  onClick={() => {
-                    if (toolsMenuRef.current) {
-                      toolsMenuRef.current.open = false;
-                    }
-                  }}
-                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  📊 オッズボード
-                  <span className="block text-xs text-muted-foreground mt-0.5">ボード風オッズ確認</span>
-                </Link>
-                <Link
-                  href="/multi-view"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => {
-                    if (toolsMenuRef.current) {
-                      toolsMenuRef.current.open = false;
-                    }
-                  }}
-                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  🏁 レーシングビュアー
-                  <span className="block text-xs text-muted-foreground mt-0.5">複数レースを同時表示</span>
-                </Link>
-              </div>
-            </details>
-
-            <details className="relative group" ref={aiMenuRef}>
+            {/* Value Bet ドロップダウン */}
+            <details className="relative group" ref={vbMenuRef}>
               <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
                 <Brain className="h-4 w-4" />
-                <span className="hidden sm:inline whitespace-nowrap">AI</span>
+                <span className="hidden sm:inline whitespace-nowrap">Value Bet</span>
               </summary>
               <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
                 <Link
-                  href="/analysis/ml"
-                  onClick={() => {
-                    if (aiMenuRef.current) {
-                      aiMenuRef.current.open = false;
-                    }
-                  }}
-                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <span>🤖</span>
-                    <span>
-                      <span className="font-medium">ML分析</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">モデル精度・Value Bet分析</span>
-                    </span>
-                  </span>
-                </Link>
-                <Link
                   href="/predictions"
-                  onClick={() => {
-                    if (aiMenuRef.current) {
-                      aiMenuRef.current.open = false;
-                    }
-                  }}
+                  onClick={() => { if (vbMenuRef.current) vbMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   <span className="flex items-center gap-2">
                     <span>🎯</span>
                     <span>
-                      <span className="font-medium">当日予測一覧</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">VB候補・全レース予測</span>
+                      <span className="font-medium">今日のVB</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">推奨買い目・全レース予測</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
+                  href="/analysis/ml"
+                  onClick={() => { if (vbMenuRef.current) vbMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🤖</span>
+                    <span>
+                      <span className="font-medium">VB分析</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">モデル精度・統計レポート</span>
                     </span>
                   </span>
                 </Link>
               </div>
             </details>
 
-            <details className="relative group" ref={devMenuRef}>
+            {/* 収支 */}
+            {navItemsRight.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors ${
+                    isActive
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="hidden sm:inline">{item.label}</span>
+                </Link>
+              );
+            })}
+
+            {/* 分析 ドロップダウン */}
+            <details className="relative group" ref={analysisMenuRef}>
               <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
                 <MapPin className="h-4 w-4" />
                 <span className="hidden sm:inline whitespace-nowrap">分析</span>
@@ -194,11 +169,7 @@ export function Header() {
               <div className="absolute left-0 mt-2 w-64 rounded-xl border bg-background shadow-lg overflow-hidden">
                 <Link
                   href="/analysis/rpci"
-                  onClick={() => {
-                    if (devMenuRef.current) {
-                      devMenuRef.current.open = false;
-                    }
-                  }}
+                  onClick={() => { if (analysisMenuRef.current) analysisMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   <span className="flex items-center gap-2">
@@ -211,11 +182,7 @@ export function Header() {
                 </Link>
                 <Link
                   href="/analysis/rating"
-                  onClick={() => {
-                    if (devMenuRef.current) {
-                      devMenuRef.current.open = false;
-                    }
-                  }}
+                  onClick={() => { if (analysisMenuRef.current) analysisMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   <span className="flex items-center gap-2">
@@ -228,11 +195,7 @@ export function Header() {
                 </Link>
                 <Link
                   href="/analysis/obstacle"
-                  onClick={() => {
-                    if (devMenuRef.current) {
-                      devMenuRef.current.open = false;
-                    }
-                  }}
+                  onClick={() => { if (analysisMenuRef.current) analysisMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   <span className="flex items-center gap-2">
@@ -245,11 +208,7 @@ export function Header() {
                 </Link>
                 <Link
                   href="/demo/course"
-                  onClick={() => {
-                    if (devMenuRef.current) {
-                      devMenuRef.current.open = false;
-                    }
-                  }}
+                  onClick={() => { if (analysisMenuRef.current) analysisMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   <span className="flex items-center gap-2">
@@ -262,11 +221,7 @@ export function Header() {
                 </Link>
                 <Link
                   href="/analysis/trainer-patterns"
-                  onClick={() => {
-                    if (devMenuRef.current) {
-                      devMenuRef.current.open = false;
-                    }
-                  }}
+                  onClick={() => { if (analysisMenuRef.current) analysisMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   <span className="flex items-center gap-2">
@@ -274,6 +229,80 @@ export function Header() {
                     <span>
                       <span className="font-medium">調教分析</span>
                       <span className="block text-xs text-muted-foreground mt-0.5">調教データの統合分析</span>
+                    </span>
+                  </span>
+                </Link>
+              </div>
+            </details>
+
+            {/* データ検索 ドロップダウン */}
+            <details className="relative group" ref={searchMenuRef}>
+              <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
+                <Search className="h-4 w-4" />
+                <span className="hidden sm:inline whitespace-nowrap">データ検索</span>
+              </summary>
+              <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
+                <Link
+                  href="/multi-view"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => { if (searchMenuRef.current) searchMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🏁</span>
+                    <span>
+                      <span className="font-medium">レーシングビュアー</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">複数レースを同時表示</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
+                  href="/races-search"
+                  onClick={() => { if (searchMenuRef.current) searchMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📋</span>
+                    <span>
+                      <span className="font-medium">レース検索</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">条件でレースを検索</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
+                  href="/horses"
+                  onClick={() => { if (searchMenuRef.current) searchMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🐴</span>
+                    <span>
+                      <span className="font-medium">馬検索</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">馬名で検索・詳細表示</span>
+                    </span>
+                  </span>
+                </Link>
+              </div>
+            </details>
+
+            {/* 管理 ドロップダウン */}
+            <details className="relative group" ref={adminMenuRef}>
+              <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
+                <ShieldCheck className="h-4 w-4" />
+                <span className="hidden sm:inline whitespace-nowrap">管理</span>
+              </summary>
+              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
+                <Link
+                  href="/admin"
+                  onClick={() => { if (adminMenuRef.current) adminMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>⚙️</span>
+                    <span>
+                      <span className="font-medium">データ登録</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">スクレイプ・構築・ML実行</span>
                     </span>
                   </span>
                 </Link>
