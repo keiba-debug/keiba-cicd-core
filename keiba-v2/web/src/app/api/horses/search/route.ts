@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchHorses } from '@/lib/data';
+import { searchHorsesByNameIndex } from '@/lib/data/horse-data-reader';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const horses = await searchHorses(query);
+    const horses = await searchHorsesByNameIndex(query);
     return NextResponse.json({ horses });
   } catch (error) {
     console.error('Search error:', error);

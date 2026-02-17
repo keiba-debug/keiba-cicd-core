@@ -93,11 +93,10 @@ export const ACTIONS: ActionConfig[] = [
   // 過去データ更新（日付範囲対応）
   {
     id: 'sunpyo_update',
-    label: '寸評更新',
-    description: '過去レースの成績を再取得（寸評含む）→ kb_ext更新',
+    label: '成績完全版更新',
+    description: '寸評・インタビュー・次走メモを取得 → kb_ext更新',
     icon: '📝',
     category: 'update',
-    requiresDateRange: true,
   },
   // データ分析
   {

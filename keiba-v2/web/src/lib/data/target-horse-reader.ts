@@ -11,9 +11,8 @@
 import fs from 'fs';
 import path from 'path';
 import iconv from 'iconv-lite';
+import { JV_DATA_ROOT } from '@/lib/config';
 
-// JV-Data パス (TARGET frontier JV のデータディレクトリ)
-const JV_DATA_ROOT = process.env.JV_DATA_ROOT || 'Y:/';
 const UM_DATA_PATH = path.join(JV_DATA_ROOT, 'UM_DATA');
 
 // レコード長

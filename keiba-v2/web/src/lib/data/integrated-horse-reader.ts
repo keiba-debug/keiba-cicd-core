@@ -1,11 +1,8 @@
 /**
- * 統合馬プロファイルデータ読み込みユーティリティ
+ * @deprecated horse-data-reader.ts に移行済み。型定義のみ参照可。
+ * 新コードでは getHorseFullData() を使用すること。
  *
- * データソース優先順位:
- * 1. TARGET JV-Data (Y:/UM_DATA) - 高速な基本情報取得
- * 2. TARGET SE_DATA (Y:/SE_DATA) - 過去レース成績ベース
- * 3. integrated_*.json - 競馬ブックコメント等の付加情報
- * 4. MDプロファイル (Z:/KEIBA-CICD/data2/horses/profiles) - ユーザーメモ
+ * 旧: 統合馬プロファイルデータ読み込みユーティリティ
  */
 
 import { promises as fsp } from 'fs';

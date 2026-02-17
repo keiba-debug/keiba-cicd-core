@@ -410,7 +410,7 @@ function loadHorseNameIndex(): Record<string, string> {
   try {
     const content = fs.readFileSync(indexPath, 'utf-8');
     const data = JSON.parse(content);
-    horseNameIndexCache = data.index || {};
+    horseNameIndexCache = data.name_to_id || {};
     return horseNameIndexCache ?? {};
   } catch (e) {
     console.error('[TargetCommentReader] Failed to load horse_name_index.json:', e);

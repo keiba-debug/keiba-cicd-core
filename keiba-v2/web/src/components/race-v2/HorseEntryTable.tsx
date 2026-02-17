@@ -539,7 +539,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-1 flex-nowrap min-w-0">
             <Link
-              href={`/horses-v2/${entry.horse_id}`}
+              href={`/horses/${entry.horse_id}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-600 dark:text-blue-400 hover:underline font-medium truncate"

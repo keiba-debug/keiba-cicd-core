@@ -8,8 +8,8 @@
 import fs from 'fs';
 import path from 'path';
 import iconv from 'iconv-lite';
+import { JV_DATA_ROOT } from '@/lib/config';
 
-const JV_DATA_ROOT = process.env.JV_DATA_ROOT || 'Y:/';
 const SE_DATA_PATH = path.join(JV_DATA_ROOT, 'SE_DATA');
 const SE_RECORD_LEN = 555;
 

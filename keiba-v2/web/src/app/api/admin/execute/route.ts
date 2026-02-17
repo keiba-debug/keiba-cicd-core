@@ -154,10 +154,15 @@ export async function POST(request: NextRequest) {
             ];
           }
         } else if (action === 'sunpyo_update') {
-          // 寸評更新: seiseki再取得 → cyokyo_enrich
+          // 寸評更新: seiseki再取得（寸評・インタビュー・次走メモ）→ kb_ext更新
+          const dateArg = date || '';
           if (isRangeAction && startDate && endDate) {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
+            ];
+          } else {
+            commands = [
+              ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'seiseki'],
             ];
           }
         } else if (action === 'calc_race_type_standards') {
