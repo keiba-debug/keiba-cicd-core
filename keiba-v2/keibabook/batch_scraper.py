@@ -38,7 +38,7 @@ from keibabook.cyokyo_parser import parse_cyokyo_html
 from keibabook.parsers.speed_parser import parse_speed_html
 from keibabook.ext_builder import (
     build_kb_ext_from_scraped, save_kb_ext, update_kb_ext_field,
-    convert_race_id_12_to_16,
+    update_kb_ext_race_level, convert_race_id_12_to_16,
 )
 
 logging.basicConfig(
@@ -328,7 +328,7 @@ class KeibabookBatchScraper:
         to_race: Optional[int] = None,
         track: Optional[str] = None,
     ) -> dict:
-        """成績取得→既存kb_extにsunpyo（寸評）を追加"""
+        """成績取得→既存kb_extに寸評・インタビュー・次走メモを追加"""
         t0 = time.time()
         nittei = self.scrape_schedule(date_str)
 
@@ -357,21 +357,84 @@ class KeibabookBatchScraper:
                     html = self.scraper.scrape_seiseki(rid)
                     seiseki = parse_seiseki_html(html, rid)
 
-                    # sunpyoをkb_extに反映
                     race_id_16 = convert_race_id_12_to_16(rid, date_str, venue)
                     if race_id_16:
-                        field_updates = {}
+                        field_updates: dict[str, dict] = {}
+
+                        # 寸評 + 前半3F（テーブルの列）
                         for r in seiseki.get("results", []):
                             bano = r.get("馬番", "")
-                            sunpyo = r.get("sunpyo", "")
-                            if bano and sunpyo:
-                                field_updates[str(bano)] = {"sunpyo": sunpyo}
+                            if not bano:
+                                continue
+                            sunpyo = r.get("寸評", "")
+                            first_3f = r.get("前半3F", "")
+                            fields: dict[str, str] = {}
+                            if sunpyo:
+                                fields["sunpyo"] = sunpyo
+                            if first_3f:
+                                fields["first_3f"] = first_3f
+                            if fields:
+                                field_updates.setdefault(str(bano), {}).update(fields)
+
+                        # インタビュー（馬名→馬番のマッピングが必要）
+                        bano_by_name = {}
+                        for r in seiseki.get("results", []):
+                            name = r.get("馬名", "")
+                            bano = r.get("馬番", "")
+                            if name and bano:
+                                bano_by_name[name] = str(bano)
+
+                        for iv in seiseki.get("interviews", []):
+                            horse_name = iv.get("horse_name", "")
+                            text = iv.get("text", "")
+                            if not text:
+                                continue
+                            # 馬名で馬番を検索（部分一致対応）
+                            bano = bano_by_name.get(horse_name, "")
+                            if not bano:
+                                for name, b in bano_by_name.items():
+                                    if horse_name in name or name in horse_name:
+                                        bano = b
+                                        break
+                            if bano:
+                                field_updates.setdefault(bano, {})["interview"] = text
+
+                        # 次走へのメモ
+                        for memo in seiseki.get("next_race_memos", []):
+                            horse_name = memo.get("horse_name", "")
+                            text = memo.get("text", "")
+                            if not text:
+                                continue
+                            bano = bano_by_name.get(horse_name, "")
+                            if not bano:
+                                for name, b in bano_by_name.items():
+                                    if horse_name in name or name in horse_name:
+                                        bano = b
+                                        break
+                            if bano:
+                                field_updates.setdefault(bano, {})["next_race_memo"] = text
 
                         if field_updates:
                             update_kb_ext_field(race_id_16, date_str, field_updates)
-                            logger.info(f"  seiseki {rid}: sunpyo {len(field_updates)}頭更新")
+                            # ログに各フィールドの更新数を表示
+                            n_sunpyo = sum(1 for u in field_updates.values() if "sunpyo" in u)
+                            n_3f = sum(1 for u in field_updates.values() if "first_3f" in u)
+                            n_iv = sum(1 for u in field_updates.values() if "interview" in u)
+                            n_memo = sum(1 for u in field_updates.values() if "next_race_memo" in u)
+                            logger.info(f"  seiseki {rid}: 寸評{n_sunpyo} 3F{n_3f} IV{n_iv} メモ{n_memo}")
                         else:
-                            logger.info(f"  seiseki {rid}: sunpyoなし")
+                            logger.info(f"  seiseki {rid}: データなし")
+
+                        # ラップタイム + レース詳細（レースレベルデータ）
+                        race_level: dict = {}
+                        laps = seiseki.get("laps", {})
+                        if laps.get("lap_times"):
+                            race_level["laps"] = laps
+                        details = seiseki.get("race_details", {})
+                        if details:
+                            race_level["race_details"] = details
+                        if race_level:
+                            update_kb_ext_race_level(race_id_16, date_str, race_level)
                     updated += 1
 
                 except Exception as e:

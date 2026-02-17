@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""成績（seiseki）パーサー — レース結果、配当、ラップ、寸評を抽出"""
+"""成績（seiseki）パーサー — レース結果、配当、ラップ、寸評、インタビュー、次走メモを抽出"""
 
 import re
 from typing import Any, Optional
@@ -15,9 +15,15 @@ def parse_seiseki_html(html: str, race_id_12: str = "") -> dict[str, Any]:
         {
           "race_info": {"race_id": "...", "race_name": "..."},
           "results": [
-            {"着順": "1", "馬名": "...", "騎手": "...", "タイム": "2:23.1",
-             "上り3F": "35.8", "通過順位": "3-3-2-1", "馬体重": "502(+4)",
-             "sunpyo": "...", "interview": "..."},
+            {"着順": "1", "馬番": "15", "馬名": "...", "寸評": "好位伸る", ...},
+            ...
+          ],
+          "interviews": [
+            {"horse_name": "...", "finish_position": "1", "text": "..."},
+            ...
+          ],
+          "next_race_memos": [
+            {"horse_name": "...", "text": "..."},
             ...
           ],
           "payouts": {"win": 520, ...},
@@ -29,8 +35,7 @@ def parse_seiseki_html(html: str, race_id_12: str = "") -> dict[str, Any]:
 
     race_info = _extract_race_info(soup, race_id_12)
     results = _extract_results(soup)
-    interviews = _extract_interviews(soup)
-    results = _merge_interviews(results, interviews)
+    interviews, next_race_memos = _extract_post_race_sections(soup)
     payouts = _extract_payouts(soup)
     laps = _extract_laps(soup)
     details = _extract_race_details(soup)
@@ -38,6 +43,8 @@ def parse_seiseki_html(html: str, race_id_12: str = "") -> dict[str, Any]:
     return {
         "race_info": race_info,
         "results": results,
+        "interviews": interviews,
+        "next_race_memos": next_race_memos,
         "payouts": payouts,
         "laps": laps,
         "race_details": details,
@@ -102,49 +109,63 @@ def _extract_results(soup: BeautifulSoup) -> list[dict]:
     return results
 
 
-def _extract_interviews(soup: BeautifulSoup) -> list[dict]:
-    """bameibox divから騎手インタビュー・寸評を抽出"""
+def _extract_post_race_sections(
+    soup: BeautifulSoup,
+) -> tuple[list[dict], list[dict]]:
+    """インタビューと次走へのメモを抽出。
+
+    HTML構造:
+      <div class="borderbox">
+        <p class="title_table_midasi">インタビュー</p>
+        <div class="bameibox"><p class="honbun">馬名（N着）騎手名　テキスト</p></div>
+        ...
+      </div>
+      <div class="borderbox">
+        <p class="title_table_midasi">次走へのメモ</p>
+        <div class="bameibox"><p class="honbun">馬名……テキスト</p></div>
+        ...
+      </div>
+
+    Returns:
+        (interviews, next_race_memos)
+    """
     interviews: list[dict] = []
+    next_race_memos: list[dict] = []
 
-    for div in soup.find_all("div", class_="bameibox"):
-        text = div.get_text(strip=True)
-        if not text:
+    for borderbox in soup.find_all("div", class_="borderbox"):
+        title_p = borderbox.find("p", class_="title_table_midasi")
+        if not title_p:
             continue
+        section_title = title_p.get_text(strip=True)
 
-        # 馬名（着順）パターン
-        entry: dict[str, str] = {}
-        m = re.match(r"(.+?)（(\d+)着）", text)
-        if m:
-            entry["horse_name"] = m.group(1)
-            entry["finish_position"] = m.group(2)
+        for bameibox in borderbox.find_all("div", class_="bameibox"):
+            honbun = bameibox.find("p", class_="honbun")
+            if not honbun:
+                continue
+            text = honbun.get_text(strip=True)
+            if not text:
+                continue
 
-        # インタビューとメモに分離
-        p_tags = div.find_all("p")
-        for p in p_tags:
-            p_text = p.get_text(strip=True)
-            if "騎手" in p_text:
-                entry["interview"] = p_text
-            elif p_text and "interview" not in entry:
-                entry["sunpyo"] = p_text
+            if "インタビュー" in section_title:
+                entry: dict[str, str] = {"text": text}
+                # パターン: 馬名（N着）騎手名　テキスト
+                m = re.match(r"(.+?)（(\d+)着）", text)
+                if m:
+                    entry["horse_name"] = m.group(1)
+                    entry["finish_position"] = str(int(m.group(2)))
+                interviews.append(entry)
 
-        if entry:
-            interviews.append(entry)
+            elif "次走" in section_title:
+                entry = {"text": text}
+                # パターン: <!-- LINKBAMEIS -->馬名<!-- LINKBAMEIE -->……テキスト
+                # get_text後: 馬名……テキスト
+                m = re.match(r"(.+?)……(.+)", text)
+                if m:
+                    entry["horse_name"] = m.group(1)
+                    entry["text"] = m.group(2)
+                next_race_memos.append(entry)
 
-    return interviews
-
-
-def _merge_interviews(results: list[dict], interviews: list[dict]) -> list[dict]:
-    """インタビューデータを結果にマージ"""
-    for iv in interviews:
-        horse_name = iv.get("horse_name", "")
-        for r in results:
-            if horse_name and horse_name in r.get("馬名", ""):
-                if iv.get("sunpyo"):
-                    r["sunpyo"] = iv["sunpyo"]
-                if iv.get("interview"):
-                    r["interview"] = iv["interview"]
-                break
-    return results
+    return interviews, next_race_memos
 
 
 def _extract_payouts(soup: BeautifulSoup) -> dict:

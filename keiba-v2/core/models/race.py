@@ -47,6 +47,7 @@ class RacePace:
     l4: Optional[float] = None
     rpci: Optional[float] = None
     race_trend: Optional[str] = None
+    lap_times: Optional[List[float]] = field(default=None)  # 1Fごとのラップタイム
 
 
 @dataclass

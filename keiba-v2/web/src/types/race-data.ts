@@ -261,6 +261,11 @@ export interface LapsData {
   lap_times?: string[];
   first_1000m?: string;
   pace?: string;
+  // JRA-VAN pace data（SR_DATAから）
+  rpci?: number;        // RPCI値（last_3f / (first_3f + last_3f) * 100）
+  s3?: number;          // 前半3F（レースレベル）
+  l3?: number;          // 後半3F（レースレベル）
+  race_trend?: string;  // 5段階傾向分類
 }
 
 // ==========================================

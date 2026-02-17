@@ -9,7 +9,7 @@ SR*.DAT: 1272バイト固定長レコード（Shift-JIS）
 既存 calculate_race_type_standards_jv.py の parse_sr_record() を独立モジュールとして抽出。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -39,13 +39,14 @@ class SrRecord:
     last_3f: Optional[float]
     last_4f: Optional[float]
     rpci: Optional[float]
+    lap_times: Optional[List[float]] = field(default=None)  # 1Fごとのラップタイム (秒)
     grade: str = ''         # G1/G2/G3/Listed/OP/3勝クラス/2勝クラス/1勝クラス/未勝利/新馬
     race_name: str = ''     # レース名（重賞・特別のみ）
     race_class: str = ''    # 条件クラス名（年齢+クラス統合: "3歳新馬" 等）
 
     def to_pace_dict(self) -> Dict:
         """pace情報を辞書で返す"""
-        return {
+        result = {
             's3': self.first_3f,
             's4': self.first_4f,
             'l3': self.last_3f,
@@ -53,6 +54,9 @@ class SrRecord:
             'rpci': self.rpci,
             'race_trend': self.classify_trend(),
         }
+        if self.lap_times:
+            result['lap_times'] = self.lap_times
+        return result
 
     def classify_trend(self) -> Optional[str]:
         """レース傾向5段階分類"""
@@ -239,14 +243,27 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
 
     if first_3f is None or last_3f is None:
         return None
-    if first_3f < 30 or first_3f > 50 or last_3f < 30 or last_3f > 50:
+    # 短距離(1000-1400m)はfirst_3f<30秒があり得る（例: 1300mダートで29.8秒）
+    if first_3f < 25 or first_3f > 50 or last_3f < 25 or last_3f > 50:
         return None
-    if first_4f is not None and (first_4f < 40 or first_4f > 70):
+    if first_4f is not None and (first_4f < 35 or first_4f > 70):
         first_4f = None
-    if last_4f is not None and (last_4f < 40 or last_4f > 70):
+    if last_4f is not None and (last_4f < 35 or last_4f > 70):
         last_4f = None
 
     rpci = _calculate_rpci(first_3f, last_3f)
+
+    # LapTimes (@890-964, 25×3バイト, SST形式)
+    lap_times: List[float] = []
+    for j in range(25):
+        lap_raw = _decode(record, 890 + j * 3, 3)
+        if not lap_raw or lap_raw == '000':
+            break
+        lap_val = _parse_pace_time(lap_raw)
+        if lap_val is not None and 5.0 <= lap_val <= 20.0:
+            lap_times.append(lap_val)
+        else:
+            break
 
     # GradeCD (@614, 1バイト)
     grade_cd = _decode(record, 614, 1)
@@ -287,6 +304,7 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
         last_3f=last_3f,
         last_4f=last_4f,
         rpci=rpci,
+        lap_times=lap_times if lap_times else None,
         grade=grade,
         race_name=race_name,
         race_class=race_class,

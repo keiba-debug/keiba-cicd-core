@@ -310,12 +310,13 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
           {/* 結果タブ */}
           {showResults && (
             <TabsContent value="results" className="mt-4">
-              <RaceResultSection 
+              <RaceResultSection
                 entries={raceData.entries}
                 payouts={raceData.payouts}
                 tenkaiData={raceData.tenkai_data}
                 distance={raceData.race_info.distance}
                 rpciInfo={rpciInfo}
+                laps={raceData.laps}
                 raceId={raceData.meta?.race_id}
                 raceDate={raceData.race_info.date}
                 raceName={raceData.race_info.race_name}
@@ -425,13 +426,14 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
 
           {/* レース結果 */}
           {showResults && (
-            <RaceResultSection 
+            <RaceResultSection
               entries={raceData.entries}
               payouts={raceData.payouts}
               tenkaiData={raceData.tenkai_data}
               distance={raceData.race_info.distance}
               rpciInfo={rpciInfo}
               babaInfo={babaInfo}
+              laps={raceData.laps}
               raceId={raceData.meta?.race_id}
               raceDate={raceData.race_info.date}
               raceName={raceData.race_info.race_name}

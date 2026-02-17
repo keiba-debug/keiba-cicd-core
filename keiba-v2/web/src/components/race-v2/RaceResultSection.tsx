@@ -5,17 +5,18 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { 
-  HorseEntry, 
-  PayoutEntry, 
+import {
+  HorseEntry,
+  PayoutEntry,
   TenkaiData,
-  getWakuColor, 
+  LapsData,
+  getWakuColor,
   toCircleNumber,
   parseFinishPosition,
 } from '@/types/race-data';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown, ChevronUp, Trophy, Timer, TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
-import { calculateActualRpci, type CourseRpciInfo, type RaceRpciAnalysis } from '@/lib/data/rpci-utils';
+import { calculateActualRpci, getRpciTrend, type CourseRpciInfo, type RaceRpciAnalysis } from '@/lib/data/rpci-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import { POSITIVE_TEXT, getRatingColor } from '@/lib/positive-colors';
 import { cn } from '@/lib/utils';
@@ -117,12 +118,13 @@ interface RaceResultSectionProps {
   distance?: number; // レース距離（メートル）
   rpciInfo?: CourseRpciInfo | null; // RPCI基準値情報
   babaInfo?: BabaCondition | null; // 馬場コンディション（クッション値・含水率）
+  laps?: LapsData | null; // ラップタイムデータ
   raceId?: string; // レースID（スタートメモ用）
   raceDate?: string; // レース日付（スタートメモ用）
   raceName?: string; // レース名（スタートメモ用）
 }
 
-export default function RaceResultSection({ entries, payouts, tenkaiData, distance, rpciInfo, babaInfo, raceId, raceDate, raceName }: RaceResultSectionProps) {
+export default function RaceResultSection({ entries, payouts, tenkaiData, distance, rpciInfo, babaInfo, laps, raceId, raceDate, raceName }: RaceResultSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
   
   // 結果のある馬のみフィルタしてソート
@@ -161,9 +163,37 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
   }, [entries]);
 
   // 実際のRPCI分析を計算
+  // JRA-VAN pace.rpciがある場合はそれを直接使用（TARGETのPCI3と一致）
+  // ない場合は馬ごとのfirst_3f/last_3fから再計算（フォールバック）
   const rpciAnalysis = useMemo(() => {
+    if (laps?.rpci != null) {
+      // JRA-VAN公式RPCI — buildRpciAnalysis相当の結果を直接構築
+      const { trend, label } = getRpciTrend(laps.rpci);
+      let comparedToStandard: 'faster' | 'slower' | 'typical' = 'typical';
+      let comparedToStandardLabel = 'コース平均的なペース';
+      let deviation = 0;
+      if (rpciInfo) {
+        deviation = laps.rpci - rpciInfo.rpciMean;
+        if (laps.rpci >= rpciInfo.thresholds.instantaneous) {
+          comparedToStandard = 'slower';
+          comparedToStandardLabel = 'スローペース（瞬発戦）';
+        } else if (laps.rpci <= rpciInfo.thresholds.sustained) {
+          comparedToStandard = 'faster';
+          comparedToStandardLabel = 'ハイペース（持続戦）';
+        }
+      }
+      return {
+        actualRpci: laps.rpci,
+        actualTrend: trend,
+        actualTrendLabel: label,
+        comparedToStandard,
+        comparedToStandardLabel,
+        deviation,
+        sourceHorses: 0, // JRA-VAN公式値
+      } as import('@/lib/data/rpci-utils').RaceRpciAnalysis;
+    }
     return calculateActualRpci(entries, rpciInfo);
-  }, [entries, rpciInfo]);
+  }, [entries, rpciInfo, laps]);
 
   return (
     <>
@@ -264,10 +294,15 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
     <div className="mt-4 space-y-4">
       {/* RPCI分析結果 */}
       {rpciAnalysis && (
-        <RpciAnalysisCard 
-          analysis={rpciAnalysis} 
-          courseInfo={rpciInfo || undefined} 
+        <RpciAnalysisCard
+          analysis={rpciAnalysis}
+          courseInfo={rpciInfo || undefined}
         />
+      )}
+
+      {/* ラップタイムチャート */}
+      {laps?.lap_times && laps.lap_times.length > 0 && (
+        <LapTimesChart lapTimes={laps.lap_times} distance={distance || 0} />
       )}
 
       {/* レース展開図（残600m → ゴール） */}
@@ -642,6 +677,186 @@ interface RpciAnalysisCardProps {
   courseInfo?: CourseRpciInfo;
 }
 
+// ラップタイムチャート
+interface LapTimesChartProps {
+  lapTimes: string[];  // ["7.3", "11.0", "11.5", ...]
+  distance: number;    // レース距離(m)
+}
+
+function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
+  const times = lapTimes.map(t => parseFloat(t)).filter(t => !isNaN(t) && t > 0);
+  if (times.length < 2) return null;
+
+  // ラップ区間のラベルを生成（200m刻み。最初だけ距離が違う場合がある）
+  const totalFromLaps = times.length * 200;
+  const firstLapDist = distance > 0 ? distance - (times.length - 1) * 200 : 200;
+  const labels: string[] = [];
+  let cumDist = 0;
+  for (let i = 0; i < times.length; i++) {
+    cumDist += i === 0 ? firstLapDist : 200;
+    labels.push(`${cumDist}`);
+  }
+
+  // 通過タイム（累積）を計算
+  const cumTimes: number[] = [];
+  let cumTime = 0;
+  for (const t of times) {
+    cumTime += t;
+    cumTimes.push(cumTime);
+  }
+
+  // SVGチャート描画用パラメータ
+  const minLap = Math.min(...times);
+  const maxLap = Math.max(...times);
+  const range = Math.max(maxLap - minLap, 0.5);
+  const chartW = 600;
+  const chartH = 200;
+  const padL = 40;
+  const padR = 20;
+  const padT = 20;
+  const padB = 30;
+  const plotW = chartW - padL - padR;
+  const plotH = chartH - padT - padB;
+
+  // Y軸を反転（速い=上）
+  const yMin = minLap - range * 0.15;
+  const yMax = maxLap + range * 0.15;
+  const toX = (i: number) => padL + (i / (times.length - 1)) * plotW;
+  const toY = (v: number) => padT + ((yMax - v) / (yMax - yMin)) * plotH;
+
+  // ポイントとライン
+  const points = times.map((t, i) => ({ x: toX(i), y: toY(t), val: t }));
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+  // Y軸目盛り（0.5秒刻み）
+  const yTicks: number[] = [];
+  const yStart = Math.ceil(yMin * 2) / 2;
+  for (let v = yStart; v <= yMax; v += 0.5) {
+    yTicks.push(v);
+  }
+
+  // 最速/最遅ラップ
+  const fastestIdx = times.indexOf(minLap);
+  const slowestIdx = times.indexOf(maxLap);
+
+  return (
+    <Collapsible defaultOpen={true}>
+      <div className="border rounded-lg">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" className="w-full p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800">
+            <div className="flex items-center gap-2">
+              <Timer className="w-5 h-5 text-orange-600" />
+              <span className="font-semibold">ラップタイム</span>
+            </div>
+            <ChevronDown className="w-4 h-4" />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="px-4 pb-4 space-y-3">
+            {/* 通過タイム表 */}
+            <div className="overflow-x-auto">
+              <table className="text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 dark:bg-gray-800">
+                    {labels.map((l, i) => (
+                      <th key={i} className="px-2 py-1 border text-center font-normal text-gray-500 min-w-[48px]">
+                        {l}m
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    {times.map((t, i) => (
+                      <td key={i} className={cn(
+                        "px-2 py-1 border text-center font-mono",
+                        i === fastestIdx && "text-blue-600 font-bold bg-blue-50 dark:bg-blue-900/20",
+                        i === slowestIdx && "text-red-600 font-bold bg-red-50 dark:bg-red-900/20",
+                      )}>
+                        {t.toFixed(1)}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="text-gray-500">
+                    {cumTimes.map((ct, i) => (
+                      <td key={i} className="px-2 py-1 border text-center font-mono">
+                        {ct >= 60
+                          ? `${Math.floor(ct / 60)}:${(ct % 60).toFixed(1).padStart(4, '0')}`
+                          : ct.toFixed(1)}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* SVGチャート */}
+            <div className="overflow-x-auto">
+              <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full max-w-[600px]" style={{ minWidth: 400 }}>
+                {/* グリッド線 */}
+                {yTicks.map(v => (
+                  <g key={v}>
+                    <line
+                      x1={padL} x2={chartW - padR}
+                      y1={toY(v)} y2={toY(v)}
+                      stroke="#e5e7eb" strokeWidth={0.5}
+                    />
+                    <text x={padL - 4} y={toY(v) + 3} textAnchor="end" fontSize={10} fill="#9ca3af">
+                      {v.toFixed(1)}
+                    </text>
+                  </g>
+                ))}
+
+                {/* X軸ラベル */}
+                {labels.map((l, i) => (
+                  <text key={i} x={toX(i)} y={chartH - 5} textAnchor="middle" fontSize={10} fill="#9ca3af">
+                    {l}
+                  </text>
+                ))}
+
+                {/* ライン */}
+                <path d={linePath} fill="none" stroke="#f97316" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+
+                {/* ポイント */}
+                {points.map((p, i) => (
+                  <g key={i}>
+                    <circle
+                      cx={p.x} cy={p.y} r={i === fastestIdx || i === slowestIdx ? 5 : 3.5}
+                      fill={i === fastestIdx ? '#2563eb' : i === slowestIdx ? '#dc2626' : '#f97316'}
+                      stroke="white" strokeWidth={1.5}
+                    />
+                    <text
+                      x={p.x} y={p.y - 8}
+                      textAnchor="middle" fontSize={9}
+                      fill={i === fastestIdx ? '#2563eb' : i === slowestIdx ? '#dc2626' : '#6b7280'}
+                      fontWeight={i === fastestIdx || i === slowestIdx ? 'bold' : 'normal'}
+                    >
+                      {p.val.toFixed(1)}
+                    </text>
+                  </g>
+                ))}
+              </svg>
+            </div>
+
+            {/* ペース情報 */}
+            <div className="flex gap-4 text-xs text-gray-500">
+              <span>最速: <span className="text-blue-600 font-bold">{minLap.toFixed(1)}</span>秒 ({labels[fastestIdx]}m)</span>
+              <span>最遅: <span className="text-red-600 font-bold">{maxLap.toFixed(1)}</span>秒 ({labels[slowestIdx]}m)</span>
+              <span>前後差: {(totalFromLaps > 0 ? (() => {
+                const half = Math.floor(times.length / 2);
+                const first = times.slice(0, half).reduce((a, b) => a + b, 0);
+                const second = times.slice(half).reduce((a, b) => a + b, 0);
+                const diff = first - second;
+                return `${diff > 0 ? '-' : '+'}${Math.abs(diff).toFixed(1)}`;
+              })() : '-')}秒</span>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
 function RpciAnalysisCard({ analysis, courseInfo }: RpciAnalysisCardProps) {
   // 傾向に応じたスタイル
   const getTrendStyle = (trend: 'instantaneous' | 'sustained' | 'neutral') => {
@@ -741,8 +956,8 @@ function RpciAnalysisCard({ analysis, courseInfo }: RpciAnalysisCardProps) {
           </>
         )}
         <div>
-          <div className="text-gray-500 text-xs">算出馬数</div>
-          <div className="font-mono">{analysis.sourceHorses}頭</div>
+          <div className="text-gray-500 text-xs">データソース</div>
+          <div className="font-mono">{analysis.sourceHorses > 0 ? `${analysis.sourceHorses}頭` : 'JRA-VAN'}</div>
         </div>
       </div>
     </div>

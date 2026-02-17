@@ -455,6 +455,36 @@ def update_kb_ext_field(race_id_16: str, date_str: str, updates: dict) -> bool:
     return updated
 
 
+def update_kb_ext_race_level(race_id_16: str, date_str: str, fields: dict) -> bool:
+    """既存kb_extのレースレベル（トップレベル）フィールドを更新。
+
+    Args:
+        race_id_16: 16桁race_id
+        date_str: YYYY-MM-DD
+        fields: {field: value, ...}  例: {"laps": {...}, "race_details": {...}}
+
+    Returns:
+        更新成功かどうか
+    """
+    parts = date_str.split('-')
+    kb_path = config.keibabook_dir() / parts[0] / parts[1] / parts[2] / f"kb_ext_{race_id_16}.json"
+
+    if not kb_path.exists():
+        return False
+
+    with open(kb_path, encoding='utf-8') as f:
+        kb_ext = json.load(f)
+
+    kb_ext.update(fields)
+
+    kb_path.write_text(
+        json.dumps(kb_ext, ensure_ascii=False, indent=2),
+        encoding='utf-8',
+    )
+
+    return True
+
+
 # ============================================================
 # レガシー: data2 integrated JSONからの変換（後方互換）
 # ============================================================

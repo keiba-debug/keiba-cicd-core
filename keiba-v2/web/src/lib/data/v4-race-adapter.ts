@@ -64,9 +64,12 @@ export function adaptV4ToIntegrated(
     race_condition: '',
   };
 
+  // レースレベルの前半3F（pace.s3）— 全馬共通のフォールバック
+  const raceFirst3f = v4Race.pace?.s3 != null ? String(v4Race.pace.s3) : '';
+
   const entries: HorseEntry[] = v4Race.entries.map((e) => {
     const kb = kbExt?.entries[String(e.umaban)] ?? null;
-    return adaptEntry(e, kb);
+    return adaptEntry(e, kb, raceFirst3f);
   });
 
   const analysis: RaceAnalysis = {
@@ -88,12 +91,30 @@ export function adaptV4ToIntegrated(
       }
     : null;
 
+  // ラップタイム: JRA-VAN(pace.lap_times)優先 → keibabook(kb_ext.laps)フォールバック
+  const jvLapTimes = v4Race.pace?.lap_times;
+  const kbLaps = kbExt?.laps;
+  let lapsData: import('@/types/race-data').LapsData | null = jvLapTimes && jvLapTimes.length > 0
+    ? { lap_times: jvLapTimes.map(t => t.toFixed(1)), pace: '' }
+    : kbLaps?.lap_times
+      ? { lap_times: kbLaps.lap_times, pace: kbLaps.pace ?? '' }
+      : null;
+
+  // JRA-VAN pace情報をlapsに追加（RPCI, 前3F, 後3F, 傾向）
+  if (v4Race.pace && (v4Race.pace.rpci != null || v4Race.pace.s3 != null)) {
+    if (!lapsData) lapsData = {};
+    if (v4Race.pace.rpci != null) lapsData.rpci = v4Race.pace.rpci;
+    if (v4Race.pace.s3 != null) lapsData.s3 = v4Race.pace.s3;
+    if (v4Race.pace.l3 != null) lapsData.l3 = v4Race.pace.l3;
+    if (v4Race.pace.race_trend) lapsData.race_trend = v4Race.pace.race_trend;
+  }
+
   const result: IntegratedRaceData = {
     meta,
     race_info: raceInfo,
     entries,
     payouts: null,
-    laps: null,
+    laps: lapsData,
     analysis,
     tenkai_data: tenkaiData,
     race_comment: kbExt?.race_comment ?? '',
@@ -174,7 +195,7 @@ function enrichFromData2(result: IntegratedRaceData, d2: IntegratedRaceData): vo
   }
 }
 
-function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null): HorseEntry {
+function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null, raceFirst3f: string): HorseEntry {
   const entryData: EntryData = {
     weight: String(v4.futan),
     weight_diff: '',
@@ -231,7 +252,7 @@ function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null): HorseEntry {
           last_3f: String(v4.last_3f),
           passing_orders: v4.corners.join('-'),
           last_corner_position: v4.corners.length > 0 ? String(v4.corners[v4.corners.length - 1]) : '',
-          first_3f: '',
+          first_3f: kb?.first_3f || raceFirst3f,
           sunpyo: kb?.sunpyo ?? '',
           prize_money: 0,
           horse_weight: String(v4.horse_weight),

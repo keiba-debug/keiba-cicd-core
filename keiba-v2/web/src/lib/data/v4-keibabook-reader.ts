@@ -43,6 +43,7 @@ export interface KbEntryExt {
   training_data: KbTrainingData;
   stable_comment: KbStableComment;
   sunpyo: string;
+  first_3f?: string;
   previous_race_interview: KbPreviousInterview;
   paddock_info?: {
     mark: string;
@@ -88,6 +89,11 @@ export interface KbAnalysis {
   expected_pace: string;
 }
 
+export interface KbLapsData {
+  lap_times?: string[];   // 個別ラップ ["7.3", "11.0", "11.5", ...]
+  pace?: string;          // ペース判定 "H" / "M" / "S"
+}
+
 export interface KbExtData {
   race_id: string;        // 16桁
   race_id_12: string;     // 12桁（元のkeibabook ID）
@@ -96,6 +102,13 @@ export interface KbExtData {
   analysis: KbAnalysis;
   tenkai_data: KbTenkaiData | null;
   race_comment: string;
+  laps?: KbLapsData;      // ラップタイム（seisekiスクレイピング）
+  race_details?: {        // レース詳細（seisekiスクレイピング）
+    track_type?: string;
+    distance?: number;
+    track_condition?: string;
+    weather?: string;
+  };
 }
 
 // --- キャッシュ ---

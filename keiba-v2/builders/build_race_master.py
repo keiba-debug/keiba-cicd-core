@@ -129,6 +129,7 @@ def create_race_master(
             l4=sr.last_4f,
             rpci=sr.rpci,
             race_trend=sr.classify_trend(),
+            lap_times=sr.lap_times,
         )
         race = RaceMaster(
             race_id=race_id,

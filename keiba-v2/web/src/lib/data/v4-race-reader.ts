@@ -40,6 +40,7 @@ export interface V4RacePace {
   l4: number;
   rpci: number;
   race_trend: string;
+  lap_times?: number[];  // 1Fごとのラップタイム
 }
 
 export interface V4RaceData {
