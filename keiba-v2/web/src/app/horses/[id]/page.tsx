@@ -65,7 +65,7 @@ export default async function HorseProfilePage({ params }: PageParams) {
     });
 
     for (const race of pastRaces) {
-      const lookupId = race.targetRaceId || race.raceId;
+      const lookupId = race.raceId || race.targetRaceId || '';
       const trend = lookupRaceTrend(raceTrendIndex, lookupId);
       if (trend) {
         race.raceTrend = trend;

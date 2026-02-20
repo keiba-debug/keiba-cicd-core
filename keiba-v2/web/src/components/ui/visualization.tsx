@@ -11,8 +11,21 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
-import type { RaceTrendType } from '@/lib/data/rpci-utils';
-import { RACE_TREND_LABELS, RACE_TREND_COLORS } from '@/lib/data/rpci-utils';
+import { RACE_TREND_LABELS, RACE_TREND_COLORS, RACE_TREND_V2_LABELS, RACE_TREND_V2_COLORS } from '@/lib/data/rpci-utils';
+
+/** v1/v2両対応でラベルを取得 */
+function getTrendLabel(trend: string): string {
+  return (RACE_TREND_V2_LABELS as Record<string, string>)[trend]
+    || (RACE_TREND_LABELS as Record<string, string>)[trend]
+    || '';
+}
+
+/** v1/v2両対応でカラーを取得 */
+function getTrendColor(trend: string): string {
+  return (RACE_TREND_V2_COLORS as Record<string, string>)[trend]
+    || (RACE_TREND_COLORS as Record<string, string>)[trend]
+    || '';
+}
 
 // ============================================
 // HeatmapCell - ヒートマップカラーリングセル
@@ -126,8 +139,12 @@ export interface RecentFormEntry {
   href?: string;
   /** ツールチップ用ラベル（例: "1着 京都5R"） */
   label?: string;
-  /** レース傾向（v3: 5段階分類） */
-  raceTrend?: RaceTrendType;
+  /** レース傾向（v2: 7分類 or v1: 5段階） */
+  raceTrend?: string;
+  /** 実着順（6着以下の着差表現用） */
+  finishPosition?: number;
+  /** 勝ち馬との着差（秒）。0=1着、0.2=0.2秒差 等 */
+  marginSeconds?: number;
 }
 
 interface TrendIndicatorProps {
@@ -176,21 +193,51 @@ export function TrendIndicator({
 
   // レース傾向の短縮ラベル（2文字以下）
   const trendShortLabels: Record<string, string> = {
-    sprint_finish: '瞬',
-    long_sprint: 'ロ',
-    even_pace: '平',
-    front_loaded: 'H前',
-    front_loaded_strong: 'H後',
+    // v2
+    sprint: '瞬', sprint_mild: '軽', long_sprint: 'ロ', even: '平',
+    sustained_hp: 'HP', sustained_strong: '強', sustained_doroashi: '道',
+    // v1
+    sprint_finish: '瞬', even_pace: '平', front_loaded: 'H前', front_loaded_strong: 'H後',
   };
 
   return (
     <div className={cn('flex items-center gap-1', className)}>
       <div className="flex gap-0.5">
         {displayEntries.map((entry, idx) => {
-          const trendLabel = entry.raceTrend ? RACE_TREND_LABELS[entry.raceTrend] : '';
-          const titleText = entry.label
-            ? (trendLabel ? `${entry.label} [${trendLabel}]` : entry.label)
-            : (trendLabel ? `${defaultTitle(idx, entry.result)} [${trendLabel}]` : defaultTitle(idx, entry.result));
+          const trendLbl = entry.raceTrend ? getTrendLabel(entry.raceTrend) : '';
+          const marginStr = entry.marginSeconds != null
+            ? (entry.marginSeconds === 0 ? '' : ` (+${entry.marginSeconds}秒差)`)
+            : '';
+          const baseTitle = entry.label
+            ? entry.label
+            : defaultTitle(idx, entry.result);
+          const titleText = [baseTitle, marginStr, trendLbl ? `[${trendLbl}]` : '']
+            .filter(Boolean).join(' ');
+
+          // 6着以下: 実着順表示 + 着差ベースの色グラデーション
+          let dotBg = resultStyles[entry.result].bg;
+          let dotLabel = resultStyles[entry.result].label;
+          let dotFontSize = '';
+          if (entry.result === 'out' && entry.finishPosition && entry.finishPosition >= 6) {
+            const fp = entry.finishPosition;
+            dotLabel = String(fp);
+            if (fp >= 10) dotFontSize = 'text-[8px]'; // 2桁はフォント縮小
+
+            // 着差データがあれば着差ベースで色分け、なければ着順ベース
+            if (entry.marginSeconds != null) {
+              const ms = entry.marginSeconds;
+              if (ms <= 0.5)       dotBg = 'bg-gray-400 dark:bg-gray-500';        // 惜敗
+              else if (ms <= 1.0)  dotBg = 'bg-stone-500 dark:bg-stone-400';      // 小差
+              else if (ms <= 2.0)  dotBg = 'bg-orange-400 dark:bg-orange-500';    // 中差
+              else                 dotBg = 'bg-red-400 dark:bg-red-500';           // 大差
+            } else {
+              // フォールバック: 着順ベース
+              if (fp <= 7)         dotBg = 'bg-gray-400 dark:bg-gray-500';
+              else if (fp <= 9)    dotBg = 'bg-stone-500 dark:bg-stone-400';
+              else if (fp <= 12)   dotBg = 'bg-orange-400 dark:bg-orange-500';
+              else                 dotBg = 'bg-red-400 dark:bg-red-500';
+            }
+          }
 
           const dotElement = (
             <div key={idx} className="flex flex-col items-center gap-px">
@@ -198,22 +245,23 @@ export function TrendIndicator({
                 className={cn(
                   'rounded-full flex items-center justify-center font-bold text-white',
                   dotSize,
-                  resultStyles[entry.result].bg,
+                  dotBg,
+                  dotFontSize,
                   entry.href && 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-400'
                 )}
                 title={titleText}
               >
-                {resultStyles[entry.result].label}
+                {dotLabel}
               </div>
               {entry.raceTrend && (
                 <span
                   className={cn(
                     'text-[8px] leading-none font-medium rounded px-0.5',
-                    RACE_TREND_COLORS[entry.raceTrend]
+                    getTrendColor(entry.raceTrend)
                   )}
-                  title={RACE_TREND_LABELS[entry.raceTrend]}
+                  title={getTrendLabel(entry.raceTrend)}
                 >
-                  {trendShortLabels[entry.raceTrend] || ''}
+                  {trendShortLabels[entry.raceTrend] || getTrendLabel(entry.raceTrend).slice(0, 2) || ''}
                 </span>
               )}
             </div>
@@ -383,14 +431,17 @@ interface RpciGaugeProps {
 }
 
 function getRpciCategory(value: number): { label: string; color: string; arcColor: string } {
+  // RPCI = last_3f / (first_3f + last_3f) * 100
+  // 高RPCI → 後半遅い → ハイペース → 持続戦 (赤)
+  // 低RPCI → 後半速い → スロー → 瞬発戦 (青)
   if (value >= 52) {
-    return { label: '瞬発戦', color: 'text-blue-600', arcColor: '#3b82f6' };
-  } else if (value >= 50.5) {
-    return { label: 'やや瞬発', color: 'text-blue-400', arcColor: '#60a5fa' };
-  } else if (value <= 48) {
     return { label: '持続戦', color: 'text-red-600', arcColor: '#dc2626' };
-  } else if (value <= 49.5) {
+  } else if (value >= 50.5) {
     return { label: 'やや持続', color: 'text-red-400', arcColor: '#f87171' };
+  } else if (value <= 48) {
+    return { label: '瞬発戦', color: 'text-blue-600', arcColor: '#3b82f6' };
+  } else if (value <= 49.5) {
+    return { label: 'やや瞬発', color: 'text-blue-400', arcColor: '#60a5fa' };
   }
   return { label: '平均的', color: 'text-gray-500', arcColor: '#6b7280' };
 }

@@ -131,6 +131,8 @@ function toRecentFormEntries(forms: RecentFormData[]): RecentFormEntry[] {
       href: f.href,
       label: `${f.finishPosition}着 ${f.venue}${f.raceNumber}R (${dateLabel})`,
       raceTrend: f.raceTrend,
+      finishPosition: f.finishPosition,
+      marginSeconds: f.marginSeconds,
     };
   });
 }

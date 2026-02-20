@@ -49,6 +49,8 @@ interface RpciStandardsData {
   by_distance_group_baba?: Record<string, CourseData>;
   runner_adjustments?: Record<string, Record<string, RunnerAdjustment>>;
   race_trend_distribution?: Record<string, Record<string, TrendDistEntry>>;
+  course_lap33_average?: Record<string, { mean: number; stdev: number; median: number; sample_count: number }>;
+  race_trend_v2_distribution?: Record<string, Record<string, TrendDistEntry>>;
 }
 
 /**
@@ -136,6 +138,7 @@ export async function GET(request: NextRequest) {
       totalSamples: Object.values(data.courses).reduce((sum, c) => sum + c.sample_count, 0),
       distanceGroups: Object.keys(data.by_distance_group).length,
       similarPairs: Object.values(data.similar_courses).reduce((sum, arr) => sum + arr.length, 0) / 2,
+      lap33Courses: Object.keys(data.course_lap33_average || {}).length,
     };
 
     return NextResponse.json({
@@ -146,6 +149,8 @@ export async function GET(request: NextRequest) {
       by_distance_group_baba: data.by_distance_group_baba || {},
       runner_adjustments: data.runner_adjustments || {},
       race_trend_distribution: data.race_trend_distribution || {},
+      course_lap33_average: data.course_lap33_average || {},
+      race_trend_v2_distribution: data.race_trend_v2_distribution || {},
       metadata: data.metadata
     });
 

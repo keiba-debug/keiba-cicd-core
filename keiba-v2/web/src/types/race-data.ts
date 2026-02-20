@@ -257,6 +257,13 @@ export interface PayoutEntry {
   popularity: string;
 }
 
+export interface TrendDetail {
+  l3f_signal: string;    // 'sprint' | 'sustained' | 'neutral'
+  rpci_signal: string;
+  lap33_signal: string;
+  confidence: number;    // 0-1
+}
+
 export interface LapsData {
   lap_times?: string[];
   first_1000m?: string;
@@ -265,7 +272,11 @@ export interface LapsData {
   rpci?: number;        // RPCI値（last_3f / (first_3f + last_3f) * 100）
   s3?: number;          // 前半3F（レースレベル）
   l3?: number;          // 後半3F（レースレベル）
-  race_trend?: string;  // 5段階傾向分類
+  race_trend?: string;  // v1 5段階傾向分類
+  // v2分類（race_classifier.py）
+  lap33?: number;               // 33ラップ連続値
+  race_trend_v2?: string;       // v2 7分類タイプ
+  trend_detail?: TrendDetail;   // 判定根拠
 }
 
 // ==========================================

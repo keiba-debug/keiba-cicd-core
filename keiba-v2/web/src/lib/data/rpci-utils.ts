@@ -6,7 +6,7 @@
 // RPCI傾向タイプ（3段階 - 後方互換）
 export type RpciTrend = 'instantaneous' | 'sustained' | 'neutral';
 
-// レース傾向タイプ（5段階 - v3新規）
+// レース傾向タイプ v1（5段階 - 後方互換）
 export type RaceTrendType =
   | 'sprint_finish'        // 瞬発戦
   | 'long_sprint'          // ロンスパ戦
@@ -29,6 +29,45 @@ export const RACE_TREND_COLORS: Record<RaceTrendType, string> = {
   front_loaded: 'bg-red-100 text-red-700',
   front_loaded_strong: 'bg-orange-100 text-orange-700',
 };
+
+// レース傾向タイプ v2（7分類 - 新規）
+export type RaceTrendV2Type =
+  | 'sprint'               // 瞬発戦
+  | 'sprint_mild'          // 軽瞬発
+  | 'long_sprint'          // ロンスパ
+  | 'even'                 // 平均ペース
+  | 'sustained_hp'         // 持続:HP
+  | 'sustained_strong'     // 持続:強L3
+  | 'sustained_doroashi';  // 持続:道悪
+
+export const RACE_TREND_V2_LABELS: Record<RaceTrendV2Type, string> = {
+  sprint: '瞬発',
+  sprint_mild: '軽瞬発',
+  long_sprint: 'ロンスパ',
+  even: '平均',
+  sustained_hp: '持続HP',
+  sustained_strong: '持続強L3',
+  sustained_doroashi: '持続道悪',
+};
+
+export const RACE_TREND_V2_COLORS: Record<RaceTrendV2Type, string> = {
+  sprint:             'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+  sprint_mild:        'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+  even:               'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+  long_sprint:        'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+  sustained_hp:       'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+  sustained_strong:   'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  sustained_doroashi: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+};
+
+/** 33ラップ値の解釈テキストを返す */
+export function getLap33Interpretation(lap33: number): string {
+  if (lap33 >= 1.5) return '強い瞬発力勝負';
+  if (lap33 >= 0.5) return '瞬発力勝負';
+  if (lap33 >= -0.5) return 'イーブンペース';
+  if (lap33 >= -1.5) return '持久力勝負';
+  return '強い持久力勝負';
+}
 
 export interface RpciThresholds {
   instantaneous: number;  // 瞬発戦閾値
@@ -66,10 +105,13 @@ export interface RaceRpciAnalysis {
  * RPCI傾向を判定
  */
 export function getRpciTrend(rpciMean: number): { trend: RpciTrend; label: string } {
+  // RPCI = last_3f / (first_3f + last_3f) * 100
+  // 高RPCI → 後半遅い → 前傾（ハイペース）→ sustained
+  // 低RPCI → 後半速い → 後傾（スロー）→ instantaneous（瞬発）
   if (rpciMean >= 51) {
-    return { trend: 'instantaneous', label: '瞬発戦傾向' };
-  } else if (rpciMean <= 48) {
     return { trend: 'sustained', label: '持続戦傾向' };
+  } else if (rpciMean <= 48) {
+    return { trend: 'instantaneous', label: '瞬発戦傾向' };
   }
   return { trend: 'neutral', label: '平均的' };
 }
@@ -149,22 +191,23 @@ export function calculateActualRpci(
     if (withTimeAndLast3f.length === 0) return null;
 
     // 走破タイム - 上がり3F = 前半タイムとして計算
+    // RPCI = last_3f / (first_3f + last_3f) * 100 (Python式に統一)
     const rpciValues = withTimeAndLast3f.map(e => {
       const time = parseTimeToSeconds(e.result!.time!)!;
       const last3f = parseTimeToSeconds(e.result!.last_3f!)!;
       const first3f = time - last3f;  // 概算（前半600mではなく全体-上がり）
-      return (first3f / last3f) * 50;
+      return (last3f / (first3f + last3f)) * 100;
     });
 
     const avgRpci = rpciValues.reduce((a, b) => a + b, 0) / rpciValues.length;
     return buildRpciAnalysis(avgRpci, withTimeAndLast3f.length, courseRpciInfo);
   }
 
-  // 正確なRPCIを計算（前3F / 後3F × 50）
+  // RPCI = last_3f / (first_3f + last_3f) * 100 (Python式に統一)
   const rpciValues = validForRpci.map(e => {
     const first3f = parseTimeToSeconds(e.result!.first_3f!)!;
     const last3f = parseTimeToSeconds(e.result!.last_3f!)!;
-    return (first3f / last3f) * 50;
+    return (last3f / (first3f + last3f)) * 100;
   });
 
   const avgRpci = rpciValues.reduce((a, b) => a + b, 0) / rpciValues.length;
@@ -188,12 +231,14 @@ function buildRpciAnalysis(
   if (courseRpciInfo) {
     deviation = actualRpci - courseRpciInfo.rpciMean;
     
-    if (actualRpci >= courseRpciInfo.thresholds.instantaneous) {
-      comparedToStandard = 'slower';
-      comparedToStandardLabel = 'スローペース（瞬発戦）';
-    } else if (actualRpci <= courseRpciInfo.thresholds.sustained) {
+    // 高RPCI → 後半遅い → ハイペース（持続戦）
+    // 低RPCI → 後半速い → スローペース（瞬発戦）
+    if (actualRpci >= courseRpciInfo.thresholds.sustained) {
       comparedToStandard = 'faster';
       comparedToStandardLabel = 'ハイペース（持続戦）';
+    } else if (actualRpci <= courseRpciInfo.thresholds.instantaneous) {
+      comparedToStandard = 'slower';
+      comparedToStandardLabel = 'スローペース（瞬発戦）';
     } else {
       comparedToStandardLabel = 'コース平均的なペース';
     }

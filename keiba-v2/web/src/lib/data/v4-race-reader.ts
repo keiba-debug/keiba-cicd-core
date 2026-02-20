@@ -41,6 +41,15 @@ export interface V4RacePace {
   rpci: number;
   race_trend: string;
   lap_times?: number[];  // 1Fごとのラップタイム
+  // v2分類
+  lap33?: number;
+  race_trend_v2?: string;
+  trend_detail?: {
+    l3f_signal: string;
+    rpci_signal: string;
+    lap33_signal: string;
+    confidence: number;
+  };
 }
 
 export interface V4RaceData {

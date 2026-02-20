@@ -333,7 +333,7 @@ export interface HorseRaceResult {
   trainingDetail?: string;     // 調教タイム詳細
   trainingLapRank?: string;    // ラップランク
   trainingFinalSpeed?: string; // 最終追切の好タイムフラグ
-  // TARGET形式のレースID（12桁、race_trend_index.jsonのキーと一致）
+  // TARGET形式のレースID（12桁）。race_trend_index.jsonは16桁JRA-VAN形式を使用
   targetRaceId?: string;
   // レース傾向（race_trend_index.jsonから付与）
   raceTrend?: string;          // 'sprint_finish' | 'long_sprint' | 'even_pace' | 'front_loaded' | 'front_loaded_strong'

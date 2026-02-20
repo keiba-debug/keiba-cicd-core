@@ -9,10 +9,12 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { RaceInfo, RaceMeta, getTrackLabel } from '@/types/race-data';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, MapPin, Clock, MessageCircle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Calendar, MapPin, Clock, MessageCircle, TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
 import type { CourseRpciInfo, RpciTrend } from '@/lib/data/rpci-standards-reader';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import { getConditionBadgeClassBySurface, getSurfaceInfo } from '@/lib/data/baba-utils';
+import type { LapsData } from '@/types/race-data';
+import { RACE_TREND_V2_LABELS, RACE_TREND_V2_COLORS, getLap33Interpretation, type RaceTrendV2Type } from '@/lib/data/rpci-utils';
 
 interface ExternalLinks {
   paddockUrl: string | null;
@@ -39,6 +41,8 @@ interface RaceHeaderProps {
   babaInfo?: BabaCondition | null;
   /** JRA-VAN形式のレースID（オッズ分析用） */
   jraRaceId?: string | null;
+  /** ラップデータ（ペース傾向バッジ表示用） */
+  laps?: LapsData | null;
 }
 
 // 競馬場テキストカラー
@@ -63,6 +67,7 @@ export default function RaceHeader({
   rpciInfo,
   babaInfo,
   jraRaceId,
+  laps,
 }: RaceHeaderProps) {
   // URLパラメータを優先、なければJSONデータを使用
   const displayDate = urlDate || raceInfo.date;
@@ -134,9 +139,14 @@ export default function RaceHeader({
                 <BabaConditionBadge babaInfo={babaInfo} />
               )}
               
-              {/* RPCI傾向 */}
+              {/* RPCI傾向（コース平均） */}
               {rpciInfo && (
                 <RpciBadge rpciInfo={rpciInfo} />
+              )}
+
+              {/* このレースの実際のペース傾向 */}
+              {laps?.race_trend_v2 && (
+                <RaceTrendBadge trendV2={laps.race_trend_v2} lap33={laps.lap33} />
               )}
             </div>
           </div>
@@ -345,6 +355,31 @@ function RpciBadge({ rpciInfo }: { rpciInfo: CourseRpciInfo }) {
       {style.icon}
       <span>{rpciInfo.trendLabel}</span>
       <span className="text-[10px] opacity-70">({rpciInfo.rpciMean.toFixed(1)})</span>
+    </span>
+  );
+}
+
+/**
+ * このレースの実際のペース傾向バッジ（確定レース用）
+ */
+function RaceTrendBadge({ trendV2, lap33 }: { trendV2: string; lap33?: number | null }) {
+  const trend = trendV2 as RaceTrendV2Type;
+  const label = RACE_TREND_V2_LABELS[trend];
+  const colorClass = RACE_TREND_V2_COLORS[trend];
+  if (!label) return null;
+
+  const lap33Text = lap33 != null ? `33ラップ: ${lap33 > 0 ? '+' : ''}${lap33.toFixed(1)} (${getLap33Interpretation(lap33)})` : '';
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${colorClass}`}
+      title={`レース実績: ${label}${lap33Text ? `\n${lap33Text}` : ''}`}
+    >
+      <Activity className="w-3 h-3" />
+      <span>{label}</span>
+      {lap33 != null && (
+        <span className="text-[10px] opacity-70">({lap33 > 0 ? '+' : ''}{lap33.toFixed(1)})</span>
+      )}
     </span>
   );
 }

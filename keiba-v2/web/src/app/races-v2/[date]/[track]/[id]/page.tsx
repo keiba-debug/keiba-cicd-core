@@ -515,6 +515,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
         rpciInfo={rpciInfo}
         babaInfo={babaInfo}
         jraRaceId={jraRaceId}
+        laps={raceData.laps}
       />
 
       {/* メインコンテンツ */}

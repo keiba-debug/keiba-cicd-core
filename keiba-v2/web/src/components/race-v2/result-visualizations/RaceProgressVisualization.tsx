@@ -137,10 +137,190 @@ function formatTime(seconds: number): string {
   return secs;
 }
 
-export default function RaceProgressVisualization({ 
-  entries, 
+/** スロープグラフ: 残600m順位 → ゴール着順 の変動を視覚化 */
+function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
+  const [hoveredHorse, setHoveredHorse] = useState<number | null>(null);
+
+  if (horseData.length === 0) return null;
+
+  const rowH = 30;
+  const topPad = 8;
+  const svgH = horseData.length * rowH + topPad * 2;
+  const svgW = 660;
+  const lineX1 = 148;
+  const lineX2 = 512;
+
+  const by600m = [...horseData].sort((a, b) => a.position600m - b.position600m);
+  const byFinish = [...horseData].sort((a, b) => a.finishPosition - b.finishPosition);
+
+  const leftY = new Map<number, number>();
+  by600m.forEach((h, i) => leftY.set(h.horseNumber, topPad + i * rowH + rowH / 2));
+  const rightY = new Map<number, number>();
+  byFinish.forEach((h, i) => rightY.set(h.horseNumber, topPad + i * rowH + rowH / 2));
+
+  const shortName = (name: string, max = 6) =>
+    name.length > max ? name.slice(0, max - 1) + '…' : name;
+
+  const lineColor = (h: HorseProgressData) => {
+    if (h.position600m > h.finishPosition) return '#16a34a';
+    if (h.position600m < h.finishPosition) return '#dc2626';
+    return '#9ca3af';
+  };
+
+  const lineOpacity = (h: HorseProgressData) => {
+    if (hoveredHorse !== null) return hoveredHorse === h.horseNumber ? 1 : 0.1;
+    return h.finishPosition <= 3 ? 0.85 : 0.35;
+  };
+
+  const labelOpacity = (num: number) => {
+    if (hoveredHorse !== null) return hoveredHorse === num ? 1 : 0.25;
+    return 1;
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* Headers */}
+      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 px-1">
+        <span className="flex items-center gap-1">
+          <MapPin className="h-3.5 w-3.5 text-orange-500" />
+          残600m順
+        </span>
+        <span className="flex items-center gap-1">
+          ゴール着順
+          <Flag className="h-3.5 w-3.5 text-red-500" />
+        </span>
+      </div>
+
+      <div className="overflow-x-auto" onMouseLeave={() => setHoveredHorse(null)}>
+        <svg
+          viewBox={`0 0 ${svgW} ${svgH}`}
+          className="w-full text-gray-700 dark:text-gray-300"
+          style={{ minWidth: 480 }}
+        >
+          {/* Lines (worst finish first → best on top) */}
+          {[...horseData]
+            .sort((a, b) => b.finishPosition - a.finishPosition)
+            .map(h => {
+              const ly = leftY.get(h.horseNumber)!;
+              const ry = rightY.get(h.horseNumber)!;
+              return (
+                <g key={`l-${h.horseNumber}`}>
+                  <line x1={lineX1} y1={ly} x2={lineX2} y2={ry}
+                    stroke="transparent" strokeWidth={16}
+                    className="cursor-pointer"
+                    onMouseEnter={() => setHoveredHorse(h.horseNumber)}
+                  />
+                  <line x1={lineX1} y1={ly} x2={lineX2} y2={ry}
+                    stroke={lineColor(h)}
+                    strokeWidth={h.finishPosition <= 3 ? 2.5 : 1.5}
+                    opacity={lineOpacity(h)}
+                    strokeLinecap="round"
+                    style={{ transition: 'opacity 0.15s' }}
+                  />
+                </g>
+              );
+            })}
+
+          {/* Left labels (残600m order) */}
+          {by600m.map((h) => {
+            const y = leftY.get(h.horseNumber)!;
+            const wc = getWakuColorRGB(h.waku);
+            return (
+              <g key={`ll-${h.horseNumber}`}
+                opacity={labelOpacity(h.horseNumber)}
+                className="cursor-pointer"
+                onMouseEnter={() => setHoveredHorse(h.horseNumber)}
+                style={{ transition: 'opacity 0.15s' }}
+              >
+                <rect x={8} y={y - 9} width={18} height={18} rx={3}
+                  fill={wc.bg} stroke="#d1d5db" strokeWidth={0.5} />
+                <text x={17} y={y + 4} textAnchor="middle" fontSize={10}
+                  fill={wc.text} fontWeight="bold">{h.horseNumber}</text>
+                <text x={32} y={y + 4} fontSize={11} fill="currentColor"
+                  fontWeight={h.finishPosition <= 3 ? 'bold' : 'normal'}>
+                  {shortName(h.horseName)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Right labels (着順 order) */}
+          {byFinish.map((h) => {
+            const y = rightY.get(h.horseNumber)!;
+            const wc = getWakuColorRGB(h.waku);
+            const isTop3 = h.finishPosition <= 3;
+            return (
+              <g key={`rl-${h.horseNumber}`}
+                opacity={labelOpacity(h.horseNumber)}
+                className="cursor-pointer"
+                onMouseEnter={() => setHoveredHorse(h.horseNumber)}
+                style={{ transition: 'opacity 0.15s' }}
+              >
+                <text x={520} y={y + 4} fontSize={11} fill="currentColor"
+                  fontWeight={isTop3 ? 'bold' : 'normal'}>
+                  {shortName(h.horseName)}
+                </text>
+                <rect x={596} y={y - 9} width={18} height={18} rx={3}
+                  fill={wc.bg} stroke="#d1d5db" strokeWidth={0.5} />
+                <text x={605} y={y + 4} textAnchor="middle" fontSize={10}
+                  fill={wc.text} fontWeight="bold">{h.horseNumber}</text>
+                <text x={652} y={y + 4} textAnchor="end" fontSize={11}
+                  fill={isTop3 ? '#16a34a' : 'currentColor'}
+                  fontWeight="bold">
+                  {h.finishPosition}着
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Hover tooltip */}
+          {hoveredHorse !== null && (() => {
+            const h = horseData.find(d => d.horseNumber === hoveredHorse);
+            if (!h) return null;
+            const ly = leftY.get(h.horseNumber)!;
+            const ry = rightY.get(h.horseNumber)!;
+            const mx = (lineX1 + lineX2) / 2;
+            const my = (ly + ry) / 2;
+            const change = h.position600m - h.finishPosition;
+            const arrow = change > 0 ? `↑${change}` : change < 0 ? `↓${Math.abs(change)}` : '→';
+            const label = `${h.position600m}位→${h.finishPosition}着 ${arrow}`;
+            const tw = label.length * 7.5 + 16;
+            return (
+              <g style={{ pointerEvents: 'none' }}>
+                <rect x={mx - tw / 2} y={my - 11} width={tw} height={20} rx={4}
+                  fill="white" stroke="#e5e7eb" />
+                <text x={mx} y={my + 3} textAnchor="middle" fontSize={10}
+                  fill="#374151" fontWeight="bold">{label}</text>
+              </g>
+            );
+          })()}
+        </svg>
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 justify-center">
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block w-5 h-0.5 bg-green-600 rounded" />
+          追い上げ
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block w-5 h-0.5 bg-red-600 rounded" />
+          後退
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block w-5 h-0.5 bg-gray-400 rounded" />
+          維持
+        </span>
+      </div>
+    </div>
+  );
+}
+
+
+export default function RaceProgressVisualization({
+  entries,
   distance,
-  defaultOpen = true 
+  defaultOpen = true
 }: RaceProgressVisualizationProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [viewMode, setViewMode] = useState<'diagram' | 'table'>('diagram');
@@ -199,21 +379,13 @@ export default function RaceProgressVisualization({
     return null;
   }
 
-  // 表示用の計算
-  const maxTimeDiff600m = Math.max(...horseData.map(d => d.timeDiff600m), 0.1);
-  const maxMarginFromWinner = Math.max(...horseData.map(d => d.marginFromWinner), 0.1);
-  const maxScale = Math.max(maxTimeDiff600m, maxMarginFromWinner);
-
-  // 図の幅計算用（残り600m〜ゴールまでを表現）
-  const chartWidth = 100; // パーセント
-
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div className="border rounded-lg bg-white shadow-sm">
+      <div className="border rounded-lg bg-white dark:bg-gray-900 shadow-sm">
         <CollapsibleTrigger asChild>
           <Button
             variant="ghost"
-            className="w-full flex items-center justify-between p-4 hover:bg-gray-50"
+            className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <div className="flex items-center gap-2">
               <Timer className="h-5 w-5 text-green-600" />
@@ -249,121 +421,7 @@ export default function RaceProgressVisualization({
             </div>
 
             {viewMode === 'diagram' ? (
-              <div className="space-y-4">
-                {/* ヘッダー */}
-                <div className="flex items-center justify-between text-sm text-gray-500 px-2">
-                  <div className="flex items-center gap-1">
-                    <Flag className="h-4 w-4 text-red-500" />
-                    <span>← ゴール</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <MapPin className="h-4 w-4 text-orange-500" />
-                    <span>{is1200m ? '前半600m / 残600m地点' : '残600m地点'}</span>
-                  </div>
-                </div>
-
-                {/* 展開図 */}
-                <div className="relative bg-gradient-to-r from-red-50 to-orange-50 rounded-lg p-4">
-                  {/* グリッドライン */}
-                  <div className="absolute inset-4 flex justify-between pointer-events-none">
-                    <div className="border-l-2 border-red-300 border-dashed" />
-                    <div className="border-l-2 border-gray-200 border-dashed" />
-                    <div className="border-l-2 border-gray-200 border-dashed" />
-                    <div className="border-l-2 border-orange-300 border-dashed" />
-                  </div>
-
-                  {/* 各馬の表示 */}
-                  <div className="space-y-1 relative z-10">
-                    {horseData.map((horse) => {
-                      const waku = horse.waku;
-                      const wakuColor = getWakuColorRGB(waku);
-                      
-                      // ゴール地点での位置（左側: 1着が左端、着差があるほど右）
-                      const goalPercent = (horse.marginFromWinner / maxScale) * 40;
-                      
-                      // 残り600m地点での位置（右側: 先頭馬が左寄り、後方馬が右端）
-                      // timeDiff600mが大きい（後方）ほど右に表示
-                      const pos600mPercent = 60 + (horse.timeDiff600m / maxScale) * 40;
-
-                      return (
-                        <div key={horse.horseNumber} className="flex items-center gap-1 h-8">
-                          {/* 馬番 */}
-                          <div 
-                            className="w-6 h-6 rounded text-xs font-bold flex items-center justify-center flex-shrink-0"
-                            style={{ 
-                              backgroundColor: wakuColor.bg, 
-                              color: wakuColor.text 
-                            }}
-                          >
-                            {horse.horseNumber}
-                          </div>
-
-                          {/* 馬名 */}
-                          <div className={`w-20 text-xs truncate flex-shrink-0 ${horse.finishPosition <= 3 ? 'font-bold text-gray-800' : 'text-gray-600'}`}>
-                            {horse.horseName}
-                          </div>
-
-                          {/* 軌跡 */}
-                          <div className="flex-1 relative h-6">
-                            {/* 残600m地点のマーカー */}
-                            <div 
-                              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-orange-400 border-2 border-white shadow-sm z-10"
-                              style={{ left: `${pos600mPercent}%` }}
-                              title={`残600m: ${horse.position600m}位 (+${horse.timeDiff600m.toFixed(1)}秒)`}
-                            />
-                            
-                            {/* 軌跡線 */}
-                            <svg className="absolute inset-0 w-full h-full overflow-visible">
-                              <line
-                                x1={`${pos600mPercent}%`}
-                                y1="50%"
-                                x2={`${goalPercent}%`}
-                                y2="50%"
-                                stroke={horse.finishPosition <= 3 ? '#10B981' : '#9CA3AF'}
-                                strokeWidth={horse.finishPosition <= 3 ? 2 : 1}
-                                strokeDasharray={horse.finishPosition <= 3 ? '' : '4 2'}
-                              />
-                            </svg>
-
-                            {/* ゴール地点のマーカー */}
-                            <div 
-                              className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-white shadow-sm z-10
-                                ${horse.finishPosition === 1 ? 'bg-yellow-400' : 
-                                  horse.finishPosition === 2 ? 'bg-gray-300' : 
-                                  horse.finishPosition === 3 ? 'bg-amber-600' : 'bg-red-400'}`}
-                              style={{ left: `${goalPercent}%` }}
-                              title={`ゴール: ${horse.finishPosition}着 (+${horse.marginFromWinner.toFixed(2)}秒)`}
-                            />
-                          </div>
-
-                          {/* 着順 */}
-                          <div className={`w-8 text-center text-sm font-bold flex-shrink-0
-                            ${horse.finishPosition <= 3 ? 'text-green-600 dark:text-green-400' : 'text-gray-600'}`}
-                          >
-                            {horse.finishPosition}着
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 凡例 */}
-                <div className="flex items-center gap-4 text-xs text-gray-500 justify-center mt-2">
-                  <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 rounded-full bg-yellow-400 border border-white" />
-                    <span>ゴール（1着）</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded-full bg-orange-400 border border-white" />
-                    <span>残600m地点</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-6 h-0.5 bg-green-500" />
-                    <span>3着以内</span>
-                  </div>
-                </div>
-              </div>
+              <SlopegraphDiagram horseData={horseData} />
             ) : (
               /* 詳細テーブル */
               <div className="overflow-x-auto">

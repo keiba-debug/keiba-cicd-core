@@ -16,6 +16,8 @@ const SE_RECORD_LEN = 555;
 // インメモリキャッシュ
 const fileBufferCache = new Map<string, Buffer>();
 const horseRaceIndexCache = new Map<string, Array<{ file: string; offset: number }>>();
+/** raceId → 勝ち馬タイム(秒) キャッシュ（着差計算用） */
+const raceWinnerTimeCache = new Map<string, number>();
 let indexBuilt = false;
 
 /**
@@ -295,6 +297,29 @@ function formatTime(raw: string): string {
 }
 
 /**
+ * 走破タイム生値(4桁 MSST)を秒数に変換
+ * "1598" → 119.8 (1分59秒8)
+ */
+function rawTimeToSeconds(raw: string): number {
+  if (!raw || raw.length < 4) return 0;
+  const min = parseInt(raw.substring(0, 1), 10) || 0;
+  const sec = parseInt(raw.substring(1, 3), 10) || 0;
+  const tenth = parseInt(raw.substring(3, 4), 10) || 0;
+  return min * 60 + sec + tenth * 0.1;
+}
+
+/**
+ * 整形済みタイム(M:SS.T)を秒数に変換
+ * "1:59.8" → 119.8
+ */
+function formattedTimeToSeconds(time: string): number {
+  if (!time) return 0;
+  const m = time.match(/^(\d):(\d{2})\.(\d)$/);
+  if (!m) return 0;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + parseInt(m[3], 10) * 0.1;
+}
+
+/**
  * 上がり3F整形（SST → SS.T）
  */
 function formatLast3f(raw: string): string {
@@ -309,33 +334,50 @@ function formatLast3f(raw: string): string {
  */
 function buildHorseRaceIndexIfNeeded(): void {
   if (indexBuilt) return;
-  
+
   const startTime = Date.now();
   const files = getSuDatFiles();
   let recordCount = 0;
-  
+
   for (const file of files) {
     const buffer = getBufferCached(file);
     if (!buffer) continue;
-    
+
     const numRecords = Math.floor(buffer.length / SE_RECORD_LEN);
-    
+
     for (let i = 0; i < numRecords; i++) {
       const offset = i * SE_RECORD_LEN;
-      const kettoNum = decodeShiftJis(buffer, offset + 30, 10);
-      
+      const record = buffer.subarray(offset, offset + SE_RECORD_LEN);
+      const kettoNum = decodeShiftJis(record, 30, 10);
+
       if (!kettoNum) continue;
-      
+
       if (!horseRaceIndexCache.has(kettoNum)) {
         horseRaceIndexCache.set(kettoNum, []);
       }
       horseRaceIndexCache.get(kettoNum)!.push({ file, offset });
       recordCount++;
+
+      // 1着馬のタイムをraceId別にキャッシュ（着差計算用）
+      const finishPos = parseInt(decodeShiftJis(record, 334, 2), 10) || 0;
+      if (finishPos === 1) {
+        const rawTime = decodeShiftJis(record, 338, 4);
+        const timeSec = rawTimeToSeconds(rawTime);
+        if (timeSec > 0) {
+          const raceYear = decodeShiftJis(record, 11, 4);
+          const vCode = decodeShiftJis(record, 19, 2);
+          const kai = decodeShiftJis(record, 21, 2);
+          const nichi = decodeShiftJis(record, 23, 2);
+          const raceNum = decodeShiftJis(record, 25, 2);
+          const raceId = `${raceYear}${kai.padStart(2, '0')}${vCode}${nichi.padStart(2, '0')}${raceNum.padStart(2, '0')}`;
+          raceWinnerTimeCache.set(raceId, timeSec);
+        }
+      }
     }
   }
-  
+
   indexBuilt = true;
-  console.log(`[TargetRaceResultReader] Index built: ${horseRaceIndexCache.size} horses, ${recordCount} records in ${Date.now() - startTime}ms`);
+  console.log(`[TargetRaceResultReader] Index built: ${horseRaceIndexCache.size} horses, ${recordCount} records, ${raceWinnerTimeCache.size} winner times in ${Date.now() - startTime}ms`);
 }
 
 /**
@@ -399,8 +441,10 @@ export interface RecentFormData {
   last3f?: string;     // 上がり3F（例: "34.5"）
   last4f?: string;     // 上がり4F（例: "46.2"）
   time?: string;       // 走破タイム（例: "1:59.8"）
-  // v3: レース傾向（race_trend_index.jsonからServer Componentで付与）
-  raceTrend?: import('./rpci-utils').RaceTrendType;
+  // 着差（勝ち馬とのタイム差、秒単位。1着なら0）
+  marginSeconds?: number;
+  // レース傾向（race_trend_index.jsonからServer Componentで付与）
+  raceTrend?: string;  // v2: RaceTrendV2Type | v1: RaceTrendType
 }
 
 /**
@@ -437,19 +481,37 @@ export function getRecentFormBatch(
     // 日付降順 → 直近N走
     races.sort((a, b) => b.raceDate.localeCompare(a.raceDate));
 
-    result.set(kettoNum, races.slice(0, maxRaces).map(r => ({
-      finishPosition: r.finishPosition,
-      raceDate: r.raceDate,
-      venue: r.venue,
-      venueCode: venueNameToCode(r.venue),
-      kai: r.kai,
-      nichi: r.nichi,
-      raceNumber: r.raceNumber,
-      raceId: r.raceId,
-      last3f: r.last3f || undefined,
-      last4f: r.last4f || undefined,
-      time: r.time || undefined,
-    })));
+    result.set(kettoNum, races.slice(0, maxRaces).map(r => {
+      // 着差(秒)計算: 自分のタイム - 勝ち馬のタイム
+      let marginSeconds: number | undefined;
+      if (r.time) {
+        const horseSec = formattedTimeToSeconds(r.time);
+        if (horseSec > 0) {
+          if (r.finishPosition === 1) {
+            marginSeconds = 0;
+          } else {
+            const winnerSec = raceWinnerTimeCache.get(r.raceId);
+            if (winnerSec && winnerSec > 0) {
+              marginSeconds = +(horseSec - winnerSec).toFixed(1);
+            }
+          }
+        }
+      }
+      return {
+        finishPosition: r.finishPosition,
+        raceDate: r.raceDate,
+        venue: r.venue,
+        venueCode: venueNameToCode(r.venue),
+        kai: r.kai,
+        nichi: r.nichi,
+        raceNumber: r.raceNumber,
+        raceId: r.raceId,
+        last3f: r.last3f || undefined,
+        last4f: r.last4f || undefined,
+        time: r.time || undefined,
+        marginSeconds,
+      };
+    }));
   }
 
   return result;

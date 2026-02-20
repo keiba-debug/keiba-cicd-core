@@ -100,13 +100,17 @@ export function adaptV4ToIntegrated(
       ? { lap_times: kbLaps.lap_times, pace: kbLaps.pace ?? '' }
       : null;
 
-  // JRA-VAN pace情報をlapsに追加（RPCI, 前3F, 後3F, 傾向）
+  // JRA-VAN pace情報をlapsに追加（RPCI, 前3F, 後3F, 傾向, v2分類）
   if (v4Race.pace && (v4Race.pace.rpci != null || v4Race.pace.s3 != null)) {
     if (!lapsData) lapsData = {};
     if (v4Race.pace.rpci != null) lapsData.rpci = v4Race.pace.rpci;
     if (v4Race.pace.s3 != null) lapsData.s3 = v4Race.pace.s3;
     if (v4Race.pace.l3 != null) lapsData.l3 = v4Race.pace.l3;
     if (v4Race.pace.race_trend) lapsData.race_trend = v4Race.pace.race_trend;
+    // v2分類
+    if (v4Race.pace.lap33 != null) lapsData.lap33 = v4Race.pace.lap33;
+    if (v4Race.pace.race_trend_v2) lapsData.race_trend_v2 = v4Race.pace.race_trend_v2;
+    if (v4Race.pace.trend_detail) lapsData.trend_detail = v4Race.pace.trend_detail;
   }
 
   const result: IntegratedRaceData = {

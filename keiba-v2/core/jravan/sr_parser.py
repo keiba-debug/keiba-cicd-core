@@ -46,6 +46,8 @@ class SrRecord:
 
     def to_pace_dict(self) -> Dict:
         """pace情報を辞書で返す"""
+        from analysis.race_classifier import compute_lap33
+
         result = {
             's3': self.first_3f,
             's4': self.first_4f,
@@ -56,25 +58,35 @@ class SrRecord:
         }
         if self.lap_times:
             result['lap_times'] = self.lap_times
+            lap33 = compute_lap33(self.lap_times, self.distance)
+            if lap33 is not None:
+                result['lap33'] = lap33
         return result
 
     def classify_trend(self) -> Optional[str]:
-        """レース傾向5段階分類"""
+        """レース傾向5段階分類
+        RPCI = last_3f / (first_3f + last_3f) * 100
+        高RPCI → 後半遅い → 前傾（ハイペース）→ front_loaded
+        低RPCI → 後半速い → 後傾（スロー）→ sprint_finish
+        """
         if self.rpci is None or self.last_3f is None:
             return None
         rpci = self.rpci
         l3 = self.last_3f
         l4 = self.last_4f
 
-        if rpci >= 50 and l4 is not None:
+        # ロンスパ: 後傾〜ニュートラル + L4からの加速パターン
+        if rpci <= 50 and l4 is not None:
             f4 = self.first_4f
             if f4 is not None and l4 < f4 and (l4 - l3 * 4 / 3) < -0.5:
                 return 'long_sprint'
-        if rpci >= 51:
+        # 後傾 (rpci <= 48): 後半が速い → 瞬発戦
+        if rpci <= 48:
             return 'sprint_finish'
-        if rpci > 48:
+        # 平均 (48 < rpci < 51)
+        if rpci < 51:
             return 'even_pace'
-        # rpci <= 48
+        # 前傾 (rpci >= 51): 後半が遅い → ハイペース
         if l3 < 35.5:
             return 'front_loaded_strong'
         return 'front_loaded'

@@ -16,6 +16,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { HorseRaceResult } from '@/lib/data/integrated-horse-reader';
+import { RACE_TREND_V2_LABELS, RACE_TREND_V2_COLORS, type RaceTrendV2Type } from '@/lib/data/rpci-utils';
 
 // =============================================================================
 // モジュールスコープのヘルパー関数
@@ -53,9 +54,14 @@ function getCourseBadgeClass(distance: string): string {
   return 'bg-gray-100 text-gray-800';
 }
 
+// v2分類は rpci-utils の共有定数を使用、v1はフォールバック
 const TREND_BADGE: Record<string, { label: string; className: string }> = {
+  // v2分類（rpci-utilsから生成）
+  ...Object.fromEntries(
+    (Object.keys(RACE_TREND_V2_LABELS) as RaceTrendV2Type[]).map(k => [k, { label: RACE_TREND_V2_LABELS[k], className: RACE_TREND_V2_COLORS[k] }])
+  ),
+  // v1フォールバック
   sprint_finish: { label: '瞬発', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
-  long_sprint: { label: 'ロンスパ', className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
   even_pace: { label: '平均', className: 'bg-gray-100 text-gray-700 dark:bg-gray-700/30 dark:text-gray-300' },
   front_loaded: { label: 'H前傾', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
   front_loaded_strong: { label: 'H後傾', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },

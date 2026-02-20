@@ -45,7 +45,14 @@ interface TrendDistEntry {
   pct: number;
 }
 
-type TabKey = 'distance' | 'course' | 'trend' | 'baba' | 'runners' | 'similar';
+interface Lap33CourseData {
+  mean: number;
+  stdev: number;
+  median: number;
+  sample_count: number;
+}
+
+type TabKey = 'distance' | 'course' | 'trend' | 'lap33' | 'baba' | 'runners' | 'similar';
 
 interface RpciStandardsResponse {
   summary: {
@@ -53,6 +60,7 @@ interface RpciStandardsResponse {
     totalSamples: number;
     distanceGroups: number;
     similarPairs: number;
+    lap33Courses: number;
   };
   by_distance_group: Record<string, CourseData>;
   courses: Record<string, CourseData>;
@@ -60,6 +68,8 @@ interface RpciStandardsResponse {
   by_distance_group_baba: Record<string, CourseData>;
   runner_adjustments: Record<string, Record<string, RunnerAdjustment>>;
   race_trend_distribution: Record<string, Record<string, TrendDistEntry>>;
+  course_lap33_average: Record<string, Lap33CourseData>;
+  race_trend_v2_distribution: Record<string, Record<string, TrendDistEntry>>;
   metadata: {
     created_at: string;
     source: string;
@@ -71,11 +81,14 @@ interface RpciStandardsResponse {
 }
 
 // RPCI傾向を判定
+// RPCI = last_3f / (first_3f + last_3f) * 100
+// 高RPCI → 後半遅い → ハイペース → 持続戦
+// 低RPCI → 後半速い → スロー → 瞬発戦
 function getRpciTrend(rpci: number): { label: string; color: string; icon: React.ReactNode } {
   if (rpci >= 51) {
-    return { label: 'スロー（瞬発戦）', color: 'text-blue-600', icon: <TrendingUp className="h-4 w-4" /> };
-  } else if (rpci <= 48) {
     return { label: 'ハイ（持続戦）', color: 'text-red-600', icon: <TrendingDown className="h-4 w-4" /> };
+  } else if (rpci <= 48) {
+    return { label: 'スロー（瞬発戦）', color: 'text-blue-600', icon: <TrendingUp className="h-4 w-4" /> };
   }
   return { label: '平均的', color: 'text-gray-600', icon: <Minus className="h-4 w-4" /> };
 }
@@ -185,6 +198,51 @@ const TREND_BADGE_COLORS: Record<string, string> = {
   front_loaded: 'bg-red-100 text-red-700',
   front_loaded_strong: 'bg-orange-100 text-orange-700',
 };
+
+// v2 7分類定義
+const TREND_V2_KEYS = ['sprint', 'sprint_mild', 'even', 'long_sprint', 'sustained_hp', 'sustained_strong', 'sustained_doroashi'] as const;
+const TREND_V2_LABELS: Record<string, string> = {
+  sprint: '瞬発', sprint_mild: '軽瞬発', long_sprint: 'ロンスパ',
+  even: '平均', sustained_hp: '持続HP', sustained_strong: '持続強L3', sustained_doroashi: '持続道悪',
+};
+const TREND_V2_COLORS: Record<string, string> = {
+  sprint: 'bg-blue-500', sprint_mild: 'bg-sky-400',
+  even: 'bg-gray-400',
+  long_sprint: 'bg-orange-400', sustained_hp: 'bg-orange-600', sustained_strong: 'bg-red-500', sustained_doroashi: 'bg-rose-700',
+};
+const TREND_V2_BADGE_COLORS: Record<string, string> = {
+  sprint: 'bg-blue-100 text-blue-700', sprint_mild: 'bg-sky-100 text-sky-700',
+  even: 'bg-gray-100 text-gray-700',
+  long_sprint: 'bg-orange-100 text-orange-700', sustained_hp: 'bg-orange-100 text-orange-800',
+  sustained_strong: 'bg-red-100 text-red-700', sustained_doroashi: 'bg-rose-100 text-rose-700',
+};
+
+// lap33の色クラス
+function getLap33Color(lap33: number): string {
+  if (lap33 >= 1.5) return 'text-blue-600 dark:text-blue-400';
+  if (lap33 >= 0.5) return 'text-blue-500 dark:text-blue-400';
+  if (lap33 >= 0) return 'text-sky-500 dark:text-sky-400';
+  if (lap33 >= -0.5) return 'text-orange-500 dark:text-orange-400';
+  if (lap33 >= -1.5) return 'text-red-500 dark:text-red-400';
+  return 'text-red-600 dark:text-red-400';
+}
+
+function getLap33Bg(lap33: number): string {
+  if (lap33 >= 1.0) return 'bg-blue-50 dark:bg-blue-950/30';
+  if (lap33 >= 0.3) return 'bg-sky-50 dark:bg-sky-950/20';
+  if (lap33 <= -1.0) return 'bg-red-50 dark:bg-red-950/30';
+  if (lap33 <= -0.3) return 'bg-orange-50 dark:bg-orange-950/20';
+  return '';
+}
+
+function getLap33Label(lap33: number): string {
+  if (lap33 >= 1.5) return '強瞬発';
+  if (lap33 >= 0.5) return '瞬発寄り';
+  if (lap33 >= 0) return 'やや瞬発';
+  if (lap33 >= -0.5) return 'やや持続';
+  if (lap33 >= -1.5) return '持続寄り';
+  return '強持続';
+}
 
 // 最多傾向を取得
 function getDominantTrend(dist: Record<string, TrendDistEntry>): { key: string; pct: number } | null {
@@ -345,6 +403,40 @@ export default function RpciAnalysisPage() {
       });
   }, [data, surfaceFilter, distanceFilter, venueFilter]);
 
+  // 33ラップコース別データ（フィルタ適用済み）
+  const filteredLap33 = useMemo(() => {
+    if (!data?.course_lap33_average) return [];
+    return Object.entries(data.course_lap33_average)
+      .filter(([key]) => {
+        const parsed = parseCourseKey(key);
+        if (!parsed) return false;
+        if (surfaceFilter !== 'all' && parsed.surface !== surfaceFilter) return false;
+        if (distanceFilter !== 'all' && getDistanceRange(parsed.distance) !== distanceFilter) return false;
+        if (venueFilter !== 'all' && parsed.venue !== venueFilter) return false;
+        return true;
+      })
+      .sort((a, b) => b[1].mean - a[1].mean); // 瞬発寄り→持続寄り
+  }, [data, surfaceFilter, distanceFilter, venueFilter]);
+
+  // v2傾向分布データ（フィルタ適用済み）
+  const filteredTrendV2Dist = useMemo(() => {
+    if (!data?.race_trend_v2_distribution) return [];
+    return Object.entries(data.race_trend_v2_distribution)
+      .filter(([key]) => {
+        const parsed = parseCourseKey(key);
+        if (!parsed) return false;
+        if (surfaceFilter !== 'all' && parsed.surface !== surfaceFilter) return false;
+        if (distanceFilter !== 'all' && getDistanceRange(parsed.distance) !== distanceFilter) return false;
+        if (venueFilter !== 'all' && parsed.venue !== venueFilter) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const pctA = (a[1]?.sprint?.pct ?? 0) + (a[1]?.sprint_mild?.pct ?? 0);
+        const pctB = (b[1]?.sprint?.pct ?? 0) + (b[1]?.sprint_mild?.pct ?? 0);
+        return pctB - pctA;
+      });
+  }, [data, surfaceFilter, distanceFilter, venueFilter]);
+
   const hasActiveFilter = surfaceFilter !== 'all' || distanceFilter !== 'all' || venueFilter !== 'all';
   const btnClass = (active: boolean) => cn(
     'px-3 py-1 text-xs rounded-full border transition-colors',
@@ -409,6 +501,7 @@ export default function RpciAnalysisPage() {
   const TABS: { key: TabKey; label: string }[] = [
     { key: 'distance', label: '距離グループ別' },
     { key: 'course', label: 'コース別' },
+    { key: 'lap33', label: '33ラップ' },
     { key: 'trend', label: '傾向分布' },
     { key: 'baba', label: '馬場別比較' },
     { key: 'runners', label: '頭数別補正' },
@@ -424,16 +517,16 @@ export default function RpciAnalysisPage() {
           トップ
         </Link>
         <span>/</span>
-        <span className="text-foreground">RPCI分析（レース特性）</span>
+        <span className="text-foreground">レースペース分析</span>
       </nav>
 
       {/* ヘッダー */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          RPCI分析（レース特性）
+          レースペース分析
         </h1>
         <p className="text-muted-foreground mt-1">
-          コース別の瞬発戦/持続戦傾向を分析。RPCI = (前3F / 後3F) × 50
+          コース別のレースペース傾向（RPCI・33ラップ・傾向分類）を分析
         </p>
       </div>
 
@@ -600,8 +693,8 @@ export default function RpciAnalysisPage() {
                                     <span className="text-xs">{trend.label}</span>
                                   </span>
                                 </td>
-                                <td className="text-right py-3 px-4 font-mono text-blue-600">&gt;{value.thresholds.instantaneous.toFixed(1)}</td>
-                                <td className="text-right py-3 px-4 font-mono text-red-600">&lt;{value.thresholds.sustained.toFixed(1)}</td>
+                                <td className="text-right py-3 px-4 font-mono text-blue-600">&lt;{value.thresholds.instantaneous.toFixed(1)}</td>
+                                <td className="text-right py-3 px-4 font-mono text-red-600">&gt;{value.thresholds.sustained.toFixed(1)}</td>
                               </tr>
                             );
                           })}
@@ -677,7 +770,7 @@ export default function RpciAnalysisPage() {
                 <div className="flex flex-wrap gap-4 text-xs text-muted-foreground border-t pt-4">
                   <div className="flex items-center gap-2">
                     <span className="w-4 h-4 rounded bg-blue-500"></span>
-                    <span>瞬発戦（RPCI &gt; 50）</span>
+                    <span>瞬発戦（RPCI &lt; 50）</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-4 h-4 rounded bg-gray-400"></span>
@@ -685,8 +778,103 @@ export default function RpciAnalysisPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-4 h-4 rounded bg-red-500"></span>
-                    <span>持続戦（RPCI &lt; 50）</span>
+                    <span>持続戦（RPCI &gt; 50）</span>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ===== 33ラップタブ ===== */}
+          {activeTab === 'lap33' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <span>コース別 33ラップ平均</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {filteredLap33.length}コース
+                  </span>
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  33ラップ = (残り6F〜3F区間タイム) − (残り3F〜ゴールタイム)。プラス=瞬発力勝負、マイナス=持続力勝負。
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {renderFilters(filteredLap33.length)}
+
+                {/* テーブル */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50 dark:bg-slate-800">
+                        <th className="text-left py-3 px-4">コース</th>
+                        <th className="text-right py-3 px-4">33ラップ</th>
+                        <th className="text-right py-3 px-3">stdev</th>
+                        <th className="text-right py-3 px-3">中央値</th>
+                        <th className="text-right py-3 px-3">件数</th>
+                        <th className="text-center py-3 px-4">タイプ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredLap33.map(([key, value]) => (
+                        <tr key={key} className={cn('border-b hover:bg-slate-50 dark:hover:bg-slate-800/50', getLap33Bg(value.mean))}>
+                          <td className="py-3 px-4 font-medium">{formatCourseName(key)}</td>
+                          <td className={cn('text-right py-3 px-4 font-mono font-bold', getLap33Color(value.mean))}>
+                            {value.mean >= 0 ? '+' : ''}{value.mean.toFixed(2)}
+                          </td>
+                          <td className="text-right py-3 px-3 font-mono text-xs text-muted-foreground">
+                            {value.stdev.toFixed(2)}
+                          </td>
+                          <td className={cn('text-right py-3 px-3 font-mono text-xs', getLap33Color(value.median))}>
+                            {value.median >= 0 ? '+' : ''}{value.median.toFixed(2)}
+                          </td>
+                          <td className="text-right py-3 px-3 text-muted-foreground">
+                            {value.sample_count}
+                          </td>
+                          <td className="text-center py-3 px-4">
+                            <span className={cn(
+                              'text-xs font-medium rounded-full px-2 py-0.5',
+                              value.mean >= 0.5 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                                : value.mean <= -0.5 ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                                : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                            )}>
+                              {getLap33Label(value.mean)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredLap33.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                            該当するコースがありません
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 凡例 */}
+                <div className="flex flex-wrap gap-4 text-xs text-muted-foreground border-t pt-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 rounded bg-blue-500"></span>
+                    <span>瞬発力勝負 (+0.5以上)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 rounded bg-gray-400"></span>
+                    <span>中間域</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 rounded bg-red-500"></span>
+                    <span>持続力勝負 (-0.5以下)</span>
+                  </div>
+                </div>
+
+                {/* 解説 */}
+                <div className="text-xs text-muted-foreground border-t pt-3 space-y-1">
+                  <p><strong>33ラップ</strong> = (残り6F〜3F区間の1Fあたりタイム) − (残り3F〜Goalの1Fあたりタイム)</p>
+                  <p><span className="text-blue-600 font-medium">プラス</span>: 後半で加速 → 瞬発力が問われるコース。<span className="text-red-600 font-medium">マイナス</span>: 後半で減速 → 持久力・スタミナが重要。</p>
+                  <p>stdevが大きいコースは展開によるブレが大きく、レースごとの傾向が安定しない。</p>
                 </div>
               </CardContent>
             </Card>
@@ -697,58 +885,101 @@ export default function RpciAnalysisPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center justify-between">
-                  <span>コース別 レース傾向分布</span>
+                  <span>コース別 レース傾向分布（v2 7分類）</span>
                   <span className="text-xs font-normal text-muted-foreground">
-                    {filteredTrendDist.length}コース
+                    {(filteredTrendV2Dist.length > 0 ? filteredTrendV2Dist : filteredTrendDist).length}コース
                   </span>
                 </CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  各コースで過去レースがどの傾向タイプに分類されたかの割合
+                  各コースで過去レースがどの傾向タイプに分類されたかの割合（L3F閾値 + RPCI + 33ラップの3シグナル統合判定）
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
-                {renderFilters(filteredTrendDist.length)}
+                {renderFilters((filteredTrendV2Dist.length > 0 ? filteredTrendV2Dist : filteredTrendDist).length)}
 
-                {/* 凡例 */}
-                <div className="flex flex-wrap gap-3 text-xs">
-                  {TREND_KEYS.map((key) => (
-                    <div key={key} className="flex items-center gap-1.5">
-                      <span className={cn('w-3 h-3 rounded-sm', TREND_COLORS[key])}></span>
-                      <span>{TREND_LABELS[key]}</span>
-                    </div>
-                  ))}
-                </div>
+                {/* v2凡例 */}
+                {filteredTrendV2Dist.length > 0 ? (
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    {TREND_V2_KEYS.map((key) => (
+                      <div key={key} className="flex items-center gap-1.5">
+                        <span className={cn('w-3 h-3 rounded-sm', TREND_V2_COLORS[key])}></span>
+                        <span>{TREND_V2_LABELS[key]}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    {TREND_KEYS.map((key) => (
+                      <div key={key} className="flex items-center gap-1.5">
+                        <span className={cn('w-3 h-3 rounded-sm', TREND_COLORS[key])}></span>
+                        <span>{TREND_LABELS[key]}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* スタックドバー一覧 */}
                 <div className="max-h-[600px] overflow-y-auto space-y-1.5">
-                  {filteredTrendDist.map(([courseKey, dist]) => {
-                    const totalCount = Object.values(dist).reduce((s, e) => s + e.count, 0);
-                    return (
-                      <div key={courseKey} className="flex items-center gap-3">
-                        <div className="w-28 shrink-0 text-xs font-medium truncate" title={courseKey}>
-                          {formatCourseName(courseKey)}
+                  {filteredTrendV2Dist.length > 0 ? (
+                    /* v2 7分類 */
+                    filteredTrendV2Dist.map(([courseKey, dist]) => {
+                      const totalCount = Object.values(dist).reduce((s, e) => s + e.count, 0);
+                      return (
+                        <div key={courseKey} className="flex items-center gap-3">
+                          <div className="w-28 shrink-0 text-xs font-medium truncate" title={courseKey}>
+                            {formatCourseName(courseKey)}
+                          </div>
+                          <div className="flex-1 flex h-5 rounded overflow-hidden bg-gray-100 dark:bg-gray-800">
+                            {TREND_V2_KEYS.map((tKey) => {
+                              const entry = dist[tKey];
+                              if (!entry || entry.pct === 0) return null;
+                              return (
+                                <div
+                                  key={tKey}
+                                  className={cn('h-full transition-all', TREND_V2_COLORS[tKey])}
+                                  style={{ width: `${entry.pct}%` }}
+                                  title={`${TREND_V2_LABELS[tKey]}: ${entry.count}件 (${entry.pct.toFixed(1)}%)`}
+                                />
+                              );
+                            })}
+                          </div>
+                          <div className="w-10 shrink-0 text-[10px] text-muted-foreground text-right">
+                            {totalCount}件
+                          </div>
                         </div>
-                        <div className="flex-1 flex h-5 rounded overflow-hidden bg-gray-100 dark:bg-gray-800">
-                          {TREND_KEYS.map((tKey) => {
-                            const entry = dist[tKey];
-                            if (!entry || entry.pct === 0) return null;
-                            return (
-                              <div
-                                key={tKey}
-                                className={cn('h-full transition-all', TREND_COLORS[tKey])}
-                                style={{ width: `${entry.pct}%` }}
-                                title={`${TREND_LABELS[tKey]}: ${entry.count}件 (${entry.pct}%)`}
-                              />
-                            );
-                          })}
+                      );
+                    })
+                  ) : (
+                    /* v1 5分類フォールバック */
+                    filteredTrendDist.map(([courseKey, dist]) => {
+                      const totalCount = Object.values(dist).reduce((s, e) => s + e.count, 0);
+                      return (
+                        <div key={courseKey} className="flex items-center gap-3">
+                          <div className="w-28 shrink-0 text-xs font-medium truncate" title={courseKey}>
+                            {formatCourseName(courseKey)}
+                          </div>
+                          <div className="flex-1 flex h-5 rounded overflow-hidden bg-gray-100 dark:bg-gray-800">
+                            {TREND_KEYS.map((tKey) => {
+                              const entry = dist[tKey];
+                              if (!entry || entry.pct === 0) return null;
+                              return (
+                                <div
+                                  key={tKey}
+                                  className={cn('h-full transition-all', TREND_COLORS[tKey])}
+                                  style={{ width: `${entry.pct}%` }}
+                                  title={`${TREND_LABELS[tKey]}: ${entry.count}件 (${entry.pct}%)`}
+                                />
+                              );
+                            })}
+                          </div>
+                          <div className="w-10 shrink-0 text-[10px] text-muted-foreground text-right">
+                            {totalCount}件
+                          </div>
                         </div>
-                        <div className="w-10 shrink-0 text-[10px] text-muted-foreground text-right">
-                          {totalCount}件
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {filteredTrendDist.length === 0 && (
+                      );
+                    })
+                  )}
+                  {filteredTrendV2Dist.length === 0 && filteredTrendDist.length === 0 && (
                     <div className="py-8 text-center text-muted-foreground">
                       傾向分布データがありません。管理画面で「レース特性基準値算出」を再実行してください。
                     </div>
@@ -757,8 +988,17 @@ export default function RpciAnalysisPage() {
 
                 {/* 注釈 */}
                 <div className="text-xs text-muted-foreground border-t pt-3 space-y-1">
-                  <p><strong>瞬発:</strong> RPCI≧51, L3で一気加速 / <strong>ロンスパ:</strong> RPCI≧50, 残4Fから持続加速</p>
-                  <p><strong>平均:</strong> 48&lt;RPCI&lt;51 / <strong>H前傾:</strong> RPCI≦48, L3遅め / <strong>H後傾:</strong> RPCI≦48, L3速い</p>
+                  {filteredTrendV2Dist.length > 0 ? (
+                    <>
+                      <p><strong>瞬発:</strong> L3F閾値クリア + RPCI確認 / <strong>軽瞬発:</strong> RPCIのみ瞬発シグナル / <strong>ロンスパ:</strong> L4加速 + 中盤緩み</p>
+                      <p><strong>平均:</strong> 全指標が中間域 / <strong>持続HP:</strong> RPCI低 + L3遅い / <strong>持続強L3:</strong> RPCI低 + L3速い / <strong>持続道悪:</strong> 道悪 + 持続シグナル</p>
+                    </>
+                  ) : (
+                    <>
+                      <p><strong>瞬発:</strong> RPCI≧51, L3で一気加速 / <strong>ロンスパ:</strong> RPCI≧50, 残4Fから持続加速</p>
+                      <p><strong>平均:</strong> 48&lt;RPCI&lt;51 / <strong>H前傾:</strong> RPCI≦48, L3遅め / <strong>H後傾:</strong> RPCI≦48, L3速い</p>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1024,52 +1264,73 @@ export default function RpciAnalysisPage() {
           {/* 解説 */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">RPCIとは</CardTitle>
+              <CardTitle className="text-lg">用語解説</CardTitle>
             </CardHeader>
             <CardContent className="text-sm space-y-2 text-muted-foreground">
-              <p>
-                <strong>RPCI (Race Pace Change Index)</strong> = (前半3Fタイム / 後半3Fタイム) × 50
-              </p>
-              <ul className="list-disc list-inside space-y-1 ml-2">
-                <li><span className="text-blue-600 font-medium">RPCI &gt; 50</span>: スローペース（前半遅い）→ 瞬発戦傾向</li>
-                <li><span className="text-red-600 font-medium">RPCI &lt; 50</span>: ハイペース（前半速い）→ 持続戦傾向</li>
-                <li><span className="text-gray-600 font-medium">RPCI ≈ 50</span>: 平均的なペース</li>
-              </ul>
-              <p className="mt-3">
-                瞬発戦では上がり3Fの切れ味が重要、持続戦では持久力とスタミナが重要になります。
-              </p>
+              {/* RPCI */}
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">RPCI (Race Pace Change Index)</p>
+                <p>後半3Fタイム / (前半3F + 後半3F) × 100</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li><span className="text-red-600 font-medium">RPCI &gt; 50</span>: ハイペース（前傾）→ 持続戦傾向</li>
+                  <li><span className="text-blue-600 font-medium">RPCI &lt; 50</span>: スローペース（後傾）→ 瞬発戦傾向</li>
+                  <li><span className="text-gray-600 font-medium">RPCI ≈ 50</span>: 平均的なペース</li>
+                </ul>
+              </div>
 
+              {/* 33ラップ */}
               <div className="mt-3 border-t pt-3 space-y-1">
-                <p className="font-medium text-foreground">v3 5段階レース傾向分類</p>
-                <p>前3F/後3Fに加え、前4F(S4)/後4F(L4)を活用し、レースを5段階に細分化:</p>
+                <p className="font-medium text-foreground">33ラップ</p>
+                <p>(残り6F〜3F区間の1Fあたりタイム) − (残り3F〜Goalの1Fあたりタイム)</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li><span className="text-blue-600 font-medium">プラス (+1.0以上)</span>: 後半加速 → 瞬発力が問われるレース</li>
+                  <li><span className="text-red-600 font-medium">マイナス (-1.0以下)</span>: 後半減速 → 持久力・スタミナ勝負</li>
+                  <li><span className="text-gray-600 font-medium">0付近</span>: 前後半でペース変化が小さい</li>
+                </ul>
+                <p className="mt-1">RPCIが前後半3Fの比率なのに対し、33ラップは中盤と終盤の加速度を直接測定。RPCIでは見えないロングスパートや持続力の質を捉えます。</p>
+              </div>
+
+              {/* v2 7分類 */}
+              <div className="mt-3 border-t pt-3 space-y-1">
+                <p className="font-medium text-foreground">v2 7段階レース傾向分類</p>
+                <p>L3F閾値 + RPCI + 33ラップの3シグナルを統合し、7タイプに分類:</p>
                 <ul className="list-none space-y-1.5 ml-2 mt-2">
                   <li className="flex items-start gap-2">
                     <span className="bg-blue-100 text-blue-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">瞬発</span>
-                    <span>RPCI≧51。最後3Fで一気加速するレース。切れ味勝負。</span>
+                    <span>L3F閾値クリア + RPCI瞬発。最後3Fで一気加速する切れ味勝負。</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="bg-sky-100 text-sky-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">軽瞬発</span>
+                    <span>RPCIのみ瞬発シグナル。やや瞬発寄りだが明確な切れ味は出にくい。</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="bg-indigo-100 text-indigo-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">ロンスパ</span>
-                    <span>RPCI≧50かつ残り4F目も速い。残4F〜持続的に加速するロングスパート戦。</span>
+                    <span>残4F目から持続的に加速。L4ギャップ大 + 中盤緩みのロングスパート戦。</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="bg-gray-100 text-gray-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">平均</span>
-                    <span>48&lt;RPCI&lt;51。前後半バランスが取れた平均的なレース。</span>
+                    <span>全指標が中間域。展開によって瞬発にも持続にも振れる。</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="bg-red-100 text-red-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">H前傾</span>
-                    <span>RPCI≦48かつL3遅め。前半で消耗し後半失速するハイペース。</span>
+                    <span className="bg-red-100 text-red-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">持続HP</span>
+                    <span>RPCI低 + L3遅い。前半で消耗し後半失速するハイペース持続戦。</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="bg-orange-100 text-orange-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">H後傾</span>
-                    <span>RPCI≦48かつL3速い。ハイペースでも上がりが速い、強い競馬。</span>
+                    <span className="bg-orange-100 text-orange-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">持続強L3</span>
+                    <span>RPCI低 + L3速い。ハイペースでも上がりが速い、強い持続力の競馬。</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="bg-amber-100 text-amber-700 text-xs font-medium rounded px-1.5 py-0.5 shrink-0">持続道悪</span>
+                    <span>道悪 + 持続シグナル。重馬場など脚元が悪い条件での持続戦。</span>
                   </li>
                 </ul>
               </div>
 
+              {/* 分析ツール */}
               <div className="mt-3 border-t pt-3 space-y-1">
-                <p className="font-medium text-foreground">v2 改善点</p>
+                <p className="font-medium text-foreground">分析ツール</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li><strong>馬場別分離:</strong> 良馬場 vs 稍重以上でRPCI傾向を分離分析</li>
+                  <li><strong>馬場別比較:</strong> 良馬場 vs 稍重以上でRPCI傾向を分離分析</li>
                   <li><strong>頭数別補正:</strong> 少頭数→スロー傾向、多頭数→ハイペース傾向のオフセット値</li>
                   <li><strong>年度重み付け:</strong> 直近2年を×2倍で重み付けし、最新傾向を反映</li>
                 </ul>

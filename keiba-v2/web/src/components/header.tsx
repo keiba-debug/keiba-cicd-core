@@ -175,8 +175,8 @@ export function Header() {
                   <span className="flex items-center gap-2">
                     <span>📊</span>
                     <span>
-                      <span className="font-medium">RPCI分析</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">レースペース・完走能力指数</span>
+                      <span className="font-medium">レースペース分析</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">RPCI・33ラップ・傾向分類</span>
                     </span>
                   </span>
                 </Link>

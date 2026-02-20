@@ -62,6 +62,9 @@ def ml_dir() -> Path:
 def userdata_dir() -> Path:
     return data_root() / "userdata"
 
+def analysis_dir() -> Path:
+    return data_root() / "analysis"
+
 def debug_dir() -> Path:
     return _env_path("KEIBA_DEBUG_DIR", str(data_root() / "debug"))
 

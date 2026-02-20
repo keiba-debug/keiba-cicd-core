@@ -16,7 +16,11 @@ import {
 } from '@/types/race-data';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown, ChevronUp, Trophy, Timer, TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
-import { calculateActualRpci, getRpciTrend, type CourseRpciInfo, type RaceRpciAnalysis } from '@/lib/data/rpci-utils';
+import {
+  calculateActualRpci, getRpciTrend,
+  RACE_TREND_V2_LABELS, RACE_TREND_V2_COLORS, getLap33Interpretation,
+  type CourseRpciInfo, type RaceRpciAnalysis, type RaceTrendV2Type,
+} from '@/lib/data/rpci-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import { POSITIVE_TEXT, getRatingColor } from '@/lib/positive-colors';
 import { cn } from '@/lib/utils';
@@ -174,12 +178,14 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
       let deviation = 0;
       if (rpciInfo) {
         deviation = laps.rpci - rpciInfo.rpciMean;
-        if (laps.rpci >= rpciInfo.thresholds.instantaneous) {
-          comparedToStandard = 'slower';
-          comparedToStandardLabel = 'スローペース（瞬発戦）';
-        } else if (laps.rpci <= rpciInfo.thresholds.sustained) {
+        // 高RPCI → 後半遅い → ハイペース（持続戦）
+        // 低RPCI → 後半速い → スローペース（瞬発戦）
+        if (laps.rpci >= rpciInfo.thresholds.sustained) {
           comparedToStandard = 'faster';
           comparedToStandardLabel = 'ハイペース（持続戦）';
+        } else if (laps.rpci <= rpciInfo.thresholds.instantaneous) {
+          comparedToStandard = 'slower';
+          comparedToStandardLabel = 'スローペース（瞬発戦）';
         }
       }
       return {
@@ -298,6 +304,11 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
           analysis={rpciAnalysis}
           courseInfo={rpciInfo || undefined}
         />
+      )}
+
+      {/* 33ラップ + v2傾向カード */}
+      {laps && (laps.race_trend_v2 || laps.lap33 != null) && (
+        <RaceTrendCard laps={laps} />
       )}
 
       {/* ラップタイムチャート */}
@@ -678,6 +689,75 @@ interface RpciAnalysisCardProps {
 }
 
 // ラップタイムチャート
+// =============================================================================
+// 33ラップ + v2傾向カード
+// =============================================================================
+
+function RaceTrendCard({ laps }: { laps: LapsData }) {
+  const trendV2 = laps.race_trend_v2 as RaceTrendV2Type | undefined;
+  const lap33 = laps.lap33;
+  const detail = laps.trend_detail;
+
+  const trendLabel = trendV2 ? RACE_TREND_V2_LABELS[trendV2] : null;
+  const trendColor = trendV2 ? RACE_TREND_V2_COLORS[trendV2] : '';
+
+  const signalLabel = (sig: string) => {
+    if (sig === 'sprint') return <span className="text-blue-600 dark:text-blue-400">瞬発</span>;
+    if (sig === 'sustained') return <span className="text-red-600 dark:text-red-400">持続</span>;
+    return <span className="text-gray-500">中立</span>;
+  };
+
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <div className="flex items-center gap-3 mb-2">
+        <Activity className="w-4 h-4 text-muted-foreground" />
+        <span className="text-sm font-medium">レース傾向</span>
+        {trendLabel && (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${trendColor}`}>
+            {trendLabel}
+          </span>
+        )}
+        {detail && (
+          <span className="text-xs text-muted-foreground ml-auto">
+            確信度: {Math.round(detail.confidence * 100)}%
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        {/* 33ラップ */}
+        {lap33 != null && (
+          <div className="space-y-0.5">
+            <div className="text-xs text-muted-foreground">33ラップ</div>
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-lg font-bold ${lap33 >= 0.5 ? 'text-blue-600 dark:text-blue-400' : lap33 <= -0.5 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                {lap33 > 0 ? '+' : ''}{lap33.toFixed(1)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {getLap33Interpretation(lap33)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* 判定シグナル詳細 */}
+        {detail && (
+          <div className="space-y-0.5">
+            <div className="text-xs text-muted-foreground">判定根拠</div>
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+              <span>L3F: {signalLabel(detail.l3f_signal)}</span>
+              <span>RPCI: {signalLabel(detail.rpci_signal)}</span>
+              <span>33: {signalLabel(detail.lap33_signal)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+
 interface LapTimesChartProps {
   lapTimes: string[];  // ["7.3", "11.0", "11.5", ...]
   distance: number;    // レース距離(m)
@@ -718,15 +798,15 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
   const plotW = chartW - padL - padR;
   const plotH = chartH - padT - padB;
 
-  // Y軸を反転（速い=上）
+  // Y軸: 速い(小さい値)=上、遅い(大きい値)=下
+  // ラップが上がる(速くなる)→線が上がる、ラップが落ちる(遅くなる)→線が下がる
   const yMin = minLap - range * 0.15;
   const yMax = maxLap + range * 0.15;
   const toX = (i: number) => padL + (i / (times.length - 1)) * plotW;
-  const toY = (v: number) => padT + ((yMax - v) / (yMax - yMin)) * plotH;
+  const toY = (v: number) => padT + ((v - yMin) / (yMax - yMin)) * plotH;
 
-  // ポイントとライン
+  // ポイント座標
   const points = times.map((t, i) => ({ x: toX(i), y: toY(t), val: t }));
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 
   // Y軸目盛り（0.5秒刻み）
   const yTicks: number[] = [];
@@ -738,6 +818,31 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
   // 最速/最遅ラップ
   const fastestIdx = times.indexOf(minLap);
   const slowestIdx = times.indexOf(maxLap);
+
+  // 区間ごとの加速/減速（前ラップとの差）
+  const deltas: (number | null)[] = [null];
+  for (let i = 1; i < times.length; i++) {
+    deltas.push(+(times[i] - times[i - 1]).toFixed(1));
+  }
+
+  // L3F（ラスト3ハロン）の開始インデックス
+  const l3fStartIdx = Math.max(0, times.length - 3);
+
+  // セグメントの色: 加速(緑)/減速(赤)/横ばい(橙)
+  const segmentColor = (delta: number) => {
+    if (delta < -0.2) return '#16a34a'; // green: 加速
+    if (delta > 0.2) return '#dc2626';  // red: 減速
+    return '#f97316';                    // orange: 横ばい
+  };
+
+  // 最大加速/減速ポイント検出（注釈表示用）
+  let maxAccelIdx = -1, maxDecelIdx = -1;
+  let maxAccelDelta = 0, maxDecelDelta = 0;
+  for (let i = 1; i < times.length; i++) {
+    const d = times[i] - times[i - 1];
+    if (d < maxAccelDelta) { maxAccelDelta = d; maxAccelIdx = i; }
+    if (d > maxDecelDelta) { maxDecelDelta = d; maxDecelIdx = i; }
+  }
 
   return (
     <Collapsible defaultOpen={true}>
@@ -786,6 +891,19 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
                       </td>
                     ))}
                   </tr>
+                  {/* 差分行: 前ラップとの差 */}
+                  <tr>
+                    {deltas.map((d, i) => (
+                      <td key={i} className={cn(
+                        "px-2 py-0.5 border text-center font-mono text-[10px]",
+                        d !== null && d < -0.2 && "text-green-600 dark:text-green-400",
+                        d !== null && d > 0.2 && "text-red-600 dark:text-red-400",
+                        (d === null || (d >= -0.2 && d <= 0.2)) && "text-gray-400",
+                      )}>
+                        {d === null ? '' : d > 0 ? `+${d.toFixed(1)}` : d.toFixed(1)}
+                      </td>
+                    ))}
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -793,6 +911,31 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
             {/* SVGチャート */}
             <div className="overflow-x-auto">
               <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full max-w-[600px]" style={{ minWidth: 400 }}>
+                {/* L3F ゾーンハイライト（勝負所） */}
+                {times.length >= 4 && (
+                  <>
+                    <rect
+                      x={toX(l3fStartIdx)}
+                      y={padT}
+                      width={toX(times.length - 1) - toX(l3fStartIdx)}
+                      height={plotH}
+                      fill="#818cf8"
+                      opacity={0.07}
+                      rx={3}
+                    />
+                    <text
+                      x={toX(l3fStartIdx) + 3}
+                      y={padT + plotH - 4}
+                      fontSize={9}
+                      fill="#818cf8"
+                      opacity={0.5}
+                      fontWeight="bold"
+                    >
+                      L3F
+                    </text>
+                  </>
+                )}
+
                 {/* グリッド線 */}
                 {yTicks.map(v => (
                   <g key={v}>
@@ -814,8 +957,22 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
                   </text>
                 ))}
 
-                {/* ライン */}
-                <path d={linePath} fill="none" stroke="#f97316" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                {/* 加速/減速セグメントライン（区間ごとに色分け） */}
+                {points.map((p, i) => {
+                  if (i === 0) return null;
+                  const prev = points[i - 1];
+                  const delta = times[i] - times[i - 1];
+                  return (
+                    <line
+                      key={`seg-${i}`}
+                      x1={prev.x} y1={prev.y}
+                      x2={p.x} y2={p.y}
+                      stroke={segmentColor(delta)}
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                    />
+                  );
+                })}
 
                 {/* ポイント */}
                 {points.map((p, i) => (
@@ -835,11 +992,33 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
                     </text>
                   </g>
                 ))}
+
+                {/* 最大加速ポイント注釈 */}
+                {maxAccelIdx > 0 && maxAccelDelta < -0.3 && (
+                  <text
+                    x={(points[maxAccelIdx].x + points[maxAccelIdx - 1].x) / 2}
+                    y={Math.min(points[maxAccelIdx].y, points[maxAccelIdx - 1].y) - 16}
+                    textAnchor="middle" fontSize={8} fill="#16a34a" fontWeight="bold"
+                  >
+                    {`▲${Math.abs(maxAccelDelta).toFixed(1)}加速`}
+                  </text>
+                )}
+
+                {/* 最大減速ポイント注釈 */}
+                {maxDecelIdx > 0 && maxDecelDelta > 0.3 && (
+                  <text
+                    x={(points[maxDecelIdx].x + points[maxDecelIdx - 1].x) / 2}
+                    y={Math.max(points[maxDecelIdx].y, points[maxDecelIdx - 1].y) + 16}
+                    textAnchor="middle" fontSize={8} fill="#dc2626" fontWeight="bold"
+                  >
+                    {`▼+${maxDecelDelta.toFixed(1)}減速`}
+                  </text>
+                )}
               </svg>
             </div>
 
             {/* ペース情報 */}
-            <div className="flex gap-4 text-xs text-gray-500">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
               <span>最速: <span className="text-blue-600 font-bold">{minLap.toFixed(1)}</span>秒 ({labels[fastestIdx]}m)</span>
               <span>最遅: <span className="text-red-600 font-bold">{maxLap.toFixed(1)}</span>秒 ({labels[slowestIdx]}m)</span>
               <span>前後差: {(totalFromLaps > 0 ? (() => {
@@ -849,6 +1028,19 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
                 const diff = first - second;
                 return `${diff > 0 ? '-' : '+'}${Math.abs(diff).toFixed(1)}`;
               })() : '-')}秒</span>
+              <span className="text-gray-400">|</span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block w-3 h-0.5 bg-green-600 rounded"></span>
+                <span>加速</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block w-3 h-0.5 bg-red-600 rounded"></span>
+                <span>減速</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block w-3 h-0.5 bg-orange-500 rounded"></span>
+                <span>維持</span>
+              </span>
             </div>
           </div>
         </CollapsibleContent>

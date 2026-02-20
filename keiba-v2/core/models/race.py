@@ -7,7 +7,7 @@ JRA-VANベースのレースマスターJSON用データクラス。
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import json
 from datetime import datetime
 
@@ -48,6 +48,10 @@ class RacePace:
     rpci: Optional[float] = None
     race_trend: Optional[str] = None
     lap_times: Optional[List[float]] = field(default=None)  # 1Fごとのラップタイム
+    # v2分類 (race_classifier.py)
+    lap33: Optional[float] = None               # 33ラップ連続値
+    race_trend_v2: Optional[str] = None          # v2分類タイプ
+    trend_detail: Optional[Dict[str, Any]] = field(default=None)  # 判定根拠
 
 
 @dataclass

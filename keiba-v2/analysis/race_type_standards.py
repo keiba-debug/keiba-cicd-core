@@ -26,6 +26,9 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from analysis.race_classifier import (
+    classify_race_v2, compute_lap33, TREND_V2_TYPES, TREND_V2_LABELS, V2_TO_V1,
+)
 
 VENUE_NAMES = {
     "01": "札幌", "02": "函館", "03": "福島", "04": "新潟", "05": "東京",
@@ -36,6 +39,7 @@ TRACK_TYPE_MAP = {"turf": "Turf", "dirt": "Dirt"}
 
 BABA_MAP = {"良": "良", "稍重": "稍重以上", "稍": "稍重以上", "重": "稍重以上", "不良": "稍重以上"}
 
+# v1分類タイプ（後方互換）
 RACE_TREND_TYPES = ['sprint_finish', 'long_sprint', 'even_pace', 'front_loaded', 'front_loaded_strong']
 RACE_TREND_LABELS = {
     'sprint_finish': '瞬発戦', 'long_sprint': 'ロンスパ戦',
@@ -59,25 +63,6 @@ def classify_runners(n: int) -> str:
     elif n <= 13:
         return "中頭数(9-13)"
     return "多頭数(14~)"
-
-
-def classify_race_trend(rpci, s3, l3, s4, l4, course_avg_l3=None) -> str:
-    is_long_sprint = False
-    if l4 is not None and l3 is not None and l4 > l3:
-        fourth_furlong_time = l4 - l3
-        avg_l3_per_furlong = l3 / 3
-        if fourth_furlong_time <= avg_l3_per_furlong * 1.05:
-            is_long_sprint = True
-    if rpci >= 50 and is_long_sprint:
-        return 'long_sprint'
-    if rpci >= 51:
-        return 'sprint_finish'
-    if rpci > 48:
-        return 'even_pace'
-    if course_avg_l3 is not None and l3 is not None:
-        if l3 <= course_avg_l3 * 1.03:
-            return 'front_loaded_strong'
-    return 'front_loaded'
 
 
 def scan_races(since_year: int) -> list:
@@ -159,6 +144,8 @@ def scan_races(since_year: int) -> list:
                     'track_name': venue_en,
                     'distance': distance,
                     'track_type': track_type,
+                    'track_type_raw': track_type_raw,  # 'turf' or 'dirt'
+                    'track_condition': track_condition,  # 良/稍重/重/不良
                     'baba_condition': baba_condition,
                     'num_runners': num_runners,
                     's3': s3,
@@ -166,7 +153,10 @@ def scan_races(since_year: int) -> list:
                     's4': pace.get('s4'),
                     'l4': pace.get('l4'),
                     'rpci': rpci,
-                    'race_trend': '',  # will be computed
+                    'lap_times': pace.get('lap_times'),
+                    'race_trend': '',  # v1, will be computed
+                    'race_trend_v2': '',  # v2, will be computed
+                    'lap33': None,  # will be computed
                 })
                 year_count += 1
 
@@ -206,8 +196,8 @@ def calculate_course_stats(records: list, current_year: int) -> Optional[dict]:
             "max": round(max(rpci_values), 2),
         },
         "thresholds": {
-            "instantaneous": round(w_mean + stdev * 0.5, 2),
-            "sustained": round(w_mean - stdev * 0.5, 2),
+            "sustained": round(w_mean + stdev * 0.5, 2),
+            "instantaneous": round(w_mean - stdev * 0.5, 2),
         },
     }
 
@@ -253,7 +243,7 @@ def calculate_standards(records: list, since_year: int) -> dict:
             "source": "data3/races (JRA-VAN SR_DATA via build_race_master)",
             "years": years_str,
             "years_list": years,
-            "version": "4.0",
+            "version": "5.0",
         },
         "by_distance_group": {},
         "courses": {},
@@ -262,7 +252,9 @@ def calculate_standards(records: list, since_year: int) -> dict:
         "runner_adjustments": {},
         "similar_courses": {},
         "course_l3_average": {},
+        "course_lap33_average": {},
         "race_trend_distribution": {},
+        "race_trend_v2_distribution": {},
     }
 
     by_course = defaultdict(list)
@@ -343,15 +335,55 @@ def calculate_standards(records: list, since_year: int) -> dict:
     standards["course_l3_average"] = course_l3_avg
     print(f"  Courses: {len(course_l3_avg)}")
 
-    # Race trend classification
-    print("\n[STEP 2h] Race trend classification...")
+    # Course 33ラップ average
+    print("\n[STEP 2g2] Course 33ラップ averages...")
+    course_lap33_avg = {}
+    for course_key, recs in by_course.items():
+        lap33_vals = []
+        for r in recs:
+            if r.get('lap_times'):
+                v = compute_lap33(r['lap_times'], r['distance'])
+                if v is not None:
+                    lap33_vals.append(v)
+        if len(lap33_vals) >= 10:
+            course_lap33_avg[course_key] = {
+                "mean": round(statistics.mean(lap33_vals), 2),
+                "stdev": round(statistics.stdev(lap33_vals), 2) if len(lap33_vals) > 1 else 0,
+                "median": round(statistics.median(lap33_vals), 2),
+                "sample_count": len(lap33_vals),
+            }
+    standards["course_lap33_average"] = course_lap33_avg
+    print(f"  Courses with lap33: {len(course_lap33_avg)}")
+
+    # Race trend classification (v1 + v2)
+    print("\n[STEP 2h] Race trend classification (v1 + v2)...")
     for r in records:
         course_key = f"{r['track_name']}_{r['track_type']}_{r['distance']}m"
         avg_l3 = course_l3_avg.get(course_key)
-        r['race_trend'] = classify_race_trend(
-            r['rpci'], r['s3'], r['l3'], r['s4'], r['l4'], course_avg_l3=avg_l3,
-        )
+        avg_rpci = None
+        if course_key in course_stats:
+            avg_rpci = course_stats[course_key]['rpci']['mean']
+        avg_lap33 = None
+        if course_key in course_lap33_avg:
+            avg_lap33 = course_lap33_avg[course_key]['mean']
 
+        # v2分類（race_classifier.py統一ロジック）
+        v2_result = classify_race_v2(
+            rpci=r['rpci'], l3=r['l3'], l4=r['l4'],
+            s3=r['s3'], s4=r['s4'],
+            distance=r['distance'], track_type=r['track_type_raw'],
+            track_condition=r['track_condition'],
+            lap_times=r.get('lap_times'),
+            course_avg_l3=avg_l3,
+            course_avg_rpci=avg_rpci,
+            course_avg_lap33=avg_lap33,
+        )
+        r['race_trend'] = v2_result['trend_v1']  # v1後方互換
+        r['race_trend_v2'] = v2_result['trend_v2']
+        r['lap33'] = v2_result['lap33']
+        r['trend_detail'] = v2_result.get('trend_detail')
+
+    # v1 trend distribution
     trend_dist = defaultdict(lambda: defaultdict(int))
     for r in records:
         course_key = f"{r['track_name']}_{r['track_type']}_{r['distance']}m"
@@ -366,15 +398,40 @@ def calculate_standards(records: list, since_year: int) -> dict:
             dist_entry[t] = {"count": c, "pct": round(c / total * 100, 1) if total > 0 else 0}
         standards["race_trend_distribution"][course_key] = dist_entry
 
-    # Summary
-    global_counts = defaultdict(int)
+    # v2 trend distribution
+    trend_v2_dist = defaultdict(lambda: defaultdict(int))
     for r in records:
-        global_counts[r['race_trend']] += 1
+        course_key = f"{r['track_name']}_{r['track_type']}_{r['distance']}m"
+        trend_v2_dist[course_key][r['race_trend_v2']] += 1
+
+    for course_key in sorted(trend_v2_dist.keys()):
+        counts = trend_v2_dist[course_key]
+        total = sum(counts.values())
+        dist_entry = {}
+        for t in TREND_V2_TYPES:
+            c = counts.get(t, 0)
+            dist_entry[t] = {"count": c, "pct": round(c / total * 100, 1) if total > 0 else 0}
+        standards["race_trend_v2_distribution"][course_key] = dist_entry
+
+    # Summary
+    print("\n  --- v1 distribution ---")
+    global_v1 = defaultdict(int)
+    for r in records:
+        global_v1[r['race_trend']] += 1
     total_all = len(records)
     for t in RACE_TREND_TYPES:
-        c = global_counts.get(t, 0)
+        c = global_v1.get(t, 0)
         pct = c / total_all * 100 if total_all > 0 else 0
-        print(f"  {RACE_TREND_LABELS.get(t, t)}: {c:,} ({pct:.1f}%)")
+        print(f"  {RACE_TREND_LABELS.get(t, t):12s}: {c:,} ({pct:.1f}%)")
+
+    print("\n  --- v2 distribution ---")
+    global_v2 = defaultdict(int)
+    for r in records:
+        global_v2[r['race_trend_v2']] += 1
+    for t in TREND_V2_TYPES:
+        c = global_v2.get(t, 0)
+        pct = c / total_all * 100 if total_all > 0 else 0
+        print(f"  {TREND_V2_LABELS.get(t, t):12s}: {c:,} ({pct:.1f}%)")
 
     return standards
 
@@ -437,15 +494,25 @@ def main():
             "created_at": datetime.now().isoformat(),
             "source": "data3/races",
             "years": standards["metadata"]["years"],
+            "version": "5.0",
+            "description": "レース傾向インデックス（v1+v2分類）",
         },
         "races": {},
     }
     for r in records:
-        entry = {"trend": r['race_trend'], "rpci": r['rpci'], "s3": r['s3'], "l3": r['l3']}
+        entry = {
+            "trend": r['race_trend'],        # v1後方互換
+            "trend_v2": r['race_trend_v2'],   # v2分類
+            "rpci": r['rpci'],
+            "s3": r['s3'],
+            "l3": r['l3'],
+        }
         if r.get('s4') is not None:
             entry["s4"] = r['s4']
         if r.get('l4') is not None:
             entry["l4"] = r['l4']
+        if r.get('lap33') is not None:
+            entry["lap33"] = r['lap33']
         trend_index["races"][r['race_id']] = entry
 
     trend_path = output_path.parent / "race_trend_index.json"

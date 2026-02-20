@@ -6,16 +6,18 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { DATA3_ROOT } from '@/lib/config';
-import type { RaceTrendType } from './rpci-utils';
+import type { RaceTrendType, RaceTrendV2Type } from './rpci-utils';
 
 // レース傾向インデックスの型定義
 interface RaceTrendEntry {
-  trend: RaceTrendType;
+  trend: RaceTrendType;     // v1後方互換
+  trend_v2?: RaceTrendV2Type;  // v2分類
   rpci: number;
   s3: number;
   l3: number;
   s4?: number;
   l4?: number;
+  lap33?: number;           // 33ラップ連続値
 }
 
 export interface RaceTrendIndex {
@@ -61,14 +63,38 @@ export async function getRaceTrendIndex(): Promise<RaceTrendIndex | null> {
 }
 
 /**
- * レースIDから傾向を取得
+ * レースIDからv2傾向を取得（v2優先、v1フォールバック）
  * @param index レース傾向インデックス
- * @param raceId TARGET形式のレースID（12桁: year4+jyo2+kai2+nichi2+raceNum2）
+ * @param raceId JRA-VAN形式のレースID（16桁優先。12桁TARGET形式はフォールバック）
  */
 export function lookupRaceTrend(
+  index: RaceTrendIndex | null,
+  raceId: string
+): RaceTrendV2Type | RaceTrendType | undefined {
+  if (!index) return undefined;
+  const entry = index.races[raceId];
+  if (!entry) return undefined;
+  return entry.trend_v2 || entry.trend;
+}
+
+/**
+ * レースIDからv1傾向を取得（後方互換用）
+ */
+export function lookupRaceTrendV1(
   index: RaceTrendIndex | null,
   raceId: string
 ): RaceTrendType | undefined {
   if (!index) return undefined;
   return index.races[raceId]?.trend;
+}
+
+/**
+ * レースIDから33ラップ値を取得
+ */
+export function lookupLap33(
+  index: RaceTrendIndex | null,
+  raceId: string
+): number | undefined {
+  if (!index) return undefined;
+  return index.races[raceId]?.lap33;
 }

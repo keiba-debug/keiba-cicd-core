@@ -85,6 +85,14 @@ PACE_FEATURES = [
     'last3f_vs_race_l3_last3', 'steep_course_experience', 'steep_course_top3_rate',
     # v4.0
     'l3_unrewarded_rate_last5',
+    # v5.1: 33ラップ系 + 適性系
+    'avg_lap33_last3', 'prev_race_lap33',
+    'best_trend_top3_rate', 'worst_trend_top3_rate', 'trend_versatility',
+    # v5.2: 余力ラップ系 (ch7 5基準ベース) — 実験済み、ROI低下のため無効化
+    # 'race_last1f_avg_last3', 'prev_race_last1f', 'race_decel_l1f_avg_last3',
+    # 'yoriki_score_last5', 'fast_finish_top3_rate',
+    # v5.2: race_trend カテゴリ特徴量 — 実験済み、低重要度のため無効化
+    # 'prev_race_trend_v2_enc', 'dominant_trend_v2_enc', 'trend_switch_count_last5',
 ]
 
 # 調教特徴量 (v3.3)
@@ -214,7 +222,15 @@ def build_pace_index(date_index: dict) -> dict:
                     'l3': pace.get('l3'),
                     's4': pace.get('s4'),
                     'l4': pace.get('l4'),
+                    'race_trend': pace.get('race_trend'),
+                    'race_trend_v2': pace.get('race_trend_v2'),
+                    'lap33': pace.get('lap33'),
+                    'lap_times': pace.get('lap_times'),
                 }
+                # レース基本情報もpace_indexに含める
+                pace_index[race_id]['distance'] = race.get('distance')
+                pace_index[race_id]['track_type'] = race.get('track_type')
+                pace_index[race_id]['venue_code'] = race.get('venue_code')
             count += 1
         except Exception:
             errors += 1
@@ -1148,7 +1164,7 @@ def main():
     model_wv.save_model(str(model_dir / "model_wv.txt"))
 
     meta = {
-        'version': '5.0',
+        'version': '5.1',
         'features_all': FEATURE_COLS_ALL,
         'features_value': FEATURE_COLS_VALUE,
         'market_features': list(MARKET_FEATURES),
@@ -1162,7 +1178,7 @@ def main():
 
     # 結果JSON保存
     result = {
-        'version': '5.0',
+        'version': '5.1',
         'experiment': 'ml_experiment_v3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {

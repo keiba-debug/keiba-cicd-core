@@ -27,6 +27,40 @@ from core import config
 from core.constants import VENUE_CODES, SEX_CODES, BABA_CODES
 from core.jravan import se_parser, sr_parser, race_id as rid
 from core.models.race import RaceMaster, RaceEntry, RacePace
+from analysis.race_classifier import classify_race_v2, compute_lap33
+
+
+# ── コース基準値キャッシュ ──
+_course_standards: Optional[Dict] = None
+
+def _load_course_standards() -> Optional[Dict]:
+    """race_type_standards.json を読み込み、コース別RPCI平均値を返す"""
+    global _course_standards
+    if _course_standards is not None:
+        return _course_standards
+    standards_path = config.analysis_dir() / 'race_type_standards.json'
+    if not standards_path.exists():
+        _course_standards = {}
+        return _course_standards
+    try:
+        data = json.loads(standards_path.read_text(encoding='utf-8'))
+        _course_standards = data.get('courses', {})
+    except Exception:
+        _course_standards = {}
+    return _course_standards
+
+
+def _get_course_rpci_avg(venue_name: str, track_type: str, distance: int) -> Optional[float]:
+    """コース別の平均RPCIを取得"""
+    standards = _load_course_standards()
+    if not standards:
+        return None
+    tt = 'Turf' if track_type == 'turf' else 'Dirt'
+    key = f"{venue_name}_{tt}_{distance}m"
+    course = standards.get(key)
+    if course and 'rpci' in course:
+        return course['rpci'].get('mean')
+    return None
 
 
 def build_sr_index(years: List[int]) -> Dict[str, 'sr_parser.SrRecord']:
@@ -122,6 +156,21 @@ def create_race_master(
 
     if sr is not None:
         # SR_DATAあり: フルデータで構築
+        # v2分類: 多基準統合判定
+        course_avg_rpci = _get_course_rpci_avg(sr.venue_name, sr.track_type, sr.distance)
+        v2_result = classify_race_v2(
+            rpci=sr.rpci,
+            l3=sr.last_3f,
+            l4=sr.last_4f,
+            s3=sr.first_3f,
+            s4=sr.first_4f,
+            distance=sr.distance,
+            track_type=sr.track_type,
+            track_condition=sr.baba_name,
+            lap_times=sr.lap_times,
+            course_avg_rpci=course_avg_rpci,
+        )
+
         pace = RacePace(
             s3=sr.first_3f,
             s4=sr.first_4f,
@@ -130,6 +179,9 @@ def create_race_master(
             rpci=sr.rpci,
             race_trend=sr.classify_trend(),
             lap_times=sr.lap_times,
+            lap33=v2_result.get('lap33'),
+            race_trend_v2=v2_result.get('trend_v2'),
+            trend_detail=v2_result.get('trend_detail'),
         )
         race = RaceMaster(
             race_id=race_id,
@@ -148,7 +200,7 @@ def create_race_master(
             pace=pace,
             entries=entries,
             meta={
-                'data_version': '4.0',
+                'data_version': '4.1',
                 'source': 'jravan',
                 'created_at': datetime.now().isoformat(timespec='seconds'),
                 'has_keibabook_ext': False,
@@ -169,7 +221,7 @@ def create_race_master(
             pace=None,
             entries=entries,
             meta={
-                'data_version': '4.0',
+                'data_version': '4.1',
                 'source': 'jravan',
                 'created_at': datetime.now().isoformat(timespec='seconds'),
                 'has_keibabook_ext': False,

@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'RPCI分析',
+  title: 'レースペース分析',
 };
 
 export default function RpciAnalysisLayout({
