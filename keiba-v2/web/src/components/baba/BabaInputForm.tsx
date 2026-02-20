@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +32,7 @@ interface BabaFormData {
 type SaveStatus = 'idle' | 'saving' | 'success' | 'error';
 
 export function BabaInputForm({ date, track, kai, nichi, babaSummary }: BabaInputFormProps) {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [errorMessage, setErrorMessage] = useState('');
@@ -94,6 +96,7 @@ export function BabaInputForm({ date, track, kai, nichi, babaSummary }: BabaInpu
 
       if (result.ok) {
         setStatus('success');
+        router.refresh();
         // 成功後は2秒後に閉じる
         setTimeout(() => {
           setIsOpen(false);

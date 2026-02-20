@@ -192,6 +192,19 @@ const cacheCushion: Map<number, BabaMap> = new Map();
 const cacheMoistureG: Map<number, BabaMap> = new Map();
 const cacheMoisture4: Map<number, BabaMap> = new Map();
 
+/** BABA 読み込みキャッシュを破棄（CSV更新後の再読込用） */
+export function clearBabaCache(year?: number): void {
+  if (year != null) {
+    cacheCushion.delete(year);
+    cacheMoistureG.delete(year);
+    cacheMoisture4.delete(year);
+    return;
+  }
+  cacheCushion.clear();
+  cacheMoistureG.clear();
+  cacheMoisture4.clear();
+}
+
 function getCushionMap(year: number): BabaMap {
   if (!cacheCushion.has(year)) {
     cacheCushion.set(year, loadCushionYear(year));

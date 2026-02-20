@@ -17,9 +17,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import fs from 'fs';
 import path from 'path';
 import { BABA_DATA_PATH } from '@/lib/config';
+import { clearBabaCache } from '@/lib/data/baba-reader';
 
 // 競馬場名 → 場コード
 const TRACK_TO_VENUE: Record<string, string> = {
@@ -208,6 +210,10 @@ export async function POST(request: NextRequest) {
     if (moisture4Dirt != null) {
       results.moisture4Dirt = updateCsvFile(moisture4File, rxIdBase, '0D', moisture4Dirt, displayLabel);
     }
+
+    // 更新後は年単位キャッシュを破棄して、一覧ページを再検証
+    clearBabaCache(year);
+    revalidatePath('/');
 
     return NextResponse.json({
       ok: true,

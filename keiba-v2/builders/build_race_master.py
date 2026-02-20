@@ -183,6 +183,11 @@ def create_race_master(
             race_trend_v2=v2_result.get('trend_v2'),
             trend_detail=v2_result.get('trend_detail'),
         )
+        # 牝馬限定: race_nameキーワード + 全出走馬が牝馬なら補完
+        is_female_only = sr.is_female_only
+        if not is_female_only and entries:
+            is_female_only = all(e.sex_cd == '2' for e in entries)
+
         race = RaceMaster(
             race_id=race_id,
             date=sr.date,
@@ -197,10 +202,12 @@ def create_race_master(
             num_runners=len(entries),
             grade=sr.grade,
             race_name=sr.race_name,
+            is_handicap=sr.is_handicap,
+            is_female_only=is_female_only,
             pace=pace,
             entries=entries,
             meta={
-                'data_version': '4.1',
+                'data_version': '4.2',
                 'source': 'jravan',
                 'created_at': datetime.now().isoformat(timespec='seconds'),
                 'has_keibabook_ext': False,

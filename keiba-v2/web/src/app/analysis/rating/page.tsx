@@ -42,6 +42,13 @@ interface MaidenSeasonData {
   rating: RatingStats;
 }
 
+interface VenueStatEntry {
+  horse_count: number;
+  mean: number;
+  stdev: number;
+  median: number;
+}
+
 interface RatingStandardsResponse {
   summary: {
     totalGrades: number;
@@ -65,6 +72,7 @@ interface RatingStandardsResponse {
     };
   };
   maiden_by_season?: Record<string, MaidenSeasonData>;
+  venue_stats?: Record<string, VenueStatEntry>;
   metadata: {
     created_at: string;
     source: string;
@@ -459,6 +467,86 @@ export default function RatingAnalysisPage() {
             </Card>
           )}
 
+          {/* 会場別レイティング統計 */}
+          {data.venue_stats && Object.keys(data.venue_stats).length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-green-500" />
+                  会場別レイティング統計
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  栗東馬割合が高い会場ほど平均レイティングが高い傾向（降格ローテ理論の根拠）
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-muted/50">
+                        <th className="px-3 py-2 text-left border">会場</th>
+                        <th className="px-3 py-2 text-center border">ランク</th>
+                        <th className="px-3 py-2 text-center border">トラック</th>
+                        <th className="px-3 py-2 text-center border">頭数</th>
+                        <th className="px-3 py-2 text-center border">平均</th>
+                        <th className="px-3 py-2 text-center border">σ</th>
+                        <th className="px-3 py-2 text-center border">中央値</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(data.venue_stats)
+                        .sort(([a], [b]) => {
+                          const va = data.venue_stats![a].mean;
+                          const vb = data.venue_stats![b].mean;
+                          return vb - va;
+                        })
+                        .map(([key, value]) => {
+                          const [venue, track] = key.split('_');
+                          const rankMap: Record<string, string> = {
+                            '阪神': 'A', '京都': 'A', '小倉': 'B', '中京': 'B',
+                            '札幌': 'C', '函館': 'C', '新潟': 'D', '福島': 'D',
+                            '東京': 'E', '中山': 'E',
+                          };
+                          const rank = rankMap[venue] || '?';
+                          const rankColor = rank === 'A' ? 'text-red-600 font-bold' :
+                            rank === 'B' ? 'text-orange-600' : rank === 'C' ? 'text-yellow-600' :
+                            rank === 'D' ? 'text-blue-600' : 'text-gray-600';
+                          return (
+                            <tr key={key} className="border-b hover:bg-muted/30">
+                              <td className="px-3 py-1.5 border font-medium">{venue}</td>
+                              <td className={`px-3 py-1.5 border text-center font-mono ${rankColor}`}>{rank}</td>
+                              <td className="px-3 py-1.5 border text-center">
+                                <span className={`px-1.5 py-0.5 rounded text-xs ${track === '芝' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {track}
+                                </span>
+                              </td>
+                              <td className="px-3 py-1.5 border text-center font-mono text-xs">{value.horse_count.toLocaleString()}</td>
+                              <td className="px-3 py-1.5 border text-center font-mono font-bold">{value.mean.toFixed(1)}</td>
+                              <td className="px-3 py-1.5 border text-center font-mono text-xs text-muted-foreground">{value.stdev.toFixed(1)}</td>
+                              <td className="px-3 py-1.5 border text-center font-mono text-xs">{value.median.toFixed(1)}</td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+                  <h4 className="font-medium mb-2">競馬場ランク（降格ローテ理論）</h4>
+                  <div className="grid grid-cols-5 gap-2 text-xs text-center">
+                    <div className="bg-red-50 dark:bg-red-900/20 rounded p-2"><strong className="text-red-600">A</strong><br/>阪神・京都</div>
+                    <div className="bg-orange-50 dark:bg-orange-900/20 rounded p-2"><strong className="text-orange-600">B</strong><br/>小倉・中京</div>
+                    <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded p-2"><strong className="text-yellow-600">C</strong><br/>札幌・函館</div>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2"><strong className="text-blue-600">D</strong><br/>新潟・福島</div>
+                    <div className="bg-gray-50 dark:bg-gray-900/20 rounded p-2"><strong className="text-gray-600">E</strong><br/>東京・中山</div>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    栗東馬割合が高い＝レベルが高い。A→Eへの移動は降格ローテ（ダート限定）。
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* 解説 */}
           <Card>
             <CardHeader>
@@ -468,13 +556,22 @@ export default function RatingAnalysisPage() {
               <div>
                 <strong className="text-foreground">1. レースレベル判定</strong>
                 <p>該当レースの平均レイティングをクラス基準値と比較し、高いか低いかを判断します。</p>
+                <p className="mt-1">出走馬の平均レイティングがクラス基準値+0.5σ以上 = <span className="text-red-600 font-bold">H</span>レベル、-0.5σ以下 = <span className="text-blue-600 font-bold">L</span>レベル。</p>
               </div>
               <div>
                 <strong className="text-foreground">2. 混戦度判定</strong>
                 <p>レイティングのばらつき（標準偏差）から、実力が拮抗しているか力差があるかを判断します。</p>
               </div>
               <div>
-                <strong className="text-foreground">3. 予想への活用</strong>
+                <strong className="text-foreground">3. 降格ローテ理論</strong>
+                <ul className="list-disc list-inside ml-2 mt-1">
+                  <li>前走Hレベル戦で6着以下 → 今走Lレベル戦 = 妙味あり</li>
+                  <li>会場ランク差・距離変化・芝ダート転向等の7パターンで検出</li>
+                  <li>Value Bet戦略との組み合わせで回収率向上が期待</li>
+                </ul>
+              </div>
+              <div>
+                <strong className="text-foreground">4. 予想への活用</strong>
                 <ul className="list-disc list-inside ml-2 mt-1">
                   <li>混戦 → 人気馬が信頼しづらい、荒れる可能性</li>
                   <li>力差明確 → 上位馬が堅い、堅い決着の可能性</li>

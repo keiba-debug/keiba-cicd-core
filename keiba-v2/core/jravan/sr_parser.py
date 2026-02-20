@@ -40,6 +40,8 @@ class SrRecord:
     last_4f: Optional[float]
     rpci: Optional[float]
     lap_times: Optional[List[float]] = field(default=None)  # 1Fごとのラップタイム (秒)
+    is_handicap: bool = False       # ハンデ戦
+    is_female_only: bool = False    # 牝馬限定戦
     grade: str = ''         # G1/G2/G3/Listed/OP/3勝クラス/2勝クラス/1勝クラス/未勝利/新馬
     race_name: str = ''     # レース名（重賞・特別のみ）
     race_class: str = ''    # 条件クラス名（年齢+クラス統合: "3歳新馬" 等）
@@ -294,6 +296,12 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
     age_class = _classify_age_class(jyoken_cds)
     race_class = f"{age_class}{grade}" if age_class and grade else grade
 
+    # ハンデ戦判定: race_nameキーワード（SR_DATAにJyuryoCDフィールドは存在しない）
+    is_handicap = 'ハンデ' in race_name
+
+    # 牝馬限定判定: race_nameキーワード
+    is_female_only = '牝' in race_name
+
     date_str = f"{year_str}-{month_day[:2]}-{month_day[2:]}"
     venue_name = VENUE_CODES.get(venue_code, f"?({venue_code})")
 
@@ -317,6 +325,8 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
         last_4f=last_4f,
         rpci=rpci,
         lap_times=lap_times if lap_times else None,
+        is_handicap=is_handicap,
+        is_female_only=is_female_only,
         grade=grade,
         race_name=race_name,
         race_class=race_class,

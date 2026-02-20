@@ -83,6 +83,7 @@ def build_horse_history(years: List[int]) -> Dict[str, List[Dict]]:
             'race_id': race_id,
             'race_date': rec['race_date'],
             'venue_code': rec['venue_code'],
+            'venue_name': sr.venue_name,
             'finish_position': fp,
             'time': rec['time'],
             'last_3f': rec['last_3f'],
@@ -96,6 +97,9 @@ def build_horse_history(years: List[int]) -> Dict[str, List[Dict]]:
             'num_runners': sr.num_runners,
             'distance': sr.distance,
             'track_type': sr.track_type,
+            'grade': sr.grade,
+            'is_handicap': sr.is_handicap,
+            'is_female_only': sr.is_female_only,
         }
         histories[ketto].append(entry)
 

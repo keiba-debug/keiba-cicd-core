@@ -253,6 +253,18 @@ function getRaceDanger(entries: PredictionEntry[]): DangerInfo {
   };
 }
 
+/** 降格ローテのパターン詳細をtooltipテキストとして返す */
+function getKoukakuDetail(entry: PredictionEntry): string {
+  const patterns: string[] = [];
+  if (entry.is_koukaku_venue) patterns.push('①会場ランク降格');
+  if (entry.is_koukaku_female) patterns.push('②混合→牝限');
+  if (entry.is_koukaku_season) patterns.push('③冬春→夏');
+  if (entry.is_koukaku_distance) patterns.push('⑤距離短縮');
+  if (entry.is_koukaku_turf_to_dirt) patterns.push('⑥芝→ダート');
+  if (entry.is_koukaku_handicap) patterns.push('⑦ハンデ戦');
+  return `降格ローテ: ${patterns.join(', ')}`;
+}
+
 interface BetRecommendation {
   race: PredictionRace;
   entry: PredictionEntry;
@@ -1506,7 +1518,14 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
                           </span>
                         </td>
                         <td className="px-2 py-1.5 border text-center font-mono">{entry.umaban}</td>
-                        <td className="px-2 py-1.5 border font-bold">{entry.horse_name}</td>
+                        <td className="px-2 py-1.5 border font-bold">
+                          {entry.horse_name}
+                          {(entry.koukaku_rote_count ?? 0) > 0 && (
+                            <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" title={getKoukakuDetail(entry)}>
+                              降格{(entry.koukaku_rote_count ?? 0) > 1 ? `×${entry.koukaku_rote_count}` : ''}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-2 py-1.5 border text-center">
                           {rec.type && (
                             <span className={`px-1.5 py-0.5 rounded text-[10px] ${getRecBadgeClass(rec.type, rec.strength)}`}>
@@ -1730,6 +1749,11 @@ function RaceCard({ race, oddsMap, results, dbResults }: { race: PredictionRace;
                           </span>
                         ) : null;
                       })()}
+                      {(entry.koukaku_rote_count ?? 0) > 0 && (
+                        <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" title={getKoukakuDetail(entry)}>
+                          降格{(entry.koukaku_rote_count ?? 0) > 1 ? `×${entry.koukaku_rote_count}` : ''}
+                        </span>
+                      )}
                     </td>
                     <td className={`px-2 py-1 text-center ${getMarkColor(entry.kb_mark)}`}>
                       {entry.kb_mark || '-'}

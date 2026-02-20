@@ -70,6 +70,8 @@ class RaceMaster:
     num_runners: int = 0
     race_name: str = ''
     grade: str = ''
+    is_handicap: bool = False
+    is_female_only: bool = False
     weather: str = ''
     pace: Optional[RacePace] = None
     entries: List[RaceEntry] = field(default_factory=list)
@@ -106,6 +108,8 @@ class RaceMaster:
             num_runners=data.get('num_runners', 0),
             race_name=data.get('race_name', ''),
             grade=data.get('grade', ''),
+            is_handicap=data.get('is_handicap', False),
+            is_female_only=data.get('is_female_only', False),
             weather=data.get('weather', ''),
             pace=pace,
             entries=entries,

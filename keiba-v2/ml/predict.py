@@ -179,9 +179,14 @@ def predict_race(
 
     race_date = race['date']
     venue_code = race['venue_code']
+    venue_name = race.get('venue_name', '')
     track_type = race.get('track_type', '')
     distance = race.get('distance', 0)
     entry_count = race.get('num_runners', 0)
+    current_grade = race.get('grade', '')
+    current_is_handicap = race.get('is_handicap', False)
+    current_is_female_only = race.get('is_female_only', False)
+    current_month = int(race_date.split('-')[1]) if len(race_date.split('-')) >= 2 else 0
 
     kb_entries = kb_ext.get('entries', {}) if kb_ext else {}
 
@@ -234,7 +239,7 @@ def predict_race(
         )
         feat.update(rs_feat)
 
-        # ローテ・コンディション特徴量 (v3.1)
+        # ローテ・コンディション特徴量 (v3.1 + v5.1 降格ローテ)
         rot_feat = compute_rotation_features(
             ketto_num=ketto_num,
             race_date=race_date,
@@ -243,6 +248,13 @@ def predict_race(
             popularity=entry.get('popularity', 0),
             jockey_code=entry.get('jockey_code', ''),
             history_cache=history_cache,
+            current_grade=current_grade,
+            current_venue=venue_name,
+            current_distance=distance,
+            current_track_type=track_type,
+            current_month=current_month,
+            current_is_handicap=current_is_handicap,
+            current_is_female_only=current_is_female_only,
         )
         feat.update(rot_feat)
 
@@ -410,6 +422,14 @@ def predict_race(
             'kb_training_arrow': p['kb_training_arrow'],
             'kb_rating': p['kb_rating'],
             'kb_comment': p['kb_comment'],
+            # 降格ローテ (v5.1)
+            'koukaku_rote_count': p['features'].get('koukaku_rote_count', 0) or 0,
+            'is_koukaku_venue': p['features'].get('is_koukaku_venue', 0) or 0,
+            'is_koukaku_female': p['features'].get('is_koukaku_female', 0) or 0,
+            'is_koukaku_season': p['features'].get('is_koukaku_season', 0) or 0,
+            'is_koukaku_distance': p['features'].get('is_koukaku_distance', 0) or 0,
+            'is_koukaku_turf_to_dirt': p['features'].get('is_koukaku_turf_to_dirt', 0) or 0,
+            'is_koukaku_handicap': p['features'].get('is_koukaku_handicap', 0) or 0,
         }
         result_entries.append(entry)
 
@@ -419,11 +439,14 @@ def predict_race(
     return {
         'race_id': race['race_id'],
         'date': race_date,
-        'venue_name': race.get('venue_name', ''),
+        'venue_name': venue_name,
         'race_number': race.get('race_number', 0),
         'distance': distance,
         'track_type': track_type,
         'num_runners': entry_count,
+        'grade': current_grade,
+        'is_handicap': current_is_handicap,
+        'is_female_only': current_is_female_only,
         'entries': result_entries,
     }
 

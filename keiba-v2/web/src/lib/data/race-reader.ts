@@ -14,7 +14,7 @@ import {
   isRaceIndexAvailable
 } from './race-date-index';
 
-const DATA_FETCH_TIMEOUT_MS = 12000; // 12秒でタイムアウト（ハング時はログを出してフォールバック）
+const DATA_FETCH_TIMEOUT_MS = 30000; // IO遅延時の誤タイムアウトを避けるため30秒
 
 async function exists(p: string): Promise<boolean> {
   try {

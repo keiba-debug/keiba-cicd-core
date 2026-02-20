@@ -42,6 +42,14 @@ export interface PredictionEntry {
   kb_training_arrow: string;
   kb_rating: number;
   kb_comment: string;
+  // 降格ローテ (v5.1)
+  koukaku_rote_count?: number;
+  is_koukaku_venue?: number;
+  is_koukaku_female?: number;
+  is_koukaku_season?: number;
+  is_koukaku_distance?: number;
+  is_koukaku_turf_to_dirt?: number;
+  is_koukaku_handicap?: number;
 }
 
 export interface PredictionRace {
@@ -52,6 +60,9 @@ export interface PredictionRace {
   distance: number;
   track_type: string;
   num_runners: number;
+  grade?: string;
+  is_handicap?: boolean;
+  is_female_only?: boolean;
   entries: PredictionEntry[];
 }
 

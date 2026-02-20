@@ -77,6 +77,11 @@ ROTATION_FEATURES = [
     'prev_race_popularity',
     # v4.0
     'jockey_change',
+    # v5.1: 降格ローテ
+    'prev_grade_level', 'grade_level_diff', 'venue_rank_diff',
+    'is_koukaku_venue', 'is_koukaku_female', 'is_koukaku_season',
+    'is_koukaku_age', 'is_koukaku_distance', 'is_koukaku_turf_to_dirt',
+    'is_koukaku_handicap', 'koukaku_rote_count',
 ]
 
 # ペース特徴量 (v3.1)
@@ -125,6 +130,8 @@ MARKET_FEATURES = {
     # v4.1: CK_DATA調教は市場に織り込み済み → Model Bから除外
     'ck_laprank_score', 'ck_laprank_class', 'ck_laprank_accel',
     'ck_time_rank', 'ck_final_laprank_score', 'ck_final_time4f', 'ck_final_lap1',
+    # v5.1: クラス・会場差は出馬表で自明 → MARKET
+    'prev_grade_level', 'grade_level_diff', 'venue_rank_diff',
 }
 
 # 派生特徴量
@@ -379,9 +386,14 @@ def compute_features_for_race(
     race_date = race['date']
     race_id = race['race_id']
     venue_code = race['venue_code']
+    venue_name = race.get('venue_name', '')
     track_type = race.get('track_type', '')
     distance = race.get('distance', 0)
     entry_count = race.get('num_runners', 0)
+    current_grade = race.get('grade', '')
+    current_is_handicap = race.get('is_handicap', False)
+    current_is_female_only = race.get('is_female_only', False)
+    current_month = int(race_date.split('-')[1]) if len(race_date.split('-')) >= 2 else 0
 
     # kb_ext（調教データ等）
     kb_ext = kb_ext_index.get(race_id)
@@ -439,7 +451,7 @@ def compute_features_for_race(
         )
         feat.update(rs_feat)
 
-        # ローテ・コンディション特徴量 (v3.1)
+        # ローテ・コンディション特徴量 (v3.1 + v5.1 降格ローテ)
         rot_feat = compute_rotation_features(
             ketto_num=ketto_num,
             race_date=race_date,
@@ -448,6 +460,13 @@ def compute_features_for_race(
             popularity=entry.get('popularity', 0),
             jockey_code=entry.get('jockey_code', ''),
             history_cache=history_cache,
+            current_grade=current_grade,
+            current_venue=venue_name,
+            current_distance=distance,
+            current_track_type=track_type,
+            current_month=current_month,
+            current_is_handicap=current_is_handicap,
+            current_is_female_only=current_is_female_only,
         )
         feat.update(rot_feat)
 

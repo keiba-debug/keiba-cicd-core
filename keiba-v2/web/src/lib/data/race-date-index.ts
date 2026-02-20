@@ -19,8 +19,8 @@ const INDEX_META_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index_meta.j
 let dateIndex: Map<string, DateIndexEntry> = new Map();
 let availableDates: string[] = [];
 let indexLoaded = false;
-let indexLoadAttempted = false; // 非同期読み込みを1回試行済みか（sync にフォールバックしないため）
 let indexBuildInProgress = false;
+let indexLoadInFlight: Promise<void> | null = null;
 
 interface DateIndexEntry {
   date: string;
@@ -135,9 +135,22 @@ async function loadIndexFromFileAsync(): Promise<boolean> {
  * これにより isRaceIndexAvailable / getAvailableDatesFromIndex は sync 読みをせずメモリだけ参照する。
  */
 export async function ensureRaceDateIndexLoaded(): Promise<void> {
-  if (indexLoaded || indexLoadAttempted) return;
-  indexLoadAttempted = true;
-  await loadIndexFromFileAsync();
+  if (indexLoaded) return;
+  if (indexLoadInFlight) {
+    await indexLoadInFlight;
+    return;
+  }
+
+  // 読み込み失敗時も次回リクエストで再試行できるよう、単発フラグは持たない
+  indexLoadInFlight = (async () => {
+    await loadIndexFromFileAsync();
+  })();
+
+  try {
+    await indexLoadInFlight;
+  } finally {
+    indexLoadInFlight = null;
+  }
 }
 
 /**
@@ -581,7 +594,7 @@ export function clearRaceDateIndex(): void {
   dateIndex.clear();
   availableDates = [];
   indexLoaded = false;
-  indexLoadAttempted = false;
+  indexLoadInFlight = null;
 
   try {
     if (fs.existsSync(INDEX_FILE)) {

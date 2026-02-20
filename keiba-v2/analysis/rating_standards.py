@@ -180,11 +180,13 @@ def scan_data(since_year: int) -> list:
                 age_class = _detect_age_class(race)
 
                 results.append({
+                    'race_id': race_id,
                     'grade': grade,
                     'ratings': ratings,
                     'track': track_type,
                     'month': month,
                     'age_class': age_class,
+                    'venue_name': race.get('venue_name', ''),
                 })
                 year_count += 1
 
@@ -346,6 +348,104 @@ def analyze_maiden_by_season(races: list) -> dict:
     return {k: result[k] for k in season_order if k in result}
 
 
+def build_race_level_index(races: list, grade_stats: dict) -> dict:
+    """各レースのレベル指標を算出
+
+    grade_statsのクラス別平均をベースラインとして、
+    各レースの出走馬平均レイティングとの差でH/M/Lを判定。
+    """
+    # グレードキー→ベースライン(mean, stdev)のマッピング
+    baselines = {}
+    for key, stats in grade_stats.items():
+        baselines[key] = (stats['rating']['mean'], stats['rating']['stdev'])
+
+    def _get_baseline(grade: str, age_class: str):
+        # 重賞はage_class付きキーで引く
+        if grade in ('G1', 'G2', 'G3') and age_class:
+            key = f"{grade}_{age_class}"
+            if key in baselines:
+                return baselines[key]
+        if grade in baselines:
+            return baselines[grade]
+        return None
+
+    index = {}
+    h_count = m_count = l_count = 0
+
+    for race in races:
+        race_id = race.get('race_id', '')
+        if not race_id:
+            continue
+
+        ratings = race['ratings']
+        avg_rating = statistics.mean(ratings)
+        max_rating = max(ratings)
+
+        baseline = _get_baseline(race['grade'], race['age_class'])
+        if baseline is None:
+            continue
+
+        class_mean, class_stdev = baseline
+        level_vs_class = avg_rating - class_mean
+
+        # H/M/L判定: ±0.5σ
+        if class_stdev > 0:
+            if level_vs_class > class_stdev * 0.5:
+                level_rank = 'H'
+                h_count += 1
+            elif level_vs_class < -class_stdev * 0.5:
+                level_rank = 'L'
+                l_count += 1
+            else:
+                level_rank = 'M'
+                m_count += 1
+        else:
+            level_rank = 'M'
+            m_count += 1
+
+        index[race_id] = {
+            'avg_rating': round(avg_rating, 1),
+            'max_rating': round(max_rating, 1),
+            'num_rated': len(ratings),
+            'class_baseline': round(class_mean, 1),
+            'level_vs_class': round(level_vs_class, 1),
+            'level_rank': level_rank,
+        }
+
+    total = h_count + m_count + l_count
+    if total > 0:
+        print(f"  H: {h_count:,} ({h_count/total*100:.1f}%)")
+        print(f"  M: {m_count:,} ({m_count/total*100:.1f}%)")
+        print(f"  L: {l_count:,} ({l_count/total*100:.1f}%)")
+
+    return index
+
+
+def analyze_venue_stats(races: list) -> dict:
+    """会場別レイティング統計（芝/ダート別）"""
+    by_venue = defaultdict(list)
+    for race in races:
+        venue = race.get('venue_name', '')
+        track = race.get('track', '')
+        if not venue or not track:
+            continue
+        key = f"{venue}_{track}"
+        by_venue[key].extend(race['ratings'])
+
+    result = {}
+    for key in sorted(by_venue.keys()):
+        ratings = by_venue[key]
+        if len(ratings) < 20:
+            continue
+        result[key] = {
+            'horse_count': len(ratings),
+            'mean': round(statistics.mean(ratings), 2),
+            'stdev': round(statistics.stdev(ratings), 2) if len(ratings) > 1 else 0,
+            'median': round(statistics.median(ratings), 2),
+        }
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="Rating Standards Calculator (v3 - data3 native)")
     parser.add_argument("--since", type=int, default=2023, help="Start year (default: 2023)")
@@ -390,6 +490,17 @@ def main():
         for key, stats in maiden_season_stats.items():
             print(f"    [{key}] {stats['sample_count']} races, mean={stats['rating']['mean']:.1f}")
 
+    # レースレベルインデックス
+    print("\n[STEP 5] Building race level index...")
+    race_level_index = build_race_level_index(races, grade_stats)
+    print(f"  Total: {len(race_level_index):,} races indexed")
+
+    # 会場別統計
+    print("\n[STEP 6] Analyzing venue statistics...")
+    venue_stats = analyze_venue_stats(races)
+    for key, vs in venue_stats.items():
+        print(f"    [{key}] mean={vs['mean']:.1f}, n={vs['horse_count']:,}")
+
     # 出力
     standards = {
         "metadata": {
@@ -397,11 +508,12 @@ def main():
             "source": "data3/races + data3/keibabook (v3 native)",
             "years": f"{args.since}-{datetime.now().year}",
             "total_races": len(races),
-            "version": "3.0",
+            "version": "4.0",
         },
         "by_grade": grade_stats,
         "competitiveness_thresholds": comp_thresholds,
         "maiden_by_season": maiden_season_stats,
+        "venue_stats": venue_stats,
     }
 
     output_path = Path(args.output)
@@ -421,9 +533,20 @@ def main():
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(standards, f, ensure_ascii=False, indent=2)
 
+    # race_level_index.json を indexes/ に保存
+    index_path = config.data_root() / "indexes" / "race_level_index.json"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        json.dumps(race_level_index, ensure_ascii=False, separators=(',', ':')),
+        encoding='utf-8',
+    )
+    index_size = index_path.stat().st_size / 1024 / 1024
+
     print(f"\n{'=' * 70}")
     print(f"[OK] Standards saved: {output_path}")
     print(f"  Grades: {len(grade_stats)}, Total races: {len(races)}")
+    print(f"[OK] Race level index: {index_path} ({index_size:.1f} MB)")
+    print(f"  Indexed: {len(race_level_index):,} races")
     return 0
 
 
