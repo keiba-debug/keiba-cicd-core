@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import type { PredictionsLive, PredictionRace, PredictionEntry, RaceResultsMap } from '@/lib/data/predictions-reader';
 
 // lib
-import type { DbOddsResponse, OddsMap, DbResultsMap, DbResultEntry, DbResultsResponse, BetRecommendation, SortState, BetStrategyParams, BetPresetKey } from './lib/types';
+import type { DbOddsResponse, OddsMap, DbResultsMap, DbResultEntry, DbResultsResponse, BetRecommendation, DangerHorseEntry, SortState, BetStrategyParams, BetPresetKey } from './lib/types';
 import {
   getWinOdds, getPlaceOddsMin, calcWinEv, calcPlaceEv, calcHeadRatio,
   isTurf, isDirt, getPlaceLimit, getRaceDanger,
@@ -21,6 +21,7 @@ import { RoiSummary } from './components/roi-summary';
 import { BetRecommendations } from './components/bet-recommendations';
 import { VBTable } from './components/vb-table';
 import { RaceCard } from './components/race-card';
+import { DangerResults } from './components/danger-results';
 
 // --- メインコンポーネント ---
 
@@ -468,6 +469,23 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     return { winCount, placeCount, winTotal, placeTotal, totalAmount, avgEv, expectedReturn, totalBets: betRecommendations.length, dangerRaces: dangerRaceIds.size };
   }, [betRecommendations]);
 
+  // --- 危険馬一覧 ---
+  const dangerHorses = useMemo<DangerHorseEntry[]>(() => {
+    const entries: DangerHorseEntry[] = [];
+    for (const race of races) {
+      for (const e of race.entries) {
+        if (e.odds_rank > 0 && e.odds_rank <= 3) {
+          const gap = e.rank_v - e.odds_rank;
+          if (gap >= 5) {
+            entries.push({ race, entry: e, dangerScore: gap, oddsRank: e.odds_rank, rankV: e.rank_v });
+          }
+        }
+      }
+    }
+    entries.sort((a, b) => a.race.race_number - b.race.race_number || b.dangerScore - a.dangerScore);
+    return entries;
+  }, [races]);
+
   const sortedBetRecommendations = useMemo(() => {
     let recs = [...betRecommendations];
     if (venueFilter !== 'all') recs = recs.filter(r => r.race.venue_name === venueFilter);
@@ -734,12 +752,22 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         hasResults={hasResults && roiStats != null}
         hasBets={betRecommendations.length > 0}
         hasVB={filteredVBEntries.length > 0}
+        hasDanger={dangerHorses.length > 0}
       />
 
       {/* ROIサマリー */}
       {hasResults && roiStats && (
         <RoiSummary all={roiStats.all} turf={roiStats.turf} dirt={roiStats.dirt} />
       )}
+
+      {/* 危険馬結果一覧 */}
+      <DangerResults
+        dangerHorses={dangerHorses}
+        oddsMap={oddsMap}
+        dbResults={dbResults}
+        results={results}
+        getFinishPos={getFinishPos}
+      />
 
       {/* 推奨買い目 */}
       <BetRecommendations

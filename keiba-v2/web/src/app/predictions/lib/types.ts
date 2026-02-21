@@ -59,6 +59,16 @@ export interface DangerInfo {
   };
 }
 
+// --- 危険馬結果一覧 ---
+
+export interface DangerHorseEntry {
+  race: PredictionRace;
+  entry: PredictionEntry;
+  dangerScore: number;    // rank_v - odds_rank
+  oddsRank: number;       // 人気順 (1-3)
+  rankV: number;          // モデルV順位
+}
+
 // --- 推奨買い目 ---
 
 export interface BetRecommendation {
