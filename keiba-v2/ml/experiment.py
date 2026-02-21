@@ -112,6 +112,8 @@ TRAINING_FEATURES = [
     'training_session_count', 'rest_weeks', 'oikiri_is_slope',
     # v4.0: KB印・レーティング
     'kb_rating',
+    # v5.10: KB AI指数 — importance 0 (2025年〜のみ、training期間で全NaN)
+    # 'kb_ai_index',
     # v4.1: CK_DATA lapRank
     'ck_laprank_score', 'ck_laprank_class', 'ck_laprank_accel',
     'ck_time_rank', 'ck_final_laprank_score',
@@ -136,10 +138,10 @@ COMMENT_FEATURES = [
     'comment_has_stable', 'comment_has_interview',
 ]
 
-# 出遅れ特徴量 (v5.4)
+# 出遅れ特徴量 (v5.4) — importance 0 (hassouデータカバレッジ不足)
 SLOW_START_FEATURES = [
-    'horse_slow_start_rate', 'horse_slow_start_last5',
-    'horse_slow_start_resilience',
+    # 'horse_slow_start_rate', 'horse_slow_start_last5',
+    # 'horse_slow_start_resilience',
 ]
 
 # 市場系特徴量（Model Bでは除外）
@@ -631,6 +633,12 @@ def build_dataset(
 
     df = pd.DataFrame(all_rows)
 
+    # None-only特徴量列をfloat64に変換（LightGBMはobject型を受け付けない）
+    _numeric_cols = set(FEATURE_COLS_ALL)
+    for col in df.columns:
+        if col in _numeric_cols and df[col].dtype == object:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
     # odds_rank（レース内オッズ順位）を追加
     if 'odds' in df.columns:
         df['odds_rank'] = df.groupby('race_id')['odds'].rank(method='min')
@@ -662,6 +670,28 @@ def calc_ece(y_true, y_pred, n_bins: int = 10) -> float:
     return float(ece)
 
 
+def calibrate_isotonic(
+    scores_val: np.ndarray,
+    y_val: np.ndarray,
+    scores_test: np.ndarray,
+) -> Tuple:
+    """IsotonicRegressionでスコアを確率にキャリブレーション
+
+    Args:
+        scores_val: Validationセットの予測スコア（fitに使用）
+        y_val: Validationセットの正解ラベル
+        scores_test: テストセットの予測スコア（transformに使用）
+
+    Returns:
+        (calibrated_test_scores, isotonic_regressor)
+    """
+    from sklearn.isotonic import IsotonicRegression
+
+    ir = IsotonicRegression(out_of_bounds='clip')
+    ir.fit(scores_val, y_val)
+    return ir.predict(scores_test), ir
+
+
 def train_model(
     df_train: pd.DataFrame,
     df_val: pd.DataFrame,
@@ -675,6 +705,7 @@ def train_model(
 
     3-way split: train=学習, val=early stopping, test=純粋評価
     NaN処理はLightGBMネイティブに委ねる（fillna(-1)しない）
+    IsotonicRegressionでキャリブレーション（valセットでfit → testセットに適用）
     """
     import lightgbm as lgb
 
@@ -703,19 +734,32 @@ def train_model(
     # テストセットで純粋評価（early stoppingに使っていない）
     from sklearn.metrics import roc_auc_score, accuracy_score, log_loss
 
-    y_pred = model.predict(X_test)
-    auc = roc_auc_score(y_test, y_pred)
-    acc = accuracy_score(y_test, (y_pred > 0.5).astype(int))
-    ll = log_loss(y_test, y_pred)
-    brier = calc_brier_score(y_test.values, y_pred)
-    ece = calc_ece(y_test.values, y_pred)
-
-    # Validationセットの指標も計算（比較用）
+    y_pred_raw = model.predict(X_test)
     y_pred_val = model.predict(X_val)
+
+    # IsotonicRegressionキャリブレーション
+    y_pred_cal, calibrator = calibrate_isotonic(
+        y_pred_val, y_val.values, y_pred_raw
+    )
+
+    # Raw metrics
+    auc = roc_auc_score(y_test, y_pred_raw)
+    acc = accuracy_score(y_test, (y_pred_raw > 0.5).astype(int))
+    ll = log_loss(y_test, y_pred_raw)
+    brier = calc_brier_score(y_test.values, y_pred_raw)
+    ece = calc_ece(y_test.values, y_pred_raw)
+
+    # Calibrated metrics
+    ece_cal = calc_ece(y_test.values, y_pred_cal)
+    brier_cal = calc_brier_score(y_test.values, y_pred_cal)
+    ll_cal = log_loss(y_test, np.clip(y_pred_cal, 1e-7, 1 - 1e-7))
+
     auc_val = roc_auc_score(y_val, y_pred_val)
 
     print(f"[{model_name}] Test:  AUC={auc:.4f}, Acc={acc:.4f}, LogLoss={ll:.4f}, "
           f"Brier={brier:.4f}, ECE={ece:.4f}")
+    print(f"[{model_name}] Cal:   ECE={ece_cal:.4f} (isotonic), "
+          f"Brier={brier_cal:.4f}, LogLoss={ll_cal:.4f}")
     print(f"[{model_name}] Val:   AUC={auc_val:.4f} (early stopping set)")
     print(f"[{model_name}] BestIter={model.best_iteration}")
 
@@ -728,6 +772,9 @@ def train_model(
         'log_loss': round(ll, 4),
         'brier_score': round(brier, 4),
         'ece': round(ece, 4),
+        'ece_calibrated': round(ece_cal, 4),
+        'brier_calibrated': round(brier_cal, 4),
+        'log_loss_calibrated': round(ll_cal, 4),
         'auc_val': round(auc_val, 4),
         'best_iteration': model.best_iteration,
         'train_size': len(X_train),
@@ -735,7 +782,7 @@ def train_model(
         'test_size': len(X_test),
     }
 
-    return model, metrics, importance, y_pred
+    return model, metrics, importance, y_pred_cal, calibrator
 
 
 def calc_hit_analysis(df: pd.DataFrame, pred_col: str) -> List[dict]:
@@ -939,12 +986,12 @@ def run_track_split_experiment(
             continue
 
         # Model A (split)
-        model_a_s, metrics_a_s, _, pred_a_s = train_model(
+        model_a_s, metrics_a_s, _, pred_a_s, _ = train_model(
             tr, vl, ts, split_features_all, params_a, 'is_top3', f'A_{track_label}'
         )
 
         # Model B (split)
-        model_b_s, metrics_b_s, _, pred_b_s = train_model(
+        model_b_s, metrics_b_s, _, pred_b_s, _ = train_model(
             tr, vl, ts, split_features_value, params_b, 'is_top3', f'B_{track_label}'
         )
 
@@ -1096,23 +1143,23 @@ def main():
 
     # === Place モデル (is_top3) ===
     # Model A: 全特徴量
-    model_a, metrics_a, importance_a, pred_a = train_model(
+    model_a, metrics_a, importance_a, pred_a, cal_a = train_model(
         df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Model_A'
     )
 
     # Model B: Value特徴量（市場系除外）
-    model_b, metrics_b, importance_b, pred_b = train_model(
+    model_b, metrics_b, importance_b, pred_b, cal_b = train_model(
         df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Model_B'
     )
 
     # === Win モデル (is_win) ===
     # Model W: 全特徴量
-    model_w, metrics_w, importance_w, pred_w = train_model(
+    model_w, metrics_w, importance_w, pred_w, cal_w = train_model(
         df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_W, 'is_win', 'Model_W'
     )
 
     # Model WV: Value特徴量（市場系除外）
-    model_wv, metrics_wv, importance_wv, pred_wv = train_model(
+    model_wv, metrics_wv, importance_wv, pred_wv, cal_wv = train_model(
         df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_WV, 'is_win', 'Model_WV'
     )
 
@@ -1237,7 +1284,8 @@ def main():
             base_dir=model_dir,
             version=old_ver,
             files=["model_a.txt", "model_b.txt", "model_w.txt", "model_wv.txt",
-                   "model_meta.json", "ml_experiment_v3_result.json"],
+                   "model_meta.json", "ml_experiment_v3_result.json",
+                   "calibrators.pkl"],
             metadata={"created_at": old_meta.get("created_at", "")},
         )
 
@@ -1246,6 +1294,13 @@ def main():
     model_w.save_model(str(model_dir / "model_w.txt"))
     model_wv.save_model(str(model_dir / "model_wv.txt"))
 
+    # IsotonicRegressionキャリブレーター保存
+    import pickle
+    calibrators = {'cal_a': cal_a, 'cal_b': cal_b, 'cal_w': cal_w, 'cal_wv': cal_wv}
+    with open(model_dir / "calibrators.pkl", 'wb') as f:
+        pickle.dump(calibrators, f)
+    print(f"  Calibrators saved: {list(calibrators.keys())}")
+
     meta = {
         'version': experiment_version,
         'features_all': FEATURE_COLS_ALL,
@@ -1253,6 +1308,7 @@ def main():
         'market_features': list(MARKET_FEATURES),
         'targets': {'place': 'is_top3', 'win': 'is_win'},
         'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
+        'has_calibrators': True,
         'created_at': datetime.now().isoformat(timespec='seconds'),
     }
     (model_dir / "model_meta.json").write_text(

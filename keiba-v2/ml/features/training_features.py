@@ -137,6 +137,8 @@ def compute_training_features(
         'kb_mark_point': None,
         'kb_aggregate_mark_point': None,
         'kb_rating': None,
+        # KB AI指数 (v5.10)
+        'kb_ai_index': None,
         # CK_DATA lapRank (v4.1)
         'ck_laprank_score': None,
         'ck_laprank_class': None,
@@ -172,6 +174,14 @@ def compute_training_features(
     rating = entry.get('rating')
     if rating is not None:
         result['kb_rating'] = rating
+
+    # KB AI指数 (v5.10)
+    ai_idx = entry.get('ai_index')
+    if ai_idx is not None:
+        try:
+            result['kb_ai_index'] = float(ai_idx)
+        except (ValueError, TypeError):
+            pass
 
     # cyokyo_detail (cyokyo_enricherで追加済みの場合)
     detail = entry.get('cyokyo_detail')

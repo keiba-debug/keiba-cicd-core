@@ -99,6 +99,15 @@ def load_model_and_meta(model_version: Optional[str] = None):
     else:
         print(f"[Model] Win models not found - running without win predictions")
 
+    # IsotonicRegressionキャリブレーター（オプション）
+    calibrators = None
+    cal_path = load_dir / "calibrators.pkl"
+    if cal_path.exists():
+        import pickle
+        with open(cal_path, 'rb') as f:
+            calibrators = pickle.load(f)
+        print(f"[Model] Calibrators loaded: {list(calibrators.keys())}")
+
     with open(meta_path, encoding='utf-8') as f:
         meta = json.load(f)
 
@@ -107,7 +116,7 @@ def load_model_and_meta(model_version: Optional[str] = None):
     feat_v = len(meta.get('features_value', []))
     print(f"[Model] Version: {ver_label}, Features: A={feat_a}, V={feat_v}")
 
-    return model_a, model_b, model_w, model_wv, meta
+    return model_a, model_b, model_w, model_wv, meta, calibrators
 
 
 def list_model_versions() -> list:
@@ -288,6 +297,7 @@ def predict_race(
     model_wv=None,
     db_place_odds: Optional[Dict[int, dict]] = None,
     kb_ext_index: Optional[dict] = None,
+    calibrators: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -297,6 +307,7 @@ def predict_race(
         model_w: Win精度モデル (Optional)
         model_wv: Winバリューモデル (Optional)
         db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
+        calibrators: IsotonicRegressionキャリブレーター辞書 (Optional)
     """
     features_all = meta['features_all']
     features_value = meta['features_value']
@@ -487,7 +498,13 @@ def predict_race(
     pred_a_raw = model_a.predict(arr_a)
     pred_b_raw = model_b.predict(arr_v)
 
-    # レース内正規化: 各馬の確率合計を100%にする
+    # IsotonicRegressionキャリブレーション（EV計算用）
+    # キャリブレーション後の確率をEV計算に使い、正規化後をランキングに使う
+    pred_b_for_ev = pred_b_raw  # デフォルト: rawをそのまま使用
+    if calibrators and 'cal_b' in calibrators:
+        pred_b_for_ev = calibrators['cal_b'].predict(pred_b_raw)
+
+    # レース内正規化: 各馬の確率合計を100%にする（ランキング用）
     sum_a = pred_a_raw.sum()
     sum_b = pred_b_raw.sum()
     pred_a = pred_a_raw / sum_a if sum_a > 0 else pred_a_raw
@@ -497,12 +514,19 @@ def predict_race(
     has_win_model = model_w is not None and model_wv is not None
     pred_w = None
     pred_wv = None
+    pred_wv_for_ev = None
     rank_w_dict = {}
     rank_wv_dict = {}
 
     if has_win_model:
         pred_w_raw = model_w.predict(arr_a)
         pred_wv_raw = model_wv.predict(arr_v)
+
+        # IsotonicRegressionキャリブレーション（Win EV計算用）
+        pred_wv_for_ev = pred_wv_raw  # デフォルト: rawをそのまま使用
+        if calibrators and 'cal_wv' in calibrators:
+            pred_wv_for_ev = calibrators['cal_wv'].predict(pred_wv_raw)
+
         sum_w = pred_w_raw.sum()
         sum_wv = pred_wv_raw.sum()
         pred_w = pred_w_raw / sum_w if sum_w > 0 else pred_w_raw
@@ -565,12 +589,12 @@ def predict_race(
             # Place odds
             'place_odds_min': place_low,
             'place_odds_max': place_high,
-            # EV (期待値) — raw確率を使用（正規化前のキャリブレーション済み確率）
-            # Win: P(win)合計≈1.0なので正規化後でOK
-            # Place: P(top3)合計≈3.0なので正規化前のraw値を使う
-            'win_ev': round(float(pred_wv[i]) * p['odds'], 4)
-                if has_win_model and p['odds'] > 0 else None,
-            'place_ev': round(float(pred_b_raw[i]) * place_low, 4)
+            # EV (期待値) — キャリブレーション済み確率を使用
+            # Win: calibrated P(win) × 単勝オッズ
+            # Place: calibrated P(top3) × 複勝最低オッズ (raw sum≈3.0)
+            'win_ev': round(float(pred_wv_for_ev[i]) * p['odds'], 4)
+                if has_win_model and pred_wv_for_ev is not None and p['odds'] > 0 else None,
+            'place_ev': round(float(pred_b_for_ev[i]) * place_low, 4)
                 if place_low and place_low > 0 else None,
             # keibabook情報
             'kb_mark': p['kb_mark'],
@@ -578,6 +602,7 @@ def predict_race(
             'kb_training_arrow': p['kb_training_arrow'],
             'kb_rating': p['kb_rating'],
             'kb_comment': p['kb_comment'],
+            'kb_ai_index': p['features'].get('kb_ai_index'),
             # 降格ローテ (v5.1)
             'koukaku_rote_count': p['features'].get('koukaku_rote_count', 0) or 0,
             'is_koukaku_venue': p['features'].get('is_koukaku_venue', 0) or 0,
@@ -680,7 +705,7 @@ def main():
 
     # モデルロード
     print("[Load] Loading models...")
-    model_a, model_b, model_w, model_wv, meta = load_model_and_meta(model_version)
+    model_a, model_b, model_w, model_wv, meta, calibrators = load_model_and_meta(model_version)
 
     # マスタデータロード
     print("[Load] Loading master data...")
@@ -771,6 +796,7 @@ def main():
             model_wv=model_wv,
             db_place_odds=db_place_odds_index.get(race['race_id']),
             kb_ext_index=kb_ext_index,
+            calibrators=calibrators,
         )
         all_predictions.append(pred)
 

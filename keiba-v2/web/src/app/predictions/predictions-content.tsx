@@ -823,6 +823,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         betPreset={betPreset}
         onPresetChange={updateBetPreset}
         onParamsChange={updateBetParamsCustom}
+        dbResults={dbResults}
+        getFinishPos={getFinishPos}
       />
 
       {/* VB候補 */}

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PredictionEntry } from '@/lib/data/predictions-reader';
-import type { BetRecommendation, OddsMap, SortState, BetStrategyParams, BetPresetKey } from '../lib/types';
+import type { BetRecommendation, OddsMap, SortState, BetStrategyParams, BetPresetKey, DbResultsMap, DbResultEntry } from '../lib/types';
 import { BET_CONFIG, BET_PRESETS, PRESET_LABELS } from '../lib/bet-logic';
 import { getWinOdds, calcHeadRatio, getEvColor, getGapColor, getRecBadgeClass, getRaceLink, SortTh } from '../lib/helpers';
 
@@ -34,6 +34,8 @@ interface BetRecommendationsProps {
   betPreset: BetPresetKey | 'custom';
   onPresetChange: (preset: BetPresetKey) => void;
   onParamsChange: (params: BetStrategyParams) => void;
+  dbResults?: DbResultsMap;
+  getFinishPos?: (raceId: string, umaban: number) => number;
 }
 
 function CustomPanel({ params, onChange }: { params: BetStrategyParams; onChange: (p: BetStrategyParams) => void }) {
@@ -110,8 +112,10 @@ export function BetRecommendations({
   fetchAllOdds, syncBetMarks, betSyncing, betSyncResult,
   betSort, setBetSort,
   betParams, betPreset, onPresetChange, onParamsChange,
+  dbResults, getFinishPos,
 }: BetRecommendationsProps) {
   const [showCustom, setShowCustom] = useState(false);
+  const hasResults = dbResults && Object.keys(dbResults).length > 0;
 
   if (betRecommendations.length === 0) {
     return (
@@ -251,6 +255,12 @@ export function BetRecommendations({
                 <th className="px-2 py-2 text-center border" title="Model WV P(win) 勝率予測">WV%</th>
                 <SortTh sortKey="head" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="頭向き度">頭%</SortTh>
                 <SortTh sortKey="danger" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-orange-50 dark:bg-orange-900/20" title="危険な人気馬">危険馬</SortTh>
+                {hasResults && (
+                  <>
+                    <th className="px-2 py-2 text-center border bg-gray-100 dark:bg-gray-800" title="確定着順">着順</th>
+                    <th className="px-2 py-2 text-center border bg-gray-100 dark:bg-gray-800" title="確定配当">配当</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -315,12 +325,99 @@ export function BetRecommendations({
                         </span>
                       ) : '-'}
                     </td>
+                    {hasResults && (() => {
+                      const fp = getFinishPos?.(r.race.race_id, r.entry.umaban) ?? 0;
+                      const dbEntry = dbResults?.[r.race.race_id]?.[r.entry.umaban];
+                      const isWinHit = fp === 1;
+                      const isPlaceHit = fp >= 1 && fp <= 3;
+                      let payout = 0;
+                      if (isWinHit && r.betAmountWin > 0 && dbEntry?.confirmedWinOdds) {
+                        payout += Math.floor(dbEntry.confirmedWinOdds * r.betAmountWin / 100) * 100;
+                      }
+                      if (isPlaceHit && r.betAmountPlace > 0 && dbEntry?.confirmedPlaceOddsMin) {
+                        payout += Math.floor(dbEntry.confirmedPlaceOddsMin * r.betAmountPlace / 100) * 100;
+                      }
+                      return (
+                        <>
+                          <td className={`px-2 py-1.5 border text-center font-mono text-xs font-bold ${
+                            fp === 0 ? 'text-gray-300' : isWinHit ? 'text-amber-600 bg-amber-50/60 dark:bg-amber-900/20' : isPlaceHit ? 'text-green-600 bg-green-50/40 dark:bg-green-900/10' : 'text-gray-400'}`}>
+                            {fp > 0 ? `${fp}着` : '-'}
+                          </td>
+                          <td className={`px-2 py-1.5 border text-center font-mono text-xs ${payout > 0 ? 'text-emerald-700 font-bold' : 'text-gray-300'}`}>
+                            {payout > 0 ? `¥${payout.toLocaleString()}` : fp > 0 ? '¥0' : '-'}
+                          </td>
+                        </>
+                      );
+                    })()}
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+
+        {/* 結果サマリー（レース結果がある場合） */}
+        {hasResults && (() => {
+          let totalInvest = 0;
+          let totalReturn = 0;
+          let winHits = 0;
+          let placeHits = 0;
+          let totalBets = 0;
+          let settledBets = 0;
+          for (const r of sortedBetRecommendations) {
+            const fp = getFinishPos?.(r.race.race_id, r.entry.umaban) ?? 0;
+            const dbEntry = dbResults?.[r.race.race_id]?.[r.entry.umaban];
+            const invest = r.betAmountWin + r.betAmountPlace;
+            totalBets++;
+            if (fp > 0) {
+              settledBets++;
+              totalInvest += invest;
+              if (fp === 1 && r.betAmountWin > 0 && dbEntry?.confirmedWinOdds) {
+                totalReturn += Math.floor(dbEntry.confirmedWinOdds * r.betAmountWin / 100) * 100;
+                winHits++;
+              }
+              if (fp <= 3 && r.betAmountPlace > 0 && dbEntry?.confirmedPlaceOddsMin) {
+                totalReturn += Math.floor(dbEntry.confirmedPlaceOddsMin * r.betAmountPlace / 100) * 100;
+                placeHits++;
+              }
+            }
+          }
+          const roi = totalInvest > 0 ? (totalReturn / totalInvest * 100) : 0;
+          const profit = totalReturn - totalInvest;
+          if (settledBets === 0) return null;
+          return (
+            <div className={`mt-4 p-3 rounded-lg border ${profit >= 0 ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800' : 'bg-red-50/50 dark:bg-red-900/10 border-red-200 dark:border-red-800'}`}>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center text-sm">
+                <div>
+                  <div className="text-lg font-bold">¥{totalInvest.toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground">投資額({settledBets}/{totalBets}件確定)</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-emerald-600">¥{totalReturn.toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground">回収額</div>
+                </div>
+                <div>
+                  <div className={`text-lg font-bold ${profit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {profit >= 0 ? '+' : ''}¥{profit.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">収支</div>
+                </div>
+                <div>
+                  <div className={`text-lg font-bold ${roi >= 100 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {roi.toFixed(1)}%
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">ROI</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold">
+                    <span className="text-red-600">{winHits}</span>/<span className="text-blue-600">{placeHits}</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">単勝/複勝 的中</div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="mt-3 text-[10px] text-muted-foreground">
           Kelly Criterion ({betParams.kellyFraction === 0.25 ? '1/4' : betParams.kellyFraction === 0.125 ? '1/8' : betParams.kellyFraction === 0.5 ? '1/2' : 'Full'} Kelly) / BT実績確率ベース / 1R1単勝制約 / 単複時は複勝&ge;単勝 / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet} / 危険レースはVB gap&ge;{betParams.minGapDanger}に緩和
