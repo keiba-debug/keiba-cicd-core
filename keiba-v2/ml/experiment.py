@@ -1000,6 +1000,8 @@ def train_regression_model(
     """着差回帰モデル (LGBMRegressor) を学習
 
     target_margin カラムが必要（add_margin_target_to_df() で事前追加）。
+    NOTE: 分類モデルと異なりcalibratorを返さない (4-tuple)。
+    将来 margin→P(win) 変換が必要な場合は calibrator 追加を検討。
 
     Returns:
         (model, metrics, importance, all_predictions)

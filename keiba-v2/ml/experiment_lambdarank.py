@@ -572,7 +572,8 @@ def main():
         },
     }
 
-    out_path = Path("C:/KEIBA-CICD/data3/ml/lambdarank_experiment_result.json")
+    from core import config
+    out_path = config.ml_dir() / "lambdarank_experiment_result.json"
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2, default=str)
     print(f"\n  結果保存: {out_path}")

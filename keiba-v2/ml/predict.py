@@ -571,7 +571,7 @@ def predict_race(
     # === 着差回帰予測 ===
     pred_margin = None
     if model_reg_b is not None:
-        pred_margin = model_reg_b.predict(arr_v)
+        pred_margin = np.clip(model_reg_b.predict(arr_v), 0.0, None)
 
     # ランク計算
     rank_a_dict = {i: r for r, i in enumerate(np.argsort(-pred_a), 1)}
