@@ -10,7 +10,7 @@ import { getBuyRecommendation } from '../lib/bet-logic';
 import {
   getWinOdds, calcWinEv, getGapColor, getGapBg, getEvColor, getMarkColor,
   getTrackBadgeClass, getRecBadgeClass, getFinishColor, getPlaceLimit,
-  getRaceLink, getKoukakuDetail, SortTh,
+  getRaceLink, getKoukakuDetail, getCommentColor, getCommentTooltip, SortTh,
 } from '../lib/helpers';
 
 interface RaceCardProps {
@@ -140,6 +140,7 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                 <SortTh sortKey="prob_wv" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="Model WV 勝率予測（%） — 市場非依存">WV%</SortTh>
                 <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="競馬ブックレイティング">Rate</SortTh>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック調教評価">調</th>
+                <th className="px-2 py-1.5 text-center border-b w-10" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
                 <th className="px-2 py-1.5 text-left border-b" title="競馬ブック短評">短評</th>
                 {hasResults && <SortTh sortKey="finish" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="確定着順">着順</SortTh>}
                 {hasResults && <th className="px-2 py-1.5 text-center border-b w-16" title="単勝払い戻し">単払</th>}
@@ -214,6 +215,9 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                     </td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{entry.kb_rating > 0 ? entry.kb_rating.toFixed(1) : '-'}</td>
                     <td className="px-2 py-1 text-center text-xs">{entry.kb_training_arrow}</td>
+                    <td className={`px-2 py-1 text-center font-mono text-xs ${entry.comment_has_stable ? getCommentColor(entry.comment_stable_condition ?? 0) : 'text-gray-300'}`} title={getCommentTooltip(entry)}>
+                      {entry.comment_has_stable ? (entry.comment_stable_condition ?? 0) > 0 ? `+${entry.comment_stable_condition}` : `${entry.comment_stable_condition ?? 0}` : '-'}
+                    </td>
                     <td className="px-2 py-1 text-xs text-muted-foreground truncate max-w-[180px]">{entry.kb_comment}</td>
                     {hasResults && (
                       <td className={`px-2 py-1 text-center font-mono text-xs ${finishPos > 0 ? getFinishColor(finishPos) : 'text-gray-300'}`}>

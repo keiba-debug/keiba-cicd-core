@@ -189,6 +189,30 @@ export function getRaceDanger(entries: PredictionEntry[], dangerThreshold: numbe
   };
 }
 
+// --- コメントNLP ---
+
+/** 厩舎談話NLPスコアの色 */
+export function getCommentColor(score: number): string {
+  if (score >= 2) return 'text-green-600 font-bold';
+  if (score >= 1) return 'text-green-500';
+  if (score <= -2) return 'text-red-600 font-bold';
+  if (score <= -1) return 'text-red-500';
+  return 'text-gray-400';
+}
+
+/** コメントNLPスコアのツールチップ */
+export function getCommentTooltip(entry: PredictionEntry): string {
+  const parts: string[] = [];
+  if (entry.comment_has_stable) {
+    parts.push(`仕上: ${entry.comment_stable_condition ?? 0}`);
+    parts.push(`自信: ${entry.comment_stable_confidence ?? 0}`);
+    if (entry.comment_stable_mark) parts.push(`印: ${['', '△', '', '○', '◎'][entry.comment_stable_mark] ?? entry.comment_stable_mark}`);
+  }
+  if (entry.comment_memo_condition) parts.push(`メモ仕上: ${entry.comment_memo_condition}`);
+  if (entry.comment_memo_trouble_score) parts.push(`メモ特記: ${entry.comment_memo_trouble_score}`);
+  return parts.length > 0 ? parts.join(' / ') : 'コメントデータなし';
+}
+
 // --- 日付 ---
 
 export function getDayOfWeek(dateStr: string): string {

@@ -9,7 +9,7 @@ import {
   getWinOdds, getPlaceOddsMin, calcHeadRatio,
   getGapColor, getGapBg, getEvColor, getMarkColor, getRecBadgeClass,
   getTrackBadgeClass, getTrackLabel, getFinishColor, getPlaceLimit,
-  getRaceLink, getKoukakuDetail, getRaceDanger, SortTh,
+  getRaceLink, getKoukakuDetail, getRaceDanger, getCommentColor, getCommentTooltip, SortTh,
 } from '../lib/helpers';
 import type { RaceResultsMap } from '@/lib/data/predictions-reader';
 
@@ -83,6 +83,7 @@ export function VBTable({
                 <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="P(top3) 複勝圏予測確率（市場非依存）">V%</SortTh>
                 <th className="px-2 py-2 text-center border" title="Model WV P(win) 勝率予測（市場非依存）">WV%</th>
                 <th className="px-2 py-2 text-center border" title="競馬ブック調教評価の矢印">調教</th>
+                <th className="px-2 py-2 text-center border" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
                 <th className="px-2 py-2 text-left border" title="競馬ブック短評コメント">短評</th>
                 {hasResults && <SortTh sortKey="finish" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="確定着順">着順</SortTh>}
                 {hasResults && <th className="px-2 py-2 text-center border" title="単勝払い戻し">単払</th>}
@@ -178,6 +179,9 @@ export function VBTable({
                       {entry.pred_proba_wv != null ? (entry.pred_proba_wv * 100).toFixed(1) : '-'}
                     </td>
                     <td className="px-2 py-1.5 border text-center">{entry.kb_training_arrow}</td>
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${entry.comment_has_stable ? getCommentColor(entry.comment_stable_condition ?? 0) : 'text-gray-300'}`} title={getCommentTooltip(entry)}>
+                      {entry.comment_has_stable ? (entry.comment_stable_condition ?? 0) > 0 ? `+${entry.comment_stable_condition}` : `${entry.comment_stable_condition ?? 0}` : '-'}
+                    </td>
                     <td className="px-2 py-1.5 border text-xs text-muted-foreground max-w-[200px] truncate">
                       {entry.kb_comment}
                     </td>

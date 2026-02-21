@@ -50,6 +50,14 @@ export interface PredictionEntry {
   is_koukaku_distance?: number;
   is_koukaku_turf_to_dirt?: number;
   is_koukaku_handicap?: number;
+  // コメントNLPスコア (v5.3)
+  comment_stable_condition?: number;   // 厩舎談話 仕上がり度 (-3〜+3)
+  comment_stable_confidence?: number;  // 厩舎談話 自信度 (-3〜+3)
+  comment_stable_mark?: number;        // 厩舎談話 印 (0-4: ◎=4,○=3,△=1)
+  comment_memo_condition?: number;     // 次走メモ 仕上がり度 (-3〜+3)
+  comment_memo_trouble_score?: number; // 次走メモ トラブル/ポジティブ (-3〜+3)
+  comment_has_stable?: number;         // 厩舎談話 データ有無 (0/1)
+  comment_has_interview?: number;      // インタビュー データ有無 (0/1)
 }
 
 export interface PredictionRace {

@@ -54,21 +54,21 @@ export const PRESET_LABELS: Record<BetPresetKey, string> = {
 };
 
 /**
- * バックテスト実績データ (v5.2b, test=2025-2026)
- * Place VB = Model V rank gap ベース, Win VB = 同じgapの単勝成績
+ * バックテスト実績データ (v5.4, test=2025-2026, n=3,570 races)
+ * Place VB = Model V rank gap ベース, Win = 同gap内の単勝成績
  */
 export const BACKTEST_EMPIRICAL = {
   place: [
-    { minGap: 2, hitRate: 0.3051, roi: 1.019 },
-    { minGap: 3, hitRate: 0.2607, roi: 1.145 },
-    { minGap: 4, hitRate: 0.2312, roi: 1.270 },
-    { minGap: 5, hitRate: 0.1993, roi: 1.324 },
+    { minGap: 2, hitRate: 0.3177, roi: 1.058 },
+    { minGap: 3, hitRate: 0.2667, roi: 1.183 },
+    { minGap: 4, hitRate: 0.2293, roi: 1.274 },
+    { minGap: 5, hitRate: 0.2220, roi: 1.482 },
   ],
   win: [
-    { minGap: 2, hitRate: 0.0846, roi: 0.917 },
-    { minGap: 3, hitRate: 0.0675, roi: 0.960 },
-    { minGap: 4, hitRate: 0.0575, roi: 1.070 },
-    { minGap: 5, hitRate: 0.0537, roi: 1.204 },
+    { minGap: 2, hitRate: 0.0890, roi: 0.925 },
+    { minGap: 3, hitRate: 0.0687, roi: 0.946 },
+    { minGap: 4, hitRate: 0.0583, roi: 1.004 },
+    { minGap: 5, hitRate: 0.0568, roi: 1.160 },
   ],
 } as const;
 

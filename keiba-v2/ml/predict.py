@@ -515,6 +515,14 @@ def predict_race(
             'is_koukaku_distance': p['features'].get('is_koukaku_distance', 0) or 0,
             'is_koukaku_turf_to_dirt': p['features'].get('is_koukaku_turf_to_dirt', 0) or 0,
             'is_koukaku_handicap': p['features'].get('is_koukaku_handicap', 0) or 0,
+            # コメントNLPスコア (v5.3)
+            'comment_stable_condition': p['features'].get('comment_stable_condition', 0) or 0,
+            'comment_stable_confidence': p['features'].get('comment_stable_confidence', 0) or 0,
+            'comment_stable_mark': p['features'].get('comment_stable_mark', 0) or 0,
+            'comment_memo_condition': p['features'].get('comment_memo_condition', 0) or 0,
+            'comment_memo_trouble_score': p['features'].get('comment_memo_trouble_score', 0) or 0,
+            'comment_has_stable': p['features'].get('comment_has_stable', 0) or 0,
+            'comment_has_interview': p['features'].get('comment_has_interview', 0) or 0,
         }
         result_entries.append(entry)
 
