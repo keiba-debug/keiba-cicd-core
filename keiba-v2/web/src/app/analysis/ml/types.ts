@@ -8,6 +8,10 @@ export interface MlMetrics {
   best_iteration: number;
   train_size: number;
   test_size: number;
+  brier_score?: number;
+  ece?: number;
+  auc_val?: number;
+  val_size?: number;
 }
 
 export interface FeatureImportanceEntry {
@@ -51,6 +55,8 @@ export interface MlModelResult {
   features: string[];
   metrics: MlMetrics;
   feature_importance: FeatureImportanceEntry[];
+  target?: string;
+  feature_count?: number;
 }
 
 export interface ValueBetGapEntry {
@@ -108,16 +114,23 @@ export interface MlExperimentResultV2 {
   experiment: string;
   created_at: string;
   description?: string;
-  split: { train: string; test: string };
+  split: { train: string; val?: string; test: string };
   models: {
     accuracy: MlModelResult;
     value: MlModelResult;
+    win_accuracy?: MlModelResult;
+    win_value?: MlModelResult;
   };
   hit_analysis: HitAnalysisEntry[] | { accuracy: HitAnalysisEntry[]; value: HitAnalysisEntry[] };
   roi_analysis: {
     accuracy_model: RoiAnalysis;
     value_model: RoiAnalysis;
-    value_bets: { by_rank_gap: ValueBetGapEntry[] };
+    win_accuracy_model?: RoiAnalysis;
+    win_value_model?: RoiAnalysis;
+    value_bets: {
+      by_rank_gap: ValueBetGapEntry[];
+      win_by_rank_gap?: ValueBetGapEntry[];
+    };
   };
   race_predictions: RacePredictionV2[];
   value_bet_picks?: ValueBetPick[];

@@ -123,6 +123,15 @@ SPEED_FEATURES = [
     'speed_idx_trend', 'speed_idx_std',
 ]
 
+# コメントNLP特徴量 (v5.3)
+COMMENT_FEATURES = [
+    'comment_stable_condition', 'comment_stable_confidence',
+    'comment_stable_mark', 'comment_stable_excuse_flag',
+    'comment_interview_condition', 'comment_interview_excuse_score',
+    'comment_memo_condition', 'comment_memo_trouble_score',
+    'comment_has_stable', 'comment_has_interview',
+]
+
 # 市場系特徴量（Model Bでは除外）
 MARKET_FEATURES = {
     'odds', 'popularity', 'odds_rank', 'popularity_trend',
@@ -132,6 +141,8 @@ MARKET_FEATURES = {
     'ck_time_rank', 'ck_final_laprank_score', 'ck_final_time4f', 'ck_final_lap1',
     # v5.1: クラス・会場差は出馬表で自明 → MARKET
     'prev_grade_level', 'grade_level_diff', 'venue_rank_diff',
+    # v5.3: ヘッダーマークは honshi_mark と相関 → MARKET
+    'comment_stable_mark',
 }
 
 # 派生特徴量
@@ -142,7 +153,8 @@ FEATURE_COLS_ALL = (
     BASE_FEATURES + ['odds', 'popularity'] + DERIVED_FEATURES +
     PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
-    PACE_FEATURES + TRAINING_FEATURES + KB_MARK_FEATURES + SPEED_FEATURES
+    PACE_FEATURES + TRAINING_FEATURES + KB_MARK_FEATURES + SPEED_FEATURES +
+    COMMENT_FEATURES
 )
 
 # Value特徴量（Model B = 市場系除外）
@@ -382,6 +394,7 @@ def compute_features_for_race(
     from ml.features.pace_features import compute_pace_features
     from ml.features.training_features import compute_training_features
     from ml.features.speed_features import compute_speed_features
+    from ml.features.comment_features import compute_comment_features
 
     race_date = race['date']
     race_id = race['race_id']
@@ -495,6 +508,13 @@ def compute_features_for_race(
             kb_ext=kb_ext,
         )
         feat.update(speed_feat)
+
+        # コメントNLP特徴量 (v5.3)
+        comment_feat = compute_comment_features(
+            umaban=str(entry.get('umaban', '')),
+            kb_ext=kb_ext,
+        )
+        feat.update(comment_feat)
 
         # メタ情報（学習には使わないが分析用）
         feat['race_id'] = race_id
@@ -987,6 +1007,7 @@ def main():
     parser.add_argument('--test-years', default='2025-2026', help='Test year range (pure evaluation)')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用（JSON確定オッズ）')
     parser.add_argument('--split-track', action='store_true', help='芝/ダート分離モデル実験 (H-21)')
+    parser.add_argument('--version', default=None, help='モデルバージョン文字列 (例: 5.3)')
     args = parser.parse_args()
 
     train_min, train_max = parse_year_range(args.train_years)
@@ -994,8 +1015,21 @@ def main():
     test_min, test_max = parse_year_range(args.test_years)
     use_db_odds = not args.no_db
 
+    # バージョン文字列: CLI指定 or 自動生成
+    if args.version:
+        experiment_version = args.version
+    else:
+        # デフォルト: model_meta.json の現バージョンから自動インクリメント案内
+        current_meta_path = config.ml_dir() / "model_meta.json"
+        if current_meta_path.exists():
+            current_meta = json.loads(current_meta_path.read_text(encoding='utf-8'))
+            current_ver = current_meta.get('version', '?')
+            print(f"\n  WARNING: --version 未指定。現在のバージョンは v{current_ver}")
+            print(f"  推奨: --version {current_ver} または新バージョンを指定してください")
+        experiment_version = None  # 後で入力を求めるか、従来のハードコード値を使う
+
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD v4 - ML Experiment v3.5")
+    print(f"  KeibaCICD v4 - ML Experiment")
     print(f"  Train: {train_min}-{train_max}")
     print(f"  Val:   {val_min}-{val_max} (early stopping)")
     print(f"  Test:  {test_min}-{test_max} (pure evaluation)")
@@ -1160,6 +1194,11 @@ def main():
             pred_a, pred_b,
         )
 
+    # バージョン未指定の場合はフォールバック
+    if not experiment_version:
+        experiment_version = '5.2b'
+        print(f"\n  [WARN] --version 未指定のため v{experiment_version} を使用")
+
     # モデル保存（旧バージョンをアーカイブしてから上書き）
     model_dir = config.ml_dir()
     config.ensure_dir(model_dir)
@@ -1183,7 +1222,7 @@ def main():
     model_wv.save_model(str(model_dir / "model_wv.txt"))
 
     meta = {
-        'version': '5.1',
+        'version': experiment_version,
         'features_all': FEATURE_COLS_ALL,
         'features_value': FEATURE_COLS_VALUE,
         'market_features': list(MARKET_FEATURES),
@@ -1197,7 +1236,7 @@ def main():
 
     # 結果JSON保存
     result = {
-        'version': '5.1',
+        'version': experiment_version,
         'experiment': 'ml_experiment_v3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {

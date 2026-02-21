@@ -36,29 +36,52 @@ from ml.features.rotation_features import compute_rotation_features
 from ml.features.pace_features import compute_pace_features
 from ml.features.training_features import compute_training_features
 from ml.features.speed_features import compute_speed_features
+from ml.features.comment_features import compute_comment_features
 
 # === Value Bet閾値 ===
 VALUE_BET_MIN_GAP = 3  # experiment_v3.pyと統一
 
 
-def load_model_and_meta():
-    """学習済みモデルとメタ情報をロード"""
+def load_model_and_meta(model_version: Optional[str] = None):
+    """学習済みモデルとメタ情報をロード
+
+    Args:
+        model_version: バージョン指定（例: "5.0", "3.5"）。
+                       None=最新のliveモデル、"latest"=同上。
+                       指定時は versions/v{version}/ からロード。
+    """
     import lightgbm as lgb
 
     ml_dir = config.ml_dir()
 
-    model_a_path = ml_dir / "model_a.txt"
-    model_b_path = ml_dir / "model_b.txt"
-    model_w_path = ml_dir / "model_w.txt"
-    model_wv_path = ml_dir / "model_wv.txt"
-    meta_path = ml_dir / "model_meta.json"
+    # バージョン指定時はアーカイブからロード
+    if model_version and model_version != "latest":
+        ver_dir = ml_dir / "versions" / f"v{model_version}"
+        if not ver_dir.exists():
+            available = list_model_versions()
+            ver_list = ", ".join(v['version'] for v in available)
+            raise FileNotFoundError(
+                f"モデルバージョン v{model_version} が見つかりません。\n"
+                f"利用可能: {ver_list}"
+            )
+        load_dir = ver_dir
+        print(f"[Model] Loading archived model v{model_version}")
+    else:
+        load_dir = ml_dir
+        print(f"[Model] Loading latest (live) model")
+
+    model_a_path = load_dir / "model_a.txt"
+    model_b_path = load_dir / "model_b.txt"
+    model_w_path = load_dir / "model_w.txt"
+    model_wv_path = load_dir / "model_wv.txt"
+    meta_path = load_dir / "model_meta.json"
 
     # Place モデル (A/B) は必須
     missing = [p for p in [model_a_path, model_b_path, meta_path] if not p.exists()]
     if missing:
         names = ", ".join(p.name for p in missing)
         raise FileNotFoundError(
-            f"モデルファイルが見つかりません: {names} (in {ml_dir})\n"
+            f"モデルファイルが見つかりません: {names} (in {load_dir})\n"
             "先に python -m ml.experiment を実行してください"
         )
 
@@ -73,12 +96,67 @@ def load_model_and_meta():
         model_wv = lgb.Booster(model_file=str(model_wv_path))
         print(f"[Model] Win models loaded: model_w.txt, model_wv.txt")
     else:
-        print(f"[Model] Win models not found — running without win predictions")
+        print(f"[Model] Win models not found - running without win predictions")
 
     with open(meta_path, encoding='utf-8') as f:
         meta = json.load(f)
 
+    ver_label = meta.get('version', '?')
+    feat_a = len(meta.get('features_all', []))
+    feat_v = len(meta.get('features_value', []))
+    print(f"[Model] Version: {ver_label}, Features: A={feat_a}, V={feat_v}")
+
     return model_a, model_b, model_w, model_wv, meta
+
+
+def list_model_versions() -> list:
+    """利用可能なモデルバージョン一覧を返す（新しい順）
+
+    Returns:
+        list of dict: version, archived_at, has_win_model, feature_count_all, feature_count_value
+    """
+    from core.versioning import get_versions
+
+    ml_dir = config.ml_dir()
+    versions = []
+
+    # アーカイブされたバージョン
+    for entry in get_versions(ml_dir):
+        ver = entry.get('version', '?')
+        ver_dir = ml_dir / "versions" / f"v{ver}"
+        meta_path = ver_dir / "model_meta.json"
+
+        info = {
+            'version': ver,
+            'archived_at': entry.get('archived_at', ''),
+            'has_win_model': (ver_dir / "model_w.txt").exists(),
+            'is_live': False,
+        }
+
+        if meta_path.exists():
+            with open(meta_path, encoding='utf-8') as f:
+                meta = json.load(f)
+            info['feature_count_all'] = len(meta.get('features_all', []))
+            info['feature_count_value'] = len(meta.get('features_value', []))
+            info['created_at'] = meta.get('created_at', '')
+
+        versions.append(info)
+
+    # 現在のliveモデル
+    live_meta_path = ml_dir / "model_meta.json"
+    if live_meta_path.exists():
+        with open(live_meta_path, encoding='utf-8') as f:
+            meta = json.load(f)
+        versions.insert(0, {
+            'version': meta.get('version', '?') + ' (live)',
+            'created_at': meta.get('created_at', ''),
+            'has_win_model': (ml_dir / "model_w.txt").exists(),
+            'feature_count_all': len(meta.get('features_all', [])),
+            'feature_count_value': len(meta.get('features_value', [])),
+            'is_live': True,
+        })
+
+    return versions
 
 
 def load_master_data():
@@ -285,6 +363,13 @@ def predict_race(
         )
         feat.update(speed_feat)
 
+        # コメントNLP特徴量 (v5.3)
+        comment_feat = compute_comment_features(
+            umaban=str(umaban),
+            kb_ext=kb_ext,
+        )
+        feat.update(comment_feat)
+
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = np.nan  # placeholder — real oddsがあればランク化される
 
@@ -484,22 +569,39 @@ def main():
     parser.add_argument('--race-id', help='特定レースID (16桁)')
     parser.add_argument('--latest', action='store_true', help='最新開催日')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
+    parser.add_argument('--model-version', help='モデルバージョン指定 (例: 5.0, 3.5)')
+    parser.add_argument('--list-versions', action='store_true', help='利用可能なモデルバージョン一覧')
     args = parser.parse_args()
+
+    # バージョン一覧表示
+    if args.list_versions:
+        versions = list_model_versions()
+        print(f"\n{'='*60}")
+        print(f"  利用可能なモデルバージョン")
+        print(f"{'='*60}")
+        for v in versions:
+            live = " [LIVE]" if v.get('is_live') else ""
+            win = " +Win" if v.get('has_win_model') else ""
+            feat = f"A={v.get('feature_count_all', '?')}/V={v.get('feature_count_value', '?')}"
+            created = v.get('created_at', v.get('archived_at', ''))
+            print(f"  v{v['version']}{live}{win}  {feat}  ({created})")
+        print(f"{'='*60}\n")
+        return
+
     use_db_odds = not args.no_db
+    model_version = args.model_version
 
     t0 = time.time()
 
+    ver_label = f" (model v{model_version})" if model_version else ""
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD v4 - Race Prediction (v3.4 model)")
+    print(f"  KeibaCICD v4 - Race Prediction{ver_label}")
     print(f"  DB Odds: {'ON' if use_db_odds else 'OFF (JSON fallback)'}")
     print(f"{'='*60}\n")
 
     # モデルロード
     print("[Load] Loading models...")
-    model_a, model_b, model_w, model_wv, meta = load_model_and_meta()
-    print(f"  Place model features: A={len(meta['features_all'])}, V={len(meta['features_value'])}")
-    if model_w:
-        print(f"  Win model features:   W={len(meta['features_all'])}, WV={len(meta['features_value'])}")
+    model_a, model_b, model_w, model_wv, meta = load_model_and_meta(model_version)
 
     # マスタデータロード
     print("[Load] Loading master data...")
@@ -605,11 +707,16 @@ def main():
         print(f"  {venue}{rn}R: Top1={top1_name} (gap={top1_gap}){vb_marker}")
 
     # 結果保存
+    actual_model_version = model_version if model_version else meta.get('version', '?')
     output = {
         'version': '4.0',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'date': date,
-        'model_version': meta.get('version', '?'),
+        'model_version': actual_model_version,
+        'model_source': 'archive' if model_version else 'live',
+        'model_features_all': len(meta.get('features_all', [])),
+        'model_features_value': len(meta.get('features_value', [])),
+        'model_has_win': model_w is not None,
         'odds_source': 'mykeibadb' if db_odds_index else 'json',
         'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
         'races': all_predictions,

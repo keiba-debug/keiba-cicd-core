@@ -37,7 +37,7 @@ export default function MlAnalysisPage() {
     <div className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold">VB分析</h1>
+          <h1 className="text-2xl font-bold">ML Report</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {data.description ?? data.experiment} — {data.model ?? 'LightGBM'} ({data.experiment})
           </p>
@@ -46,14 +46,16 @@ export default function MlAnalysisPage() {
       </div>
 
       <div className="mb-5 grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-400">
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Model A（精度）</span> — 全{data.models.accuracy.features.length}特徴量（オッズ含む）で3着内を予測。的中率重視</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Model B（Value）</span> — 市場系特徴量を除外した{data.models.value.features.length}特徴量。市場に依存しない能力評価</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">VR（Value Rank）</span> — Model Bによるレース内の順位（1=最も能力が高い）</div>
+        <div><span className="font-semibold text-blue-700 dark:text-blue-400">Model A（Place精度）</span> — 全{data.models.accuracy.features.length}特徴量で<strong>3着内</strong>を予測。的中率重視</div>
+        <div><span className="font-semibold text-blue-700 dark:text-blue-400">Model V（Place Value）</span> — 市場系除外{data.models.value.features.length}特徴量で<strong>3着内</strong>を予測。市場に依存しない能力評価</div>
+        {data.models.win_accuracy && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">Model W（Win精度）</span> — 全{data.models.win_accuracy.features.length}特徴量で<strong>1着</strong>を予測。単勝精度重視</div>}
+        {data.models.win_value && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">Model WV（Win Value）</span> — 市場系除外{data.models.win_value.features.length}特徴量で<strong>1着</strong>を予測。単勝バリュー</div>}
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">VR（Value Rank）</span> — Model Vによるレース内の順位（1=最も能力が高い）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - VR。大きいほど市場が過小評価している馬</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — VR≤3 かつ Gap≥3 の馬。モデルは上位評価だが人気薄</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">AUC</span> — モデルの判別力（0.5=ランダム、1.0=完全予測）</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Brier / ECE</span> — 確率予測の精度。低いほどキャリブレーション良好</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">ROI</span> — 回収率。100%超えで利益が出る戦略</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">複勝ROI</span> — 3着以内的中時の払戻（オッズ÷3.5で概算）</div>
       </div>
 
       <div className="mb-4 flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
@@ -76,7 +78,7 @@ export default function MlAnalysisPage() {
           ? <ValuePicksTab picks={data.value_bet_picks} />
           : <div className="py-8 text-center text-gray-400">value_bet_picksがありません（v3ではバックテスト結果に含まれません）</div>
       )}
-      {activeTab === 'roi' && <RoiTab roiA={data.roi_analysis.accuracy_model} roiV={data.roi_analysis.value_model} />}
+      {activeTab === 'roi' && <RoiTab data={data} />}
       {activeTab === 'importance' && <ImportanceTab data={data} />}
       {activeTab === 'predictions' && (
         data.race_predictions.length > 0

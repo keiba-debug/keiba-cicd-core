@@ -12,22 +12,30 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
   const totalPages = Math.ceil(predictions.length / pageSize);
 
   const stats = useMemo(() => {
-    let totalHits = 0, totalPredicted = 0;
+    let totalHits = 0, totalPredicted = 0, winHits = 0;
     for (const race of predictions) {
+      const top1 = race.horses[0];
+      if (top1 && top1.actual_position === 1) winHits++;
       for (const h of race.horses) {
         if (h.pred_top3 === 1) { totalPredicted++; if (h.actual_top3 === 1) totalHits++; }
       }
     }
-    return { totalHits, totalPredicted };
+    return { totalHits, totalPredicted, winHits, totalRaces: predictions.length };
   }, [predictions]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between text-sm">
-        <span className="text-gray-500">
-          {predictions.length}R中、予測的中: {stats.totalHits}/{stats.totalPredicted}頭
-          ({stats.totalPredicted > 0 ? ((stats.totalHits / stats.totalPredicted) * 100).toFixed(1) : 0}%)
-        </span>
+        <div className="flex items-center gap-4">
+          <span className="text-gray-500">
+            {predictions.length}R中、予測的中: {stats.totalHits}/{stats.totalPredicted}頭
+            ({stats.totalPredicted > 0 ? ((stats.totalHits / stats.totalPredicted) * 100).toFixed(1) : 0}%)
+          </span>
+          <span className="text-gray-500">
+            Top1→1着: <span className="font-medium text-amber-600 dark:text-amber-400">{stats.winHits}/{stats.totalRaces}R</span>
+            <span className="ml-1 text-gray-400">({stats.totalRaces > 0 ? ((stats.winHits / stats.totalRaces) * 100).toFixed(1) : 0}%)</span>
+          </span>
+        </div>
         {totalPages > 1 && (
           <div className="flex items-center gap-2">
             <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
@@ -44,6 +52,7 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
           const isExpanded = expandedRace === race.race_id;
           const top1 = race.horses[0];
           const top1Hit = top1?.actual_top3 === 1;
+          const top1Win = top1?.actual_position === 1;
           const valuePick = race.horses.find(
             (h) => h.value_rank <= 3 && h.odds_rank != null && h.odds_rank >= h.value_rank + 3
           );
@@ -67,11 +76,13 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
                   <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">VALUE</span>
                 )}
                 <span>
-                  {top1Hit
-                    ? <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">的中</span>
-                    : <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-400">不的中</span>}
+                  {top1Win
+                    ? <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">1着</span>
+                    : top1Hit
+                      ? <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">的中</span>
+                      : <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-400">不的中</span>}
                 </span>
-                <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
+                <span className="text-gray-400">{isExpanded ? '\u25b2' : '\u25bc'}</span>
               </button>
 
               {isExpanded && (
@@ -95,10 +106,12 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
                         const hit = h.pred_top3 === 1 && h.actual_top3 === 1;
                         const miss = h.pred_top3 === 1 && h.actual_top3 === 0;
                         const isValue = h.value_rank <= 3 && h.odds_rank != null && h.odds_rank >= h.value_rank + 3;
+                        const isWin = h.actual_position === 1;
                         return (
                           <tr key={h.horse_number} className={cn(
                             'border-t border-gray-50 dark:border-gray-800',
-                            hit && 'bg-green-50/50 dark:bg-green-950/20',
+                            isWin && hit && 'bg-amber-50/50 dark:bg-amber-950/20',
+                            hit && !isWin && 'bg-green-50/50 dark:bg-green-950/20',
                             miss && 'bg-red-50/30 dark:bg-red-950/10',
                             isValue && !hit && !miss && 'bg-emerald-50/30 dark:bg-emerald-950/10'
                           )}>
@@ -111,12 +124,16 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
                             <td className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">{(h.pred_proba_value * 100).toFixed(1)}</td>
                             <td className="text-center tabular-nums text-gray-500">{h.value_rank}</td>
                             <td className="text-center tabular-nums font-medium">
-                              <span className={h.actual_position <= 3 ? 'text-red-600 dark:text-red-400' : ''}>{h.actual_position}</span>
+                              <span className={cn(
+                                isWin ? 'text-amber-600 dark:text-amber-400 font-bold' :
+                                h.actual_position <= 3 ? 'text-red-600 dark:text-red-400' : ''
+                              )}>{h.actual_position}</span>
                             </td>
                             <td className="text-center tabular-nums text-gray-500">{h.odds_rank ?? '-'}</td>
                             <td className="text-right tabular-nums text-amber-600 dark:text-amber-400">{h.odds != null ? h.odds.toFixed(1) : '-'}</td>
                             <td className="text-center">
-                              {hit && <span className="text-green-600">的中</span>}
+                              {hit && isWin && <span className="text-amber-600 font-bold">1着</span>}
+                              {hit && !isWin && <span className="text-green-600">的中</span>}
                               {miss && <span className="text-red-400">外れ</span>}
                             </td>
                           </tr>

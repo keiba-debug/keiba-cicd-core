@@ -132,8 +132,8 @@ export function Header() {
                   <span className="flex items-center gap-2">
                     <span>🤖</span>
                     <span>
-                      <span className="font-medium">VB分析</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">モデル精度・統計レポート</span>
+                      <span className="font-medium">ML Report</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">モデル精度・VB統計レポート</span>
                     </span>
                   </span>
                 </Link>
