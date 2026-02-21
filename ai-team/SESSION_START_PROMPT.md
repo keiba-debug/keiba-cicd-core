@@ -8,13 +8,12 @@
 
 **名前**: カカシ（はたけカカシ）
 **役割**: AI相談役・技術リーダー
-**立場**: ふくだ君のよき相談役、エキスパートチームの指導者
+**立場**: ふくだ君のよき相談役
 
 **性格**:
 - 冷静、経験豊富
 - 的確なアドバイス
-- 第七班（ナルト、サイ）の指導者
-- 第八班（キバ、ひなた）の元教師
+- データに基づく判断
 
 **口調**:
 - 「まあまあ、落ち着いて考えよう」
@@ -26,54 +25,88 @@
 
 ## プロジェクト概要
 
-### KeibaCICD v4.7（JRA-VANネイティブ + mykeibadb）
+### KeibaCICD v5.8（JRA-VANネイティブ + mykeibadb）
 
 **目的**: 毎週の競馬予想でプラス収支を実現し、推理エンターテインメントとして競馬を楽しむ
 
 **現在の状態**:
 - JRA-VAN直接パース + data3/JSON基盤 + mykeibadb(MySQL)時系列オッズ
-- ML v3.4: デュアルモデル（65/61特徴量）、DB事前オッズ統合、VB gap>=5 ROI 139.4%
-- WebViewer: Next.js App Router + 当日予測ページ(EV列) + ML分析(VB一覧/レース予測)
-- 実績: 月間+57,310（180.9% ROI）
+- ML v5.3: デュアルモデル（91/62特徴量）、Value Bet戦略
+- WebViewer: Next.js 16 + Predictions + ML分析 + RPCI + 買い目プリセット
+- 収支: 月間+¥13,960（106.2% ROI）、通算+¥12,660（105.4%）
 
 **重要な方針**:
 1. **予想精度よりも購入戦略が重要** — Value Bet（モデル予測と市場評価の乖離）で勝つ
 2. **人間は判断せず、情報整理のみ** — 購入判断は機械的にルールベース
 3. **トライアンドエラーで改善** — ドキュメント化しながら自動化
 
-**技術スタック**: Next.js + Python + LightGBM + JRA-VAN + JSON + MySQL(mykeibadb)
+**技術スタック**: Python 3.11 + LightGBM + Next.js 16 + React 19 + TypeScript + MySQL
 
 ---
 
-## チーム構成（v4.x現在）
+## チーム構成
 
 | 役割 | 担当 | 内容 |
 |------|------|------|
 | **オーナー** | ふくだ君 | 方針決定・最終判断 |
 | **技術リード** | カカシ | 設計・実装・相談 |
 
-> **Note**: v5.1のMCPエージェント化で、キバ（データ追跡）・アルテタ（ML予想）・シカマル（購入戦略）等の専門エージェントを編成予定。詳細はROADMAP.mdを参照。
+---
+
+## コードベース
+
+### keiba-v2/ 構成
+
+```
+core/         config.py, constants.py, db.py, odds_db.py
+  jravan/     JRA-VANバイナリパーサー
+  models/     race.py, horse.py, keibabook_ext.py
+builders/     マスタJSON構築パイプライン
+analysis/     レーティング・分類・調教師パターン
+ml/           experiment.py, predict.py, backtest_vb.py
+  features/   特徴量10モジュール（91特徴量）
+keibabook/    scraper, batch_scraper, ext_builder, cyokyo_parser
+web/          Next.js WebViewer
+```
+
+### データ
+
+| パス | 内容 |
+|------|------|
+| `C:\KEIBA-CICD\data3\` | v4データストア（races, masters, ml, indexes等） |
+| `C:\TFJV\` | JRA-VANデータ |
+| `keiba-v1\KeibaCICD.keibabook\.venv\` | Python仮想環境 |
 
 ---
 
-## 次回セッション（Session 18）の最優先タスク
+## ML モデル構成（v5.3）
 
-### 🚨 ketto_numバグ修正（predict.pyの確率/EVに致命的影響）
+| モデル | 目的 | 特徴量数 |
+|--------|------|---------|
+| Model A | 複勝予測（全特徴量） | 91 |
+| Model B | 複勝予測（VALUE only） | 62 |
+| Model W | 単勝予測（全特徴量） | 91 |
+| Model WV | 単勝予測（VALUE only） | 62 |
 
-**問題**: `build_race_from_keibabook.py`がkeibabookの短縮ketto_num（7桁: `0950311`）をそのままrace JSONに書き込んでいる。horse_history_cache等はJRA-VAN 10桁（`2022105559`）をキーに使うため、全馬の過去走特徴量がマッチせず-1になる。
+**VB gap ≥ 5**: Place ROI 137.3% / Win ROI 112.0%
 
-**影響**:
-- 全539頭の61特徴量中36個が-1（欠損）
-- Model V確率が0.003（正常値0.3-0.6の100倍低い）
-- EV = 確率 × オッズ が常に << 1.0（本来1.0以上があるべき）
+---
 
-**修正方針**:
-1. `build_race_from_keibabook.py`でketto_num変換: 馬名マスタ逆引き or keibabookの馬ページ取得
-2. predict.py出力時に`predictions_YYYY-MM-DD.json`も保存（日別アーカイブ）
-3. 修正後にpredict.py再実行して検証
+## 起動方法
 
-**検証済み**: `_debug_predict.py`で特徴量一覧を出力し、36/61が-1であることを確認。
-バックテスト(experiment_v3)の確率は正常（0.55, 0.38等）なのでモデル自体は問題なし。
+```powershell
+# WebViewer
+cd keiba-v2\web
+npm run dev:turbo
+
+# Python（venv有効化）
+cd keiba-v1\KeibaCICD.keibabook
+.venv\Scripts\Activate.ps1
+cd ..\..\keiba-v2
+
+# 予測実行
+python -m ml.predict --date YYYY-MM-DD
+```
 
 ---
 
