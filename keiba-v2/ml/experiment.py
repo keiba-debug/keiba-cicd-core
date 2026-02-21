@@ -1301,6 +1301,7 @@ def main():
         pickle.dump(calibrators, f)
     print(f"  Calibrators saved: {list(calibrators.keys())}")
 
+    import sklearn
     meta = {
         'version': experiment_version,
         'features_all': FEATURE_COLS_ALL,
@@ -1309,6 +1310,7 @@ def main():
         'targets': {'place': 'is_top3', 'win': 'is_win'},
         'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
         'has_calibrators': True,
+        'sklearn_version': sklearn.__version__,
         'created_at': datetime.now().isoformat(timespec='seconds'),
     }
     (model_dir / "model_meta.json").write_text(

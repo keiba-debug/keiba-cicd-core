@@ -100,6 +100,7 @@ def load_model_and_meta(model_version: Optional[str] = None):
         print(f"[Model] Win models not found - running without win predictions")
 
     # IsotonicRegressionキャリブレーター（オプション）
+    # EV計算にはcalibrated確率を使用、ランキングはraw正規化（順序不変のため）
     calibrators = None
     cal_path = load_dir / "calibrators.pkl"
     if cal_path.exists():
@@ -110,6 +111,10 @@ def load_model_and_meta(model_version: Optional[str] = None):
 
     with open(meta_path, encoding='utf-8') as f:
         meta = json.load(f)
+
+    # calibrator整合性チェック
+    if meta.get('has_calibrators') and calibrators is None:
+        print("[WARN] model_meta says calibrators exist but calibrators.pkl not found — using raw probabilities for EV")
 
     ver_label = meta.get('version', '?')
     feat_a = len(meta.get('features_all', []))
@@ -498,8 +503,12 @@ def predict_race(
     pred_a_raw = model_a.predict(arr_a)
     pred_b_raw = model_b.predict(arr_v)
 
-    # IsotonicRegressionキャリブレーション（EV計算用）
-    # キャリブレーション後の確率をEV計算に使い、正規化後をランキングに使う
+    # === EV用 vs ランキング用の確率使い分け ===
+    # EV計算: IsotonicRegressionでキャリブレーション済みの絶対確率を使用
+    #         （賭けの期待値計算には正確な確率が必要）
+    # ランキング: raw予測値をレース内正規化（相対順序のみ必要、calibrationノイズを避ける）
+    # 注意: IsotonicRegressionは単調変換なのでランキング順序は変わらないが、
+    #       正規化基準が異なるため、EVとrankが乖離するケースがありうる
     pred_b_for_ev = pred_b_raw  # デフォルト: rawをそのまま使用
     if calibrators and 'cal_b' in calibrators:
         pred_b_for_ev = calibrators['cal_b'].predict(pred_b_raw)

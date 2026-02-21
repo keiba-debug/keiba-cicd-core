@@ -366,27 +366,27 @@ def main():
 
     # A-1: Place Binary (All features = Model A)
     from ml.experiment import train_model as train_binary
-    model_a, metrics_a, imp_a, pred_a = train_binary(
+    model_a, metrics_a, imp_a, pred_a, _ = train_binary(
         df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Binary_PM')
     df_test['pred_bin_pm'] = pred_a
     df_test['pred_rank_bin_pm'] = df_test.groupby('race_id')['pred_bin_pm'].rank(ascending=False, method='min')
 
     # A-2: Place Binary (Value features = Model V)
-    model_v, metrics_v, imp_v, pred_v = train_binary(
+    model_v, metrics_v, imp_v, pred_v, _ = train_binary(
         df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Binary_PA')
     df_test['pred_bin_pa'] = pred_v
     df_test['pred_rank_bin_pa'] = df_test.groupby('race_id')['pred_bin_pa'].rank(ascending=False, method='min')
 
     # A-3: Win Binary (All features = Model W)
     from ml.experiment import PARAMS_W
-    model_w, metrics_w, imp_w, pred_w = train_binary(
+    model_w, metrics_w, imp_w, pred_w, _ = train_binary(
         df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_W, 'is_win', 'Binary_WM')
     df_test['pred_bin_wm'] = pred_w
     df_test['pred_rank_bin_wm'] = df_test.groupby('race_id')['pred_bin_wm'].rank(ascending=False, method='min')
 
     # A-4: Win Binary (Value features = Model WV)
     from ml.experiment import PARAMS_WV
-    model_wv, metrics_wv, imp_wv, pred_wv = train_binary(
+    model_wv, metrics_wv, imp_wv, pred_wv, _ = train_binary(
         df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_WV, 'is_win', 'Binary_WA')
     df_test['pred_bin_wa'] = pred_wv
     df_test['pred_rank_bin_wa'] = df_test.groupby('race_id')['pred_bin_wa'].rank(ascending=False, method='min')
