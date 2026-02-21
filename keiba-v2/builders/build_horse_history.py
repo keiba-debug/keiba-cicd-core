@@ -84,6 +84,7 @@ def build_horse_history(years: List[int]) -> Dict[str, List[Dict]]:
             'race_date': rec['race_date'],
             'venue_code': rec['venue_code'],
             'venue_name': sr.venue_name,
+            'umaban': rec.get('umaban', 0),
             'finish_position': fp,
             'time': rec['time'],
             'last_3f': rec['last_3f'],

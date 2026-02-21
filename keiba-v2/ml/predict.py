@@ -37,6 +37,7 @@ from ml.features.pace_features import compute_pace_features
 from ml.features.training_features import compute_training_features
 from ml.features.speed_features import compute_speed_features
 from ml.features.comment_features import compute_comment_features
+from ml.features.slow_start_features import compute_slow_start_features
 
 # === Value Bet閾値 ===
 VALUE_BET_MIN_GAP = 3  # experiment_v3.pyと統一
@@ -178,14 +179,15 @@ def load_master_data():
         jockeys_list = json.load(f)
     jockey_index = build_jockey_index(jockeys_list)
 
-    # Pace index
-    from ml.experiment import build_pace_index
+    # Pace index + kb_ext index
+    from ml.experiment import build_pace_index, build_kb_ext_index
     di_path = config.indexes_dir() / "race_date_index.json"
     with open(di_path, encoding='utf-8') as f:
         date_index = json.load(f)
     pace_index = build_pace_index(date_index)
+    kb_ext_index = build_kb_ext_index(date_index)
 
-    return history_cache, trainer_index, jockey_index, pace_index
+    return history_cache, trainer_index, jockey_index, pace_index, kb_ext_index
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -242,6 +244,7 @@ def predict_race(
     model_w=None,
     model_wv=None,
     db_place_odds: Optional[Dict[int, dict]] = None,
+    kb_ext_index: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -369,6 +372,15 @@ def predict_race(
             kb_ext=kb_ext,
         )
         feat.update(comment_feat)
+
+        # 出遅れ特徴量 (v5.4)
+        slow_feat = compute_slow_start_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            history_cache=history_cache,
+            kb_ext_index=kb_ext_index or {},
+        )
+        feat.update(slow_feat)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = np.nan  # placeholder — real oddsがあればランク化される
@@ -613,10 +625,11 @@ def main():
 
     # マスタデータロード
     print("[Load] Loading master data...")
-    history_cache, trainer_index, jockey_index, pace_index = load_master_data()
+    history_cache, trainer_index, jockey_index, pace_index, kb_ext_index = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
+    print(f"  KB Ext: {len(kb_ext_index):,} races")
     print(f"  Pace index: {len(pace_index):,} races")
 
     # 対象レース決定
@@ -698,6 +711,7 @@ def main():
             model_w=model_w,
             model_wv=model_wv,
             db_place_odds=db_place_odds_index.get(race['race_id']),
+            kb_ext_index=kb_ext_index,
         )
         all_predictions.append(pred)
 

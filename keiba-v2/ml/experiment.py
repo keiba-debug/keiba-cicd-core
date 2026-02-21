@@ -136,6 +136,12 @@ COMMENT_FEATURES = [
     'comment_has_stable', 'comment_has_interview',
 ]
 
+# 出遅れ特徴量 (v5.4)
+SLOW_START_FEATURES = [
+    'horse_slow_start_rate', 'horse_slow_start_last5',
+    'horse_slow_start_resilience',
+]
+
 # 市場系特徴量（Model Bでは除外）
 MARKET_FEATURES = {
     'odds', 'popularity', 'odds_rank', 'popularity_trend',
@@ -163,7 +169,7 @@ FEATURE_COLS_ALL = (
     PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
     PACE_FEATURES + TRAINING_FEATURES + KB_MARK_FEATURES + SPEED_FEATURES +
-    COMMENT_FEATURES
+    COMMENT_FEATURES + SLOW_START_FEATURES
 )
 
 # Value特徴量（Model B = 市場系除外）
@@ -404,6 +410,7 @@ def compute_features_for_race(
     from ml.features.training_features import compute_training_features
     from ml.features.speed_features import compute_speed_features
     from ml.features.comment_features import compute_comment_features
+    from ml.features.slow_start_features import compute_slow_start_features
 
     race_date = race['date']
     race_id = race['race_id']
@@ -524,6 +531,15 @@ def compute_features_for_race(
             kb_ext=kb_ext,
         )
         feat.update(comment_feat)
+
+        # 出遅れ特徴量 (v5.4)
+        slow_feat = compute_slow_start_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            history_cache=history_cache,
+            kb_ext_index=kb_ext_index,
+        )
+        feat.update(slow_feat)
 
         # メタ情報（学習には使わないが分析用）
         feat['race_id'] = race_id

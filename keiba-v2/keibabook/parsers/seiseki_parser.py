@@ -2,10 +2,31 @@
 # -*- coding: utf-8 -*-
 """成績（seiseki）パーサー — レース結果、配当、ラップ、寸評、インタビュー、次走メモを抽出"""
 
+import logging
 import re
 from typing import Any, Optional
 
 from bs4 import BeautifulSoup, Tag
+
+logger = logging.getLogger(__name__)
+
+
+_free_warned = False
+
+
+def _check_subscription_level(html: str) -> str:
+    """HTMLコメントからサブスクレベルを検出。'free'なら警告（1回のみ）。"""
+    global _free_warned
+    m = re.search(r"use:(\w+)", html[:500])
+    level = m.group(1) if m else "unknown"
+    if level == "free" and not _free_warned:
+        _free_warned = True
+        logger.warning(
+            "keibabook seiseki: use:free — cookieが期限切れか無料アカウントです。"
+            " 発走状況・コーナー通過順等のプレミアムデータは ****でマスクされます。"
+            " ブラウザで再ログインしてcookieを更新してください。"
+        )
+    return level
 
 
 def parse_seiseki_html(html: str, race_id_12: str = "") -> dict[str, Any]:
@@ -28,9 +49,11 @@ def parse_seiseki_html(html: str, race_id_12: str = "") -> dict[str, Any]:
           ],
           "payouts": {"win": 520, ...},
           "laps": {"lap_times": [...], "pace": "M"},
-          "race_details": {...}
+          "race_details": {...},
+          "race_extras": {"hassou": "...", "kimete": "...", "baso": "..."}
         }
     """
+    _check_subscription_level(html)
     soup = BeautifulSoup(html, "html.parser")
 
     race_info = _extract_race_info(soup, race_id_12)
@@ -39,6 +62,7 @@ def parse_seiseki_html(html: str, race_id_12: str = "") -> dict[str, Any]:
     payouts = _extract_payouts(soup)
     laps = _extract_laps(soup)
     details = _extract_race_details(soup)
+    extras = _extract_race_extras(soup)
 
     return {
         "race_info": race_info,
@@ -48,6 +72,7 @@ def parse_seiseki_html(html: str, race_id_12: str = "") -> dict[str, Any]:
         "payouts": payouts,
         "laps": laps,
         "race_details": details,
+        "race_extras": extras,
     }
 
 
@@ -233,6 +258,107 @@ def _extract_laps(soup: BeautifulSoup) -> dict:
         laps["pace"] = "M"
 
     return laps
+
+
+def parse_hassou_text(hassou: str) -> list[dict]:
+    """発走状況テキストから出遅れ馬番リストを抽出。
+
+    keibabook成績ページの実フォーマット:
+      "(13)出遅れ半馬身不利"
+      "(7)(11)(13)出遅れ半馬身不利　(3)(8)(15)(16)出遅れ半馬身不利"
+      "(5)ゲート内で立ち上がり出遅れ"
+
+    レガシーフォーマット（念のため対応）:
+      "5番出遅れ"
+      "5,12番出遅れ"
+
+    Returns:
+        [{"umaban": 5, "type": "出遅れ"}, ...]
+    """
+    if not hassou:
+        return []
+
+    results: list[dict] = []
+    seen: set[int] = set()
+
+    # スタート問題キーワード（出遅れ・アオル・後手・ダッシュ不良等）
+    _KW = r"出遅|後手|立ち上が|ダッシュ[がつ付]|アオ[ルり]|躓[くき]"
+
+    # パターン1: (N)(M)...keyword — keibabook成績ページの標準フォーマット
+    for m in re.finditer(
+        r"((?:\(\d+\))+)([^\(]*?)(" + _KW + r")", hassou
+    ):
+        nums_block = m.group(1)
+        issue_type = m.group(3)
+        for n in re.findall(r"\((\d+)\)", nums_block):
+            uma = int(n)
+            if uma not in seen:
+                results.append({"umaban": uma, "type": issue_type})
+                seen.add(uma)
+
+    # パターン2: 「N番出遅れ」「N,M番出遅れ」— レガシーフォーマット
+    for m in re.finditer(r"([\d,]+)番[^\d]*?(" + _KW + r")", hassou):
+        nums_str = m.group(1)
+        issue_type = m.group(2)
+        for n in nums_str.split(","):
+            n = n.strip()
+            if n.isdigit():
+                uma = int(n)
+                if uma not in seen:
+                    results.append({"umaban": uma, "type": issue_type})
+                    seen.add(uma)
+
+    # パターン3: 「出遅れN番」（逆順パターン）
+    for m in re.finditer(r"出遅れ[^\d]*?([\d,]+)番", hassou):
+        nums_str = m.group(1)
+        for n in nums_str.split(","):
+            n = n.strip()
+            if n.isdigit():
+                uma = int(n)
+                if uma not in seen:
+                    results.append({"umaban": uma, "type": "出遅れ"})
+                    seen.add(uma)
+
+    return results
+
+
+def _extract_race_extras(soup: BeautifulSoup) -> dict:
+    """「平均ハロンなど」テーブルから発走状況・決め手・馬装具を抽出。
+
+    HTML構造:
+      <table class="default seiseki-etc">
+        <caption>平均ハロンなど</caption>
+        <tbody>
+          <tr><th>発走状況</th><td>5番出遅れ</td></tr>
+          <tr><th>決め手</th><td>差し</td></tr>
+          <tr><th>馬装具</th><td>3番ブリンカー</td></tr>
+          ...
+        </tbody>
+      </table>
+    """
+    extras: dict[str, str] = {}
+
+    for table in soup.find_all("table", class_=re.compile(r"seiseki-etc")):
+        caption = table.find("caption")
+        if not caption or "ハロン" not in caption.get_text():
+            continue
+        for row in table.find_all("tr"):
+            th = row.find("th")
+            td = row.find("td")
+            if not th or not td:
+                continue
+            key = th.get_text(strip=True)
+            val = td.get_text(strip=True)
+            if not val or re.fullmatch(r"\*+", val):
+                continue
+            if "発走" in key:
+                extras["hassou"] = val
+            elif "決め手" in key:
+                extras["kimete"] = val
+            elif "馬装" in key:
+                extras["baso"] = val
+
+    return extras
 
 
 def _extract_race_details(soup: BeautifulSoup) -> dict:

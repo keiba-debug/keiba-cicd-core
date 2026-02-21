@@ -32,7 +32,7 @@ from keibabook.parsers.syutuba_parser import parse_syutuba_html
 from keibabook.parsers.danwa_parser import parse_danwa_html
 from keibabook.parsers.syoin_parser import parse_syoin_html
 from keibabook.parsers.paddok_parser import parse_paddok_html
-from keibabook.parsers.seiseki_parser import parse_seiseki_html
+from keibabook.parsers.seiseki_parser import parse_seiseki_html, parse_hassou_text
 from keibabook.parsers.babakeikou_parser import parse_babakeikou_html
 from keibabook.cyokyo_parser import parse_cyokyo_html
 from keibabook.parsers.speed_parser import parse_speed_html
@@ -414,18 +414,28 @@ class KeibabookBatchScraper:
                             if bano:
                                 field_updates.setdefault(bano, {})["next_race_memo"] = text
 
+                        # 発走状況 → 出遅れ馬に is_slow_start フラグ
+                        extras = seiseki.get("race_extras", {})
+                        hassou = extras.get("hassou", "")
+                        n_slow = 0
+                        if hassou:
+                            slow_starts = parse_hassou_text(hassou)
+                            for ss in slow_starts:
+                                bano = str(ss["umaban"])
+                                field_updates.setdefault(bano, {})["is_slow_start"] = True
+                            n_slow = len(slow_starts)
+
                         if field_updates:
                             update_kb_ext_field(race_id_16, date_str, field_updates)
-                            # ログに各フィールドの更新数を表示
                             n_sunpyo = sum(1 for u in field_updates.values() if "sunpyo" in u)
                             n_3f = sum(1 for u in field_updates.values() if "first_3f" in u)
                             n_iv = sum(1 for u in field_updates.values() if "interview" in u)
                             n_memo = sum(1 for u in field_updates.values() if "next_race_memo" in u)
-                            logger.info(f"  seiseki {rid}: 寸評{n_sunpyo} 3F{n_3f} IV{n_iv} メモ{n_memo}")
+                            logger.info(f"  seiseki {rid}: 寸評{n_sunpyo} 3F{n_3f} IV{n_iv} メモ{n_memo} 出遅{n_slow}")
                         else:
                             logger.info(f"  seiseki {rid}: データなし")
 
-                        # ラップタイム + レース詳細（レースレベルデータ）
+                        # ラップタイム + レース詳細 + 発走状況（レースレベルデータ）
                         race_level: dict = {}
                         laps = seiseki.get("laps", {})
                         if laps.get("lap_times"):
@@ -433,6 +443,8 @@ class KeibabookBatchScraper:
                         details = seiseki.get("race_details", {})
                         if details:
                             race_level["race_details"] = details
+                        if extras:
+                            race_level["race_extras"] = extras
                         if race_level:
                             update_kb_ext_race_level(race_id_16, date_str, race_level)
                     updated += 1
