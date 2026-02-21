@@ -429,9 +429,9 @@ def main():
     scores_lr_all_val = model_lr_all.predict(val_sorted[FEATURE_COLS_ALL])
 
     # キャリブレーション: score → P(win), score → P(top3)
-    prob_win_lr_all, cal_win_all = calibrate_scores(
+    prob_win_lr_all, _ = calibrate_scores(
         scores_lr_all_val, val_sorted['is_win'].values, scores_lr_all)
-    prob_place_lr_all, cal_place_all = calibrate_scores(
+    prob_place_lr_all, _ = calibrate_scores(
         scores_lr_all_val, val_sorted['is_top3'].values, scores_lr_all)
 
     # テストDFにマッピング (test_sortedの順序でdf_testに戻す)
@@ -448,9 +448,9 @@ def main():
     scores_lr_val = model_lr_val.predict(test_sorted[FEATURE_COLS_VALUE])
     scores_lr_val_v = model_lr_val.predict(val_sorted[FEATURE_COLS_VALUE])
 
-    prob_win_lr_val, cal_win_val = calibrate_scores(
+    prob_win_lr_val, _ = calibrate_scores(
         scores_lr_val_v, val_sorted['is_win'].values, scores_lr_val)
-    prob_place_lr_val, cal_place_val = calibrate_scores(
+    prob_place_lr_val, _ = calibrate_scores(
         scores_lr_val_v, val_sorted['is_top3'].values, scores_lr_val)
 
     test_sorted['score_lr_val'] = scores_lr_val
