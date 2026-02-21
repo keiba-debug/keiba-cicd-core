@@ -21,6 +21,7 @@ interface VBTableProps {
   results?: RaceResultsMap;
   hasResults: boolean;
   getFinishPos: (raceId: string, umaban: number) => number;
+  getLiveGap: (raceId: string, entry: PredictionEntry) => number;
   vbSort: SortState;
   setVbSort: (s: SortState) => void;
   syncVbMarks: () => Promise<void>;
@@ -30,7 +31,7 @@ interface VBTableProps {
 
 export function VBTable({
   sortedVBEntries, filteredVBEntries, oddsMap, dbResults, results, hasResults,
-  getFinishPos, vbSort, setVbSort,
+  getFinishPos, getLiveGap, vbSort, setVbSort,
   syncVbMarks, markSyncing, markResult,
 }: VBTableProps) {
   if (filteredVBEntries.length === 0) return null;
@@ -93,7 +94,8 @@ export function VBTable({
                 const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
                 const placeOddsMin = entry.place_odds_min ?? getPlaceOddsMin(oddsMap, race.race_id, entry.umaban);
                 // EV = バックテストROI（gap別実績回収率）
-                const empirical = getEmpiricalRates(entry.vb_gap);
+                const liveGap = getLiveGap(race.race_id, entry);
+                const empirical = getEmpiricalRates(liveGap);
                 const ev = winOdds && winOdds > 0 ? empirical.winRoi : null;
                 const placeEv = placeOddsMin && placeOddsMin > 0 ? empirical.placeRoi : null;
                 const headRatio = calcHeadRatio(entry.pred_proba_wv, entry.pred_proba_v);
@@ -101,7 +103,7 @@ export function VBTable({
                 const placeLimit = getPlaceLimit(race.num_runners);
                 const isPlaceHit = finishPos > 0 && placeLimit > 0 && finishPos <= placeLimit;
                 const dbEntry = dbResults[race.race_id]?.[entry.umaban];
-                const rec = getBuyRecommendation(race.track_type, entry.vb_gap, entry.rank_v, winOdds);
+                const rec = getBuyRecommendation(race.track_type, liveGap, entry.rank_v, winOdds);
                 const winGap = entry.win_vb_gap;
                 return (
                   <tr
@@ -109,7 +111,7 @@ export function VBTable({
                     className={`border-b hover:bg-blue-50/50 dark:hover:bg-blue-900/10 ${
                       finishPos === 1 ? 'bg-amber-50/60 dark:bg-amber-900/15' :
                       isPlaceHit ? 'bg-green-50/40 dark:bg-green-900/10' :
-                      getGapBg(entry.vb_gap)
+                      getGapBg(liveGap)
                     }`}
                   >
                     <td className="px-2 py-1.5 border text-xs">
@@ -154,8 +156,8 @@ export function VBTable({
                     <td className="px-2 py-1.5 border text-center font-mono font-bold">
                       {winOdds ? winOdds.toFixed(1) : '-'}
                     </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono ${getGapColor(entry.vb_gap)}`}>
-                      +{entry.vb_gap}
+                    <td className={`px-2 py-1.5 border text-center font-mono ${getGapColor(liveGap)}`}>
+                      +{liveGap}
                     </td>
                     <td className={`px-2 py-1.5 border text-center font-mono ${winGap != null && winGap >= 3 ? getGapColor(winGap) : 'text-gray-400'} bg-emerald-50/30 dark:bg-emerald-900/10`}>
                       {winGap != null && winGap !== 0 ? (winGap > 0 ? `+${winGap}` : `${winGap}`) : '-'}

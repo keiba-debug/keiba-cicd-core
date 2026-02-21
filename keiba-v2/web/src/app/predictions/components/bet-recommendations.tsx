@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import type { PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, SortState, BetStrategyParams, BetPresetKey } from '../lib/types';
 import { BET_CONFIG, BET_PRESETS, PRESET_LABELS } from '../lib/bet-logic';
 import { getWinOdds, calcHeadRatio, getEvColor, getGapColor, getRecBadgeClass, getRaceLink, SortTh } from '../lib/helpers';
@@ -19,6 +20,7 @@ interface BetRecommendationsProps {
     totalAmount: number; avgEv: number; expectedReturn: number; totalBets: number; dangerRaces: number;
   };
   oddsMap: OddsMap;
+  getLiveGap: (raceId: string, entry: PredictionEntry) => number;
   oddsLoading: boolean;
   dailyBudget: number;
   updateBudget: (v: number) => void;
@@ -104,7 +106,7 @@ function CustomPanel({ params, onChange }: { params: BetStrategyParams; onChange
 
 export function BetRecommendations({
   betRecommendations, sortedBetRecommendations, betSummary,
-  oddsMap, oddsLoading, dailyBudget, updateBudget,
+  oddsMap, getLiveGap, oddsLoading, dailyBudget, updateBudget,
   fetchAllOdds, syncBetMarks, betSyncing, betSyncResult,
   betSort, setBetSort,
   betParams, betPreset, onPresetChange, onParamsChange,
@@ -284,9 +286,11 @@ export function BetRecommendations({
                     <td className={`px-2 py-1.5 border text-center font-mono text-xs ${r.placeEv && r.placeEv >= 1.0 ? 'text-blue-600 font-bold' : 'text-gray-300'}`}>
                       {r.placeEv ? r.placeEv.toFixed(2) : '-'}
                     </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono ${getGapColor(r.entry.vb_gap)}`}>
-                      +{r.entry.vb_gap}
+                    {(() => { const lg = getLiveGap(r.race.race_id, r.entry); return (
+                    <td className={`px-2 py-1.5 border text-center font-mono ${getGapColor(lg)}`}>
+                      +{lg}
                     </td>
+                    ); })()}
                     <td className="px-2 py-1.5 border text-center font-mono text-xs">
                       {(mainKelly * betParams.kellyFraction * 100).toFixed(1)}%
                     </td>

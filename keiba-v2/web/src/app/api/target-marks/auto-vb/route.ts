@@ -2,7 +2,8 @@
  * VB印一括書込みAPI
  *
  * POST: predictions のVB候補をTARGET馬印2に一括反映
- * Body: { date?: string } — 指定日のアーカイブを使用。省略時はpredictions_live.json
+ * Body: { date?: string, liveGaps?: Record<raceId, Record<umaban, number>> }
+ * liveGaps指定時はリアルタイムオッズ連動のGapを使用。省略時はpredictions_live.jsonのvb_gap。
  *
  * バッチI/O: 同一ファイル(year+kai+venue)への全操作を1回のread/writeで実行。
  * 旧実装では12R×18頭=216回のI/Oが発生し、TARGETのファイル読み込みと
@@ -30,9 +31,11 @@ function fileKey(year: number, kai: number, venue: string): string {
 export async function POST(request: NextRequest) {
   try {
     let date: string | undefined;
+    let liveGaps: Record<string, Record<number, number>> | undefined;
     try {
       const body = await request.json();
       date = body.date;
+      liveGaps = body.liveGaps;
     } catch {
       // empty body is fine — use live predictions
     }
@@ -83,9 +86,11 @@ export async function POST(request: NextRequest) {
         group.ops.push({ day: nichi, raceNumber, horseNumber: uma, mark: '' });
       }
 
-      // VB候補に印を書込み
+      // VB候補に印を書込み（liveGaps優先、なければpredictions時点のvb_gap）
+      const raceGaps = liveGaps?.[raceId];
       for (const entry of race.entries) {
-        const mark = gapToMark(entry.vb_gap);
+        const gap = raceGaps?.[entry.umaban] ?? entry.vb_gap;
+        const mark = gapToMark(gap);
         if (mark) {
           group.ops.push({ day: nichi, raceNumber, horseNumber: entry.umaban, mark });
           markedHorses++;

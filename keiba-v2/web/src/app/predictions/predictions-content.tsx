@@ -197,6 +197,30 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     return Array.from(nums).sort((a, b) => a - b);
   }, [races, venueFilter]);
 
+  // リアルタイムオッズから人気順を再計算（全レース共通）
+  const liveRankingMap = useMemo(() => {
+    const map: Record<string, Record<number, number>> = {};
+    for (const race of races) {
+      const raceOdds = oddsMap[race.race_id];
+      if (!raceOdds) continue;
+      const sorted = race.entries
+        .map(e => ({ umaban: e.umaban, odds: raceOdds[e.umaban]?.winOdds ?? e.odds ?? 999 }))
+        .filter(e => e.odds > 0)
+        .sort((a, b) => a.odds - b.odds);
+      const ranking: Record<number, number> = {};
+      sorted.forEach((e, i) => { ranking[e.umaban] = i + 1; });
+      map[race.race_id] = ranking;
+    }
+    return map;
+  }, [races, oddsMap]);
+
+  /** リアルタイムGap = liveOddsRank - rank_v（フォールバック: entry.vb_gap） */
+  const getLiveGap = useCallback((raceId: string, entry: PredictionEntry) => {
+    const liveRank = liveRankingMap[raceId]?.[entry.umaban];
+    if (liveRank != null && liveRank > 0) return liveRank - entry.rank_v;
+    return entry.vb_gap;
+  }, [liveRankingMap]);
+
   const allVBEntries = useMemo(() => {
     const entries: Array<{ race: PredictionRace; entry: PredictionEntry }> = [];
     for (const race of races) {
@@ -204,13 +228,13 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         if (entry.is_value_bet) entries.push({ race, entry });
       }
     }
-    entries.sort((a, b) => b.entry.vb_gap - a.entry.vb_gap);
+    entries.sort((a, b) => getLiveGap(b.race.race_id, b.entry) - getLiveGap(a.race.race_id, a.entry));
     return entries;
-  }, [races]);
+  }, [races, getLiveGap]);
 
   const filteredVBEntries = useMemo(() => {
     let entries = allVBEntries;
-    if (minGap > 3) entries = entries.filter(e => e.entry.vb_gap >= minGap);
+    if (minGap > 3) entries = entries.filter(e => getLiveGap(e.race.race_id, e.entry) >= minGap);
     if (venueFilter !== 'all') entries = entries.filter(e => e.race.venue_name === venueFilter);
     if (trackFilter !== 'all') {
       entries = entries.filter(e =>
@@ -226,7 +250,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       });
     }
     return entries;
-  }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minGap, minEv, oddsMap]);
+  }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minGap, minEv, oddsMap, getLiveGap]);
 
   const filteredVenueGroups = useMemo(() => {
     let filtered = races;
@@ -288,10 +312,19 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     setMarkSyncing(true);
     setMarkResult(null);
     try {
+      // liveGapsを計算してAPIに送信（リアルタイムodds連動）
+      const liveGaps: Record<string, Record<number, number>> = {};
+      for (const race of races) {
+        const gapMap: Record<number, number> = {};
+        for (const entry of race.entries) {
+          gapMap[entry.umaban] = getLiveGap(race.race_id, entry);
+        }
+        liveGaps[race.race_id] = gapMap;
+      }
       const res = await fetch('/api/target-marks/auto-vb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: isArchive ? currentDate : undefined }),
+        body: JSON.stringify({ date: isArchive ? currentDate : undefined, liveGaps }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));
@@ -306,7 +339,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     } finally {
       setMarkSyncing(false);
     }
-  }, [isArchive, currentDate]);
+  }, [isArchive, currentDate, races, getLiveGap]);
 
   // --- 推奨買い目 ---
   // バックテスト実績確率ベースのEV + Kelly + 同一レース単勝制約
@@ -318,13 +351,14 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       const effectiveMinGap = danger.isDanger ? betParams.minGapDanger : betParams.minGap;
 
       for (const entry of race.entries) {
-        if (entry.vb_gap < effectiveMinGap) continue;
+        const liveGap = getLiveGap(race.race_id, entry);
+        if (liveGap < effectiveMinGap) continue;
 
         const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
         const placeOddsMin = getPlaceOddsMin(oddsMap, race.race_id, entry.umaban) ?? entry.place_odds_min ?? null;
 
         // EV = バックテストROI（gap別の実績回収率）
-        const empirical = getEmpiricalRates(entry.vb_gap);
+        const empirical = getEmpiricalRates(liveGap);
         const wEv = winOdds && winOdds > 0 ? empirical.winRoi : null;
         const pEv = placeOddsMin && placeOddsMin > 0 ? empirical.placeRoi : null;
 
@@ -334,7 +368,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
         const headRatio = calcHeadRatio(entry.pred_proba_wv, entry.pred_proba_v);
         const rec = getBuyRecommendation(
-          race.track_type, entry.vb_gap, entry.rank_v, winOdds,
+          race.track_type, liveGap, entry.rank_v, winOdds,
           betParams.betTypeMode, headRatio, betParams.headRatioThreshold,
         );
         if (!rec.type) continue;
@@ -450,7 +484,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
     validRecs.sort((a, b) => (b.betAmountWin + b.betAmountPlace) - (a.betAmountWin + a.betAmountPlace));
     return validRecs;
-  }, [races, oddsMap, dailyBudget, betParams]);
+  }, [races, oddsMap, dailyBudget, betParams, getLiveGap]);
 
   const betSummary = useMemo(() => {
     let winCount = 0, placeCount = 0, winTotal = 0, placeTotal = 0, evSum = 0, evCount = 0;
@@ -470,24 +504,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   }, [betRecommendations]);
 
   // --- 危険馬一覧 ---
-  // oddsMapが利用可能な場合はリアルタイムオッズでodds_rankを再計算
   const dangerHorses = useMemo<DangerHorseEntry[]>(() => {
     const entries: DangerHorseEntry[] = [];
     for (const race of races) {
-      // リアルタイムオッズから人気順を再計算
-      const raceOdds = oddsMap[race.race_id];
-      let liveRanking: Record<number, number> | null = null;
-      if (raceOdds) {
-        const sorted = race.entries
-          .map(e => ({ umaban: e.umaban, odds: raceOdds[e.umaban]?.winOdds ?? e.odds ?? 999 }))
-          .filter(e => e.odds > 0)
-          .sort((a, b) => a.odds - b.odds);
-        liveRanking = {};
-        sorted.forEach((e, i) => { liveRanking![e.umaban] = i + 1; });
-      }
-
       for (const e of race.entries) {
-        const currentRank = liveRanking?.[e.umaban] ?? e.odds_rank;
+        const currentRank = liveRankingMap[race.race_id]?.[e.umaban] ?? e.odds_rank;
         if (currentRank > 0 && currentRank <= 3) {
           const gap = e.rank_v - currentRank;
           if (gap >= 5) {
@@ -498,7 +519,15 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     }
     entries.sort((a, b) => a.race.race_number - b.race.race_number || b.dangerScore - a.dangerScore);
     return entries;
-  }, [races, oddsMap]);
+  }, [races, liveRankingMap]);
+
+  const filteredDangerHorses = useMemo(() => {
+    let entries = dangerHorses;
+    if (venueFilter !== 'all') entries = entries.filter(d => d.race.venue_name === venueFilter);
+    if (trackFilter !== 'all') entries = entries.filter(d => trackFilter === 'turf' ? isTurf(d.race.track_type) : isDirt(d.race.track_type));
+    if (raceNumFilter > 0) entries = entries.filter(d => d.race.race_number === raceNumFilter);
+    return entries;
+  }, [dangerHorses, venueFilter, trackFilter, raceNumFilter]);
 
   const sortedBetRecommendations = useMemo(() => {
     let recs = [...betRecommendations];
@@ -515,7 +544,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         case 'umaban': va = a.entry.umaban; vb = b.entry.umaban; break;
         case 'winEv': va = a.winEv ?? -1; vb = b.winEv ?? -1; break;
         case 'placeEv': va = a.placeEv ?? -1; vb = b.placeEv ?? -1; break;
-        case 'gap': va = a.entry.vb_gap; vb = b.entry.vb_gap; break;
+        case 'gap': va = getLiveGap(a.race.race_id, a.entry); vb = getLiveGap(b.race.race_id, b.entry); break;
         case 'kelly': {
           const ka = a.betType === '複勝' ? a.kellyPlace : a.kellyWin;
           const kb = b.betType === '複勝' ? b.kellyPlace : b.kellyWin;
@@ -537,7 +566,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       return (va - vb) * mul;
     });
     return recs;
-  }, [betRecommendations, betSort, venueFilter, trackFilter, raceNumFilter, oddsMap]);
+  }, [betRecommendations, betSort, venueFilter, trackFilter, raceNumFilter, oddsMap, getLiveGap]);
 
   const syncBetMarks = useCallback(async () => {
     setBetSyncing(true);
@@ -607,13 +636,13 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           break;
         }
         case 'ev': {
-          va = getEmpiricalRates(a.entry.vb_gap).winRoi;
-          vb = getEmpiricalRates(b.entry.vb_gap).winRoi;
+          va = getEmpiricalRates(getLiveGap(a.race.race_id, a.entry)).winRoi;
+          vb = getEmpiricalRates(getLiveGap(b.race.race_id, b.entry)).winRoi;
           break;
         }
         case 'place_ev': {
-          va = getEmpiricalRates(a.entry.vb_gap).placeRoi;
-          vb = getEmpiricalRates(b.entry.vb_gap).placeRoi;
+          va = getEmpiricalRates(getLiveGap(a.race.race_id, a.entry)).placeRoi;
+          vb = getEmpiricalRates(getLiveGap(b.race.race_id, b.entry)).placeRoi;
           break;
         }
         case 'head_ratio': {
@@ -631,12 +660,12 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           vb = pb > 0 ? pb : 999;
           break;
         }
-        default: va = a.entry.vb_gap; vb = b.entry.vb_gap; break;
+        default: va = getLiveGap(a.race.race_id, a.entry); vb = getLiveGap(b.race.race_id, b.entry); break;
       }
       return (va - vb) * mul;
     });
     return arr;
-  }, [filteredVBEntries, vbSort, oddsMap, getFinishPos]);
+  }, [filteredVBEntries, vbSort, oddsMap, getFinishPos, getLiveGap]);
 
   // ROI計算
   const roiStats = useMemo(() => {
@@ -766,7 +795,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         hasResults={hasResults && roiStats != null}
         hasBets={betRecommendations.length > 0}
         hasVB={filteredVBEntries.length > 0}
-        hasDanger={dangerHorses.length > 0}
+        hasDanger={filteredDangerHorses.length > 0}
       />
 
       {/* ROIサマリー */}
@@ -780,6 +809,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         sortedBetRecommendations={sortedBetRecommendations}
         betSummary={betSummary}
         oddsMap={oddsMap}
+        getLiveGap={getLiveGap}
         oddsLoading={oddsLoading}
         dailyBudget={dailyBudget}
         updateBudget={updateBudget}
@@ -804,6 +834,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         results={results}
         hasResults={hasResults}
         getFinishPos={getFinishPos}
+        getLiveGap={getLiveGap}
         vbSort={vbSort}
         setVbSort={setVbSort}
         syncVbMarks={syncVbMarks}
@@ -813,7 +844,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
       {/* 危険馬結果一覧 */}
       <DangerResults
-        dangerHorses={dangerHorses}
+        dangerHorses={filteredDangerHorses}
         oddsMap={oddsMap}
         dbResults={dbResults}
         getFinishPos={getFinishPos}

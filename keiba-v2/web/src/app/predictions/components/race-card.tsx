@@ -170,7 +170,7 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                       {entry.horse_name}
                       {isVB && <span className="ml-1 text-amber-500 text-[10px]">VB</span>}
                       {isVB && (() => {
-                        const rec = getBuyRecommendation(race.track_type, entry.vb_gap, entry.rank_v, winOdds);
+                        const rec = getBuyRecommendation(race.track_type, getLiveGap(entry), entry.rank_v, winOdds);
                         return rec.type ? (
                           <span className={`ml-1 px-1 py-0.5 rounded text-[9px] ${getRecBadgeClass(rec.type, rec.strength)}`}>
                             {rec.type}
