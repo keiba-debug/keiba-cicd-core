@@ -470,21 +470,35 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   }, [betRecommendations]);
 
   // --- 危険馬一覧 ---
+  // oddsMapが利用可能な場合はリアルタイムオッズでodds_rankを再計算
   const dangerHorses = useMemo<DangerHorseEntry[]>(() => {
     const entries: DangerHorseEntry[] = [];
     for (const race of races) {
+      // リアルタイムオッズから人気順を再計算
+      const raceOdds = oddsMap[race.race_id];
+      let liveRanking: Record<number, number> | null = null;
+      if (raceOdds) {
+        const sorted = race.entries
+          .map(e => ({ umaban: e.umaban, odds: raceOdds[e.umaban]?.winOdds ?? e.odds ?? 999 }))
+          .filter(e => e.odds > 0)
+          .sort((a, b) => a.odds - b.odds);
+        liveRanking = {};
+        sorted.forEach((e, i) => { liveRanking![e.umaban] = i + 1; });
+      }
+
       for (const e of race.entries) {
-        if (e.odds_rank > 0 && e.odds_rank <= 3) {
-          const gap = e.rank_v - e.odds_rank;
+        const currentRank = liveRanking?.[e.umaban] ?? e.odds_rank;
+        if (currentRank > 0 && currentRank <= 3) {
+          const gap = e.rank_v - currentRank;
           if (gap >= 5) {
-            entries.push({ race, entry: e, dangerScore: gap, oddsRank: e.odds_rank, rankV: e.rank_v });
+            entries.push({ race, entry: e, dangerScore: gap, oddsRank: currentRank, rankV: e.rank_v });
           }
         }
       }
     }
     entries.sort((a, b) => a.race.race_number - b.race.race_number || b.dangerScore - a.dangerScore);
     return entries;
-  }, [races]);
+  }, [races, oddsMap]);
 
   const sortedBetRecommendations = useMemo(() => {
     let recs = [...betRecommendations];
@@ -760,15 +774,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         <RoiSummary all={roiStats.all} turf={roiStats.turf} dirt={roiStats.dirt} />
       )}
 
-      {/* 危険馬結果一覧 */}
-      <DangerResults
-        dangerHorses={dangerHorses}
-        oddsMap={oddsMap}
-        dbResults={dbResults}
-        results={results}
-        getFinishPos={getFinishPos}
-      />
-
       {/* 推奨買い目 */}
       <BetRecommendations
         betRecommendations={betRecommendations}
@@ -804,6 +809,15 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         syncVbMarks={syncVbMarks}
         markSyncing={markSyncing}
         markResult={markResult}
+      />
+
+      {/* 危険馬結果一覧 */}
+      <DangerResults
+        dangerHorses={dangerHorses}
+        oddsMap={oddsMap}
+        dbResults={dbResults}
+        results={results}
+        getFinishPos={getFinishPos}
       />
 
       {/* 開催場別レース一覧 */}

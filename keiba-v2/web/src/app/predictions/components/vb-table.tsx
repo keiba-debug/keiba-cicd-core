@@ -45,11 +45,7 @@ export function VBTable({
           <div className="flex items-center gap-2">
             {markResult && (
               <span className="text-xs text-green-700 dark:text-green-400">
-                {Object.entries(markResult.marks)
-                  .filter(([, v]) => v > 0)
-                  .map(([k, v]) => `${k}${v}`)
-                  .join(' ')}
-                {' '}反映完了
+                {markResult.markedHorses}頭 反映完了
               </span>
             )}
             <button

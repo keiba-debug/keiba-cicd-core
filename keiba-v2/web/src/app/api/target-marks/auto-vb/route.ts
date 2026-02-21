@@ -11,13 +11,11 @@ import { writeHorseMark } from '@/lib/data/target-mark-reader';
 
 const MARK_SET = 2; // UmaMark2
 
-/** VB Gap → 印マッピング */
+/** VB Gap → 印マッピング（半角2文字: "+5", "10" 等） */
 function gapToMark(gap: number): string {
-  if (gap >= 5) return '◎';
-  if (gap >= 4) return '○';
-  if (gap >= 3) return '▲';
-  if (gap >= 2) return '△';
-  return '';
+  if (gap < 2) return '';
+  if (gap >= 10) return String(gap).slice(0, 2);  // "10", "11", ...
+  return '+' + gap;                                // "+2", "+3", ... "+9"
 }
 
 export async function POST(request: NextRequest) {
@@ -41,7 +39,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const markCounts: Record<string, number> = { '◎': 0, '○': 0, '▲': 0, '△': 0 };
+    const markCounts: Record<string, number> = {};
     let totalRaces = 0;
     let markedHorses = 0;
 
@@ -74,7 +72,7 @@ export async function POST(request: NextRequest) {
           );
           if (success) {
             markedHorses++;
-            markCounts[mark]++;
+            markCounts[mark] = (markCounts[mark] || 0) + 1;
           }
         }
       }

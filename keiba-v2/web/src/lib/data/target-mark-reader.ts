@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as iconv from 'iconv-lite';
 
-// 印のバイトパターン（Shift-JIS）
+// 印のバイトパターン（Shift-JIS 2バイト文字）
 const MARK_BYTES_TO_SYMBOL: Record<string, string> = {
   '819d': '◎',  // 本命
   '819b': '○',  // 対抗
@@ -33,6 +33,33 @@ const SYMBOL_TO_MARK_BYTES: Record<string, Buffer> = {
   '穴': Buffer.from([0x8c, 0x8a]),
   '': Buffer.from([0x20, 0x20]),
 };
+
+/**
+ * 印文字列→2バイトバッファ変換（Shift-JIS or ASCII 2文字）
+ * 定義済み印（◎○▲△★穴）に加え、半角2文字（"+5","10"等）にも対応
+ */
+function encodeMarkBytes(mark: string): Buffer | null {
+  const predefined = SYMBOL_TO_MARK_BYTES[mark];
+  if (predefined) return predefined;
+  if (mark.length === 2 && mark.charCodeAt(0) < 128 && mark.charCodeAt(1) < 128) {
+    return Buffer.from([mark.charCodeAt(0), mark.charCodeAt(1)]);
+  }
+  return null;
+}
+
+/**
+ * 2バイト→印文字列変換（Shift-JIS or ASCII 2文字）
+ */
+function decodeMarkBytes(b1: number, b2: number): string {
+  const hexKey = b1.toString(16).padStart(2, '0') + b2.toString(16).padStart(2, '0');
+  const predefined = MARK_BYTES_TO_SYMBOL[hexKey];
+  if (predefined !== undefined) return predefined;
+  // 半角ASCII 2文字（0x21-0x7E）
+  if (b1 >= 0x21 && b1 <= 0x7e && b2 >= 0x21 && b2 <= 0x7e) {
+    return String.fromCharCode(b1, b2);
+  }
+  return '';
+}
 
 // 場所コード → 漢字マッピング
 const VENUE_CODE_TO_KANJI: Record<string, string> = {
@@ -112,8 +139,16 @@ export function getMarkFilePath(
 }
 
 /**
+ * 必要レコード数を算出
+ * TARGET仕様: 8日開催=96レコード, 9日以上=144レコード(12日分)
+ */
+function getRequiredRecords(day: number): number {
+  return day > 8 ? 144 : 96;
+}
+
+/**
  * レコードインデックスを計算
- * @param day 日次（1-8）
+ * @param day 日次（1-12）
  * @param raceNumber レース番号（1-12）
  */
 function getRecordIndex(day: number, raceNumber: number): number {
@@ -163,10 +198,7 @@ export function getRaceMarks(
   const horseMarks: Record<number, string> = {};
   for (let uma = 1; uma <= 18; uma++) {
     const offset = recordStart + 6 + (uma - 1) * 2;
-    const b1 = content[offset];
-    const b2 = content[offset + 1];
-    const hexKey = b1.toString(16).padStart(2, '0') + b2.toString(16).padStart(2, '0');
-    const mark = MARK_BYTES_TO_SYMBOL[hexKey] || '';
+    const mark = decodeMarkBytes(content[offset], content[offset + 1]);
     if (mark) {
       horseMarks[uma] = mark;
     }
@@ -192,7 +224,7 @@ export function writeHorseMark(
   mark: string,  // '◎', '○', '▲', '△', '★', '穴', '' (無印)
   markSet: number = 1  // 印セット番号（1-8）
 ): boolean {
-  const markBytes = SYMBOL_TO_MARK_BYTES[mark];
+  const markBytes = encodeMarkBytes(mark);
   if (!markBytes) {
     console.error(`Unknown mark: ${mark}`);
     return false;
@@ -203,30 +235,43 @@ export function writeHorseMark(
   const recordStart = recordIndex * 44;
   const offset = recordStart + 6 + (horseNumber - 1) * 2;
   
+  const requiredRecords = getRequiredRecords(day);
+  const requiredSize = requiredRecords * 44;
   let content: Buffer;
-  
-  // ファイルが存在しない場合は新規作成
+
   if (!fs.existsSync(filePath)) {
-    // 96レコード × 44バイト
-    content = Buffer.alloc(96 * 44, 0x20);  // スペースで初期化
-    for (let i = 0; i < 96; i++) {
+    // 新規作成
+    content = Buffer.alloc(requiredSize, 0x20);
+    for (let i = 0; i < requiredRecords; i++) {
       const base = i * 44;
       content[base + 42] = 0x0d;  // CR
       content[base + 43] = 0x0a;  // LF
     }
-    
-    // ディレクトリ作成
+
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
   } else {
     content = fs.readFileSync(filePath);
+
+    // ファイルが小さい場合は拡張（nichi>8で既存ファイルが96レコードの場合）
+    if (content.length < requiredSize) {
+      const expanded = Buffer.alloc(requiredSize, 0x20);
+      content.copy(expanded, 0);  // 既存データをコピー
+      // 新しいレコードにCR/LFを設定
+      for (let i = content.length / 44; i < requiredRecords; i++) {
+        const base = i * 44;
+        expanded[base + 42] = 0x0d;
+        expanded[base + 43] = 0x0a;
+      }
+      content = expanded;
+    }
   }
-  
+
   // 書き込み
   markBytes.copy(content, offset);
-  
+
   fs.writeFileSync(filePath, content);
   return true;
 }
