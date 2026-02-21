@@ -5,12 +5,12 @@ import { Badge } from '@/components/ui/badge';
 import type { PredictionsLive, PredictionRace, PredictionEntry, RaceResultsMap } from '@/lib/data/predictions-reader';
 
 // lib
-import type { DbOddsResponse, OddsMap, DbResultsMap, DbResultEntry, DbResultsResponse, BetRecommendation, DangerHorseEntry, SortState, BetStrategyParams, BetPresetKey } from './lib/types';
+import type { DbOddsResponse, OddsMap, DbResultsMap, DbResultEntry, DbResultsResponse, BetRecommendation, DangerHorseEntry, SortState } from './lib/types';
 import {
   getWinOdds, getPlaceOddsMin, calcWinEv, calcPlaceEv, calcHeadRatio,
   isTurf, isDirt, getPlaceLimit, getRaceDanger,
 } from './lib/helpers';
-import { BET_CONFIG, BET_PRESETS, getDefaultParams, getBuyRecommendation, calcKellyFraction, getEmpiricalRates } from './lib/bet-logic';
+import { BET_CONFIG, rescaleBudget, type ServerPresetKey } from './lib/bet-logic';
 
 // components
 import { DateNav } from './components/date-nav';
@@ -67,33 +67,17 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     localStorage.setItem('keiba_daily_budget', String(v));
   }, []);
 
-  // 推奨買い目 戦略パラメータ
-  const [betParams, setBetParams] = useState<BetStrategyParams>(getDefaultParams);
-  const [betPreset, setBetPreset] = useState<BetPresetKey | 'custom'>('standard');
+  // 推奨買い目 プリセット選択（デフォルト: win_only）
+  const [preset, setPreset] = useState<ServerPresetKey>('win_only');
   useEffect(() => {
-    const saved = localStorage.getItem('keiba_bet_params');
-    const savedPreset = localStorage.getItem('keiba_bet_preset');
-    if (saved) {
-      try { setBetParams(JSON.parse(saved)); } catch { /* ignore */ }
+    const saved = localStorage.getItem('keiba_bet_preset');
+    if (saved && ['win_only', 'conservative', 'standard', 'aggressive'].includes(saved)) {
+      setPreset(saved as ServerPresetKey);
     }
-    if (savedPreset) setBetPreset(savedPreset as BetPresetKey | 'custom');
   }, []);
-  const updateBetParams = useCallback((params: BetStrategyParams) => {
-    setBetParams(params);
-    localStorage.setItem('keiba_bet_params', JSON.stringify(params));
-  }, []);
-  const updateBetPreset = useCallback((preset: BetPresetKey) => {
-    setBetPreset(preset);
-    const params = { ...BET_PRESETS[preset] };
-    setBetParams(params);
-    localStorage.setItem('keiba_bet_preset', preset);
-    localStorage.setItem('keiba_bet_params', JSON.stringify(params));
-  }, []);
-  const updateBetParamsCustom = useCallback((params: BetStrategyParams) => {
-    setBetPreset('custom');
-    setBetParams(params);
-    localStorage.setItem('keiba_bet_preset', 'custom');
-    localStorage.setItem('keiba_bet_params', JSON.stringify(params));
+  const updatePreset = useCallback((p: ServerPresetKey) => {
+    setPreset(p);
+    localStorage.setItem('keiba_bet_preset', p);
   }, []);
 
   // TARGET PD CSV
@@ -342,165 +326,64 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   }, [isArchive, currentDate, races, getLiveGap]);
 
   // --- 推奨買い目 ---
-  // バックテスト実績確率ベースのEV + Kelly + 同一レース単勝制約
+  // サーバー側 bet_engine.py が生成した recommendations JSON を読み込み
 
   const betRecommendations = useMemo<BetRecommendation[]>(() => {
-    const recs: BetRecommendation[] = [];
+    const presetData = data.recommendations?.[preset];
+    if (!presetData) return [];
+
+    const serverRecs = rescaleBudget(presetData.bets, dailyBudget);
+
+    // race/entry ルックアップ構築
+    const raceMap = new Map<string, PredictionRace>();
+    const entryMap = new Map<string, PredictionEntry>();
     for (const race of races) {
-      const danger = getRaceDanger(race.entries, betParams.dangerThreshold);
-      const effectiveMinGap = danger.isDanger ? betParams.minGapDanger : betParams.minGap;
-
+      raceMap.set(race.race_id, race);
       for (const entry of race.entries) {
-        const liveGap = getLiveGap(race.race_id, entry);
-        if (liveGap < effectiveMinGap) continue;
-
-        const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
-        const placeOddsMin = getPlaceOddsMin(oddsMap, race.race_id, entry.umaban) ?? entry.place_odds_min ?? null;
-
-        // EV = バックテストROI（gap別の実績回収率）
-        const empirical = getEmpiricalRates(liveGap);
-        const wEv = winOdds && winOdds > 0 ? empirical.winRoi : null;
-        const pEv = placeOddsMin && placeOddsMin > 0 ? empirical.placeRoi : null;
-
-        const hasWinEv = wEv !== null && wEv > betParams.minEvThreshold;
-        const hasPlaceEv = pEv !== null && pEv > betParams.minEvThreshold;
-        if (!hasWinEv && !hasPlaceEv) continue;
-
-        const headRatio = calcHeadRatio(entry.pred_proba_wv, entry.pred_proba_v);
-        const rec = getBuyRecommendation(
-          race.track_type, liveGap, entry.rank_v, winOdds,
-          betParams.betTypeMode, headRatio, betParams.headRatioThreshold,
-        );
-        if (!rec.type) continue;
-
-        // Kelly: バックテスト実績確率ベース、Kelly fractionにキャップ
-        const kellyWinRaw = winOdds && winOdds > 0 ? calcKellyFraction(empirical.winHitRate, winOdds) : 0;
-        const kellyPlaceRaw = placeOddsMin && placeOddsMin > 0 ? calcKellyFraction(empirical.placeHitRate, placeOddsMin) : 0;
-        const kellyWin = Math.min(kellyWinRaw, betParams.kellyCap);
-        const kellyPlace = Math.min(kellyPlaceRaw, betParams.kellyCap);
-
-        let finalType = rec.type;
-        let useWin = finalType === '単勝' || finalType === '単複';
-        let usePlace = finalType === '複勝' || finalType === '単複';
-
-        // Place Kelly が0以下なら単勝にフォールバック
-        if (usePlace && kellyPlace <= 0) {
-          if (kellyWin > 0 && hasWinEv) {
-            finalType = '単勝';
-            useWin = true;
-            usePlace = false;
-          } else if (!useWin) {
-            continue;
-          }
-        }
-        // 単複で単勝Kellyが0以下 → 複勝のみに
-        if (useWin && kellyWin <= 0) {
-          if (usePlace && kellyPlace > 0) {
-            finalType = '複勝';
-            useWin = false;
-          } else if (!usePlace) {
-            continue;
-          }
-        }
-
-        // 両方のKellyが0以下なら除外（単複で10≤odds<18.6の中穴馬で発生）
-        if (kellyWin <= 0 && kellyPlace <= 0) continue;
-
-        recs.push({
-          race, entry,
-          betType: finalType,
-          strength: rec.strength,
-          winEv: wEv,
-          placeEv: pEv,
-          kellyWin,
-          kellyPlace,
-          betAmountWin: 0,
-          betAmountPlace: 0,
-          danger: danger.isDanger ? danger : undefined,
-        });
+        entryMap.set(`${race.race_id}-${entry.umaban}`, entry);
       }
     }
 
-    // 同一レース単勝制約: 1レースで最もWin EVの高い馬のみ単勝
-    const winByRace = new Map<string, BetRecommendation>();
-    for (const r of recs) {
-      if (r.betType === '単勝' || r.betType === '単複') {
-        const existing = winByRace.get(r.race.race_id);
-        if (!existing || (r.winEv ?? 0) > (existing.winEv ?? 0)) {
-          winByRace.set(r.race.race_id, r);
-        }
-      }
-    }
-    // 単勝が選ばれなかった馬: 複勝にダウングレード or 除外
-    for (const r of recs) {
-      const isWinType = r.betType === '単勝' || r.betType === '単複';
-      if (isWinType && winByRace.get(r.race.race_id) !== r) {
-        if (r.betType === '単複') {
-          r.betType = '複勝';
-        } else {
-          if (r.kellyPlace > 0 && r.placeEv && r.placeEv > betParams.minEvThreshold) {
-            r.betType = '複勝';
-          } else {
-            r.betAmountWin = -1;  // 除外マーク
-          }
-        }
-      }
-    }
-    const validRecs = recs.filter(r => r.betAmountWin !== -1);
+    const displayRecs: BetRecommendation[] = [];
+    for (const sr of serverRecs) {
+      const race = raceMap.get(sr.race_id);
+      const entry = entryMap.get(`${sr.race_id}-${sr.umaban}`);
+      if (!race || !entry) continue;
 
-    // Kelly金額計算
-    const budget = dailyBudget;
-    let totalRaw = 0;
-    for (const r of validRecs) {
-      const useWin = r.betType === '単勝' || r.betType === '単複';
-      const usePlace = r.betType === '複勝' || r.betType === '単複';
-      if (useWin) totalRaw += r.kellyWin * betParams.kellyFraction * budget;
-      if (usePlace) totalRaw += r.kellyPlace * betParams.kellyFraction * budget;
+      const danger = getRaceDanger(race.entries, 5);
+
+      displayRecs.push({
+        race,
+        entry,
+        betType: sr.bet_type,
+        strength: sr.strength,
+        winEv: sr.win_ev,
+        placeEv: sr.place_ev,
+        kellyFraction: sr.kelly_capped,
+        betAmountWin: sr.win_amount,
+        betAmountPlace: sr.place_amount,
+        gap: sr.gap,
+        winGap: sr.win_gap,
+        predictedMargin: sr.predicted_margin,
+        isDanger: sr.is_danger,
+        danger: danger.isDanger ? danger : undefined,
+      });
     }
 
-    const scale = totalRaw > budget ? budget / totalRaw : 1.0;
-
-    for (const r of validRecs) {
-      r.betAmountWin = 0;
-      r.betAmountPlace = 0;
-      const useWin = r.betType === '単勝' || r.betType === '単複';
-      const usePlace = r.betType === '複勝' || r.betType === '単複';
-      if (useWin && r.kellyWin > 0) {
-        const raw = r.kellyWin * betParams.kellyFraction * budget * scale;
-        r.betAmountWin = Math.max(BET_CONFIG.minBet, Math.round(raw / BET_CONFIG.betUnit) * BET_CONFIG.betUnit);
-      }
-      if (usePlace && r.kellyPlace > 0) {
-        const raw = r.kellyPlace * betParams.kellyFraction * budget * scale;
-        r.betAmountPlace = Math.max(BET_CONFIG.minBet, Math.round(raw / BET_CONFIG.betUnit) * BET_CONFIG.betUnit);
-      }
-    }
-
-    // 単複で複勝≥単勝を保証
-    for (const r of validRecs) {
-      if (r.betType === '単複' && r.betAmountPlace < r.betAmountWin) {
-        r.betAmountPlace = r.betAmountWin;
-      }
-    }
-
-    validRecs.sort((a, b) => (b.betAmountWin + b.betAmountPlace) - (a.betAmountWin + a.betAmountPlace));
-    return validRecs;
-  }, [races, oddsMap, dailyBudget, betParams, getLiveGap]);
+    displayRecs.sort((a, b) => (b.betAmountWin + b.betAmountPlace) - (a.betAmountWin + a.betAmountPlace));
+    return displayRecs;
+  }, [data.recommendations, preset, dailyBudget, races]);
 
   const betSummary = useMemo(() => {
-    let winCount = 0, placeCount = 0, winTotal = 0, placeTotal = 0, evSum = 0, evCount = 0;
+    let winCount = 0, placeCount = 0, winTotal = 0, placeTotal = 0;
     const dangerRaceIds = new Set<string>();
     for (const r of betRecommendations) {
       if (r.betAmountWin > 0) { winCount++; winTotal += r.betAmountWin; }
       if (r.betAmountPlace > 0) { placeCount++; placeTotal += r.betAmountPlace; }
-      // 期待回収額: 補正EVベース（バックテスト実績に基づく現実的な期待値）
-      if (r.winEv && r.betAmountWin > 0) { evSum += r.winEv * r.betAmountWin; evCount += r.betAmountWin; }
-      if (r.placeEv && r.betAmountPlace > 0) { evSum += r.placeEv * r.betAmountPlace; evCount += r.betAmountPlace; }
       if (r.danger?.isDanger) dangerRaceIds.add(r.race.race_id);
     }
-    const avgEv = evCount > 0 ? evSum / evCount : 0;
     const totalAmount = winTotal + placeTotal;
-    const expectedReturn = Math.round(evSum);
-    return { winCount, placeCount, winTotal, placeTotal, totalAmount, avgEv, expectedReturn, totalBets: betRecommendations.length, dangerRaces: dangerRaceIds.size };
+    return { winCount, placeCount, winTotal, placeTotal, totalAmount, totalBets: betRecommendations.length, dangerRaces: dangerRaceIds.size };
   }, [betRecommendations]);
 
   // --- 危険馬一覧 ---
@@ -545,11 +428,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         case 'winEv': va = a.winEv ?? -1; vb = b.winEv ?? -1; break;
         case 'placeEv': va = a.placeEv ?? -1; vb = b.placeEv ?? -1; break;
         case 'gap': va = getLiveGap(a.race.race_id, a.entry); vb = getLiveGap(b.race.race_id, b.entry); break;
-        case 'kelly': {
-          const ka = a.betType === '複勝' ? a.kellyPlace : a.kellyWin;
-          const kb = b.betType === '複勝' ? b.kellyPlace : b.kellyWin;
-          va = ka; vb = kb; break;
-        }
+        case 'kelly': va = a.kellyFraction; vb = b.kellyFraction; break;
         case 'odds': {
           va = getWinOdds(oddsMap, a.race.race_id, a.entry.umaban, a.entry.odds) ?? 9999;
           vb = getWinOdds(oddsMap, b.race.race_id, b.entry.umaban, b.entry.odds) ?? 9999;
@@ -636,13 +515,13 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           break;
         }
         case 'ev': {
-          va = getEmpiricalRates(getLiveGap(a.race.race_id, a.entry)).winRoi;
-          vb = getEmpiricalRates(getLiveGap(b.race.race_id, b.entry)).winRoi;
+          va = a.entry.win_ev ?? -1;
+          vb = b.entry.win_ev ?? -1;
           break;
         }
         case 'place_ev': {
-          va = getEmpiricalRates(getLiveGap(a.race.race_id, a.entry)).placeRoi;
-          vb = getEmpiricalRates(getLiveGap(b.race.race_id, b.entry)).placeRoi;
+          va = a.entry.place_ev ?? -1;
+          vb = b.entry.place_ev ?? -1;
           break;
         }
         case 'head_ratio': {
@@ -819,10 +698,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         betSyncResult={betSyncResult}
         betSort={betSort}
         setBetSort={setBetSort}
-        betParams={betParams}
-        betPreset={betPreset}
-        onPresetChange={updateBetPreset}
-        onParamsChange={updateBetParamsCustom}
+        preset={preset}
+        onPresetChange={updatePreset}
         dbResults={dbResults}
         getFinishPos={getFinishPos}
       />

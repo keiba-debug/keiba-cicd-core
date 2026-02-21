@@ -6,10 +6,9 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PredictionRace, RaceResultsMap } from '@/lib/data/predictions-reader';
 import type { OddsMap, DbResultsMap, SortState } from '../lib/types';
-import { getBuyRecommendation } from '../lib/bet-logic';
 import {
   getWinOdds, calcWinEv, getGapColor, getGapBg, getEvColor, getMarkColor,
-  getTrackBadgeClass, getRecBadgeClass, getFinishColor, getPlaceLimit,
+  getTrackBadgeClass, getFinishColor, getPlaceLimit,
   getRaceLink, getKoukakuDetail, getCommentColor, getCommentTooltip, SortTh,
 } from '../lib/helpers';
 
@@ -170,14 +169,6 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                     <td className="px-2 py-1 font-bold text-xs">
                       {entry.horse_name}
                       {isVB && <span className="ml-1 text-amber-500 text-[10px]">VB</span>}
-                      {isVB && (() => {
-                        const rec = getBuyRecommendation(race.track_type, getLiveGap(entry), entry.rank_v, winOdds);
-                        return rec.type ? (
-                          <span className={`ml-1 px-1 py-0.5 rounded text-[9px] ${getRecBadgeClass(rec.type, rec.strength)}`}>
-                            {rec.type}
-                          </span>
-                        ) : null;
-                      })()}
                       {(entry.koukaku_rote_count ?? 0) > 0 && (
                         <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" title={getKoukakuDetail(entry)}>
                           降格{(entry.koukaku_rote_count ?? 0) > 1 ? `×${entry.koukaku_rote_count}` : ''}

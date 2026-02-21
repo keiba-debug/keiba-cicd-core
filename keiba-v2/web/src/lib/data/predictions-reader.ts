@@ -124,6 +124,15 @@ export interface ServerBetPreset {
 
 export type ServerRecommendations = Record<string, ServerBetPreset>;
 
+export interface VbExclusion {
+  race_id: string;
+  umaban: number;
+  horse_name: string;
+  gap: number;
+  predicted_margin: number;
+  exclusion_reason: string;
+}
+
 export interface PredictionsLive {
   version: string;
   created_at: string;
@@ -133,6 +142,7 @@ export interface PredictionsLive {
   db_odds_coverage: string;
   races: PredictionRace[];
   recommendations?: ServerRecommendations;
+  vb_exclusions?: VbExclusion[];
   summary: {
     total_races: number;
     total_entries: number;

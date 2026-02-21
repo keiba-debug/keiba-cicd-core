@@ -69,7 +69,7 @@ export interface DangerHorseEntry {
   rankV: number;          // モデルV順位
 }
 
-// --- 推奨買い目 ---
+// --- 推奨買い目（サーバー推奨 + レース/馬コンテキスト表示用） ---
 
 export interface BetRecommendation {
   race: PredictionRace;
@@ -78,27 +78,14 @@ export interface BetRecommendation {
   strength: 'strong' | 'normal';
   winEv: number | null;
   placeEv: number | null;
-  kellyWin: number;
-  kellyPlace: number;
+  kellyFraction: number;   // kelly_capped from server
   betAmountWin: number;
   betAmountPlace: number;
+  gap: number;
+  winGap: number;
+  predictedMargin: number;
+  isDanger: boolean;
   danger?: DangerInfo;
-}
-
-// --- 買い目戦略パラメータ ---
-
-export type BetTypeMode = 'auto' | 'place_only' | 'win_focus';
-export type BetPresetKey = 'standard' | 'place_focus' | 'aggressive';
-
-export interface BetStrategyParams {
-  minGap: number;
-  minGapDanger: number;
-  dangerThreshold: number;
-  kellyCap: number;
-  kellyFraction: number;
-  minEvThreshold: number;
-  betTypeMode: BetTypeMode;
-  headRatioThreshold: number | null;
 }
 
 // --- ソート ---

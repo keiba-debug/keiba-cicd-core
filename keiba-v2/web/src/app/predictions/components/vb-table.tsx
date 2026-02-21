@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { PredictionRace, PredictionEntry } from '@/lib/data/predictions-reader';
 import type { OddsMap, DbResultsMap, SortState } from '../lib/types';
-import { getBuyRecommendation, getEmpiricalRates } from '../lib/bet-logic';
 import {
   getWinOdds, getPlaceOddsMin, calcHeadRatio,
   getGapColor, getGapBg, getEvColor, getMarkColor, getRecBadgeClass,
@@ -94,17 +93,14 @@ export function VBTable({
               {sortedVBEntries.map(({ race, entry }) => {
                 const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
                 const placeOddsMin = entry.place_odds_min ?? getPlaceOddsMin(oddsMap, race.race_id, entry.umaban);
-                // EV = バックテストROI（gap別実績回収率）
                 const liveGap = getLiveGap(race.race_id, entry);
-                const empirical = getEmpiricalRates(liveGap);
-                const ev = winOdds && winOdds > 0 ? empirical.winRoi : null;
-                const placeEv = placeOddsMin && placeOddsMin > 0 ? empirical.placeRoi : null;
+                const ev = entry.win_ev ?? null;
+                const placeEv = entry.place_ev ?? null;
                 const headRatio = calcHeadRatio(entry.pred_proba_wv, entry.pred_proba_v);
                 const finishPos = getFinishPos(race.race_id, entry.umaban);
                 const placeLimit = getPlaceLimit(race.num_runners);
                 const isPlaceHit = finishPos > 0 && placeLimit > 0 && finishPos <= placeLimit;
                 const dbEntry = dbResults[race.race_id]?.[entry.umaban];
-                const rec = getBuyRecommendation(race.track_type, liveGap, entry.rank_v, winOdds);
                 const winGap = entry.win_vb_gap;
                 return (
                   <tr
@@ -142,12 +138,8 @@ export function VBTable({
                         </span>
                       )}
                     </td>
-                    <td className="px-2 py-1.5 border text-center">
-                      {rec.type && (
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${getRecBadgeClass(rec.type, rec.strength)}`}>
-                          {rec.type}
-                        </span>
-                      )}
+                    <td className="px-2 py-1.5 border text-center text-[10px] text-muted-foreground">
+                      -
                     </td>
                     <td className={`px-2 py-1.5 border text-center ${getMarkColor(entry.kb_mark)}`}>
                       {entry.kb_mark || '-'}
