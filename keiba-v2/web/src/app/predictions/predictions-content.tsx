@@ -368,6 +368,9 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           }
         }
 
+        // 両方のKellyが0以下なら除外（単複で10≤odds<18.6の中穴馬で発生）
+        if (kellyWin <= 0 && kellyPlace <= 0) continue;
+
         recs.push({
           race, entry,
           betType: finalType,
