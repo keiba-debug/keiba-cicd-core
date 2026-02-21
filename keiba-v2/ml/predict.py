@@ -38,6 +38,10 @@ from ml.features.training_features import compute_training_features
 from ml.features.speed_features import compute_speed_features
 from ml.features.comment_features import compute_comment_features
 from ml.features.slow_start_features import compute_slow_start_features
+from ml.bet_engine import (
+    PRESETS, generate_recommendations,
+    recommendations_to_dict, recommendations_summary,
+)
 
 # === Value Bet閾値 ===
 VALUE_BET_MIN_GAP = 3  # experiment_v3.pyと統一
@@ -116,12 +120,21 @@ def load_model_and_meta(model_version: Optional[str] = None):
     if meta.get('has_calibrators') and calibrators is None:
         print("[WARN] model_meta says calibrators exist but calibrators.pkl not found — using raw probabilities for EV")
 
+    # 回帰モデル (着差予測, オプション)
+    model_reg_b = None
+    reg_path = load_dir / "model_reg_b.txt"
+    if reg_path.exists():
+        model_reg_b = lgb.Booster(model_file=str(reg_path))
+        print(f"[Model] Regression model loaded: model_reg_b.txt")
+    else:
+        print(f"[Model] Regression model not found - running without margin predictions")
+
     ver_label = meta.get('version', '?')
     feat_a = len(meta.get('features_all', []))
     feat_v = len(meta.get('features_value', []))
     print(f"[Model] Version: {ver_label}, Features: A={feat_a}, V={feat_v}")
 
-    return model_a, model_b, model_w, model_wv, meta, calibrators
+    return model_a, model_b, model_w, model_wv, meta, calibrators, model_reg_b
 
 
 def list_model_versions() -> list:
@@ -303,6 +316,7 @@ def predict_race(
     db_place_odds: Optional[Dict[int, dict]] = None,
     kb_ext_index: Optional[dict] = None,
     calibrators: Optional[dict] = None,
+    model_reg_b=None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -313,6 +327,7 @@ def predict_race(
         model_wv: Winバリューモデル (Optional)
         db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
         calibrators: IsotonicRegressionキャリブレーター辞書 (Optional)
+        model_reg_b: 着差回帰モデル (Optional)
     """
     features_all = meta['features_all']
     features_value = meta['features_value']
@@ -499,6 +514,16 @@ def predict_race(
     arr_a = np.array(feature_rows_a)
     arr_v = np.array(feature_rows_v)
 
+    # === 特徴量NaN検証: 全値NaNの特徴量があれば警告 ===
+    nan_cols_a = [f for j, f in enumerate(features_all)
+                  if np.all(np.isnan(arr_a[:, j]))]
+    nan_cols_v = [f for j, f in enumerate(features_value)
+                  if np.all(np.isnan(arr_v[:, j]))]
+    if nan_cols_a:
+        print(f"[WARN] Model A: 全値NaNの特徴量 ({len(nan_cols_a)}件): {nan_cols_a}")
+    if nan_cols_v:
+        print(f"[WARN] Model B: 全値NaNの特徴量 ({len(nan_cols_v)}件): {nan_cols_v}")
+
     # === Place予測 (is_top3) ===
     pred_a_raw = model_a.predict(arr_a)
     pred_b_raw = model_b.predict(arr_v)
@@ -543,6 +568,11 @@ def predict_race(
         rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w), 1)}
         rank_wv_dict = {i: r for r, i in enumerate(np.argsort(-pred_wv), 1)}
 
+    # === 着差回帰予測 ===
+    pred_margin = None
+    if model_reg_b is not None:
+        pred_margin = model_reg_b.predict(arr_v)
+
     # ランク計算
     rank_a_dict = {i: r for r, i in enumerate(np.argsort(-pred_a), 1)}
     rank_v_dict = {i: r for r, i in enumerate(np.argsort(-pred_b), 1)}
@@ -584,6 +614,7 @@ def predict_race(
             # Place predictions (is_top3)
             'pred_proba_a': round(float(pred_a[i]), 4),
             'pred_proba_v': round(float(pred_b[i]), 4),
+            'pred_proba_v_raw': round(float(pred_b_raw[i]), 6),
             'rank_a': int(ra),
             'rank_v': int(rv),
             'odds_rank': odds_rank,
@@ -605,6 +636,8 @@ def predict_race(
                 if has_win_model and pred_wv_for_ev is not None and p['odds'] > 0 else None,
             'place_ev': round(float(pred_b_for_ev[i]) * place_low, 4)
                 if place_low and place_low > 0 else None,
+            # 着差回帰予測
+            'predicted_margin': round(float(pred_margin[i]), 3) if pred_margin is not None else None,
             # keibabook情報
             'kb_mark': p['kb_mark'],
             'kb_mark_point': p['kb_mark_point'],
@@ -714,7 +747,7 @@ def main():
 
     # モデルロード
     print("[Load] Loading models...")
-    model_a, model_b, model_w, model_wv, meta, calibrators = load_model_and_meta(model_version)
+    model_a, model_b, model_w, model_wv, meta, calibrators, model_reg_b = load_model_and_meta(model_version)
 
     # マスタデータロード
     print("[Load] Loading master data...")
@@ -806,6 +839,7 @@ def main():
             db_place_odds=db_place_odds_index.get(race['race_id']),
             kb_ext_index=kb_ext_index,
             calibrators=calibrators,
+            model_reg_b=model_reg_b,
         )
         all_predictions.append(pred)
 
@@ -822,6 +856,28 @@ def main():
         vb_marker = ' [VB]' if top1 and top1['is_value_bet'] else ''
         print(f"  {venue}{rn}R: Top1={top1_name} (gap={top1_gap}){vb_marker}")
 
+    # === 買い目推奨生成 (bet_engine) ===
+    print(f"\n[BetEngine] Generating recommendations...")
+    all_recommendations = {}
+    for preset_name, preset_params in PRESETS.items():
+        recs = generate_recommendations(all_predictions, preset_params, budget=30000)
+        all_recommendations[preset_name] = {
+            'params': {
+                'win_min_gap': preset_params.win_min_gap,
+                'win_max_margin': preset_params.win_max_margin,
+                'place_min_gap': preset_params.place_min_gap,
+                'place_max_margin': preset_params.place_max_margin,
+                'place_min_ev': preset_params.place_min_ev,
+                'kelly_fraction': preset_params.kelly_fraction,
+            },
+            'bets': recommendations_to_dict(recs),
+            'summary': recommendations_summary(recs),
+        }
+        s = recommendations_summary(recs)
+        print(f"  {preset_name}: {s['total_bets']} bets, "
+              f"Win={s['win_bets']}, Place={s['place_bets']}, "
+              f"Amount={s['total_amount']:,}")
+
     # 結果保存
     actual_model_version = model_version if model_version else meta.get('version', '?')
     output = {
@@ -836,6 +892,7 @@ def main():
         'odds_source': 'mykeibadb' if db_odds_index else 'json',
         'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
         'races': all_predictions,
+        'recommendations': all_recommendations,
         'summary': {
             'total_races': len(all_predictions),
             'total_entries': sum(len(p['entries']) for p in all_predictions),

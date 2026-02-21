@@ -162,8 +162,8 @@ def compute_ndcg(df: pd.DataFrame, score_col: str, k: int = 3) -> float:
     for race_id, group in df.groupby('race_id'):
         if len(group) < 2:
             continue
-        # 関連度: 1着=5, 2着=3, 3着=2, 4-5着=1, 6着以降=0
-        rel_map = {1: 5, 2: 3, 3: 2, 4: 1, 5: 1}
+        # 関連度: prepare_ranking_dataと統一した0-4スケール
+        rel_map = {1: 4, 2: 3, 3: 2, 4: 1, 5: 1}
         rels = group['finish_position'].map(lambda x: rel_map.get(x, 0)).values
         scores = group[score_col].values
 
@@ -228,7 +228,14 @@ def evaluate_model(
     results['top1_win_roi'] = round(win_roi, 1)
 
     top1_places_data = top1[top1['is_top3'] == 1]
-    place_return = top1_places_data['odds'].apply(lambda o: max(o / 3.5, 1.1)).sum() * 100
+
+    def _place_odds(row):
+        pl = row.get('place_odds_low')
+        if pd.notna(pl) and pl > 0:
+            return float(pl)
+        return max(row['odds'] / 3.5, 1.1)
+
+    place_return = top1_places_data.apply(_place_odds, axis=1).sum() * 100
     place_roi = place_return / (len(top1) * 100) * 100 if len(top1) > 0 else 0
     results['top1_place_roi'] = round(place_roi, 1)
 
@@ -289,7 +296,12 @@ def evaluate_vb_strategy(
                     win_return += row['odds'] * bet
                     win_hits += 1
                 if row['is_top3'] == 1:
-                    place_odds = max(row['odds'] / 3.5, 1.1)
+                    # DB複勝オッズがあればそれを使用、なければ推定
+                    place_low = row.get('place_odds_low')
+                    if pd.notna(place_low) and place_low > 0:
+                        place_odds = float(place_low)
+                    else:
+                        place_odds = max(row['odds'] / 3.5, 1.1)
                     place_return += place_odds * bet
                     place_hits += 1
 

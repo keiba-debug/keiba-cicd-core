@@ -219,6 +219,23 @@ PARAMS_WV = {
     'scale_pos_weight': 5.0,
 }
 
+# 回帰モデル用パラメータ (着差回帰: Huber loss)
+PARAMS_REG_B = {
+    'objective': 'huber',
+    'alpha': 2.0,  # Huber delta
+    'metric': 'mae',
+    'num_leaves': 127,
+    'learning_rate': 0.03,
+    'feature_fraction': 0.8,
+    'bagging_fraction': 0.8,
+    'bagging_freq': 5,
+    'min_child_samples': 50,
+    'reg_alpha': 0.1,
+    'reg_lambda': 1.5,
+    'max_depth': 8,
+    'verbose': -1,
+}
+
 
 def load_race_json(race_id: str, date: str) -> dict:
     """レースJSONを読み込む"""
@@ -395,12 +412,14 @@ def compute_features_for_race(
     kb_ext_index: dict,
     db_odds: dict = None,
     training_summary_index: dict = None,
+    db_place_odds: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
     Args:
         db_odds: mykeibadbから取得した事前オッズ {umaban: {'odds': float, 'ninki': int}}
         training_summary_index: CK_DATA調教サマリ {date_str: {ketto_num: summary}}
+        db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
     """
     from ml.features.base_features import extract_base_features
     from ml.features.past_features import compute_past_features
@@ -555,6 +574,12 @@ def compute_features_for_race(
         feat['is_top3'] = 1 if fp <= 3 else 0
         feat['is_win'] = 1 if fp == 1 else 0
 
+        # DB複勝オッズ（ROI分析用、学習には使わない）
+        if db_place_odds and umaban in db_place_odds:
+            feat['place_odds_low'] = db_place_odds[umaban].get('odds_low', np.nan)
+        else:
+            feat['place_odds_low'] = np.nan
+
         rows.append(feat)
 
     return rows
@@ -590,17 +615,20 @@ def build_dataset(
 
     # DB事前オッズをバッチ取得
     db_odds_index = {}
+    db_place_odds_index = {}
     if use_db_odds:
         try:
-            from core.odds_db import batch_get_pre_race_odds, is_db_available
+            from core.odds_db import batch_get_pre_race_odds, batch_get_place_odds, is_db_available
             if is_db_available():
                 race_codes = [rid for _, rid in target_races]
                 db_odds_index = batch_get_pre_race_odds(race_codes)
+                db_place_odds_index = batch_get_place_odds(race_codes)
                 ts_count = sum(1 for v in db_odds_index.values()
                                if v and any(e.get('source') == 'timeseries' for e in v.values()))
                 final_count = sum(1 for v in db_odds_index.values()
                                   if v and any(e.get('source') == 'final' for e in v.values()))
-                print(f"[DB Odds] {len(db_odds_index):,} races loaded "
+                print(f"[DB Odds] Win: {len(db_odds_index):,} races, "
+                      f"Place: {len(db_place_odds_index):,} races "
                       f"(timeseries={ts_count:,}, final={final_count:,}, "
                       f"no_data={len(target_races)-len(db_odds_index):,})")
             else:
@@ -620,6 +648,7 @@ def build_dataset(
                 pace_index, kb_ext_index,
                 db_odds=db_odds_index.get(race_id),
                 training_summary_index=training_summary_index,
+                db_place_odds=db_place_odds_index.get(race_id),
             )
             all_rows.extend(rows)
             race_count += 1
@@ -805,6 +834,15 @@ def calc_hit_analysis(df: pd.DataFrame, pred_col: str) -> List[dict]:
     return results
 
 
+def _get_place_odds(row) -> float:
+    """複勝オッズを取得: DB実績値があればそれを使用、なければ推定"""
+    place_low = row.get('place_odds_low')
+    if pd.notna(place_low) and place_low > 0:
+        return float(place_low)
+    # DB複勝オッズなし: 単勝オッズから推定
+    return max(row['odds'] / 3.5, 1.1)
+
+
 def calc_roi_analysis(df: pd.DataFrame, pred_col: str) -> dict:
     """ROI分析（Top1）"""
     df['pred_rank'] = df.groupby('race_id')[pred_col].rank(ascending=False, method='min')
@@ -815,15 +853,21 @@ def calc_roi_analysis(df: pd.DataFrame, pred_col: str) -> dict:
     win_return = top1[top1['is_win'] == 1]['odds'].sum() * 100
     win_roi = win_return / total_bets * 100 if total_bets > 0 else 0
 
-    # 複勝ROI（簡易推定: odds/3.5, 最低1.1倍）
+    # 複勝ROI: DB実複勝オッズを優先、なければ推定
     place_hits = top1[top1['is_top3'] == 1]
-    place_return = place_hits['odds'].apply(lambda o: max(o / 3.5, 1.1)).sum() * 100
+    place_return = place_hits.apply(_get_place_odds, axis=1).sum() * 100
     place_roi = place_return / total_bets * 100 if total_bets > 0 else 0
+
+    # DB複勝オッズのカバレッジ
+    has_db_place = 0
+    if 'place_odds_low' in top1.columns:
+        has_db_place = int(top1['place_odds_low'].notna().sum())
 
     return {
         'top1_win_roi': round(win_roi, 1),
         'top1_place_roi': round(place_roi, 1),
         'top1_bets': len(top1),
+        'place_odds_db_count': has_db_place,
     }
 
 
@@ -858,7 +902,7 @@ def calc_value_bet_analysis(df: pd.DataFrame, rank_col: str = 'pred_rank_v') -> 
                     win_hits += 1
 
                 if row['is_top3'] == 1:
-                    place_odds = max(row['odds'] / 3.5, 1.1)
+                    place_odds = _get_place_odds(row)
                     place_return += place_odds * bet
                     place_hits += 1
 
@@ -943,6 +987,71 @@ def collect_race_predictions(df: pd.DataFrame) -> List[dict]:
         })
     races.sort(key=lambda x: (x['date'], x['race_id']))
     return races
+
+
+def train_regression_model(
+    df_train: pd.DataFrame,
+    df_val: pd.DataFrame,
+    df_test: pd.DataFrame,
+    feature_cols: List[str],
+    params: dict,
+    model_name: str = 'Reg_B',
+) -> Tuple:
+    """着差回帰モデル (LGBMRegressor) を学習
+
+    target_margin カラムが必要（add_margin_target_to_df() で事前追加）。
+
+    Returns:
+        (model, metrics, importance, all_predictions)
+        all_predictions: df_test 全行の予測値 (NaN target の馬含む)
+    """
+    import lightgbm as lgb
+
+    mask_train = df_train['target_margin'].notna()
+    mask_val = df_val['target_margin'].notna()
+    mask_test = df_test['target_margin'].notna()
+
+    X_train = df_train.loc[mask_train, feature_cols]
+    y_train = df_train.loc[mask_train, 'target_margin']
+    X_val = df_val.loc[mask_val, feature_cols]
+    y_val = df_val.loc[mask_val, 'target_margin']
+    X_test = df_test.loc[mask_test, feature_cols]
+    y_test = df_test.loc[mask_test, 'target_margin']
+
+    print(f"\n[Train] {model_name}: {len(feature_cols)} features, "
+          f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}")
+
+    train_data = lgb.Dataset(X_train, label=y_train)
+    valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+
+    model = lgb.train(
+        params, train_data, num_boost_round=1500,
+        valid_sets=[valid_data],
+        callbacks=[
+            lgb.early_stopping(stopping_rounds=50),
+            lgb.log_evaluation(period=200),
+        ],
+    )
+
+    # テスト精度 (target_margin が有効な馬のみ)
+    y_pred = model.predict(X_test)
+    from sklearn.metrics import mean_absolute_error
+    mae = mean_absolute_error(y_test, y_pred)
+    corr = np.corrcoef(y_test, y_pred)[0, 1]
+
+    print(f"[{model_name}] MAE={mae:.4f}s, Corr={corr:.4f}, BestIter={model.best_iteration}")
+
+    # 全テストデータの予測（NaN target の馬含む）
+    all_pred = model.predict(df_test[feature_cols])
+
+    metrics = {
+        'mae': round(mae, 4),
+        'correlation': round(corr, 4),
+        'best_iteration': model.best_iteration,
+    }
+    importance = dict(zip(feature_cols, model.feature_importance(importance_type='gain')))
+
+    return model, metrics, importance, all_pred
 
 
 def run_track_split_experiment(
@@ -1163,6 +1272,16 @@ def main():
         df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_WV, 'is_win', 'Model_WV'
     )
 
+    # === 回帰モデル (着差予測) ===
+    from ml.features.margin_target import add_margin_target_to_df
+    print("\n[Margin] Computing target_margin...")
+    for label, df in [('train', df_train), ('val', df_val), ('test', df_test)]:
+        add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
+
+    model_reg_b, metrics_reg_b, importance_reg_b, pred_reg_b = train_regression_model(
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_REG_B, 'Reg_B'
+    )
+
     # 予測結果をDataFrameに追加
     df_test['pred_proba_a'] = pred_a
     df_test['pred_proba_v'] = pred_b
@@ -1181,6 +1300,8 @@ def main():
     df_test['pred_rank_wv'] = df_test.groupby('race_id')['pred_proba_wv'].rank(
         ascending=False, method='min'
     )
+    # 回帰モデル
+    df_test['pred_margin_b'] = pred_reg_b
 
     # 分析
     print("\n[Analysis] Hit rate analysis...")
@@ -1220,6 +1341,10 @@ def main():
           f"ECE={metrics_w['ece']}, Iter={metrics_w['best_iteration']}")
     print(f"  Model WV (Value):   AUC={metrics_wv['auc']}, Brier={metrics_wv['brier_score']}, "
           f"ECE={metrics_wv['ece']}, Iter={metrics_wv['best_iteration']}")
+
+    print(f"\n  --- Regression Model (target=margin) ---")
+    print(f"  Reg B (Value):      MAE={metrics_reg_b['mae']}, Corr={metrics_reg_b['correlation']}, "
+          f"Iter={metrics_reg_b['best_iteration']}")
 
     print(f"\n  Hit Analysis (Model A - Place):")
     for h in hit_a:
@@ -1268,7 +1393,7 @@ def main():
 
     # バージョン未指定の場合はフォールバック
     if not experiment_version:
-        experiment_version = '5.2b'
+        experiment_version = '5.5'
         print(f"\n  [WARN] --version 未指定のため v{experiment_version} を使用")
 
     # モデル保存（旧バージョンをアーカイブしてから上書き）
@@ -1284,6 +1409,7 @@ def main():
             base_dir=model_dir,
             version=old_ver,
             files=["model_a.txt", "model_b.txt", "model_w.txt", "model_wv.txt",
+                   "model_reg_b.txt",
                    "model_meta.json", "ml_experiment_v3_result.json",
                    "calibrators.pkl"],
             metadata={"created_at": old_meta.get("created_at", "")},
@@ -1293,6 +1419,7 @@ def main():
     model_b.save_model(str(model_dir / "model_b.txt"))
     model_w.save_model(str(model_dir / "model_w.txt"))
     model_wv.save_model(str(model_dir / "model_wv.txt"))
+    model_reg_b.save_model(str(model_dir / "model_reg_b.txt"))
 
     # IsotonicRegressionキャリブレーター保存
     import pickle
@@ -1307,9 +1434,10 @@ def main():
         'features_all': FEATURE_COLS_ALL,
         'features_value': FEATURE_COLS_VALUE,
         'market_features': list(MARKET_FEATURES),
-        'targets': {'place': 'is_top3', 'win': 'is_win'},
+        'targets': {'place': 'is_top3', 'win': 'is_win', 'margin': 'target_margin'},
         'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
         'has_calibrators': True,
+        'has_regression_model': True,
         'sklearn_version': sklearn.__version__,
         'created_at': datetime.now().isoformat(timespec='seconds'),
     }
@@ -1366,6 +1494,16 @@ def main():
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
                     for f, i in sorted(importance_wv.items(), key=lambda x: -x[1])
+                ],
+            },
+            'regression_value': {
+                'target': 'target_margin',
+                'features': FEATURE_COLS_VALUE,
+                'feature_count': len(FEATURE_COLS_VALUE),
+                'metrics': metrics_reg_b,
+                'feature_importance': [
+                    {'feature': f, 'importance': int(i)}
+                    for f, i in sorted(importance_reg_b.items(), key=lambda x: -x[1])[:20]
                 ],
             },
         },
