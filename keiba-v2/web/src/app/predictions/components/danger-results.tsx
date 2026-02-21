@@ -4,14 +4,12 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import type { DangerHorseEntry, OddsMap, DbResultsMap, SortState } from '../lib/types';
-import type { RaceResultsMap } from '@/lib/data/predictions-reader';
-import { getWinOdds, getFinishColor, getPlaceLimit, getTrackBadgeClass, getTrackLabel, getRaceLink, SortTh, ASC_KEYS } from '../lib/helpers';
+import { getWinOdds, getFinishColor, getPlaceLimit, getTrackBadgeClass, getTrackLabel, getRaceLink, SortTh } from '../lib/helpers';
 
 interface DangerResultsProps {
   dangerHorses: DangerHorseEntry[];
   oddsMap: OddsMap;
   dbResults: DbResultsMap;
-  results?: RaceResultsMap;
   getFinishPos: (raceId: string, umaban: number) => number;
 }
 
@@ -23,7 +21,7 @@ function getVerdict(finishPos: number, numRunners: number): Verdict {
   return finishPos <= placeLimit ? 'incorrect' : 'correct';
 }
 
-export function DangerResults({ dangerHorses, oddsMap, dbResults, results, getFinishPos }: DangerResultsProps) {
+export function DangerResults({ dangerHorses, oddsMap, dbResults, getFinishPos }: DangerResultsProps) {
   const [sort, setSort] = useState<SortState>({ key: 'race', dir: 'asc' });
 
   // サマリー集計

@@ -816,7 +816,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         dangerHorses={dangerHorses}
         oddsMap={oddsMap}
         dbResults={dbResults}
-        results={results}
         getFinishPos={getFinishPos}
       />
 
