@@ -205,7 +205,7 @@ export function getDayColor(dateStr: string): string {
 
 // --- ソート ---
 
-export const ASC_KEYS = new Set(['umaban', 'race', 'rank_a', 'rank_v', 'odds_rank', 'odds', 'finish']);
+export const ASC_KEYS = new Set(['umaban', 'race', 'race_number', 'rank_a', 'rank_v', 'odds_rank', 'odds', 'finish', 'verdict']);
 
 export function SortTh({ children, sortKey, sort, setSort, className = '', title }: {
   children: React.ReactNode;

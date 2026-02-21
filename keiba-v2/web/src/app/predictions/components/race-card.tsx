@@ -28,6 +28,27 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
 
   const [sort, setSort] = useState<SortState>({ key: 'umaban', dir: 'asc' });
 
+  // リアルタイムオッズから人気順を再計算
+  const liveRanking = useMemo(() => {
+    const raceOdds = oddsMap[race.race_id];
+    if (!raceOdds) return null;
+    const sorted = race.entries
+      .map(e => ({ umaban: e.umaban, odds: raceOdds[e.umaban]?.winOdds ?? e.odds ?? 999 }))
+      .filter(e => e.odds > 0)
+      .sort((a, b) => a.odds - b.odds);
+    const ranking: Record<number, number> = {};
+    sorted.forEach((e, i) => { ranking[e.umaban] = i + 1; });
+    return ranking;
+  }, [race, oddsMap]);
+
+  /** リアルタイム人気順（フォールバック: predictions時点のodds_rank） */
+  const getLiveOddsRank = (umaban: number, fallback: number) =>
+    liveRanking?.[umaban] ?? fallback;
+
+  /** リアルタイムGap = 人気順 - V順 */
+  const getLiveGap = (entry: typeof race.entries[0]) =>
+    getLiveOddsRank(entry.umaban, entry.odds_rank) - entry.rank_v;
+
   const sortedEntries = useMemo(() => {
     const arr = [...race.entries];
     const { key, dir } = sort;
@@ -37,13 +58,13 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
       switch (key) {
         case 'rank_a': va = a.rank_a; vb = b.rank_a; break;
         case 'rank_v': va = a.rank_v; vb = b.rank_v; break;
-        case 'odds_rank': va = a.odds_rank || 999; vb = b.odds_rank || 999; break;
+        case 'odds_rank': va = getLiveOddsRank(a.umaban, a.odds_rank) || 999; vb = getLiveOddsRank(b.umaban, b.odds_rank) || 999; break;
         case 'odds': {
           va = getWinOdds(oddsMap, race.race_id, a.umaban, a.odds) ?? 9999;
           vb = getWinOdds(oddsMap, race.race_id, b.umaban, b.odds) ?? 9999;
           break;
         }
-        case 'gap': va = a.vb_gap; vb = b.vb_gap; break;
+        case 'gap': va = getLiveGap(a); vb = getLiveGap(b); break;
         case 'ev': {
           va = calcWinEv(a, getWinOdds(oddsMap, race.race_id, a.umaban, a.odds)) ?? -1;
           vb = calcWinEv(b, getWinOdds(oddsMap, race.race_id, b.umaban, b.odds)) ?? -1;
@@ -140,7 +161,7 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                     className={`border-b transition-colors ${
                       hasResults && finishPos === 1 ? 'bg-amber-50/60 dark:bg-amber-900/15' :
                       hasResults && finishPos > 0 && finishPos <= 3 ? 'bg-green-50/30 dark:bg-green-900/5' :
-                      isVB ? getGapBg(entry.vb_gap) :
+                      isVB ? getGapBg(getLiveGap(entry)) :
                       isTopA ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''
                     } hover:bg-blue-50/50 dark:hover:bg-blue-900/10`}
                   >
@@ -171,13 +192,18 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                     <td className={`px-2 py-1 text-center font-mono text-xs ${entry.rank_v <= 3 ? 'font-bold text-purple-600' : ''}`}>
                       {entry.rank_v}
                     </td>
-                    <td className="px-2 py-1 text-center font-mono text-xs">{entry.odds_rank || '-'}</td>
+                    <td className="px-2 py-1 text-center font-mono text-xs">{getLiveOddsRank(entry.umaban, entry.odds_rank) || '-'}</td>
                     <td className="px-2 py-1 text-center font-mono text-xs font-bold">
                       {winOdds ? winOdds.toFixed(1) : '-'}
                     </td>
-                    <td className={`px-2 py-1 text-center font-mono text-xs ${entry.vb_gap >= 3 ? getGapColor(entry.vb_gap) : 'text-gray-400'}`}>
-                      {entry.vb_gap > 0 ? `+${entry.vb_gap}` : entry.vb_gap === 0 ? '0' : entry.vb_gap}
-                    </td>
+                    {(() => {
+                      const liveGap = getLiveGap(entry);
+                      return (
+                        <td className={`px-2 py-1 text-center font-mono text-xs ${liveGap >= 3 ? getGapColor(liveGap) : liveGap <= -5 ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
+                          {liveGap > 0 ? `+${liveGap}` : liveGap === 0 ? '0' : liveGap}
+                        </td>
+                      );
+                    })()}
                     <td className={`px-2 py-1 text-center font-mono text-xs ${ev !== null ? getEvColor(ev) : 'text-gray-300'} bg-emerald-50/30 dark:bg-emerald-900/10`}>
                       {ev !== null ? ev.toFixed(2) : '-'}
                     </td>

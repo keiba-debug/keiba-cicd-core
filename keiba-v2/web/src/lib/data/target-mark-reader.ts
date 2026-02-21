@@ -291,6 +291,71 @@ export function clearHorseMark(
   return writeHorseMark(year, kai, day, raceNumber, venue, horseNumber, '', markSet);
 }
 
+/**
+ * バッチ書込み: 同一ファイル (year+kai+venue) への複数書込みを1回のI/Oで実行
+ *
+ * 個別 writeHorseMark は1操作ごとにファイル全体を読み書きするため、
+ * 12R×18頭=216回のI/Oが発生する。バッチ化で1回に削減し、
+ * TARGETとのファイル競合を排除する。
+ */
+export function batchWriteHorseMarks(
+  year: number,
+  kai: number,
+  venue: string,
+  operations: Array<{ day: number; raceNumber: number; horseNumber: number; mark: string }>,
+  markSet: number = 1
+): number {
+  if (operations.length === 0) return 0;
+
+  // 必要な最大dayを算出してファイルサイズを決定
+  const maxDay = Math.max(...operations.map(op => op.day));
+  const requiredRecords = getRequiredRecords(maxDay);
+  const requiredSize = requiredRecords * 44;
+
+  const filePath = getMarkFilePath(year, kai, venue, markSet);
+  let content: Buffer;
+
+  if (!fs.existsSync(filePath)) {
+    content = Buffer.alloc(requiredSize, 0x20);
+    for (let i = 0; i < requiredRecords; i++) {
+      const base = i * 44;
+      content[base + 42] = 0x0d;
+      content[base + 43] = 0x0a;
+    }
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } else {
+    content = fs.readFileSync(filePath);
+    if (content.length < requiredSize) {
+      const expanded = Buffer.alloc(requiredSize, 0x20);
+      content.copy(expanded, 0);
+      for (let i = content.length / 44; i < requiredRecords; i++) {
+        const base = i * 44;
+        expanded[base + 42] = 0x0d;
+        expanded[base + 43] = 0x0a;
+      }
+      content = expanded;
+    }
+  }
+
+  let written = 0;
+  for (const op of operations) {
+    const markBytes = encodeMarkBytes(op.mark);
+    if (!markBytes) continue;
+    const recordIndex = getRecordIndex(op.day, op.raceNumber);
+    const offset = recordIndex * 44 + 6 + (op.horseNumber - 1) * 2;
+    if (offset + 2 <= content.length) {
+      markBytes.copy(content, offset);
+      written++;
+    }
+  }
+
+  fs.writeFileSync(filePath, content);
+  return written;
+}
+
 // 有効な印一覧
 export const VALID_MARKS = ['◎', '○', '▲', '△', '★', '穴', ''] as const;
 export type MarkSymbol = typeof VALID_MARKS[number];

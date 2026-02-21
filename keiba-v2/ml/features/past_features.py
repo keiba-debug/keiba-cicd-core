@@ -7,9 +7,29 @@ horse_history_cache.jsonから馬の過去走成績を計算。
 v2のcompute_past_features()を移植・拡張。
 
 v4.0: best_l3f_last5, finish_std_last5, comeback_strength_last5 を追加
+v5.4: ベイズ平滑化レート + career_stage を追加
 """
 
 from typing import Dict, List, Optional
+
+
+# ============================================================
+# ベイズ平滑化パラメータ
+# smoothed = (successes + α) / (total + α + β)
+# α, β は事前分布（Beta分布）のパラメータ
+# ============================================================
+# 勝率: 全馬平均 ≈ 8% (1着/出走数)
+PRIOR_WIN_ALPHA = 1.0
+PRIOR_WIN_BETA = 12.0    # prior mean = 1/13 ≈ 0.077
+
+# 複勝率: 全馬平均 ≈ 25% (3着以内/出走数)
+PRIOR_TOP3_ALPHA = 2.5
+PRIOR_TOP3_BETA = 7.5    # prior mean = 2.5/10 = 0.25
+
+
+def bayesian_rate(successes: int, total: int, alpha: float, beta: float) -> float:
+    """ベイズ平滑化レート (Beta-Binomial posterior mean)"""
+    return round((successes + alpha) / (total + alpha + beta), 4)
 
 
 def compute_past_features(
@@ -44,6 +64,13 @@ def compute_past_features(
         'best_l3f_last5': None,
         'finish_std_last5': None,
         'comeback_strength_last5': None,
+        # v5.4: ベイズ平滑化レート + career_stage
+        'win_rate_smoothed': None,
+        'top3_rate_smoothed': None,
+        'venue_top3_rate_smoothed': None,
+        'track_type_top3_rate_smoothed': None,
+        'distance_fitness_smoothed': None,
+        'career_stage': 0,  # 0=debut, 1=2戦目, 2=3-5戦, 3=6-10戦, 4=11+
     }
 
     runs = history_cache.get(ketto_num, [])
@@ -117,6 +144,22 @@ def compute_past_features(
     result['win_rate_all'] = round(wins / total, 4) if total > 0 else 0
     result['top3_rate_all'] = round(top3 / total, 4) if total > 0 else 0
 
+    # v5.4: ベイズ平滑化レート
+    result['win_rate_smoothed'] = bayesian_rate(wins, total, PRIOR_WIN_ALPHA, PRIOR_WIN_BETA)
+    result['top3_rate_smoothed'] = bayesian_rate(top3, total, PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+
+    # v5.4: career_stage
+    if total == 0:
+        result['career_stage'] = 0
+    elif total == 1:
+        result['career_stage'] = 1
+    elif total <= 5:
+        result['career_stage'] = 2
+    elif total <= 10:
+        result['career_stage'] = 3
+    else:
+        result['career_stage'] = 4
+
     # 近走トレンド（正=上昇傾向）
     if len(positions_3) >= 2:
         result['recent_form_trend'] = positions_3[0] - positions_3[-1]
@@ -127,6 +170,11 @@ def compute_past_features(
     if venue_runs:
         v_top3 = sum(1 for r in venue_runs if 1 <= r['finish_position'] <= 3)
         result['venue_top3_rate'] = round(v_top3 / len(venue_runs), 4)
+        result['venue_top3_rate_smoothed'] = bayesian_rate(
+            v_top3, len(venue_runs), PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+    else:
+        result['venue_top3_rate_smoothed'] = bayesian_rate(
+            0, 0, PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
 
     # トラックタイプ別成績
     tt_key = 'turf' if track_type_int == 0 else 'dirt'
@@ -134,12 +182,22 @@ def compute_past_features(
     if tt_runs:
         t_top3 = sum(1 for r in tt_runs if 1 <= r['finish_position'] <= 3)
         result['track_type_top3_rate'] = round(t_top3 / len(tt_runs), 4)
+        result['track_type_top3_rate_smoothed'] = bayesian_rate(
+            t_top3, len(tt_runs), PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+    else:
+        result['track_type_top3_rate_smoothed'] = bayesian_rate(
+            0, 0, PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
 
     # 距離適性（±200m）
     dist_runs = [r for r in past if abs(r.get('distance', 0) - distance) <= 200]
     if dist_runs:
         d_top3 = sum(1 for r in dist_runs if 1 <= r['finish_position'] <= 3)
         result['distance_fitness'] = round(d_top3 / len(dist_runs), 4)
+        result['distance_fitness_smoothed'] = bayesian_rate(
+            d_top3, len(dist_runs), PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+    else:
+        result['distance_fitness_smoothed'] = bayesian_rate(
+            0, 0, PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
 
     # 前走出走頭数・変化
     last_race = past[-1]

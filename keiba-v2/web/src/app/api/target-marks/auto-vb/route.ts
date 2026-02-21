@@ -3,11 +3,15 @@
  *
  * POST: predictions のVB候補をTARGET馬印2に一括反映
  * Body: { date?: string } — 指定日のアーカイブを使用。省略時はpredictions_live.json
+ *
+ * バッチI/O: 同一ファイル(year+kai+venue)への全操作を1回のread/writeで実行。
+ * 旧実装では12R×18頭=216回のI/Oが発生し、TARGETのファイル読み込みと
+ * 競合して古い印が残る問題があった。
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPredictionsLive, getPredictionsByDate } from '@/lib/data/predictions-reader';
-import { writeHorseMark } from '@/lib/data/target-mark-reader';
+import { batchWriteHorseMarks } from '@/lib/data/target-mark-reader';
 
 const MARK_SET = 2; // UmaMark2
 
@@ -16,6 +20,11 @@ function gapToMark(gap: number): string {
   if (gap < 2) return '';
   if (gap >= 10) return String(gap).slice(0, 2);  // "10", "11", ...
   return '+' + gap;                                // "+2", "+3", ... "+9"
+}
+
+/** ファイルキー: 同一DATファイルに書き込むレースをグルーピング */
+function fileKey(year: number, kai: number, venue: string): string {
+  return `${year}-${kai}-${venue}`;
 }
 
 export async function POST(request: NextRequest) {
@@ -39,6 +48,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ファイル別に操作をグルーピング
+    const fileGroups = new Map<string, {
+      year: number; kai: number; venue: string;
+      ops: Array<{ day: number; raceNumber: number; horseNumber: number; mark: string }>;
+    }>();
+
     const markCounts: Record<string, number> = {};
     let totalRaces = 0;
     let markedHorses = 0;
@@ -57,25 +72,31 @@ export async function POST(request: NextRequest) {
 
       totalRaces++;
 
-      // まず全18頭分をクリア
+      const key = fileKey(year, kai, venue);
+      if (!fileGroups.has(key)) {
+        fileGroups.set(key, { year, kai, venue, ops: [] });
+      }
+      const group = fileGroups.get(key)!;
+
+      // 全18頭分をクリア
       for (let uma = 1; uma <= 18; uma++) {
-        writeHorseMark(year, kai, nichi, raceNumber, venue, uma, '', MARK_SET);
+        group.ops.push({ day: nichi, raceNumber, horseNumber: uma, mark: '' });
       }
 
       // VB候補に印を書込み
       for (const entry of race.entries) {
         const mark = gapToMark(entry.vb_gap);
         if (mark) {
-          const success = writeHorseMark(
-            year, kai, nichi, raceNumber, venue,
-            entry.umaban, mark, MARK_SET
-          );
-          if (success) {
-            markedHorses++;
-            markCounts[mark] = (markCounts[mark] || 0) + 1;
-          }
+          group.ops.push({ day: nichi, raceNumber, horseNumber: entry.umaban, mark });
+          markedHorses++;
+          markCounts[mark] = (markCounts[mark] || 0) + 1;
         }
       }
+    }
+
+    // ファイル別にバッチ書込み実行（1ファイル=1回のread/write）
+    for (const group of fileGroups.values()) {
+      batchWriteHorseMarks(group.year, group.kai, group.venue, group.ops, MARK_SET);
     }
 
     return NextResponse.json({
@@ -85,6 +106,7 @@ export async function POST(request: NextRequest) {
         totalRaces,
         markedHorses,
         marks: markCounts,
+        files: fileGroups.size,
       },
     });
   } catch (error) {

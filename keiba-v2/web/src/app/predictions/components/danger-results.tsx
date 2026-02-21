@@ -1,10 +1,11 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
-import type { DangerHorseEntry, OddsMap, DbResultsMap } from '../lib/types';
+import type { DangerHorseEntry, OddsMap, DbResultsMap, SortState } from '../lib/types';
 import type { RaceResultsMap } from '@/lib/data/predictions-reader';
-import { getWinOdds, getFinishColor, getPlaceLimit, getTrackBadgeClass, getTrackLabel, getRaceLink } from '../lib/helpers';
+import { getWinOdds, getFinishColor, getPlaceLimit, getTrackBadgeClass, getTrackLabel, getRaceLink, SortTh, ASC_KEYS } from '../lib/helpers';
 
 interface DangerResultsProps {
   dangerHorses: DangerHorseEntry[];
@@ -23,7 +24,7 @@ function getVerdict(finishPos: number, numRunners: number): Verdict {
 }
 
 export function DangerResults({ dangerHorses, oddsMap, dbResults, results, getFinishPos }: DangerResultsProps) {
-  if (dangerHorses.length === 0) return null;
+  const [sort, setSort] = useState<SortState>({ key: 'race', dir: 'asc' });
 
   // サマリー集計
   let correct = 0, incorrect = 0, pending = 0;
@@ -36,6 +37,59 @@ export function DangerResults({ dangerHorses, oddsMap, dbResults, results, getFi
   const finished = correct + incorrect;
   const accuracy = finished > 0 ? (correct / finished * 100) : null;
   const raceCount = new Set(dangerHorses.map(d => d.race.race_id)).size;
+
+  const sorted = useMemo(() => {
+    const arr = [...dangerHorses];
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    arr.sort((a, b) => {
+      let cmp = 0;
+      switch (sort.key) {
+        case 'race':
+          cmp = a.race.race_id.localeCompare(b.race.race_id);
+          break;
+        case 'race_number':
+          cmp = a.race.race_number - b.race.race_number || a.race.race_id.localeCompare(b.race.race_id);
+          break;
+        case 'umaban':
+          cmp = a.entry.umaban - b.entry.umaban;
+          break;
+        case 'odds_rank':
+          cmp = a.oddsRank - b.oddsRank;
+          break;
+        case 'rank_v':
+          cmp = a.rankV - b.rankV;
+          break;
+        case 'gap':
+          cmp = a.dangerScore - b.dangerScore;
+          break;
+        case 'odds': {
+          const oddsA = dbResults[a.race.race_id]?.[a.entry.umaban]?.confirmedWinOdds
+            ?? getWinOdds(oddsMap, a.race.race_id, a.entry.umaban, a.entry.odds) ?? 999;
+          const oddsB = dbResults[b.race.race_id]?.[b.entry.umaban]?.confirmedWinOdds
+            ?? getWinOdds(oddsMap, b.race.race_id, b.entry.umaban, b.entry.odds) ?? 999;
+          cmp = oddsA - oddsB;
+          break;
+        }
+        case 'finish': {
+          const fA = getFinishPos(a.race.race_id, a.entry.umaban) || 99;
+          const fB = getFinishPos(b.race.race_id, b.entry.umaban) || 99;
+          cmp = fA - fB;
+          break;
+        }
+        case 'verdict': {
+          const order = { correct: 0, incorrect: 1, pending: 2 };
+          const vA = getVerdict(getFinishPos(a.race.race_id, a.entry.umaban), a.race.num_runners);
+          const vB = getVerdict(getFinishPos(b.race.race_id, b.entry.umaban), b.race.num_runners);
+          cmp = order[vA] - order[vB];
+          break;
+        }
+      }
+      return cmp * dir;
+    });
+    return arr;
+  }, [dangerHorses, sort, oddsMap, dbResults, getFinishPos]);
+
+  if (dangerHorses.length === 0) return null;
 
   return (
     <div id="section-danger" className="scroll-mt-28">
@@ -74,21 +128,21 @@ export function DangerResults({ dangerHorses, oddsMap, dbResults, results, getFi
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-orange-50/60 dark:bg-orange-900/20 text-xs">
-                  <th className="px-2 py-2 text-left border">場</th>
-                  <th className="px-2 py-2 text-center border">R</th>
+                  <SortTh sortKey="race" sort={sort} setSort={setSort} className="px-2 py-2 text-left border">場</SortTh>
+                  <SortTh sortKey="race_number" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">R</SortTh>
                   <th className="px-2 py-2 text-center border">馬場</th>
-                  <th className="px-2 py-2 text-center border">馬番</th>
+                  <SortTh sortKey="umaban" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">馬番</SortTh>
                   <th className="px-2 py-2 text-left border">馬名</th>
-                  <th className="px-2 py-2 text-center border">人気</th>
-                  <th className="px-2 py-2 text-center border">VR</th>
-                  <th className="px-2 py-2 text-center border">Gap</th>
-                  <th className="px-2 py-2 text-center border">オッズ</th>
-                  <th className="px-2 py-2 text-center border">着順</th>
-                  <th className="px-2 py-2 text-center border">判定</th>
+                  <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">人気</SortTh>
+                  <SortTh sortKey="rank_v" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">VR</SortTh>
+                  <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">Gap</SortTh>
+                  <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">オッズ</SortTh>
+                  <SortTh sortKey="finish" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">着順</SortTh>
+                  <SortTh sortKey="verdict" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">判定</SortTh>
                 </tr>
               </thead>
               <tbody>
-                {dangerHorses.map((dh) => {
+                {sorted.map((dh) => {
                   const finishPos = getFinishPos(dh.race.race_id, dh.entry.umaban);
                   const verdict = getVerdict(finishPos, dh.race.num_runners);
                   const winOdds = getWinOdds(oddsMap, dh.race.race_id, dh.entry.umaban, dh.entry.odds);
@@ -120,7 +174,7 @@ export function DangerResults({ dangerHorses, oddsMap, dbResults, results, getFi
                       <td className="px-2 py-1.5 border font-bold text-xs">{dh.entry.horse_name}</td>
                       <td className="px-2 py-1.5 border text-center font-mono text-orange-600 font-bold">{dh.oddsRank}</td>
                       <td className="px-2 py-1.5 border text-center font-mono text-blue-600">{dh.rankV}</td>
-                      <td className="px-2 py-1.5 border text-center font-mono text-red-600 font-bold">+{dh.dangerScore}</td>
+                      <td className="px-2 py-1.5 border text-center font-mono text-red-600 font-bold">-{dh.dangerScore}</td>
                       <td className="px-2 py-1.5 border text-center font-mono text-xs">
                         {dbEntry ? dbEntry.confirmedWinOdds.toFixed(1) : winOdds ? winOdds.toFixed(1) : '-'}
                       </td>

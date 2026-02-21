@@ -52,6 +52,10 @@ PAST_FEATURES = [
     'prev_race_entry_count', 'entry_count_change',
     # v4.0
     'best_l3f_last5', 'finish_std_last5', 'comeback_strength_last5',
+    # v5.4: ベイズ平滑化レート + career_stage
+    'win_rate_smoothed', 'top3_rate_smoothed',
+    'venue_top3_rate_smoothed', 'track_type_top3_rate_smoothed',
+    'distance_fitness_smoothed', 'career_stage',
 ]
 
 # 調教師特徴量（100%マッチ）
@@ -143,6 +147,11 @@ MARKET_FEATURES = {
     'prev_grade_level', 'grade_level_diff', 'venue_rank_diff',
     # v5.3: ヘッダーマークは honshi_mark と相関 → MARKET
     'comment_stable_mark',
+    # v5.4: ベイズ平滑化レートは生rate+オッズと相関 → MARKET
+    # （Model B精度向上がVB gap効果を殺すため除外）
+    'win_rate_smoothed', 'top3_rate_smoothed',
+    'venue_top3_rate_smoothed', 'track_type_top3_rate_smoothed',
+    'distance_fitness_smoothed',
 }
 
 # 派生特徴量
