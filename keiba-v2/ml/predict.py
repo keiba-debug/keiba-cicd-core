@@ -230,6 +230,49 @@ def get_keibabook_features(kb_entry: Optional[dict]) -> dict:
     return result
 
 
+# TRACK_CODE → track_type マッピング（JRA-VAN仕様）
+_TRACK_CODE_MAP = {
+    '10': 'turf', '11': 'turf', '12': 'turf', '13': 'turf', '14': 'turf',
+    '15': 'turf', '16': 'turf', '17': 'dirt', '18': 'dirt', '19': 'dirt',
+    '20': 'dirt', '21': 'dirt', '22': 'dirt', '23': 'dirt',
+    '24': 'turf', '25': 'turf', '26': 'turf', '27': 'turf', '28': 'turf',
+    '29': 'dirt',
+    '51': 'obstacle', '52': 'obstacle', '53': 'obstacle', '54': 'obstacle',
+    '55': 'obstacle', '56': 'obstacle', '57': 'obstacle', '58': 'obstacle',
+    '59': 'obstacle',
+}
+
+
+def _fetch_race_shosai_from_db(race_id: str) -> Optional[dict]:
+    """DBのRACE_SHOSAIからtrack_type/distanceを取得（fallback用）"""
+    try:
+        from core.db import get_connection
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                'SELECT KYORI, TRACK_CODE, KYOSOMEI_HONDAI, GRADE_CODE '
+                'FROM RACE_SHOSAI WHERE RACE_CODE = %s',
+                (race_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            kyori, track_code, race_name, grade_code = row
+            track_type = _TRACK_CODE_MAP.get(track_code.strip(), '')
+            distance = int(kyori.strip()) if kyori and kyori.strip().isdigit() else 0
+            grade_map = {'A': 'G1', 'B': 'G2', 'C': 'G3', 'D': 'OP',
+                         'E': '3勝', 'F': '2勝', 'G': '1勝', 'H': '未勝利', 'J': '新馬'}
+            grade = grade_map.get(grade_code.strip(), '')
+            return {
+                'track_type': track_type,
+                'distance': distance,
+                'race_name': race_name.strip() if race_name else '',
+                'grade': grade,
+            }
+    except Exception:
+        return None
+
+
 def predict_race(
     race: dict,
     kb_ext: Optional[dict],
@@ -259,6 +302,7 @@ def predict_race(
     features_value = meta['features_value']
 
     race_date = race['date']
+    race_id = race['race_id']
     venue_code = race['venue_code']
     venue_name = race.get('venue_name', '')
     track_type = race.get('track_type', '')
@@ -267,6 +311,19 @@ def predict_race(
     current_grade = race.get('grade', '')
     current_is_handicap = race.get('is_handicap', False)
     current_is_female_only = race.get('is_female_only', False)
+
+    # DB fallback: race JSONにtrack_type/distanceがない場合
+    if (not track_type or distance == 0):
+        _db_race = _fetch_race_shosai_from_db(race_id)
+        if _db_race:
+            if not track_type:
+                track_type = _db_race.get('track_type', '')
+            if distance == 0:
+                distance = _db_race.get('distance', 0)
+            if not current_grade:
+                current_grade = _db_race.get('grade', '')
+            if race.get('race_name', '') == '':
+                race['race_name'] = _db_race.get('race_name', '')
     current_month = int(race_date.split('-')[1]) if len(race_date.split('-')) >= 2 else 0
 
     kb_entries = kb_ext.get('entries', {}) if kb_ext else {}
@@ -508,10 +565,12 @@ def predict_race(
             # Place odds
             'place_odds_min': place_low,
             'place_odds_max': place_high,
-            # EV (期待値)
+            # EV (期待値) — raw確率を使用（正規化前のキャリブレーション済み確率）
+            # Win: P(win)合計≈1.0なので正規化後でOK
+            # Place: P(top3)合計≈3.0なので正規化前のraw値を使う
             'win_ev': round(float(pred_wv[i]) * p['odds'], 4)
                 if has_win_model and p['odds'] > 0 else None,
-            'place_ev': round(float(pred_b[i]) * place_low, 4)
+            'place_ev': round(float(pred_b_raw[i]) * place_low, 4)
                 if place_low and place_low > 0 else None,
             # keibabook情報
             'kb_mark': p['kb_mark'],
