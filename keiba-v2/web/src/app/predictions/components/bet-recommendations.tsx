@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, SortState, DbResultsMap } from '../lib/types';
-import { BET_CONFIG, PRESET_OPTIONS, type ServerPresetKey } from '../lib/bet-logic';
+import { BET_CONFIG, PRESET_OPTIONS, type ServerPresetKey, type AllocMode } from '../lib/bet-logic';
 import { getWinOdds, calcHeadRatio, getEvColor, getGapColor, getRecBadgeClass, getRaceLink, SortTh } from '../lib/helpers';
 
 interface BetRecommendationsProps {
@@ -28,6 +28,8 @@ interface BetRecommendationsProps {
   setBetSort: (s: SortState) => void;
   preset: ServerPresetKey;
   onPresetChange: (preset: ServerPresetKey) => void;
+  allocMode: AllocMode;
+  onAllocModeChange: (mode: AllocMode) => void;
   dbResults?: DbResultsMap;
   getFinishPos?: (raceId: string, umaban: number) => number;
 }
@@ -54,6 +56,7 @@ export function BetRecommendations({
   fetchAllOdds, syncBetMarks, betSyncing, betSyncResult,
   betSort, setBetSort,
   preset, onPresetChange,
+  allocMode, onAllocModeChange,
   dbResults, getFinishPos,
 }: BetRecommendationsProps) {
   const hasResults = dbResults && Object.keys(dbResults).length > 0;
@@ -99,6 +102,16 @@ export function BetRecommendations({
                 className="w-20 px-1.5 py-0.5 text-xs text-right rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
               />
             </label>
+            <div className="flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
+              <button
+                onClick={() => onAllocModeChange('kelly')}
+                className={`px-2 py-0.5 text-[10px] transition-colors ${allocMode === 'kelly' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                title="Kelly基準の傾斜配分">Kelly</button>
+              <button
+                onClick={() => onAllocModeChange('equal')}
+                className={`px-2 py-0.5 text-[10px] transition-colors ${allocMode === 'equal' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                title="予算を均等配分">均等</button>
+            </div>
             {betSyncResult && (
               <span className="text-xs text-green-700 dark:text-green-400">
                 {`${betSyncResult.racesWritten}件 / 単${betSyncResult.winBets} 複${betSyncResult.placeBets} / ¥${betSyncResult.totalAmount.toLocaleString()} → FF CSV出力済`}
@@ -330,7 +343,7 @@ export function BetRecommendations({
         })()}
 
         <div className="mt-3 text-[10px] text-muted-foreground">
-          購入プランエンジン / Kelly基準 / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
+          購入プランエンジン / {allocMode === 'equal' ? '均等配分' : 'Kelly基準'} / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
         </div>
       </CardContent>
     </Card>

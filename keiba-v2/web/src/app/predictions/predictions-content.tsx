@@ -10,7 +10,7 @@ import {
   getWinOdds, getPlaceOddsMin, calcWinEv, calcPlaceEv, calcHeadRatio,
   isTurf, isDirt, getPlaceLimit, getRaceDanger,
 } from './lib/helpers';
-import { BET_CONFIG, rescaleBudget, type ServerPresetKey } from './lib/bet-logic';
+import { BET_CONFIG, rescaleBudget, equalDistribute, type ServerPresetKey, type AllocMode } from './lib/bet-logic';
 
 // components
 import { DateNav } from './components/date-nav';
@@ -80,6 +80,12 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const updatePreset = useCallback((p: ServerPresetKey) => {
     setPreset(p);
     localStorage.setItem('keiba_bet_preset', p);
+  }, []);
+
+  // 配分モード（Kelly / 均等）
+  const [allocMode, setAllocMode] = useState<AllocMode>('kelly');
+  const updateAllocMode = useCallback((m: AllocMode) => {
+    setAllocMode(m);
   }, []);
 
   // TARGET My印
@@ -335,7 +341,9 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     const presetData = data.recommendations?.[preset];
     if (!presetData) return [];
 
-    const serverRecs = rescaleBudget(presetData.bets, dailyBudget);
+    const serverRecs = allocMode === 'equal'
+      ? equalDistribute(presetData.bets, dailyBudget)
+      : rescaleBudget(presetData.bets, dailyBudget);
 
     // race/entry ルックアップ構築
     const raceMap = new Map<string, PredictionRace>();
@@ -375,7 +383,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
     displayRecs.sort((a, b) => (b.betAmountWin + b.betAmountPlace) - (a.betAmountWin + a.betAmountPlace));
     return displayRecs;
-  }, [data.recommendations, preset, dailyBudget, races]);
+  }, [data.recommendations, preset, dailyBudget, allocMode, races]);
 
   // VBエントリ→bet推奨ルックアップ (race_id-umaban → BetRecommendation)
   const betRecMap = useMemo(() => {
@@ -746,6 +754,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         setBetSort={setBetSort}
         preset={preset}
         onPresetChange={updatePreset}
+        allocMode={allocMode}
+        onAllocModeChange={updateAllocMode}
         dbResults={dbResults}
         getFinishPos={getFinishPos}
       />
