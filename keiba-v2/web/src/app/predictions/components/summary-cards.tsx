@@ -4,12 +4,13 @@ interface SummaryCardsProps {
   totalRaces: number;
   totalEntries: number;
   totalVB: number;
-  evPositiveCount: number;
-  hasOdds: boolean;
+  betCount: number;
+  betTotalAmount: number;
+  hasBets: boolean;
   venueNames: string[];
 }
 
-export function SummaryCards({ totalRaces, totalEntries, totalVB, evPositiveCount, hasOdds, venueNames }: SummaryCardsProps) {
+export function SummaryCards({ totalRaces, totalEntries, totalVB, betCount, betTotalAmount, hasBets, venueNames }: SummaryCardsProps) {
   return (
     <div id="section-summary" className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
       <Card>
@@ -30,12 +31,17 @@ export function SummaryCards({ totalRaces, totalEntries, totalVB, evPositiveCoun
           <div className="text-xs text-muted-foreground">VB候補 (gap&ge;3)</div>
         </CardContent>
       </Card>
-      <Card className="border-emerald-200 dark:border-emerald-800">
+      <Card className="border-indigo-200 dark:border-indigo-800">
         <CardContent className="pt-4 pb-3 text-center">
-          <div className={`text-3xl font-bold ${hasOdds ? 'text-emerald-600' : 'text-muted-foreground'}`}>
-            {hasOdds ? evPositiveCount : '-'}
+          <div className={`text-3xl font-bold ${hasBets ? 'text-indigo-600' : 'text-muted-foreground'}`}>
+            {hasBets ? betCount : '-'}
           </div>
-          <div className="text-xs text-muted-foreground">EV&ge;1.0</div>
+          <div className="text-xs text-muted-foreground">bet推奨</div>
+          {hasBets && betTotalAmount > 0 && (
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              &yen;{betTotalAmount.toLocaleString()}
+            </div>
+          )}
         </CardContent>
       </Card>
       <Card>

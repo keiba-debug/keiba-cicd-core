@@ -65,6 +65,13 @@ export function normalizeResult(raw: any): MlExperimentResultV2 {
     }
   }
 
+  // Normalize regression model feature_importance labels
+  if (d.models?.regression_value?.feature_importance) {
+    for (const fi of d.models.regression_value.feature_importance) {
+      if (!fi.label) fi.label = fi.feature;
+    }
+  }
+
   let hitAnalysis = d.hit_analysis;
   if (hitAnalysis && !Array.isArray(hitAnalysis)) {
     hitAnalysis = hitAnalysis;
@@ -101,6 +108,8 @@ export function normalizeResult(raw: any): MlExperimentResultV2 {
     roi_analysis: roiNormalized,
     race_predictions: d.race_predictions ?? [],
     value_bet_picks: d.value_bet_picks,
+    gap_margin_grid: d.gap_margin_grid,
+    bet_engine_presets: d.bet_engine_presets,
   } as MlExperimentResultV2;
 }
 

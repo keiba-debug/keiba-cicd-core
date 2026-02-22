@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { PredictionRace, PredictionEntry } from '@/lib/data/predictions-reader';
-import type { OddsMap, DbResultsMap, SortState } from '../lib/types';
+import type { BetRecommendation, OddsMap, DbResultsMap, SortState } from '../lib/types';
 import {
   getWinOdds, getPlaceOddsMin, calcHeadRatio,
   getGapColor, getGapBg, getEvColor, getMarkColor, getRecBadgeClass,
@@ -26,12 +26,14 @@ interface VBTableProps {
   syncVbMarks: () => Promise<void>;
   markSyncing: boolean;
   markResult: { marks: Record<string, number>; markedHorses: number } | null;
+  betRecMap: Map<string, BetRecommendation>;
 }
 
 export function VBTable({
   sortedVBEntries, filteredVBEntries, oddsMap, dbResults, results, hasResults,
   getFinishPos, getLiveGap, vbSort, setVbSort,
   syncVbMarks, markSyncing, markResult,
+  betRecMap,
 }: VBTableProps) {
   if (filteredVBEntries.length === 0) return null;
 
@@ -69,15 +71,16 @@ export function VBTable({
                 <th className="px-2 py-2 text-center border" title="芝/ダート">馬場</th>
                 <SortTh sortKey="umaban" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border">馬番</SortTh>
                 <th className="px-2 py-2 text-left border">馬名</th>
-                <th className="px-2 py-2 text-center border" title="バックテスト分析に基づく購入推奨">推奨</th>
+                <th className="px-2 py-2 text-center border" title="bet_engine推奨の券種">推奨</th>
                 <th className="px-2 py-2 text-center border" title="競馬ブック本紙予想の印">本紙</th>
                 <SortTh sortKey="rank_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="Value順位：市場非依存モデル(V)の予測順位">VR</SortTh>
                 <SortTh sortKey="odds_rank" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="オッズ順人気">人気</SortTh>
                 <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="人気 - VR：市場評価とモデル評価の乖離">Gap</SortTh>
+                <SortTh sortKey="margin" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/30" title="着差予測(秒) — Reg Bモデル。低いほど勝ちに近い">Margin</SortTh>
                 <SortTh sortKey="win_gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-emerald-50 dark:bg-emerald-900/30" title="Win VB Gap：Win順位と人気の乖離">W-Gap</SortTh>
-                <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-emerald-50 dark:bg-emerald-900/30" title="単勝EV = gap別バックテストROI（例: gap≥5=1.20）">単EV</SortTh>
-                <SortTh sortKey="place_ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-blue-50 dark:bg-blue-900/30" title="複勝EV = gap別バックテストROI（例: gap≥5=1.32）">複EV</SortTh>
+                <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
+                <SortTh sortKey="place_ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-blue-50 dark:bg-blue-900/30" title="複勝EV = calibrated P(top3) × 複勝オッズ">複EV</SortTh>
                 <SortTh sortKey="head_ratio" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="頭向き度 = P(win)/P(top3)">頭%</SortTh>
                 <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="P(top3) 複勝圏予測確率（市場非依存）">V%</SortTh>
                 <th className="px-2 py-2 text-center border" title="Model WV P(win) 勝率予測（市場非依存）">WV%</th>
@@ -102,6 +105,8 @@ export function VBTable({
                 const isPlaceHit = finishPos > 0 && placeLimit > 0 && finishPos <= placeLimit;
                 const dbEntry = dbResults[race.race_id]?.[entry.umaban];
                 const winGap = entry.win_vb_gap;
+                const margin = entry.predicted_margin;
+                const rec = betRecMap.get(`${race.race_id}-${entry.umaban}`);
                 return (
                   <tr
                     key={`${race.race_id}-${entry.umaban}`}
@@ -138,8 +143,14 @@ export function VBTable({
                         </span>
                       )}
                     </td>
-                    <td className="px-2 py-1.5 border text-center text-[10px] text-muted-foreground">
-                      -
+                    <td className="px-2 py-1.5 border text-center">
+                      {rec ? (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${getRecBadgeClass(rec.betType, rec.strength)}`}>
+                          {rec.betType}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-300">-</span>
+                      )}
                     </td>
                     <td className={`px-2 py-1.5 border text-center ${getMarkColor(entry.kb_mark)}`}>
                       {entry.kb_mark || '-'}
@@ -152,10 +163,15 @@ export function VBTable({
                     <td className={`px-2 py-1.5 border text-center font-mono ${getGapColor(liveGap)}`}>
                       +{liveGap}
                     </td>
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${
+                      margin != null && margin <= 1.2 ? 'text-green-600 font-bold' : margin != null && margin > 1.2 ? 'text-red-500' : 'text-gray-300'
+                    }`}>
+                      {margin != null ? `${margin.toFixed(2)}s` : '-'}
+                    </td>
                     <td className={`px-2 py-1.5 border text-center font-mono ${winGap != null && winGap >= 3 ? getGapColor(winGap) : 'text-gray-400'} bg-emerald-50/30 dark:bg-emerald-900/10`}>
                       {winGap != null && winGap !== 0 ? (winGap > 0 ? `+${winGap}` : `${winGap}`) : '-'}
                     </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono ${ev !== null ? getEvColor(ev) : 'text-gray-300'} bg-emerald-50/50 dark:bg-emerald-900/10`}>
+                    <td className="px-2 py-1.5 border text-center font-mono text-gray-400" title="WVモデルECE=0.12のため参考値">
                       {ev !== null ? ev.toFixed(2) : '-'}
                     </td>
                     <td className={`px-2 py-1.5 border text-center font-mono text-xs ${placeEv !== null && placeEv >= 1.0 ? 'text-blue-600 font-bold' : placeEv !== null ? 'text-blue-400' : 'text-gray-300'} bg-blue-50/30 dark:bg-blue-900/10`}>

@@ -156,10 +156,11 @@ export function BetRecommendations({
                 <th className="px-2 py-2 text-left border">馬名</th>
                 <th className="px-2 py-2 text-center border">推奨</th>
                 <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="VB Gap">Gap</SortTh>
+                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="着差予測(秒) — Reg Bモデル">Margin</SortTh>
                 <SortTh sortKey="kelly" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="Kelly基準ベット比率">Kelly</SortTh>
                 <SortTh sortKey="amount" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-yellow-50 dark:bg-yellow-900/20" title="推奨金額">金額</SortTh>
                 <SortTh sortKey="odds" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
-                <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝EV">単EV</SortTh>
+                <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
                 <SortTh sortKey="placeEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="複勝EV">複EV</SortTh>
                 <SortTh sortKey="head" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="頭向き度">頭%</SortTh>
                 <SortTh sortKey="danger" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-orange-50 dark:bg-orange-900/20" title="危険な人気馬">危険馬</SortTh>
@@ -202,6 +203,11 @@ export function BetRecommendations({
                       +{lg}
                     </td>
                     ); })()}
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${
+                      r.predictedMargin <= 1.2 ? 'text-green-600 font-bold' : 'text-red-500'
+                    }`}>
+                      {r.predictedMargin.toFixed(2)}s
+                    </td>
                     <td className="px-2 py-1.5 border text-center font-mono text-xs">
                       {(r.kellyFraction * 100).toFixed(1)}%
                     </td>
@@ -212,7 +218,7 @@ export function BetRecommendations({
                     <td className="px-2 py-1.5 border text-center font-mono text-xs">
                       {winOdds ? winOdds.toFixed(1) : '-'}
                     </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${r.winEv && r.winEv >= 1.0 ? getEvColor(r.winEv) : 'text-gray-300'}`}>
+                    <td className="px-2 py-1.5 border text-center font-mono text-xs text-gray-400" title="WVモデルECE=0.12のため参考値">
                       {r.winEv ? r.winEv.toFixed(2) : '-'}
                     </td>
                     <td className={`px-2 py-1.5 border text-center font-mono text-xs ${r.placeEv && r.placeEv >= 1.0 ? 'text-blue-600 font-bold' : 'text-gray-300'}`}>

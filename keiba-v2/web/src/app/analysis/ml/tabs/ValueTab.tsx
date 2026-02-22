@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { MlExperimentResultV2, ValueBetGapEntry } from '../types';
+import type { MlExperimentResultV2, ValueBetGapEntry, GapMarginGridEntry } from '../types';
 
 function GapTable({ title, vb, color }: { title: string; vb: ValueBetGapEntry[]; color: 'blue' | 'emerald' }) {
   if (!vb || vb.length === 0) return null;
@@ -109,6 +109,83 @@ function RoiBarChart({ placeVb, winVb }: { placeVb: ValueBetGapEntry[]; winVb?: 
   );
 }
 
+function GapMarginHeatmap({ grid }: { grid: GapMarginGridEntry[] }) {
+  if (!grid || grid.length === 0) return null;
+
+  // Build lookup: `${min_gap}-${max_margin}` → entry
+  const lookup = new Map<string, GapMarginGridEntry>();
+  for (const e of grid) {
+    lookup.set(`${e.min_gap}-${e.max_margin}`, e);
+  }
+
+  const gaps = [3, 4, 5, 6];
+  const margins = [0.6, 0.8, 1.0, 1.2, 1.5, null];
+  const marginLabels = ['≤0.6', '≤0.8', '≤1.0', '≤1.2', '≤1.5', '制限なし'];
+
+  // Current preset highlight (Session 41 backtest optimal: margin<=1.2 → ROI 119.9%)
+  const presetGap = 5;
+  const presetMargin = 1.2;
+
+  return (
+    <div className="mt-6 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+      <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">Gap × Margin ヒートマップ (単勝ROI)</h3>
+      <p className="mb-3 text-xs text-gray-500">gap閾値とmargin閾値の組み合わせ別ROI。枠線=現在プリセット(win_only)</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-200 dark:border-gray-700">
+              <th className="py-2 text-left text-gray-500">gap \ margin</th>
+              {marginLabels.map((label, i) => (
+                <th key={i} className="py-2 text-center text-gray-500">{label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {gaps.map((gap) => (
+              <tr key={gap} className="border-b border-gray-50 dark:border-gray-800">
+                <td className="py-2 font-medium text-gray-600 dark:text-gray-400">≥{gap}</td>
+                {margins.map((margin, mi) => {
+                  const entry = lookup.get(`${gap}-${margin}`);
+                  const roi = entry?.win_roi ?? 0;
+                  const count = entry?.count ?? 0;
+                  const isPreset = gap === presetGap && margin === presetMargin;
+
+                  let bgClass = 'bg-gray-50 dark:bg-gray-800/30';
+                  if (count > 0) {
+                    if (roi >= 120) bgClass = 'bg-green-200 dark:bg-green-900/40';
+                    else if (roi >= 100) bgClass = 'bg-green-100 dark:bg-green-900/20';
+                    else if (roi >= 80) bgClass = 'bg-yellow-50 dark:bg-yellow-900/10';
+                    else bgClass = 'bg-red-50 dark:bg-red-900/10';
+                  }
+
+                  return (
+                    <td key={mi} className={cn('py-2 text-center', bgClass,
+                      isPreset && 'ring-2 ring-amber-500 ring-inset rounded'
+                    )}>
+                      {count > 0 ? (
+                        <div>
+                          <div className={cn('font-bold tabular-nums',
+                            roi >= 100 ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                          )}>
+                            {roi.toFixed(1)}%
+                          </div>
+                          <div className="text-[10px] text-gray-400">{count}件/{entry!.win_hits}的中</div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
   const placeVb = data.roi_analysis.value_bets.by_rank_gap;
   const winVb = data.roi_analysis.value_bets.win_by_rank_gap;
@@ -143,6 +220,11 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
 
         <RoiBarChart placeVb={placeVb} winVb={hasWinVb ? winVb : undefined} />
       </div>
+
+      {/* Gap × Margin Heatmap */}
+      {data.gap_margin_grid && data.gap_margin_grid.length > 0 && (
+        <GapMarginHeatmap grid={data.gap_margin_grid} />
+      )}
 
       {/* Top1 ROI comparison */}
       <div className={cn('grid gap-4', roiModels.length <= 2 ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4')}>

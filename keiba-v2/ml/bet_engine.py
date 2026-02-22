@@ -476,6 +476,111 @@ def recommendations_summary(recs: List[BetRecommendation]) -> dict:
     }
 
 
+# =====================================================================
+# バックテスト用ユーティリティ
+# =====================================================================
+
+def df_to_race_predictions(df_test) -> List[dict]:
+    """DataFrame → generate_recommendations() 入力形式に変換
+
+    experiment.py / backtest_bet_engine.py の両方から利用。
+    df_test には pred_rank_v, odds_rank, pred_margin_b 等が必要。
+    """
+    import pandas as pd
+
+    races = []
+    for race_id, group in df_test.groupby('race_id'):
+        entries = []
+        for _, row in group.iterrows():
+            entries.append({
+                'umaban': int(row['umaban']),
+                'horse_name': str(row.get('horse_name', '')),
+                'odds': float(row.get('odds', 0)),
+                'vb_gap': int(row.get('vb_gap', 0)),
+                'win_vb_gap': int(row.get('win_vb_gap', 0)),
+                'rank_v': int(row.get('pred_rank_v', 99)),
+                'odds_rank': int(row.get('odds_rank', 0)),
+                'place_odds_min': float(row['place_odds_low']) if pd.notna(row.get('place_odds_low')) else None,
+                'pred_proba_v_raw': float(row.get('pred_proba_v_raw', 0)),
+                'predicted_margin': float(row['pred_margin_b']) if pd.notna(row.get('pred_margin_b')) else None,
+                'win_ev': float(row.get('win_ev', 0)) if pd.notna(row.get('win_ev')) else None,
+                'place_ev': float(row.get('place_ev', 0)) if pd.notna(row.get('place_ev')) else None,
+                'comment_memo_trouble_score': float(row.get('comment_memo_trouble', 0)),
+                # 結果情報（ROI計算用）
+                'finish_position': int(row.get('finish_position', 0)),
+                'is_win': int(row.get('is_win', 0)),
+                'is_top3': int(row.get('is_top3', 0)),
+            })
+        races.append({
+            'race_id': str(race_id),
+            'track_type': str(row.get('track_type_name', '')),
+            'entries': entries,
+        })
+    return races
+
+
+def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[dict]) -> dict:
+    """推奨買い目の実ROI計算
+
+    Args:
+        recs: generate_recommendations() の出力
+        race_predictions: df_to_race_predictions() の出力（結果付き）
+
+    Returns:
+        dict: ROI統計
+    """
+    entry_lookup = {}
+    for race in race_predictions:
+        for e in race['entries']:
+            entry_lookup[(race['race_id'], e['umaban'])] = e
+
+    total_win_bet = 0
+    total_place_bet = 0
+    total_win_return = 0
+    total_place_return = 0
+    win_hits = 0
+    place_hits = 0
+
+    for r in recs:
+        entry = entry_lookup.get((r.race_id, r.umaban))
+        if entry is None:
+            continue
+
+        if r.win_amount > 0:
+            total_win_bet += r.win_amount
+            if entry['is_win']:
+                total_win_return += entry['odds'] * r.win_amount
+                win_hits += 1
+
+        if r.place_amount > 0:
+            total_place_bet += r.place_amount
+            if entry['is_top3']:
+                place_odds = entry.get('place_odds_min')
+                if place_odds and place_odds > 0:
+                    total_place_return += place_odds * r.place_amount
+                else:
+                    total_place_return += max(entry['odds'] / 3.5, 1.1) * r.place_amount
+                place_hits += 1
+
+    total_bet = total_win_bet + total_place_bet
+    total_return = total_win_return + total_place_return
+
+    return {
+        'total_bet': total_bet,
+        'total_return': round(total_return),
+        'total_roi': round(total_return / total_bet * 100, 1) if total_bet > 0 else 0,
+        'win_bet': total_win_bet,
+        'win_return': round(total_win_return),
+        'win_roi': round(total_win_return / total_win_bet * 100, 1) if total_win_bet > 0 else 0,
+        'win_hits': win_hits,
+        'place_bet': total_place_bet,
+        'place_return': round(total_place_return),
+        'place_roi': round(total_place_return / total_place_bet * 100, 1) if total_place_bet > 0 else 0,
+        'place_hits': place_hits,
+        'num_bets': len(recs),
+    }
+
+
 def rescale_budget(recs: List[dict], new_budget: int, unit: int = 100) -> List[dict]:
     """フロントエンドから呼ぶ予算リスケール
 

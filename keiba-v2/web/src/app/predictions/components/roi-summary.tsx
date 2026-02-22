@@ -15,8 +15,8 @@ interface TrackROIStats {
 
 interface RoiSummaryProps {
   all: TrackROIStats;
-  turf: TrackROIStats;
-  dirt: TrackROIStats;
+  betRec: TrackROIStats;
+  betExcl: TrackROIStats;
 }
 
 function ROIRow({ label, s, badgeClass }: { label: string; s: TrackROIStats; badgeClass?: string }) {
@@ -65,7 +65,7 @@ function ROIRow({ label, s, badgeClass }: { label: string; s: TrackROIStats; bad
   );
 }
 
-export function RoiSummary({ all, turf, dirt }: RoiSummaryProps) {
+export function RoiSummary({ all, betRec, betExcl }: RoiSummaryProps) {
   return (
     <Card id="section-roi" className="mb-6 border-blue-200 dark:border-blue-800">
       <CardContent className="py-4">
@@ -82,8 +82,8 @@ export function RoiSummary({ all, turf, dirt }: RoiSummaryProps) {
           <div>複勝ROI</div>
         </div>
         <ROIRow label="全体" s={all} />
-        <ROIRow label="芝" s={turf} badgeClass="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" />
-        <ROIRow label="ダート" s={dirt} badgeClass="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" />
+        <ROIRow label="bet推奨" s={betRec} badgeClass="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" />
+        <ROIRow label="非推奨" s={betExcl} badgeClass="bg-gray-100 text-gray-600 dark:bg-gray-800/40 dark:text-gray-400" />
       </CardContent>
     </Card>
   );

@@ -104,8 +104,49 @@ export interface ValueBetPick {
   odds: number | null;
   pred_proba_accuracy: number;
   pred_proba_value: number;
+  predicted_margin?: number | null;
   actual_position: number;
   is_top3: number;
+}
+
+export interface GapMarginGridEntry {
+  min_gap: number;
+  max_margin: number | null;  // null = margin制限なし
+  count: number;
+  win_hits: number;
+  win_roi: number;
+  place_hits: number;
+  place_roi: number;
+}
+
+export interface BetEnginePresetResult {
+  params: Record<string, number>;
+  total_bet: number;
+  total_return: number;
+  total_roi: number;
+  win_bet: number;
+  win_return: number;
+  win_roi: number;
+  win_hits: number;
+  place_bet: number;
+  place_return: number;
+  place_roi: number;
+  place_hits: number;
+  num_bets: number;
+}
+
+export interface RegressionMetrics {
+  mae: number;
+  correlation: number;
+  best_iteration: number;
+}
+
+export interface RegressionModelResult {
+  target: string;
+  features: string[];
+  feature_count: number;
+  metrics: RegressionMetrics;
+  feature_importance: FeatureImportanceEntry[];
 }
 
 export interface MlExperimentResultV2 {
@@ -120,6 +161,7 @@ export interface MlExperimentResultV2 {
     value: MlModelResult;
     win_accuracy?: MlModelResult;
     win_value?: MlModelResult;
+    regression_value?: RegressionModelResult;
   };
   hit_analysis: HitAnalysisEntry[] | { accuracy: HitAnalysisEntry[]; value: HitAnalysisEntry[] };
   roi_analysis: {
@@ -134,4 +176,6 @@ export interface MlExperimentResultV2 {
   };
   race_predictions: RacePredictionV2[];
   value_bet_picks?: ValueBetPick[];
+  gap_margin_grid?: GapMarginGridEntry[];
+  bet_engine_presets?: Record<string, BetEnginePresetResult>;
 }

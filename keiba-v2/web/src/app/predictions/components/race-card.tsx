@@ -64,6 +64,7 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
           break;
         }
         case 'gap': va = getLiveGap(a); vb = getLiveGap(b); break;
+        case 'margin': va = a.predicted_margin ?? 99; vb = b.predicted_margin ?? 99; break;
         case 'ev': {
           va = calcWinEv(a, getWinOdds(oddsMap, race.race_id, a.umaban, a.odds)) ?? -1;
           vb = calcWinEv(b, getWinOdds(oddsMap, race.race_id, b.umaban, b.odds)) ?? -1;
@@ -133,7 +134,8 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="人気 - VR：市場評価とモデル評価の乖離">Gap</SortTh>
-                <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="単勝EV = P(win) × 単勝オッズ">単EV</SortTh>
+                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="着差予測(秒) — Reg Bモデル。低いほど勝ちに近い">Margin</SortTh>
+                <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
                 <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="Model A 3着内確率（%）">A%</SortTh>
                 <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="Model V 3着内確率（%）">V%</SortTh>
                 <SortTh sortKey="prob_wv" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="Model WV 勝率予測（%） — 市場非依存">WV%</SortTh>
@@ -196,7 +198,12 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                         </td>
                       );
                     })()}
-                    <td className={`px-2 py-1 text-center font-mono text-xs ${ev !== null ? getEvColor(ev) : 'text-gray-300'} bg-emerald-50/30 dark:bg-emerald-900/10`}>
+                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${
+                      entry.predicted_margin != null && entry.predicted_margin <= 1.2 ? 'text-green-600 font-bold' : entry.predicted_margin != null && entry.predicted_margin > 1.2 ? 'text-red-500' : 'text-gray-300'
+                    }`}>
+                      {entry.predicted_margin != null ? `${entry.predicted_margin.toFixed(2)}` : '-'}
+                    </td>
+                    <td className="px-2 py-1 text-center font-mono text-xs text-gray-400" title="WVモデルECE=0.12のため参考値">
                       {ev !== null ? ev.toFixed(2) : '-'}
                     </td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_a * 100).toFixed(1)}</td>

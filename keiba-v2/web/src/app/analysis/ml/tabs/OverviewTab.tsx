@@ -2,7 +2,17 @@
 
 import { cn } from '@/lib/utils';
 import { MetricCard } from '../utils';
-import type { MlExperimentResultV2, MlModelResult } from '../types';
+import type { MlExperimentResultV2, MlModelResult, RegressionModelResult } from '../types';
+
+function EceBadge({ ece }: { ece: number }) {
+  if (ece < 0.03) {
+    return <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Kelly適格</span>;
+  }
+  if (ece <= 0.05) {
+    return <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">要注意</span>;
+  }
+  return <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Kelly不適</span>;
+}
 
 function ModelCard({
   title,
@@ -28,7 +38,13 @@ function ModelCard({
       <div className="grid grid-cols-3 gap-2">
         <MetricCard label="AUC" value={m.auc.toFixed(4)} highlight color={color === 'blue' ? 'blue' : 'emerald'} />
         <MetricCard label="Brier" value={m.brier_score != null ? m.brier_score.toFixed(4) : '-'} />
-        <MetricCard label="ECE" value={m.ece != null ? m.ece.toFixed(4) : '-'} />
+        <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
+          <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
+            ECE
+            {m.ece != null && <EceBadge ece={m.ece} />}
+          </div>
+          <div className="mt-1 text-xl font-bold tabular-nums">{m.ece != null ? m.ece.toFixed(4) : '-'}</div>
+        </div>
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-500">
         <div>Iter: <span className="font-medium text-gray-700 dark:text-gray-300">{m.best_iteration}</span></div>
@@ -39,10 +55,33 @@ function ModelCard({
   );
 }
 
+function RegressionCard({ model }: { model: RegressionModelResult }) {
+  const m = model.metrics;
+  return (
+    <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
+      <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">
+        Reg B
+        <span className="ml-2 text-xs font-normal text-gray-400">着差回帰 / 市場系除外</span>
+      </h3>
+      <div className="grid grid-cols-3 gap-2">
+        <MetricCard label="MAE (秒)" value={m.mae.toFixed(4)} highlight color="green" />
+        <MetricCard label="相関係数" value={m.correlation.toFixed(4)} />
+        <MetricCard label="BestIter" value={String(m.best_iteration)} />
+      </div>
+      <div className="mt-2 text-xs text-gray-500">
+        Features: <span className="font-medium text-gray-700 dark:text-gray-300">{model.feature_count ?? model.features.length}</span>
+        <span className="ml-3 text-gray-400">target: {model.target}</span>
+        <span className="ml-3 text-gray-400">MAE = 勝ち馬とのタイム差(秒)の平均誤差</span>
+      </div>
+    </div>
+  );
+}
+
 export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
   const hitAccuracy = Array.isArray(data.hit_analysis) ? data.hit_analysis : data.hit_analysis.accuracy;
   const hitValue = Array.isArray(data.hit_analysis) ? [] : data.hit_analysis.value;
   const hasWin = !!data.models.win_accuracy;
+  const hasRegression = !!data.models.regression_value;
 
   return (
     <div className="space-y-6">
@@ -63,6 +102,14 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
             <ModelCard title="Model W" model={data.models.win_accuracy!} color="emerald" targetLabel="精度 / 全特徴量" />
             <ModelCard title="Model WV" model={data.models.win_value!} color="emerald" targetLabel="Value / 市場系除外" />
           </div>
+        </div>
+      )}
+
+      {/* Regression Model */}
+      {hasRegression && (
+        <div>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">Regression Model (着差予測)</h2>
+          <RegressionCard model={data.models.regression_value!} />
         </div>
       )}
 

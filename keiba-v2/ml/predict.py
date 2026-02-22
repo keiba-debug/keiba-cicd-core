@@ -505,14 +505,23 @@ def predict_race(
     # else: odds_rank = np.nan のまま → LightGBMのNaN処理に委ねる
 
     # 特徴量行列を構築（NaN処理はLightGBMネイティブに委ねる）
+    # None/非数値はnp.nanに変換（comment_features等がNoneを返す場合のnp.isnan対応）
+    def _to_float(val):
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            return np.nan
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return np.nan
+
     for p in predictions:
-        row_a = [p['features'].get(f, np.nan) for f in features_all]
-        row_v = [p['features'].get(f, np.nan) for f in features_value]
+        row_a = [_to_float(p['features'].get(f, np.nan)) for f in features_all]
+        row_v = [_to_float(p['features'].get(f, np.nan)) for f in features_value]
         feature_rows_a.append(row_a)
         feature_rows_v.append(row_v)
 
-    arr_a = np.array(feature_rows_a)
-    arr_v = np.array(feature_rows_v)
+    arr_a = np.array(feature_rows_a, dtype=np.float64)
+    arr_v = np.array(feature_rows_v, dtype=np.float64)
 
     # === 特徴量NaN検証: 全値NaNの特徴量があれば警告 ===
     nan_cols_a = [f for j, f in enumerate(features_all)

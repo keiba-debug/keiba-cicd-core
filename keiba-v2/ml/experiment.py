@@ -949,12 +949,55 @@ def collect_value_bet_picks(df: pd.DataFrame, min_gap: int = 3) -> List[dict]:
                 'odds': round(float(row['odds']), 1) if row['odds'] > 0 else None,
                 'pred_proba_accuracy': round(float(row['pred_proba_a']), 4),
                 'pred_proba_value': round(float(row['pred_proba_v']), 4),
+                'predicted_margin': round(float(row['pred_margin_b']), 3) if pd.notna(row.get('pred_margin_b')) else None,
                 'actual_position': int(row['finish_position']),
                 'is_top3': int(row['is_top3']),
             })
 
     picks.sort(key=lambda x: (-x['gap'], x['date']))
     return picks
+
+
+def calc_gap_margin_grid(df: pd.DataFrame) -> List[dict]:
+    """gap × margin クロス集計 (ML Report ヒートマップ用)
+
+    VB候補 (pred_rank_v <= 3) に対して、gap閾値とmargin閾値の
+    組み合わせごとの件数・単勝ROI・複勝ROIを計算する。
+    """
+    if 'pred_rank_v' not in df.columns or 'pred_margin_b' not in df.columns:
+        return []
+
+    grid = []
+    for min_gap in [3, 4, 5, 6]:
+        for max_margin in [0.6, 0.8, 1.0, 1.2, 1.5, None]:
+            mask = (
+                (df['pred_rank_v'] <= 3) &
+                (df['odds_rank'] >= df['pred_rank_v'] + min_gap)
+            )
+            if max_margin is not None:
+                mask = mask & (df['pred_margin_b'] <= max_margin)
+            subset = df[mask]
+            if len(subset) == 0:
+                continue
+
+            total_bet = len(subset) * 100
+            win_return = float(subset[subset['is_win'] == 1]['odds'].sum()) * 100
+            place_col = 'place_odds_low' if 'place_odds_low' in df.columns else 'place_odds_min'
+            if place_col in df.columns:
+                place_return = float(subset[subset['is_top3'] == 1][place_col].fillna(0).sum()) * 100
+            else:
+                place_return = 0
+
+            grid.append({
+                'min_gap': min_gap,
+                'max_margin': max_margin,
+                'count': int(len(subset)),
+                'win_hits': int(subset['is_win'].sum()),
+                'win_roi': round(win_return / total_bet * 100, 1) if total_bet > 0 else 0,
+                'place_hits': int(subset['is_top3'].sum()),
+                'place_roi': round(place_return / total_bet * 100, 1) if total_bet > 0 else 0,
+            })
+    return grid
 
 
 def collect_race_predictions(df: pd.DataFrame) -> List[dict]:
@@ -1328,6 +1371,50 @@ def main():
     race_preds = collect_race_predictions(df_test)
     print(f"  Race predictions: {len(race_preds)} races")
 
+    print("\n[Analysis] Gap × Margin grid...")
+    gap_margin_grid = calc_gap_margin_grid(df_test)
+    print(f"  Gap×Margin grid: {len(gap_margin_grid)} cells")
+
+    # --- bet_engine プリセット バックテスト ---
+    print("\n[Analysis] bet_engine preset backtest...")
+    bet_engine_presets = {}
+    try:
+        from ml.bet_engine import (
+            PRESETS as BET_PRESETS,
+            generate_recommendations as bet_gen_recs,
+            df_to_race_predictions as bet_df_to_recs,
+            calc_bet_engine_roi as bet_calc_roi,
+        )
+        from dataclasses import asdict as _asdict
+
+        # df_test にbet_engine用の追加列を計算
+        df_test['pred_proba_v_raw'] = pred_b
+        df_test['vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_v']).clip(lower=0).astype(int)
+        df_test['win_vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_wv']).clip(lower=0).astype(int)
+
+        # EV (calibrated)
+        pred_b_cal = cal_b.predict(pred_b) if cal_b is not None else pred_b
+        pred_wv_cal = cal_wv.predict(pred_wv) if cal_wv is not None else pred_wv
+        df_test['win_ev'] = pred_wv_cal * df_test['odds']
+        place_odds_col = df_test['place_odds_low'].fillna(df_test['odds'] / 3.5)
+        df_test['place_ev'] = pred_b_cal * place_odds_col
+
+        bet_race_preds = bet_df_to_recs(df_test)
+
+        for preset_name, preset_params in BET_PRESETS.items():
+            recs = bet_gen_recs(bet_race_preds, preset_params, budget=30000)
+            roi = bet_calc_roi(recs, bet_race_preds)
+            bet_engine_presets[preset_name] = {
+                'params': _asdict(preset_params),
+                **roi,
+            }
+            marker = ' ***' if roi['total_roi'] >= 100 else ''
+            print(f"  {preset_name:>14}: ROI {roi['total_roi']:>6.1f}%{marker}  "
+                  f"(bets={roi['num_bets']}, net={roi['total_return'] - roi['total_bet']:+,})")
+    except Exception as e:
+        print(f"  bet_engine backtest failed (non-fatal): {e}")
+        bet_engine_presets = {}
+
     # 結果表示
     print(f"\n{'='*60}")
     print(f"  Results")
@@ -1525,6 +1612,8 @@ def main():
         },
         'value_bet_picks': vb_picks,
         'race_predictions': race_preds,
+        'gap_margin_grid': gap_margin_grid,
+        'bet_engine_presets': bet_engine_presets if bet_engine_presets else None,
     }
 
     if track_split_results:

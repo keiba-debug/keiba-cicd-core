@@ -11,6 +11,10 @@ interface FilterBarProps {
   setMinGap: (g: number) => void;
   minEv: number;
   setMinEv: (v: number) => void;
+  maxMargin: number | null;
+  setMaxMargin: (m: number | null) => void;
+  betOnly: boolean;
+  setBetOnly: (b: boolean) => void;
   filteredCount: number;
   totalCount: number;
 }
@@ -21,6 +25,8 @@ export function FilterBar({
   trackFilter, setTrackFilter,
   minGap, setMinGap,
   minEv, setMinEv,
+  maxMargin, setMaxMargin,
+  betOnly, setBetOnly,
   filteredCount, totalCount,
 }: FilterBarProps) {
   return (
@@ -111,9 +117,32 @@ export function FilterBar({
         ))}
       </div>
 
-      {/* EV */}
+      {/* Margin */}
       <div className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground mr-1">EV:</span>
+        <span className="text-xs text-muted-foreground mr-1">Margin:</span>
+        {[
+          { v: null as number | null, l: '全て' },
+          { v: 1.0, l: '\u22641.0' },
+          { v: 1.2, l: '\u22641.2' },
+          { v: 1.5, l: '\u22641.5' },
+        ].map(({ v, l }) => (
+          <button
+            key={String(v)}
+            onClick={() => setMaxMargin(v)}
+            className={`px-2.5 py-1 text-xs rounded transition-colors ${
+              maxMargin === v
+                ? 'bg-teal-600 text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+            }`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* EV(複勝) */}
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-muted-foreground mr-1" title="複勝EV（Place側のみ有効）">EV(複勝):</span>
         {[
           { v: 0, l: '全て' },
           { v: 0.8, l: '\u22650.8' },
@@ -134,11 +163,23 @@ export function FilterBar({
         ))}
       </div>
 
+      {/* bet推奨のみ */}
+      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={betOnly}
+          onChange={(e) => setBetOnly(e.target.checked)}
+          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+        />
+        <span className="text-xs text-muted-foreground">bet推奨のみ</span>
+      </label>
+
       {/* 件数表示 */}
       <span className="text-xs text-muted-foreground ml-auto">
         {filteredCount !== totalCount
           ? `${filteredCount} / ${totalCount} 件`
           : `${totalCount} 件`}
+        {betOnly && ' (bet推奨)'}
       </span>
     </div>
   );
