@@ -923,6 +923,105 @@ def calc_value_bet_analysis(df: pd.DataFrame, rank_col: str = 'pred_rank_v') -> 
     return results
 
 
+def calc_vb_bootstrap_ci(
+    df: pd.DataFrame,
+    rank_col: str = 'pred_rank_v',
+    n_bootstrap: int = 1000,
+    ci_level: float = 0.95,
+) -> List[dict]:
+    """Value Bet ROIのBootstrap信頼区間をレース単位リサンプリングで推定
+
+    レース単位でリサンプリングする理由:
+    - 同一レース内の馬は独立ではない（1頭が勝てば他は負け）
+    - 馬単位でリサンプリングすると統計的独立性の仮定が崩れる
+
+    Returns:
+        gap条件ごとの {min_gap, bet_count, place_roi, win_roi,
+                       place_roi_ci_low, place_roi_ci_high,
+                       win_roi_ci_low, win_roi_ci_high} のリスト
+    """
+    if rank_col not in df.columns or 'odds_rank' not in df.columns:
+        return []
+
+    rng = np.random.default_rng(42)
+    alpha = (1 - ci_level) / 2  # 0.025 for 95% CI
+
+    results = []
+    for min_gap in [2, 3, 4, 5]:
+        # --- レース単位でVBベット結果を集計 ---
+        race_bets = {}  # {race_id: [(bet_amount, win_return, place_return), ...]}
+        for race_id, group in df.groupby('race_id'):
+            candidates = group[
+                (group[rank_col] <= 3) &
+                (group['odds_rank'] >= group[rank_col] + min_gap)
+            ]
+            if len(candidates) == 0:
+                continue
+            bets = []
+            for _, row in candidates.iterrows():
+                bet = 100
+                w_ret = row['odds'] * bet if row['is_win'] == 1 else 0
+                p_odds = _get_place_odds(row)
+                p_ret = p_odds * bet if row['is_top3'] == 1 else 0
+                bets.append((bet, w_ret, p_ret))
+            race_bets[race_id] = bets
+
+        race_ids = list(race_bets.keys())
+        n_races = len(race_ids)
+        if n_races == 0:
+            results.append({
+                'min_gap': min_gap, 'bet_count': 0,
+                'place_roi': 0, 'win_roi': 0,
+                'place_roi_ci_low': 0, 'place_roi_ci_high': 0,
+                'win_roi_ci_low': 0, 'win_roi_ci_high': 0,
+            })
+            continue
+
+        # 原データのROI
+        total_bet = sum(b for rid in race_ids for b, _, _ in race_bets[rid])
+        total_w = sum(w for rid in race_ids for _, w, _ in race_bets[rid])
+        total_p = sum(p for rid in race_ids for _, _, p in race_bets[rid])
+        place_roi = total_p / total_bet * 100 if total_bet > 0 else 0
+        win_roi = total_w / total_bet * 100 if total_bet > 0 else 0
+        bet_count = sum(len(race_bets[rid]) for rid in race_ids)
+
+        # --- Bootstrap ---
+        boot_place_rois = []
+        boot_win_rois = []
+        for _ in range(n_bootstrap):
+            sampled = rng.choice(race_ids, size=n_races, replace=True)
+            b_bet = 0
+            b_w = 0
+            b_p = 0
+            for rid in sampled:
+                for bet, w_ret, p_ret in race_bets[rid]:
+                    b_bet += bet
+                    b_w += w_ret
+                    b_p += p_ret
+            if b_bet > 0:
+                boot_place_rois.append(b_p / b_bet * 100)
+                boot_win_rois.append(b_w / b_bet * 100)
+
+        boot_place = np.array(boot_place_rois)
+        boot_win = np.array(boot_win_rois)
+
+        results.append({
+            'min_gap': min_gap,
+            'bet_count': bet_count,
+            'n_races_with_vb': n_races,
+            'place_roi': round(place_roi, 1),
+            'win_roi': round(win_roi, 1),
+            'place_roi_ci_low': round(float(np.percentile(boot_place, alpha * 100)), 1) if len(boot_place) > 0 else 0,
+            'place_roi_ci_high': round(float(np.percentile(boot_place, (1 - alpha) * 100)), 1) if len(boot_place) > 0 else 0,
+            'win_roi_ci_low': round(float(np.percentile(boot_win, alpha * 100)), 1) if len(boot_win) > 0 else 0,
+            'win_roi_ci_high': round(float(np.percentile(boot_win, (1 - alpha) * 100)), 1) if len(boot_win) > 0 else 0,
+            'place_roi_std': round(float(np.std(boot_place)), 1) if len(boot_place) > 0 else 0,
+            'win_roi_std': round(float(np.std(boot_win)), 1) if len(boot_win) > 0 else 0,
+        })
+
+    return results
+
+
 def collect_value_bet_picks(df: pd.DataFrame, min_gap: int = 3) -> List[dict]:
     """テスト期間のValue Bet候補を個別レコードとして収集"""
     if 'pred_rank_v' not in df.columns or 'odds_rank' not in df.columns:
@@ -1234,6 +1333,8 @@ def main():
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用（JSON確定オッズ）')
     parser.add_argument('--split-track', action='store_true', help='芝/ダート分離モデル実験 (H-21)')
     parser.add_argument('--version', default=None, help='モデルバージョン文字列 (例: 5.3)')
+    parser.add_argument('--prune-bottom', type=int, default=0,
+                        help='Importance下位N%%の特徴量を除外 (例: 20)')
     args = parser.parse_args()
 
     train_min, train_max = parse_year_range(args.train_years)
@@ -1295,26 +1396,63 @@ def main():
     print(f"[Dataset] Test:  {len(df_test):,} entries from "
           f"{df_test['race_id'].nunique():,} races")
 
+    # === Feature Pruning ===
+    feature_cols_all = list(FEATURE_COLS_ALL)
+    feature_cols_value = list(FEATURE_COLS_VALUE)
+    pruned_features = []
+
+    if args.prune_bottom > 0:
+        # 前回のexperiment結果からimportance読み込み
+        prev_result_path = config.ml_dir() / "ml_experiment_v3_result.json"
+        if prev_result_path.exists():
+            prev_result = json.loads(prev_result_path.read_text(encoding='utf-8'))
+            # Model B (value) のimportanceを基準にする（VB戦略の核）
+            imp_b = prev_result.get('models', {}).get('value', {}).get('feature_importance', [])
+            imp_a = prev_result.get('models', {}).get('accuracy', {}).get('feature_importance', [])
+            if imp_b:
+                # Model B importance下位N%を除外
+                n_prune_b = max(1, len(imp_b) * args.prune_bottom // 100)
+                prune_b = set(item['feature'] for item in imp_b[-n_prune_b:])
+                # Model A importance下位N%も除外
+                n_prune_a = max(1, len(imp_a) * args.prune_bottom // 100) if imp_a else 0
+                prune_a = set(item['feature'] for item in imp_a[-n_prune_a:]) if imp_a else set()
+
+                feature_cols_value = [f for f in feature_cols_value if f not in prune_b]
+                feature_cols_all = [f for f in feature_cols_all if f not in prune_a]
+                pruned_features = sorted(prune_b | prune_a)
+
+                print(f"\n[Pruning] Removing bottom {args.prune_bottom}% features")
+                print(f"  Model A: {len(FEATURE_COLS_ALL)} → {len(feature_cols_all)} "
+                      f"(-{len(FEATURE_COLS_ALL) - len(feature_cols_all)} features)")
+                print(f"  Model B: {len(FEATURE_COLS_VALUE)} → {len(feature_cols_value)} "
+                      f"(-{len(FEATURE_COLS_VALUE) - len(feature_cols_value)} features)")
+                print(f"  Pruned (B): {sorted(prune_b)}")
+                if prune_a - prune_b:
+                    print(f"  Pruned (A only): {sorted(prune_a - prune_b)}")
+        else:
+            print(f"\n[Pruning] WARNING: No previous result found at {prev_result_path}")
+            print(f"  Run experiment without --prune-bottom first to generate importance data")
+
     # === Place モデル (is_top3) ===
     # Model A: 全特徴量
     model_a, metrics_a, importance_a, pred_a, cal_a = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Model_A'
+        df_train, df_val, df_test, feature_cols_all, PARAMS_A, 'is_top3', 'Model_A'
     )
 
     # Model B: Value特徴量（市場系除外）
     model_b, metrics_b, importance_b, pred_b, cal_b = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Model_B'
+        df_train, df_val, df_test, feature_cols_value, PARAMS_B, 'is_top3', 'Model_B'
     )
 
     # === Win モデル (is_win) ===
     # Model W: 全特徴量
     model_w, metrics_w, importance_w, pred_w, cal_w = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_W, 'is_win', 'Model_W'
+        df_train, df_val, df_test, feature_cols_all, PARAMS_W, 'is_win', 'Model_W'
     )
 
     # Model WV: Value特徴量（市場系除外）
     model_wv, metrics_wv, importance_wv, pred_wv, cal_wv = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_WV, 'is_win', 'Model_WV'
+        df_train, df_val, df_test, feature_cols_value, PARAMS_WV, 'is_win', 'Model_WV'
     )
 
     # === 回帰モデル (着差予測) ===
@@ -1324,7 +1462,7 @@ def main():
         add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
 
     model_reg_b, metrics_reg_b, importance_reg_b, pred_reg_b = train_regression_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_REG_B, 'Reg_B'
+        df_train, df_val, df_test, feature_cols_value, PARAMS_REG_B, 'Reg_B'
     )
 
     # 予測結果をDataFrameに追加
@@ -1367,6 +1505,20 @@ def main():
     vb_win_analysis = calc_value_bet_analysis(df_test, rank_col='pred_rank_wv')
     print(f"  Win VB analysis done")
 
+    print("\n[Analysis] Bootstrap ROI confidence intervals...")
+    vb_bootstrap_place = calc_vb_bootstrap_ci(df_test, rank_col='pred_rank_v')
+    vb_bootstrap_win = calc_vb_bootstrap_ci(df_test, rank_col='pred_rank_wv')
+    for bs in vb_bootstrap_place:
+        g = bs['min_gap']
+        print(f"  Place gap>={g}: ROI {bs['place_roi']:>6.1f}% "
+              f"[{bs['place_roi_ci_low']:.1f}% - {bs['place_roi_ci_high']:.1f}%] "
+              f"(n={bs['bet_count']}, races={bs['n_races_with_vb']})")
+    for bs in vb_bootstrap_win:
+        g = bs['min_gap']
+        print(f"  Win   gap>={g}: ROI {bs['win_roi']:>6.1f}% "
+              f"[{bs['win_roi_ci_low']:.1f}% - {bs['win_roi_ci_high']:.1f}%] "
+              f"(n={bs['bet_count']}, races={bs['n_races_with_vb']})")
+
     print("\n[Analysis] Collecting race predictions...")
     race_preds = collect_race_predictions(df_test)
     print(f"  Race predictions: {len(race_preds)} races")
@@ -1401,15 +1553,65 @@ def main():
 
         bet_race_preds = bet_df_to_recs(df_test)
 
+        # entry lookup for ROI calc
+        entry_lookup = {}
+        for race in bet_race_preds:
+            for e in race['entries']:
+                entry_lookup[(race['race_id'], e['umaban'])] = e
+
         for preset_name, preset_params in BET_PRESETS.items():
             recs = bet_gen_recs(bet_race_preds, preset_params, budget=30000)
             roi = bet_calc_roi(recs, bet_race_preds)
+
+            # --- Bootstrap CI for bet_engine ROI ---
+            # Group bets by race_id
+            race_bet_results = {}
+            for r in recs:
+                entry = entry_lookup.get((r.race_id, r.umaban))
+                if entry is None:
+                    continue
+                if r.race_id not in race_bet_results:
+                    race_bet_results[r.race_id] = []
+                w_bet = r.win_amount if r.win_amount > 0 else 0
+                p_bet = r.place_amount if r.place_amount > 0 else 0
+                w_ret = entry['odds'] * r.win_amount if r.win_amount > 0 and entry['is_win'] else 0
+                p_ret = 0
+                if r.place_amount > 0 and entry['is_top3']:
+                    p_odds = entry.get('place_odds_min')
+                    if p_odds and p_odds > 0:
+                        p_ret = p_odds * r.place_amount
+                    else:
+                        p_ret = max(entry['odds'] / 3.5, 1.1) * r.place_amount
+                race_bet_results[r.race_id].append((w_bet + p_bet, w_ret + p_ret))
+
+            rng = np.random.default_rng(42)
+            boot_rois = []
+            race_ids_with_bets = list(race_bet_results.keys())
+            n_races_bet = len(race_ids_with_bets)
+            if n_races_bet > 0:
+                for _ in range(1000):
+                    sampled = rng.choice(race_ids_with_bets, size=n_races_bet, replace=True)
+                    b_bet = sum(bet for rid in sampled for bet, _ in race_bet_results[rid])
+                    b_ret = sum(ret for rid in sampled for _, ret in race_bet_results[rid])
+                    if b_bet > 0:
+                        boot_rois.append(b_ret / b_bet * 100)
+                boot_arr = np.array(boot_rois)
+                ci_low = round(float(np.percentile(boot_arr, 2.5)), 1)
+                ci_high = round(float(np.percentile(boot_arr, 97.5)), 1)
+                ci_std = round(float(np.std(boot_arr)), 1)
+            else:
+                ci_low, ci_high, ci_std = 0, 0, 0
+
             bet_engine_presets[preset_name] = {
                 'params': _asdict(preset_params),
                 **roi,
+                'bootstrap_ci_low': ci_low,
+                'bootstrap_ci_high': ci_high,
+                'bootstrap_std': ci_std,
             }
             marker = ' ***' if roi['total_roi'] >= 100 else ''
             print(f"  {preset_name:>14}: ROI {roi['total_roi']:>6.1f}%{marker}  "
+                  f"[{ci_low:.1f}% - {ci_high:.1f}%]  "
                   f"(bets={roi['num_bets']}, net={roi['total_return'] - roi['total_bet']:+,})")
     except Exception as e:
         print(f"  bet_engine backtest failed (non-fatal): {e}")
@@ -1475,7 +1677,7 @@ def main():
     if args.split_track:
         track_split_results = run_track_split_experiment(
             df_train, df_val, df_test,
-            FEATURE_COLS_ALL, FEATURE_COLS_VALUE,
+            feature_cols_all, feature_cols_value,
             PARAMS_A, PARAMS_B,
             pred_a, pred_b,
         )
@@ -1520,8 +1722,8 @@ def main():
     import sklearn
     meta = {
         'version': experiment_version,
-        'features_all': FEATURE_COLS_ALL,
-        'features_value': FEATURE_COLS_VALUE,
+        'features_all': feature_cols_all,
+        'features_value': feature_cols_value,
         'market_features': list(MARKET_FEATURES),
         'targets': {'place': 'is_top3', 'win': 'is_win', 'margin': 'target_margin'},
         'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
@@ -1544,11 +1746,15 @@ def main():
             'val': f"{val_min}-{val_max}",
             'test': f"{test_min}-{test_max}",
         },
+        'pruning': {
+            'prune_bottom_pct': args.prune_bottom,
+            'pruned_features': pruned_features,
+        } if pruned_features else None,
         'models': {
             'accuracy': {
                 'target': 'is_top3',
-                'features': FEATURE_COLS_ALL,
-                'feature_count': len(FEATURE_COLS_ALL),
+                'features': feature_cols_all,
+                'feature_count': len(feature_cols_all),
                 'metrics': metrics_a,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
@@ -1557,8 +1763,8 @@ def main():
             },
             'value': {
                 'target': 'is_top3',
-                'features': FEATURE_COLS_VALUE,
-                'feature_count': len(FEATURE_COLS_VALUE),
+                'features': feature_cols_value,
+                'feature_count': len(feature_cols_value),
                 'metrics': metrics_b,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
@@ -1567,8 +1773,8 @@ def main():
             },
             'win_accuracy': {
                 'target': 'is_win',
-                'features': FEATURE_COLS_ALL,
-                'feature_count': len(FEATURE_COLS_ALL),
+                'features': feature_cols_all,
+                'feature_count': len(feature_cols_all),
                 'metrics': metrics_w,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
@@ -1577,8 +1783,8 @@ def main():
             },
             'win_value': {
                 'target': 'is_win',
-                'features': FEATURE_COLS_VALUE,
-                'feature_count': len(FEATURE_COLS_VALUE),
+                'features': feature_cols_value,
+                'feature_count': len(feature_cols_value),
                 'metrics': metrics_wv,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
@@ -1587,8 +1793,8 @@ def main():
             },
             'regression_value': {
                 'target': 'target_margin',
-                'features': FEATURE_COLS_VALUE,
-                'feature_count': len(FEATURE_COLS_VALUE),
+                'features': feature_cols_value,
+                'feature_count': len(feature_cols_value),
                 'metrics': metrics_reg_b,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
@@ -1609,6 +1815,8 @@ def main():
         'value_bets': {
             'by_rank_gap': vb_analysis,
             'win_by_rank_gap': vb_win_analysis,
+            'bootstrap_ci_place': vb_bootstrap_place,
+            'bootstrap_ci_win': vb_bootstrap_win,
         },
         'value_bet_picks': vb_picks,
         'race_predictions': race_preds,
