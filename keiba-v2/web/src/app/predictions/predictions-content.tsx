@@ -82,6 +82,9 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     localStorage.setItem('keiba_bet_preset', p);
   }, []);
 
+  // TARGET My印
+  const [targetMarks, setTargetMarks] = useState<Record<string, Record<number, string>>>({});
+
   // TARGET PD CSV
   const [betSyncing, setBetSyncing] = useState(false);
   const [betSyncResult, setBetSyncResult] = useState<{ totalBets: number; winBets: number; placeBets: number; racesWritten: number; totalAmount: number; filePath: string } | null>(null);
@@ -93,6 +96,23 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   }, [data.date]);
 
   const raceIds = useMemo(() => data.races.map(r => r.race_id), [data.races]);
+
+  // TARGET My印 一括フェッチ
+  const fetchTargetMarks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/target-marks/batch-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ races: data.races.map(r => ({ race_id: r.race_id, venue_name: r.venue_name })) }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setTargetMarks(json.marks || {});
+      }
+    } catch {
+      // ignore - marks are optional
+    }
+  }, [data.races]);
 
   // --- データフェッチ ---
 
@@ -160,11 +180,12 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   useEffect(() => {
     fetchAllOdds();
     fetchDbResults();
+    fetchTargetMarks();
     if (isToday) {
       const interval = setInterval(() => { fetchAllOdds(); fetchDbResults(); }, 30000);
       return () => clearInterval(interval);
     }
-  }, [fetchAllOdds, fetchDbResults, isToday]);
+  }, [fetchAllOdds, fetchDbResults, fetchTargetMarks, isToday]);
 
   const { races, summary } = data;
 
@@ -745,6 +766,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         markSyncing={markSyncing}
         markResult={markResult}
         betRecMap={betRecMap}
+        targetMarks={targetMarks}
       />
 
       {/* 危険馬結果一覧 */}
@@ -769,7 +791,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
             <div className="space-y-4">
               {venueRaces.sort((a, b) => a.race_number - b.race_number).map((race) => (
-                <RaceCard key={race.race_id} race={race} oddsMap={oddsMap} results={results} dbResults={dbResults} />
+                <RaceCard key={race.race_id} race={race} oddsMap={oddsMap} results={results} dbResults={dbResults} targetMarks={targetMarks[race.race_id]} />
               ))}
             </div>
           </div>

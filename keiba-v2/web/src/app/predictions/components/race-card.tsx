@@ -17,9 +17,10 @@ interface RaceCardProps {
   oddsMap: OddsMap;
   results?: RaceResultsMap;
   dbResults?: DbResultsMap;
+  targetMarks?: Record<number, string>;
 }
 
-export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
+export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: RaceCardProps) {
   const dbRaceResult = dbResults?.[race.race_id];
   const jsonRaceResult = results?.[race.race_id];
   const hasResults = (dbRaceResult ? Object.keys(dbRaceResult).length > 0 : false) || (jsonRaceResult ? Object.keys(jsonRaceResult).length > 0 : false);
@@ -128,7 +129,8 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
               <tr className="bg-gray-50 dark:bg-gray-800/50 text-xs">
                 <SortTh sortKey="umaban" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10">番</SortTh>
                 <th className="px-2 py-1.5 text-left border-b min-w-[100px]">馬名</th>
-                <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック本紙予想の印">紙</th>
+                <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック本紙予想の印">本紙</th>
+                <th className="px-2 py-1.5 text-center border-b w-8" title="TARGET 馬印1（自分の印）">My</th>
                 <SortTh sortKey="rank_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走 市場モデルの順位">A順</SortTh>
                 <SortTh sortKey="rank_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走 独自モデルの順位">V順</SortTh>
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
@@ -142,7 +144,6 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                 <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="競馬ブックレイティング">Rate</SortTh>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック調教評価">調</th>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
-                <th className="px-2 py-1.5 text-left border-b" title="競馬ブック短評">短評</th>
                 {hasResults && <SortTh sortKey="finish" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="確定着順">着順</SortTh>}
                 {hasResults && <th className="px-2 py-1.5 text-center border-b w-16" title="単勝払い戻し">単払</th>}
                 {hasResults && <th className="px-2 py-1.5 text-center border-b w-16" title="複勝払い戻し">複払</th>}
@@ -180,6 +181,14 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                     <td className={`px-2 py-1 text-center ${getMarkColor(entry.kb_mark)}`}>
                       {entry.kb_mark || '-'}
                     </td>
+                    {(() => {
+                      const myMark = targetMarks?.[entry.umaban];
+                      return (
+                        <td className={`px-2 py-1 text-center font-bold text-xs ${myMark ? 'text-purple-700 dark:text-purple-300' : 'text-gray-300'}`}>
+                          {myMark || '-'}
+                        </td>
+                      );
+                    })()}
                     <td className={`px-2 py-1 text-center font-mono text-xs ${entry.rank_a <= 3 ? 'font-bold text-blue-600' : ''}`}>
                       {entry.rank_a}
                     </td>
@@ -216,7 +225,6 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                     <td className={`px-2 py-1 text-center font-mono text-xs ${entry.comment_has_stable ? getCommentColor(entry.comment_stable_condition ?? 0) : 'text-gray-300'}`} title={getCommentTooltip(entry)}>
                       {entry.comment_has_stable ? (entry.comment_stable_condition ?? 0) > 0 ? `+${entry.comment_stable_condition}` : `${entry.comment_stable_condition ?? 0}` : '-'}
                     </td>
-                    <td className="px-2 py-1 text-xs text-muted-foreground truncate max-w-[180px]">{entry.kb_comment}</td>
                     {hasResults && (
                       <td className={`px-2 py-1 text-center font-mono text-xs ${finishPos > 0 ? getFinishColor(finishPos) : 'text-gray-300'}`}>
                         {finishPos > 0 ? finishPos : '-'}

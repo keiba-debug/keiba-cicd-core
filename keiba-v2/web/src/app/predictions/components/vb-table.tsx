@@ -27,13 +27,14 @@ interface VBTableProps {
   markSyncing: boolean;
   markResult: { marks: Record<string, number>; markedHorses: number } | null;
   betRecMap: Map<string, BetRecommendation>;
+  targetMarks?: Record<string, Record<number, string>>;
 }
 
 export function VBTable({
   sortedVBEntries, filteredVBEntries, oddsMap, dbResults, results, hasResults,
   getFinishPos, getLiveGap, vbSort, setVbSort,
   syncVbMarks, markSyncing, markResult,
-  betRecMap,
+  betRecMap, targetMarks,
 }: VBTableProps) {
   if (filteredVBEntries.length === 0) return null;
 
@@ -73,6 +74,7 @@ export function VBTable({
                 <th className="px-2 py-2 text-left border">馬名</th>
                 <th className="px-2 py-2 text-center border" title="購入プラン推奨の券種">推奨</th>
                 <th className="px-2 py-2 text-center border" title="競馬ブック本紙予想の印">本紙</th>
+                <th className="px-2 py-2 text-center border" title="TARGET 馬印1（自分の印）">My</th>
                 <SortTh sortKey="rank_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="独自ランク — 好走 独自モデルによるレース内順位">VR</SortTh>
                 <SortTh sortKey="odds_rank" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="オッズ順人気">人気</SortTh>
                 <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ（DB最新）">オッズ</SortTh>
@@ -86,7 +88,6 @@ export function VBTable({
                 <th className="px-2 py-2 text-center border" title="勝利 独自モデルの勝率予測">WV%</th>
                 <th className="px-2 py-2 text-center border" title="競馬ブック調教評価の矢印">調教</th>
                 <th className="px-2 py-2 text-center border" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
-                <th className="px-2 py-2 text-left border" title="競馬ブック短評コメント">短評</th>
                 {hasResults && <SortTh sortKey="finish" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="確定着順">着順</SortTh>}
                 {hasResults && <th className="px-2 py-2 text-center border" title="単勝払い戻し">単払</th>}
                 {hasResults && <th className="px-2 py-2 text-center border" title="複勝払い戻し">複払</th>}
@@ -155,6 +156,14 @@ export function VBTable({
                     <td className={`px-2 py-1.5 border text-center ${getMarkColor(entry.kb_mark)}`}>
                       {entry.kb_mark || '-'}
                     </td>
+                    {(() => {
+                      const myMark = targetMarks?.[race.race_id]?.[entry.umaban];
+                      return (
+                        <td className={`px-2 py-1.5 border text-center font-bold ${myMark ? 'text-purple-700 dark:text-purple-300' : 'text-gray-300'}`}>
+                          {myMark || '-'}
+                        </td>
+                      );
+                    })()}
                     <td className="px-2 py-1.5 border text-center font-mono font-bold text-blue-600">{entry.rank_v}</td>
                     <td className="px-2 py-1.5 border text-center font-mono">{entry.odds_rank || '-'}</td>
                     <td className="px-2 py-1.5 border text-center font-mono font-bold">
@@ -189,9 +198,6 @@ export function VBTable({
                     <td className="px-2 py-1.5 border text-center">{entry.kb_training_arrow}</td>
                     <td className={`px-2 py-1.5 border text-center font-mono text-xs ${entry.comment_has_stable ? getCommentColor(entry.comment_stable_condition ?? 0) : 'text-gray-300'}`} title={getCommentTooltip(entry)}>
                       {entry.comment_has_stable ? (entry.comment_stable_condition ?? 0) > 0 ? `+${entry.comment_stable_condition}` : `${entry.comment_stable_condition ?? 0}` : '-'}
-                    </td>
-                    <td className="px-2 py-1.5 border text-xs text-muted-foreground max-w-[200px] truncate">
-                      {entry.kb_comment}
                     </td>
                     {hasResults && (
                       <td className={`px-2 py-1.5 border text-center font-mono ${finishPos > 0 ? getFinishColor(finishPos) : 'text-gray-300'}`}>
