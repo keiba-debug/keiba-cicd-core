@@ -1474,6 +1474,8 @@ def main():
     parser.add_argument('--version', default=None, help='モデルバージョン文字列 (例: 5.3)')
     parser.add_argument('--prune-bottom', type=int, default=0,
                         help='Importance下位N%%の特徴量を除外 (例: 20)')
+    parser.add_argument('--exclude-features', nargs='+', default=[],
+                        help='除外する特徴量名のリスト (例: --exclude-features feat1 feat2)')
     args = parser.parse_args()
 
     train_min, train_max = parse_year_range(args.train_years)
@@ -1539,6 +1541,20 @@ def main():
     feature_cols_all = list(FEATURE_COLS_ALL)
     feature_cols_value = list(FEATURE_COLS_VALUE)
     pruned_features = []
+
+    if args.exclude_features:
+        exclude_set = set(args.exclude_features)
+        before_all = len(feature_cols_all)
+        before_val = len(feature_cols_value)
+        feature_cols_all = [f for f in feature_cols_all if f not in exclude_set]
+        feature_cols_value = [f for f in feature_cols_value if f not in exclude_set]
+        pruned_features = sorted(exclude_set)
+        removed_all = before_all - len(feature_cols_all)
+        removed_val = before_val - len(feature_cols_value)
+        print(f"\n[Exclude] Removing {len(exclude_set)} specified features")
+        print(f"  Model A: {before_all} → {len(feature_cols_all)} (-{removed_all})")
+        print(f"  Model B: {before_val} → {len(feature_cols_value)} (-{removed_val})")
+        print(f"  Excluded: {sorted(exclude_set)}")
 
     if args.prune_bottom > 0:
         # 前回のexperiment結果からimportance読み込み

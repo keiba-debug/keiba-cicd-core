@@ -10,6 +10,7 @@
 
 | バージョン | 日付 | 種別 | Model B AUC | 詳細 |
 |-----------|------|------|-------------|------|
+| [v5.7](v5.7_dead_features_pruning.md) | 2026-02-22 | 特徴量選択 | 0.7829 | Dead features pruning(imp=0×3件)。**ロールバック** |
 | [v5.6](v5.6_ev_gap_analysis.md) | 2026-02-22 | 測定・戦略 | 0.7785* | EV vs Gap分析 + テスト期間拡張。**CI下限>100%初達成** |
 | [v5.5 CI](v5.5_bootstrap_ci_pruning.md) | 2026-02-22 | 測定・特徴量選択 | 0.7836 | Bootstrap CI + Pruning。win_only CI=[60-170%] |
 | [v5.5](v5.5_regression_bet_engine.md) | 2026-02-22 | モデル + 戦略 | 0.7836 | Reg B + bet_engine + margin (Win ROI 119.9%) |
@@ -30,6 +31,7 @@
 | [v2](v2_dual_model.md) | 2026-02-09 | アーキテクチャ | 0.7635 | デュアルモデル導入 |
 
 > *v5.6はtrain=2020-2022（1年短縮）。Model Bが-0.005低下、Wが+0.003改善。
+> **v5.7は3件のdead features(imp=0)除去。AUC変化<0.002だがROI-18pp悪化。再学習ノイズと判断しロールバック。
 
 ### 補助実験・提案書
 
@@ -141,6 +143,7 @@ v5.5  |===============================           | 0.7883
 | v5.4 | 0.8230 | 0.7841 | 0.8374 | 0.7888 | 114/92 |
 | v5.4.1 | 0.8229 | 0.7835 | 0.8371 | 0.7882 | 114/92 |
 | v5.6* | 0.8231 | 0.7785 | 0.8405 | 0.7828 | 114/92 |
+| v5.7** | 0.8224 | 0.7829 | 0.8371 | 0.7867 | 111/89 |
 
 > Model A AUC は 0.822-0.824 で安定。Model B は 0.764→0.784 まで着実に改善。
 
@@ -206,12 +209,13 @@ v5.5  |===============================           | 0.7883
 6. **Pruning 20%一括** (v5.5 CI): Win VBを-27pp悪化
 7. **Place VB ROI全般** (v5.5): bet_engine全プリセットでPlace ROI<100%。Win-onlyが最適
 8. **EV単体フィルタ** (v5.6): gapより弱い。gapの補助としてのみ有効
+9. **Dead features pruning** (v5.7): imp=0×3件除去でAUC<0.002差なのにROI-18pp。再学習ノイズ
 
 ### 特徴量エンジニアリング
 - **MARKET/VALUE分類が最重要**: smoothed rateをVALUEにするとA-B乖離縮小→VB ROI低下
 - **少数精鋭 > 大量追加**: コメントNLP辞書は精選版が優位
 - **低importance ≠ 不要**: importance #71-91でもPlace VB +4.9pp改善可能
-- **dead features(=0)のみ削除が安全**: is_koukaku_age, is_koukaku_handicap等
+- **dead features(=0)除去も安全ではない**: 再学習ノイズでROI±20pp変動。AUC安定≠ROI安定 (v5.7)
 
 ### モデル・手法
 - **AUC改善 ≠ ROI改善**: Model B精度向上が市場との乖離を縮めてVB効果を殺す
