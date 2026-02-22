@@ -1,0 +1,203 @@
+{
+  "period": "2025-01 to 2026-02",
+  "model": "v5.5",
+  "monthly": [
+    {
+      "month": "2025-01",
+      "wo_count": 40,
+      "wo_wins": 2,
+      "wo_roi": 148.0,
+      "sel_count": 11,
+      "sel_wins": 1,
+      "sel_roi": 210.9
+    },
+    {
+      "month": "2025-02",
+      "wo_count": 47,
+      "wo_wins": 2,
+      "wo_roi": 138.3,
+      "sel_count": 11,
+      "sel_wins": 2,
+      "sel_roi": 590.9
+    },
+    {
+      "month": "2025-03",
+      "wo_count": 51,
+      "wo_wins": 1,
+      "wo_roi": 19.4,
+      "sel_count": 13,
+      "sel_wins": 0,
+      "sel_roi": 0.0
+    },
+    {
+      "month": "2025-04",
+      "wo_count": 56,
+      "wo_wins": 3,
+      "wo_roi": 102.7,
+      "sel_count": 17,
+      "sel_wins": 1,
+      "sel_roi": 174.7
+    },
+    {
+      "month": "2025-05",
+      "wo_count": 50,
+      "wo_wins": 4,
+      "wo_roi": 122.2,
+      "sel_count": 8,
+      "sel_wins": 1,
+      "sel_roi": 151.2
+    },
+    {
+      "month": "2025-06",
+      "wo_count": 42,
+      "wo_wins": 3,
+      "wo_roi": 166.2,
+      "sel_count": 10,
+      "sel_wins": 2,
+      "sel_roi": 388.0
+    },
+    {
+      "month": "2025-07",
+      "wo_count": 27,
+      "wo_wins": 2,
+      "wo_roi": 95.2,
+      "sel_count": 7,
+      "sel_wins": 0,
+      "sel_roi": 0.0
+    },
+    {
+      "month": "2025-08",
+      "wo_count": 44,
+      "wo_wins": 0,
+      "wo_roi": 0.0,
+      "sel_count": 11,
+      "sel_wins": 0,
+      "sel_roi": 0.0
+    },
+    {
+      "month": "2025-09",
+      "wo_count": 24,
+      "wo_wins": 2,
+      "wo_roi": 190.0,
+      "sel_count": 5,
+      "sel_wins": 0,
+      "sel_roi": 0.0
+    },
+    {
+      "month": "2025-10",
+      "wo_count": 51,
+      "wo_wins": 5,
+      "wo_roi": 333.7,
+      "sel_count": 12,
+      "sel_wins": 1,
+      "sel_roi": 118.3
+    },
+    {
+      "month": "2025-11",
+      "wo_count": 66,
+      "wo_wins": 4,
+      "wo_roi": 205.9,
+      "sel_count": 18,
+      "sel_wins": 1,
+      "sel_roi": 138.9
+    },
+    {
+      "month": "2025-12",
+      "wo_count": 45,
+      "wo_wins": 3,
+      "wo_roi": 150.7,
+      "sel_count": 11,
+      "sel_wins": 0,
+      "sel_roi": 0.0
+    },
+    {
+      "month": "2026-01",
+      "wo_count": 36,
+      "wo_wins": 3,
+      "wo_roi": 151.4,
+      "sel_count": 15,
+      "sel_wins": 1,
+      "sel_roi": 111.3
+    },
+    {
+      "month": "2026-02",
+      "wo_count": 45,
+      "wo_wins": 2,
+      "wo_roi": 42.7,
+      "sel_count": 18,
+      "sel_wins": 1,
+      "sel_roi": 48.9
+    }
+  ],
+  "conditions": [
+    {
+      "label": "gap>=5 m<=1.2 (win_only)",
+      "count": 624,
+      "roi": 134.8,
+      "ci_low": 85.9,
+      "ci_high": 193.2,
+      "ci_width": 107.3,
+      "wins": 36,
+      "win_rate": 5.8,
+      "monthly_avg": 44.6
+    },
+    {
+      "label": "gap>=5 m<=0.8",
+      "count": 312,
+      "roi": 102.2,
+      "ci_low": 53.0,
+      "ci_high": 161.8,
+      "ci_width": 108.8,
+      "wins": 15,
+      "win_rate": 4.8,
+      "monthly_avg": 22.3
+    },
+    {
+      "label": "gap>=6 m<=1.2",
+      "count": 355,
+      "roi": 177.2,
+      "ci_low": 100.5,
+      "ci_high": 275.8,
+      "ci_width": 175.3,
+      "wins": 22,
+      "win_rate": 6.2,
+      "monthly_avg": 25.4
+    },
+    {
+      "label": "gap>=6 m<=0.8",
+      "count": 173,
+      "roi": 147.6,
+      "ci_low": 66.3,
+      "ci_high": 235.5,
+      "ci_width": 169.2,
+      "wins": 12,
+      "win_rate": 6.9,
+      "monthly_avg": 12.4
+    },
+    {
+      "label": "gap>=6+EV>=1.2 m<=0.8",
+      "count": 167,
+      "roi": 139.8,
+      "ci_low": 63.9,
+      "ci_high": 230.6,
+      "ci_width": 166.7,
+      "wins": 11,
+      "win_rate": 6.6,
+      "monthly_avg": 11.9
+    },
+    {
+      "label": "gap>=7 m<=0.8",
+      "count": 95,
+      "roi": 214.3,
+      "ci_low": 81.2,
+      "ci_high": 371.8,
+      "ci_width": 290.5,
+      "wins": 8,
+      "win_rate": 8.4,
+      "monthly_avg": 6.8
+    }
+  ],
+  "total_entries": 53404,
+  "total_races": 3843,
+  "n_months": 14
+}
