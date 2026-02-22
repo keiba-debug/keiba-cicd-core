@@ -60,8 +60,8 @@ function RegressionCard({ model }: { model: RegressionModelResult }) {
   return (
     <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
       <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">
-        Reg B
-        <span className="ml-2 text-xs font-normal text-gray-400">着差回帰 / 市場系除外</span>
+        チャクラ
+        <span className="ml-2 text-xs font-normal text-gray-400">能力予測 / 市場系除外</span>
       </h3>
       <div className="grid grid-cols-3 gap-2">
         <MetricCard label="MAE (秒)" value={m.mae.toFixed(4)} highlight color="green" />
@@ -87,20 +87,20 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
     <div className="space-y-6">
       {/* Place Models */}
       <div>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">Place Models (3着内)</h2>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">好走モデル (3着内)</h2>
         <div className="grid grid-cols-2 gap-4">
-          <ModelCard title="Model A" model={data.models.accuracy} color="blue" targetLabel="精度 / 全特徴量" />
-          <ModelCard title="Model V" model={data.models.value} color="blue" targetLabel="Value / 市場系除外" />
+          <ModelCard title="好走 市場" model={data.models.accuracy} color="blue" targetLabel="全特徴量" />
+          <ModelCard title="好走 独自" model={data.models.value} color="blue" targetLabel="市場系除外" />
         </div>
       </div>
 
       {/* Win Models */}
       {hasWin && (
         <div>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Win Models (1着)</h2>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">勝利モデル (1着)</h2>
           <div className="grid grid-cols-2 gap-4">
-            <ModelCard title="Model W" model={data.models.win_accuracy!} color="emerald" targetLabel="精度 / 全特徴量" />
-            <ModelCard title="Model WV" model={data.models.win_value!} color="emerald" targetLabel="Value / 市場系除外" />
+            <ModelCard title="勝利 市場" model={data.models.win_accuracy!} color="emerald" targetLabel="全特徴量" />
+            <ModelCard title="勝利 独自" model={data.models.win_value!} color="emerald" targetLabel="市場系除外" />
           </div>
         </div>
       )}
@@ -108,7 +108,7 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
       {/* Regression Model */}
       {hasRegression && (
         <div>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">Regression Model (着差予測)</h2>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">能力予測モデル (着差)</h2>
           <RegressionCard model={data.models.regression_value!} />
         </div>
       )}
@@ -143,7 +143,7 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
           </h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <h4 className="mb-2 text-xs font-medium text-blue-600 dark:text-blue-400">Model A (Place精度)</h4>
+              <h4 className="mb-2 text-xs font-medium text-blue-600 dark:text-blue-400">好走 市場</h4>
               <div className="grid grid-cols-3 gap-3">
                 {hitAccuracy.map((h) => (
                   <div key={h.top_n} className="rounded-lg bg-gray-50 p-3 text-center dark:bg-gray-800/50">
@@ -158,7 +158,7 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
             </div>
             {hitValue.length > 0 && (
               <div>
-                <h4 className="mb-2 text-xs font-medium text-blue-600 dark:text-blue-400">Model V (Place Value)</h4>
+                <h4 className="mb-2 text-xs font-medium text-blue-600 dark:text-blue-400">好走 独自</h4>
                 <div className="grid grid-cols-3 gap-3">
                   {hitValue.map((h) => (
                     <div key={h.top_n} className="rounded-lg bg-gray-50 p-3 text-center dark:bg-gray-800/50">

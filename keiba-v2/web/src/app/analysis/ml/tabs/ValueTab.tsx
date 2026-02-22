@@ -128,13 +128,13 @@ function GapMarginHeatmap({ grid }: { grid: GapMarginGridEntry[] }) {
 
   return (
     <div className="mt-6 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-      <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">Gap × Margin ヒートマップ (単勝ROI)</h3>
-      <p className="mb-3 text-xs text-gray-500">gap閾値とmargin閾値の組み合わせ別ROI。枠線=現在プリセット(win_only)</p>
+      <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">Gap × チャクラ ヒートマップ (単勝ROI)</h3>
+      <p className="mb-3 text-xs text-gray-500">gap閾値とチャクラ閾値の組み合わせ別ROI。枠線=現在プリセット(単勝のみ)</p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="py-2 text-left text-gray-500">gap \ margin</th>
+              <th className="py-2 text-left text-gray-500">gap \ チャクラ</th>
               {marginLabels.map((label, i) => (
                 <th key={i} className="py-2 text-center text-gray-500">{label}</th>
               ))}
@@ -192,10 +192,10 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
   const hasWinVb = winVb && winVb.length > 0;
 
   const roiModels = [
-    { key: 'A', label: 'Model A (Place)', roi: data.roi_analysis.accuracy_model, color: 'blue' as const },
-    { key: 'V', label: 'Model V (Place)', roi: data.roi_analysis.value_model, color: 'blue' as const },
-    ...(data.roi_analysis.win_accuracy_model ? [{ key: 'W', label: 'Model W (Win)', roi: data.roi_analysis.win_accuracy_model, color: 'emerald' as const }] : []),
-    ...(data.roi_analysis.win_value_model ? [{ key: 'WV', label: 'Model WV (Win)', roi: data.roi_analysis.win_value_model, color: 'emerald' as const }] : []),
+    { key: 'A', label: '好走 市場', roi: data.roi_analysis.accuracy_model, color: 'blue' as const },
+    { key: 'V', label: '好走 独自', roi: data.roi_analysis.value_model, color: 'blue' as const },
+    ...(data.roi_analysis.win_accuracy_model ? [{ key: 'W', label: '勝利 市場', roi: data.roi_analysis.win_accuracy_model, color: 'emerald' as const }] : []),
+    ...(data.roi_analysis.win_value_model ? [{ key: 'WV', label: '勝利 独自', roi: data.roi_analysis.win_value_model, color: 'emerald' as const }] : []),
   ];
 
   return (
@@ -203,15 +203,15 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20">
         <h3 className="mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">Value Bet戦略</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          Model V（市場情報なし）がレース内上位3位に予測 × 実際の人気が低い馬を購入。
-          モデルと市場の「乖離」が大きいほど、市場が見落としている可能性。
+          好走 独自モデル（市場情報なし）がレース内上位3位に予測 × 実際の人気が低い馬を購入。
+          独自モデルと市場の「乖離」が大きいほど、市場が見落としている可能性。
         </p>
       </div>
 
       {/* Gap-based ROI tables */}
       <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
         <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">ランクギャップ別の回収率</h3>
-        <p className="mb-3 text-xs text-gray-500">gap = 人気順 - Model Vランク。gapが大きい = 市場より高い評価</p>
+        <p className="mb-3 text-xs text-gray-500">gap = 人気順位 - 独自ランク。gapが大きい = 市場より高い評価</p>
 
         <div className={cn(hasWinVb ? 'grid grid-cols-1 gap-6 lg:grid-cols-2' : '')}>
           <GapTable title="Place VB (複勝)" vb={placeVb} color="blue" />

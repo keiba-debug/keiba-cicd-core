@@ -82,7 +82,7 @@ export function RoiSummary({ all, betRec, betExcl }: RoiSummaryProps) {
           <div>複勝ROI</div>
         </div>
         <ROIRow label="全体" s={all} />
-        <ROIRow label="bet推奨" s={betRec} badgeClass="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" />
+        <ROIRow label="購入プラン" s={betRec} badgeClass="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" />
         <ROIRow label="非推奨" s={betExcl} badgeClass="bg-gray-100 text-gray-600 dark:bg-gray-800/40 dark:text-gray-400" />
       </CardContent>
     </Card>

@@ -119,7 +119,7 @@ export function FilterBar({
 
       {/* Margin */}
       <div className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground mr-1">Margin:</span>
+        <span className="text-xs text-muted-foreground mr-1" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ:</span>
         {[
           { v: null as number | null, l: '全て' },
           { v: 1.0, l: '\u22641.0' },
@@ -171,7 +171,7 @@ export function FilterBar({
           onChange={(e) => setBetOnly(e.target.checked)}
           className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
         />
-        <span className="text-xs text-muted-foreground">bet推奨のみ</span>
+        <span className="text-xs text-muted-foreground">購入プランのみ</span>
       </label>
 
       {/* 件数表示 */}
@@ -179,7 +179,7 @@ export function FilterBar({
         {filteredCount !== totalCount
           ? `${filteredCount} / ${totalCount} 件`
           : `${totalCount} 件`}
-        {betOnly && ' (bet推奨)'}
+        {betOnly && ' (購入プラン)'}
       </span>
     </div>
   );

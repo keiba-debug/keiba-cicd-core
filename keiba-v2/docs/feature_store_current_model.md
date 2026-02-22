@@ -1,4 +1,7 @@
-# KeibaCICD 現行モデル 特徴量定義書
+# [ARCHIVED] KeibaCICD 現行モデル 特徴量定義書
+
+> **このドキュメントはアーカイブ済みです（2026-02-22 Session 43）。**
+> 後継ドキュメント → `keiba-v2/docs/models_and_features.md`
 
 **実験パイプライン experiment.py で使用する特徴量の一覧**
 

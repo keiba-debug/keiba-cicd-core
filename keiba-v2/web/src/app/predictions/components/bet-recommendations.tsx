@@ -77,7 +77,7 @@ export function BetRecommendations({
       <CardHeader className="pb-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-lg flex items-center gap-2">
-            推奨買い目 ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
+            購入プラン ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
           </CardTitle>
           <div className="flex items-center gap-2">
             <button
@@ -108,7 +108,7 @@ export function BetRecommendations({
               onClick={syncBetMarks}
               disabled={betSyncing}
               className="px-3 py-1 text-xs font-medium rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-indigo-300 dark:border-indigo-700 disabled:opacity-50"
-              title="推奨買い目をFF CSV出力（TARGETの買い目取り込みメニューで読込）"
+              title="購入プランをFF CSV出力（TARGETの買い目取り込みメニューで読込）"
             >
               {betSyncing ? '出力中...' : 'FF CSV出力'}
             </button>
@@ -156,7 +156,7 @@ export function BetRecommendations({
                 <th className="px-2 py-2 text-left border">馬名</th>
                 <th className="px-2 py-2 text-center border">推奨</th>
                 <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="VB Gap">Gap</SortTh>
-                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="着差予測(秒) — Reg Bモデル">Margin</SortTh>
+                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ</SortTh>
                 <SortTh sortKey="kelly" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="Kelly基準ベット比率">Kelly</SortTh>
                 <SortTh sortKey="amount" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-yellow-50 dark:bg-yellow-900/20" title="推奨金額">金額</SortTh>
                 <SortTh sortKey="odds" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
@@ -330,7 +330,7 @@ export function BetRecommendations({
         })()}
 
         <div className="mt-3 text-[10px] text-muted-foreground">
-          bet_engine.py 生成 / Kelly Criterion / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
+          購入プランエンジン / Kelly基準 / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
         </div>
       </CardContent>
     </Card>

@@ -12,7 +12,7 @@ interface SectionNavProps {
 const SECTIONS = [
   { id: 'section-summary', label: 'サマリー', always: true },
   { id: 'section-roi', label: '成績', always: false, needsResults: true },
-  { id: 'section-bets', label: '推奨買い目', always: false, needsBets: true },
+  { id: 'section-bets', label: '購入プラン', always: false, needsBets: true },
   { id: 'section-vb', label: 'VB候補', always: false, needsVB: true },
   { id: 'section-danger', label: '危険馬結果', always: false, needsDanger: true },
   { id: 'section-races', label: 'レースカード', always: true },

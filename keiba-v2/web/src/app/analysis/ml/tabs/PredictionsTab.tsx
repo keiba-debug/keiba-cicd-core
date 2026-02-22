@@ -92,8 +92,8 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
                       <tr className="text-gray-400">
                         <th className="w-8 text-right">馬番</th>
                         <th className="px-2 text-left">馬名</th>
-                        <th className="w-14 text-right">精度%</th>
-                        <th className="w-14 text-right">Value%</th>
+                        <th className="w-14 text-right" title="好走 市場モデルの3着内確率">市場%</th>
+                        <th className="w-14 text-right" title="好走 独自モデルの3着内確率">独自%</th>
                         <th className="w-8 text-center">VR</th>
                         <th className="w-10 text-center">着順</th>
                         <th className="w-10 text-center">人気</th>

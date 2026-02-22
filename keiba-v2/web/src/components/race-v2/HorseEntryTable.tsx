@@ -520,7 +520,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
                     ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white"
                     : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white"
               )}
-                title={`VR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\nModel A: ${(mlPrediction.pred_proba_accuracy * 100).toFixed(1)}%\nModel B: ${(mlPrediction.pred_proba_value * 100).toFixed(1)}%`}
+                title={`VR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\n好走 市場: ${(mlPrediction.pred_proba_accuracy * 100).toFixed(1)}%\n好走 独自: ${(mlPrediction.pred_proba_value * 100).toFixed(1)}%`}
               >
                 VB
               </span>

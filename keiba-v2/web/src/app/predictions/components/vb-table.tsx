@@ -71,19 +71,19 @@ export function VBTable({
                 <th className="px-2 py-2 text-center border" title="芝/ダート">馬場</th>
                 <SortTh sortKey="umaban" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border">馬番</SortTh>
                 <th className="px-2 py-2 text-left border">馬名</th>
-                <th className="px-2 py-2 text-center border" title="bet_engine推奨の券種">推奨</th>
+                <th className="px-2 py-2 text-center border" title="購入プラン推奨の券種">推奨</th>
                 <th className="px-2 py-2 text-center border" title="競馬ブック本紙予想の印">本紙</th>
-                <SortTh sortKey="rank_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="Value順位：市場非依存モデル(V)の予測順位">VR</SortTh>
+                <SortTh sortKey="rank_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="独自ランク — 好走 独自モデルによるレース内順位">VR</SortTh>
                 <SortTh sortKey="odds_rank" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="オッズ順人気">人気</SortTh>
                 <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ（DB最新）">オッズ</SortTh>
-                <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="人気 - VR：市場評価とモデル評価の乖離">Gap</SortTh>
-                <SortTh sortKey="margin" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/30" title="着差予測(秒) — Reg Bモデル。低いほど勝ちに近い">Margin</SortTh>
+                <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="乖離度 — 人気順位 - VR。大きいほど市場が過小評価">Gap</SortTh>
+                <SortTh sortKey="margin" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/30" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ</SortTh>
                 <SortTh sortKey="win_gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-emerald-50 dark:bg-emerald-900/30" title="Win VB Gap：Win順位と人気の乖離">W-Gap</SortTh>
                 <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
                 <SortTh sortKey="place_ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-blue-50 dark:bg-blue-900/30" title="複勝EV = calibrated P(top3) × 複勝オッズ">複EV</SortTh>
                 <SortTh sortKey="head_ratio" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="頭向き度 = P(win)/P(top3)">頭%</SortTh>
-                <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="P(top3) 複勝圏予測確率（市場非依存）">V%</SortTh>
-                <th className="px-2 py-2 text-center border" title="Model WV P(win) 勝率予測（市場非依存）">WV%</th>
+                <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="好走 独自モデルの3着内確率">V%</SortTh>
+                <th className="px-2 py-2 text-center border" title="勝利 独自モデルの勝率予測">WV%</th>
                 <th className="px-2 py-2 text-center border" title="競馬ブック調教評価の矢印">調教</th>
                 <th className="px-2 py-2 text-center border" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
                 <th className="px-2 py-2 text-left border" title="競馬ブック短評コメント">短評</th>

@@ -129,16 +129,16 @@ export function RaceCard({ race, oddsMap, results, dbResults }: RaceCardProps) {
                 <SortTh sortKey="umaban" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10">番</SortTh>
                 <th className="px-2 py-1.5 text-left border-b min-w-[100px]">馬名</th>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック本紙予想の印">紙</th>
-                <SortTh sortKey="rank_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="Model A（精度モデル）の順位">A順</SortTh>
-                <SortTh sortKey="rank_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="Model V（市場非依存モデル）の順位">V順</SortTh>
+                <SortTh sortKey="rank_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走 市場モデルの順位">A順</SortTh>
+                <SortTh sortKey="rank_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走 独自モデルの順位">V順</SortTh>
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
-                <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="人気 - VR：市場評価とモデル評価の乖離">Gap</SortTh>
-                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="着差予測(秒) — Reg Bモデル。低いほど勝ちに近い">Margin</SortTh>
+                <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="乖離度 — 人気順位 - VR。大きいほど市場が過小評価">Gap</SortTh>
+                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ</SortTh>
                 <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
-                <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="Model A 3着内確率（%）">A%</SortTh>
-                <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="Model V 3着内確率（%）">V%</SortTh>
-                <SortTh sortKey="prob_wv" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="Model WV 勝率予測（%） — 市場非依存">WV%</SortTh>
+                <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 市場モデルの3着内確率（%）">A%</SortTh>
+                <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 独自モデルの3着内確率（%）">V%</SortTh>
+                <SortTh sortKey="prob_wv" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利 独自モデルの勝率予測（%）">WV%</SortTh>
                 <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="競馬ブックレイティング">Rate</SortTh>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック調教評価">調</th>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>

@@ -62,14 +62,14 @@ export default function RoiTab({ data }: { data: MlExperimentResultV2 }) {
   const hasWin = !!data.roi_analysis.win_accuracy_model;
 
   const models: { label: string; roi: RoiAnalysis; color: string }[] = [
-    { label: 'Model A (Place精度)', roi: data.roi_analysis.accuracy_model, color: 'border-blue-200 dark:border-blue-800' },
-    { label: 'Model V (Place Value)', roi: data.roi_analysis.value_model, color: 'border-blue-200 dark:border-blue-800' },
+    { label: '好走 市場', roi: data.roi_analysis.accuracy_model, color: 'border-blue-200 dark:border-blue-800' },
+    { label: '好走 独自', roi: data.roi_analysis.value_model, color: 'border-blue-200 dark:border-blue-800' },
   ];
   if (data.roi_analysis.win_accuracy_model) {
-    models.push({ label: 'Model W (Win精度)', roi: data.roi_analysis.win_accuracy_model, color: 'border-emerald-200 dark:border-emerald-800' });
+    models.push({ label: '勝利 市場', roi: data.roi_analysis.win_accuracy_model, color: 'border-emerald-200 dark:border-emerald-800' });
   }
   if (data.roi_analysis.win_value_model) {
-    models.push({ label: 'Model WV (Win Value)', roi: data.roi_analysis.win_value_model, color: 'border-emerald-200 dark:border-emerald-800' });
+    models.push({ label: '勝利 独自', roi: data.roi_analysis.win_value_model, color: 'border-emerald-200 dark:border-emerald-800' });
   }
 
   return (
@@ -137,7 +137,7 @@ function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEngineP
   return (
     <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
       <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">
-        bet_engine プリセット比較
+        購入プラン比較
         <span className="ml-2 text-xs font-normal text-gray-400">バックテスト結果 (Kelly sizing, budget=30,000)</span>
       </h3>
       <table className="w-full text-sm">

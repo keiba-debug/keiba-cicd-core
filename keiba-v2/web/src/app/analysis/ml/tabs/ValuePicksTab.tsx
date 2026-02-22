@@ -55,7 +55,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">並び順:</span>
-          {([['gap', 'Gap大'], ['date', '日付'], ['odds', 'オッズ'], ['margin', '着差予']] as const).map(([k, l]) => (
+          {([['gap', 'Gap大'], ['date', '日付'], ['odds', 'オッズ'], ['margin', 'チャクラ']] as const).map(([k, l]) => (
             <button key={k} onClick={() => setSortKey(k)}
               className={cn('rounded-md px-2.5 py-1 text-sm transition-colors',
                 sortKey === k
@@ -106,7 +106,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                 <th className="py-2 text-center">Gap</th>
                 <th className="py-2 text-right">オッズ</th>
                 <th className="py-2 text-right">V%</th>
-                <th className="py-2 text-right">着差予</th>
+                <th className="py-2 text-right" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ</th>
                 <th className="py-2 text-center">着順</th>
                 <th className="py-2 text-center">結果</th>
               </tr>

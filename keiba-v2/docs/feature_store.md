@@ -1,4 +1,7 @@
-# KeibaCICD Feature Store 仕様書
+# [ARCHIVED] KeibaCICD Feature Store 仕様書
+
+> **このドキュメントはアーカイブ済みです（2026-02-22 Session 43）。**
+> 後継ドキュメント → `keiba-v2/docs/feature_roadmap.md`
 
 **独自分析指標の特徴量定義（Feature Store仕様）**
 

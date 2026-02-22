@@ -8,10 +8,10 @@ import type { MlExperimentResultV2 } from '../types';
 type ModelKey = 'accuracy' | 'value' | 'win_accuracy' | 'win_value';
 
 const MODEL_OPTIONS: { key: ModelKey; label: string; shortLabel: string; color: string; activeColor: string }[] = [
-  { key: 'accuracy', label: 'Model A (Place精度)', shortLabel: 'A', color: 'blue', activeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-  { key: 'value', label: 'Model V (Place Value)', shortLabel: 'V', color: 'emerald', activeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
-  { key: 'win_accuracy', label: 'Model W (Win精度)', shortLabel: 'W', color: 'green', activeColor: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
-  { key: 'win_value', label: 'Model WV (Win Value)', shortLabel: 'WV', color: 'teal', activeColor: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' },
+  { key: 'accuracy', label: '好走 市場', shortLabel: 'A', color: 'blue', activeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  { key: 'value', label: '好走 独自', shortLabel: 'V', color: 'emerald', activeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { key: 'win_accuracy', label: '勝利 市場', shortLabel: 'W', color: 'green', activeColor: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+  { key: 'win_value', label: '勝利 独自', shortLabel: 'WV', color: 'teal', activeColor: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' },
 ];
 
 export default function ImportanceTab({ data }: { data: MlExperimentResultV2 }) {

@@ -120,7 +120,7 @@ export function Header() {
                     <span>🎯</span>
                     <span>
                       <span className="font-medium">今日のVB</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">推奨買い目・全レース予測</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">購入プラン・全レース予測</span>
                     </span>
                   </span>
                 </Link>
