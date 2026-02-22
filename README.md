@@ -164,6 +164,8 @@ npm run dev          # webpack（安定）
 
 ## 🤖 ML パイプライン
 
+> **ソース解説**: 開発中ソースの詳細解説は [`keiba-v2/docs/ML_SOURCE_GUIDE.md`](keiba-v2/docs/ML_SOURCE_GUIDE.md) を参照。
+
 ### モデル構成（v5.3）
 
 | モデル | 目的 | 特徴量 |

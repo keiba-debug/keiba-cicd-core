@@ -1022,6 +1022,144 @@ def calc_vb_bootstrap_ci(
     return results
 
 
+def calc_ev_gap_comparison(
+    df: pd.DataFrame,
+    n_bootstrap: int = 1000,
+    ci_level: float = 0.95,
+) -> dict:
+    """EV vs gap vs gap+EV の条件比較分析（Bootstrap CI付き）
+
+    条件:
+    - A: gap>=N + margin<=M (gapのみ)
+    - B: EV>=T + margin<=M (EVのみ)
+    - C: gap>=N + EV>=T + margin<=M (gap+EV併用)
+
+    win_ev = calibrated_win_prob × win_odds (既にdf_testに計算済み)
+    """
+    required = ['pred_rank_v', 'odds_rank', 'win_ev', 'pred_margin_b', 'odds', 'is_win']
+    if not all(c in df.columns for c in required):
+        return {}
+
+    rng = np.random.default_rng(42)
+    alpha = (1 - ci_level) / 2
+
+    def _bootstrap_win_roi(filtered_df):
+        """フィルタ済みDFからレース単位Bootstrap CIを計算"""
+        race_bets = {}
+        for race_id, group in filtered_df.groupby('race_id'):
+            bets = []
+            for _, row in group.iterrows():
+                bet = 100
+                w_ret = row['odds'] * bet if row['is_win'] == 1 else 0
+                bets.append((bet, w_ret))
+            race_bets[race_id] = bets
+
+        race_ids = list(race_bets.keys())
+        n_races = len(race_ids)
+        if n_races == 0:
+            return {'count': 0, 'n_races': 0, 'win_roi': 0,
+                    'ci_low': 0, 'ci_high': 0, 'ci_width': 0, 'std': 0,
+                    'wins': 0, 'win_rate': 0, 'avg_odds': 0, 'pnl': 0}
+
+        total_bet = sum(b for rid in race_ids for b, _ in race_bets[rid])
+        total_ret = sum(r for rid in race_ids for _, r in race_bets[rid])
+        count = sum(len(race_bets[rid]) for rid in race_ids)
+        wins = int(filtered_df['is_win'].sum())
+        win_roi = total_ret / total_bet * 100 if total_bet > 0 else 0
+        avg_odds = float(filtered_df['odds'].mean())
+
+        boot_rois = []
+        for _ in range(n_bootstrap):
+            sampled = rng.choice(race_ids, size=n_races, replace=True)
+            b_bet = sum(b for rid in sampled for b, _ in race_bets[rid])
+            b_ret = sum(r for rid in sampled for _, r in race_bets[rid])
+            if b_bet > 0:
+                boot_rois.append(b_ret / b_bet * 100)
+
+        boot_arr = np.array(boot_rois) if boot_rois else np.array([0.0])
+        ci_low = float(np.percentile(boot_arr, alpha * 100))
+        ci_high = float(np.percentile(boot_arr, (1 - alpha) * 100))
+
+        return {
+            'count': count,
+            'n_races': n_races,
+            'wins': wins,
+            'win_rate': round(wins / count * 100, 1) if count > 0 else 0,
+            'win_roi': round(win_roi, 1),
+            'avg_odds': round(avg_odds, 1),
+            'pnl': round(total_ret - total_bet),
+            'ci_low': round(ci_low, 1),
+            'ci_high': round(ci_high, 1),
+            'ci_width': round(ci_high - ci_low, 1),
+            'std': round(float(np.std(boot_arr)), 1),
+        }
+
+    # VB候補: Place model top3
+    vb_base = df[(df['pred_rank_v'] <= 3) & (df['odds'] > 0)].copy()
+    vb_base['gap'] = (vb_base['odds_rank'] - vb_base['pred_rank_v']).clip(lower=0).astype(int)
+
+    results = {'conditions': [], 'ev_grid': []}
+
+    # --- EV threshold grid search ---
+    ev_thresholds = [1.1, 1.2, 1.3, 1.5, 1.8, 2.0]
+    gap_levels = [5, 6, 7]
+    margin_levels = [0.8, 1.2]
+
+    for margin in margin_levels:
+        margin_mask = vb_base['pred_margin_b'] <= margin
+
+        for ev_th in ev_thresholds:
+            ev_mask = vb_base['win_ev'] >= ev_th
+
+            for gap in gap_levels:
+                gap_mask = vb_base['gap'] >= gap
+
+                # A: gap only
+                a_df = vb_base[gap_mask & margin_mask]
+                # B: EV only
+                b_df = vb_base[ev_mask & margin_mask]
+                # C: gap + EV
+                c_df = vb_base[gap_mask & ev_mask & margin_mask]
+
+                row = {
+                    'gap': gap,
+                    'ev_threshold': ev_th,
+                    'margin': margin,
+                    'A_gap_only': _bootstrap_win_roi(a_df),
+                    'B_ev_only': _bootstrap_win_roi(b_df),
+                    'C_gap_ev': _bootstrap_win_roi(c_df),
+                }
+                results['ev_grid'].append(row)
+
+    # --- Summary: best conditions ---
+    print("\n[Analysis] EV vs Gap comparison...")
+    print(f"  {'Condition':<30} {'N':>5} {'ROI':>7} {'CI':>18} {'Width':>6} {'Wins':>5} {'P&L':>8}")
+    print(f"  {'-'*80}")
+
+    # Show key comparisons for margin=0.8
+    for row in results['ev_grid']:
+        if row['margin'] != 0.8:
+            continue
+        gap = row['gap']
+        ev = row['ev_threshold']
+        for cond_key, cond_label in [('A_gap_only', f'gap>={gap} m<=0.8'),
+                                      ('B_ev_only', f'EV>={ev} m<=0.8'),
+                                      ('C_gap_ev', f'gap>={gap}+EV>={ev} m<=0.8')]:
+            d = row[cond_key]
+            if d['count'] == 0:
+                continue
+            # Only print unique A conditions once
+            if cond_key == 'A_gap_only' and ev != ev_thresholds[0]:
+                continue
+            if cond_key == 'B_ev_only' and gap != gap_levels[0]:
+                continue
+            print(f"  {cond_label:<30} {d['count']:>5} {d['win_roi']:>6.1f}% "
+                  f"[{d['ci_low']:>5.1f}-{d['ci_high']:>5.1f}%] {d['ci_width']:>5.1f} "
+                  f"{d['wins']:>5} {d['pnl']:>+8,}")
+
+    return results
+
+
 def collect_value_bet_picks(df: pd.DataFrame, min_gap: int = 3) -> List[dict]:
     """テスト期間のValue Bet候補を個別レコードとして収集"""
     if 'pred_rank_v' not in df.columns or 'odds_rank' not in df.columns:
@@ -1049,6 +1187,7 @@ def collect_value_bet_picks(df: pd.DataFrame, min_gap: int = 3) -> List[dict]:
                 'pred_proba_accuracy': round(float(row['pred_proba_a']), 4),
                 'pred_proba_value': round(float(row['pred_proba_v']), 4),
                 'predicted_margin': round(float(row['pred_margin_b']), 3) if pd.notna(row.get('pred_margin_b')) else None,
+                'win_ev': round(float(row['win_ev']), 3) if 'win_ev' in row.index and pd.notna(row.get('win_ev')) else None,
                 'actual_position': int(row['finish_position']),
                 'is_top3': int(row['is_top3']),
             })
@@ -1486,6 +1625,11 @@ def main():
     # 回帰モデル
     df_test['pred_margin_b'] = pred_reg_b
 
+    # EV (calibrated) — EV分析・bet_engine両方で使用
+    pred_wv_cal = cal_wv.predict(pred_wv) if cal_wv is not None else pred_wv
+    pred_b_cal = cal_b.predict(pred_b) if cal_b is not None else pred_b
+    df_test['win_ev'] = pred_wv_cal * df_test['odds']
+
     # 分析
     print("\n[Analysis] Hit rate analysis...")
     hit_a = calc_hit_analysis(df_test, 'pred_proba_a')
@@ -1519,6 +1663,9 @@ def main():
               f"[{bs['win_roi_ci_low']:.1f}% - {bs['win_roi_ci_high']:.1f}%] "
               f"(n={bs['bet_count']}, races={bs['n_races_with_vb']})")
 
+    # --- EV vs Gap 比較分析 ---
+    ev_gap_results = calc_ev_gap_comparison(df_test)
+
     print("\n[Analysis] Collecting race predictions...")
     race_preds = collect_race_predictions(df_test)
     print(f"  Race predictions: {len(race_preds)} races")
@@ -1544,10 +1691,7 @@ def main():
         df_test['vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_v']).clip(lower=0).astype(int)
         df_test['win_vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_wv']).clip(lower=0).astype(int)
 
-        # EV (calibrated)
-        pred_b_cal = cal_b.predict(pred_b) if cal_b is not None else pred_b
-        pred_wv_cal = cal_wv.predict(pred_wv) if cal_wv is not None else pred_wv
-        df_test['win_ev'] = pred_wv_cal * df_test['odds']
+        # place_ev (win_evは既に計算済み)
         place_odds_col = df_test['place_odds_low'].fillna(df_test['odds'] / 3.5)
         df_test['place_ev'] = pred_b_cal * place_odds_col
 
@@ -1821,6 +1965,7 @@ def main():
         'value_bet_picks': vb_picks,
         'race_predictions': race_preds,
         'gap_margin_grid': gap_margin_grid,
+        'ev_gap_comparison': ev_gap_results if ev_gap_results else None,
         'bet_engine_presets': bet_engine_presets if bet_engine_presets else None,
     }
 
