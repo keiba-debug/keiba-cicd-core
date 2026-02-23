@@ -39,6 +39,7 @@ export interface PredictionEntry {
   place_ev?: number;   // P(top3) × 複勝オッズ最低値
   // AR: Aura Rating (v5.19)
   predicted_margin?: number | null;  // AR — グレード補正済みの絶対能力指数 (高い=強い)
+  ar_deviation?: number | null;      // AR偏差値 — レース内相対評価 (mean=50, std=10)
   // keibabook
   kb_mark: string;
   kb_mark_point: number;
@@ -103,10 +104,14 @@ export interface ServerBetRecommendation {
 
 export interface ServerBetPreset {
   params: {
+    win_min_ev?: number;
     win_min_gap: number;
     win_min_rating: number;
+    win_min_ar_deviation?: number;
+    win_max_rank_wv?: number;
     place_min_gap: number;
     place_min_rating: number;
+    place_min_ar_deviation?: number;
     place_min_ev: number;
     kelly_fraction: number;
   };

@@ -24,6 +24,7 @@ export interface MlHorsePrediction {
   odds: number | null;
   gap: number | null;
   is_value_bet: boolean;
+  win_ev: number | null;
 }
 
 export interface MlRacePrediction {
@@ -57,6 +58,7 @@ interface V4Entry {
   odds_rank: number;
   vb_gap: number;
   is_value_bet: boolean;
+  win_ev?: number | null;
   kb_mark: string;
   kb_mark_point: number;
   kb_training_arrow: string;
@@ -120,6 +122,7 @@ function convertV4Entry(e: V4Entry): MlHorsePrediction {
     odds: e.odds,
     gap: e.vb_gap,
     is_value_bet: e.is_value_bet,
+    win_ev: e.win_ev ?? null,
   };
 }
 

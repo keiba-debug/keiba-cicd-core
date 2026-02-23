@@ -12,8 +12,8 @@ export type ServerPresetKey = 'standard' | 'wide';
 
 /** プリセット表示オプション */
 export const PRESET_OPTIONS: { key: ServerPresetKey; label: string; description: string }[] = [
-  { key: 'standard', label: 'Standard', description: 'gap≥6 AR≥56.6 (推奨)' },
-  { key: 'wide', label: 'Wide', description: 'gap≥5 AR≥56.6 (件数重視)' },
+  { key: 'standard', label: 'Standard', description: 'EV≥1.2 偏差値≥47 (推奨)' },
+  { key: 'wide', label: 'Wide', description: 'EV≥1.1 偏差値≥45 (件数重視)' },
 ];
 
 /**

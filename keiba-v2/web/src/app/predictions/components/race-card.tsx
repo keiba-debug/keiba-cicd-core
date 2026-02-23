@@ -140,9 +140,9 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                 <SortTh sortKey="rank_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走 独自モデルの順位">V順</SortTh>
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
-                <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="乖離度 — 人気順位 - VR。大きいほど市場が過小評価">Gap</SortTh>
+                <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-amber-50/50 dark:bg-amber-900/20" title="単勝EV = calibrated P(win) × 単勝オッズ。VB判定の主軸">単EV</SortTh>
                 <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
-                <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
+                <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 text-gray-400" title="Gap（参考） — 人気順位 - VR">Gap*</SortTh>
                 <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 市場モデルの3着内確率（%）">A%</SortTh>
                 <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 独自モデルの3着内確率（%）">V%</SortTh>
                 <SortTh sortKey="prob_wv" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利 独自モデルの勝率予測（%）">WV%</SortTh>
@@ -199,20 +199,20 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                     <td className="px-2 py-1 text-center font-mono text-xs font-bold">
                       {winOdds ? winOdds.toFixed(1) : '-'}
                     </td>
+                    <td className={`px-2 py-1 text-center font-mono text-xs font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getEvColor(ev)}`}>
+                      {ev !== null ? ev.toFixed(2) : '-'}
+                    </td>
+                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(entry.predicted_margin)}`}>
+                      {entry.predicted_margin != null ? entry.predicted_margin.toFixed(1) : '-'}
+                    </td>
                     {(() => {
                       const liveGap = getLiveGap(entry);
                       return (
-                        <td className={`px-2 py-1 text-center font-mono text-xs ${liveGap >= 3 ? getGapColor(liveGap) : liveGap <= -5 ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
+                        <td className="px-2 py-1 text-center font-mono text-xs text-gray-400" title="Gap（参考）">
                           {liveGap > 0 ? `+${liveGap}` : liveGap === 0 ? '0' : liveGap}
                         </td>
                       );
                     })()}
-                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(entry.predicted_margin)}`}>
-                      {entry.predicted_margin != null ? entry.predicted_margin.toFixed(1) : '-'}
-                    </td>
-                    <td className="px-2 py-1 text-center font-mono text-xs text-gray-400" title="WVモデルECE=0.12のため参考値">
-                      {ev !== null ? ev.toFixed(2) : '-'}
-                    </td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_a * 100).toFixed(1)}</td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_v * 100).toFixed(1)}</td>
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-emerald-50/30 dark:bg-emerald-900/10 ${entry.rank_wv != null && entry.rank_wv <= 3 ? 'font-bold text-emerald-600' : ''}`}>

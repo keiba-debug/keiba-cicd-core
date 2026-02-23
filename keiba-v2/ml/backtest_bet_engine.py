@@ -285,6 +285,135 @@ def main():
     else:
         print('  削られた勝ち馬: なし')
 
+    # === EV (期待値) スイープ ===
+    print(f'\n{"=" * 70}')
+    print(f'  EV (期待値) スイープ')
+    print(f'{"=" * 70}')
+    print(f'  {"min_ev":>8} {"min_dev":>8} {"Bets":>5} {"WinBet":>9} '
+          f'{"WinRet":>9} {"WinROI":>7} {"Hits":>5} {"HitRate":>8} '
+          f'{"P&L":>8}')
+    print(f'  {"-" * 75}')
+
+    for min_ev in [1.0, 1.1, 1.2, 1.3, 1.5, 2.0]:
+        for min_dev in [0.0, 43.0, 45.0, 47.0, 50.0]:
+            params = BetStrategyParams(
+                win_min_ev=min_ev,
+                win_min_ar_deviation=min_dev,
+                place_min_gap=99,  # Place無効化
+            )
+            recs = generate_recommendations(race_preds, params, budget=30000)
+            if not recs:
+                continue
+            roi = calc_bet_engine_roi(recs, race_preds)
+
+            hit_rate = roi['win_hits'] / roi['num_bets'] * 100 if roi['num_bets'] > 0 else 0
+            pnl = roi['win_return'] - roi['win_bet']
+            ev_label = f'{min_ev:.1f}'
+            dev_label = 'none' if min_dev == 0 else f'{min_dev:.0f}'
+            marker = ' ***' if roi['win_roi'] >= 100 else ''
+            print(f'  {ev_label:>8} {dev_label:>8} {roi["num_bets"]:>5} '
+                  f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
+                  f' {roi["win_hits"]:>5} {hit_rate:>7.1f}%'
+                  f' {pnl:>+8,}')
+
+    # === Gap vs EV 直接比較 ===
+    print(f'\n{"=" * 70}')
+    print(f'  Gap vs EV 直接比較')
+    print(f'{"=" * 70}')
+    print(f'  {"条件":>30} {"Bets":>5} {"WinBet":>9} '
+          f'{"WinRet":>9} {"WinROI":>7} {"Hits":>5} {"HitRate":>8} '
+          f'{"P&L":>8}')
+    print(f'  {"-" * 90}')
+
+    comparison_conditions = [
+        ('gap>=6 (旧standard)', BetStrategyParams(win_min_gap=6, place_min_gap=99)),
+        ('gap>=5 (旧wide)', BetStrategyParams(win_min_gap=5, place_min_gap=99)),
+        ('gap>=6 dev>=45 (前回)', BetStrategyParams(win_min_gap=6, win_min_ar_deviation=45.0, place_min_gap=99)),
+        ('EV>=1.3 dev>=47 (新standard)', BetStrategyParams(win_min_ev=1.3, win_min_ar_deviation=47.0, place_min_gap=99)),
+        ('EV>=1.2 dev>=45 (新wide)', BetStrategyParams(win_min_ev=1.2, win_min_ar_deviation=45.0, place_min_gap=99)),
+        ('EV>=1.1 dev>=45', BetStrategyParams(win_min_ev=1.1, win_min_ar_deviation=45.0, place_min_gap=99)),
+        ('EV>=1.5 dev>=45', BetStrategyParams(win_min_ev=1.5, win_min_ar_deviation=45.0, place_min_gap=99)),
+        ('EV>=1.3 no-dev', BetStrategyParams(win_min_ev=1.3, place_min_gap=99)),
+        ('EV>=1.2 no-dev', BetStrategyParams(win_min_ev=1.2, place_min_gap=99)),
+    ]
+
+    for label, params in comparison_conditions:
+        recs = generate_recommendations(race_preds, params, budget=30000)
+        if not recs:
+            print(f'  {label:>30} {"---":>5}')
+            continue
+        roi = calc_bet_engine_roi(recs, race_preds)
+        hit_rate = roi['win_hits'] / roi['num_bets'] * 100 if roi['num_bets'] > 0 else 0
+        pnl = roi['win_return'] - roi['win_bet']
+        marker = ' ***' if roi['win_roi'] >= 100 else ''
+        print(f'  {label:>30} {roi["num_bets"]:>5} '
+              f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
+              f' {roi["win_hits"]:>5} {hit_rate:>7.1f}%'
+              f' {pnl:>+8,}')
+
+    # === WVモデル キャリブレーション診断 ===
+    print(f'\n{"=" * 70}')
+    print(f'  WVモデル キャリブレーション診断 (pred_proba_wv vs 実勝率)')
+    print(f'{"=" * 70}')
+
+    # df_test の pred_proba_wv (calibrated) と実勝率を比較
+    cal_df = df_test[['race_id', 'is_win', 'odds']].copy()
+    cal_df['pred_win_prob'] = pred_wv_cal
+    cal_df['win_ev'] = cal_df['pred_win_prob'] * cal_df['odds']
+
+    # 確率帯別の実勝率
+    prob_bins = [0, 0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50, 1.0]
+    cal_df['prob_bin'] = pd.cut(cal_df['pred_win_prob'], bins=prob_bins)
+
+    print(f'  {"prob_range":>16} {"N":>6} {"wins":>5} {"actual%":>8} {"pred_avg%":>10} '
+          f'{"avg_odds":>9} {"avg_EV":>7} {"ROI%":>7}')
+    print(f'  {"-" * 80}')
+
+    for bin_label, group in cal_df.groupby('prob_bin', observed=False):
+        n = len(group)
+        if n == 0:
+            continue
+        wins = int(group['is_win'].sum())
+        actual_rate = wins / n * 100
+        pred_avg = group['pred_win_prob'].mean() * 100
+        avg_odds = group['odds'].mean()
+        avg_ev = group['win_ev'].mean()
+        # ROI: 100円均一で計算
+        total_bet = n * 100
+        total_return = int((group['is_win'] * group['odds'] * 100).sum())
+        roi_pct = total_return / total_bet * 100 if total_bet > 0 else 0
+        print(f'  {str(bin_label):>16} {n:>6} {wins:>5} {actual_rate:>7.2f}% {pred_avg:>9.2f}% '
+              f'{avg_odds:>9.1f} {avg_ev:>7.2f} {roi_pct:>6.1f}%')
+
+    # EV帯別の実ROI
+    print(f'\n  --- EV帯別 実ROI (rank_wv <= 3 のみ) ---')
+    ev_df = cal_df.copy()
+    ev_df['rank_wv'] = df_test.groupby('race_id')['pred_proba_wv'].rank(ascending=False, method='min')
+    ev_df = ev_df[ev_df['rank_wv'] <= 3]
+
+    ev_bins = [0, 0.5, 0.8, 1.0, 1.2, 1.3, 1.5, 2.0, 3.0, 100]
+    ev_df['ev_bin'] = pd.cut(ev_df['win_ev'], bins=ev_bins)
+
+    print(f'  {"ev_range":>16} {"N":>6} {"wins":>5} {"win%":>7} {"avg_odds":>9} '
+          f'{"avg_EV":>7} {"ROI%":>7} {"P&L":>8}')
+    print(f'  {"-" * 75}')
+
+    for bin_label, group in ev_df.groupby('ev_bin', observed=False):
+        n = len(group)
+        if n == 0:
+            continue
+        wins = int(group['is_win'].sum())
+        win_rate = wins / n * 100
+        avg_odds = group['odds'].mean()
+        avg_ev = group['win_ev'].mean()
+        total_bet = n * 100
+        total_return = int((group['is_win'] * group['odds'] * 100).sum())
+        roi_pct = total_return / total_bet * 100 if total_bet > 0 else 0
+        pnl = total_return - total_bet
+        marker = ' ***' if roi_pct >= 100 else ''
+        print(f'  {str(bin_label):>16} {n:>6} {wins:>5} {win_rate:>6.2f}% {avg_odds:>9.1f} '
+              f'{avg_ev:>7.2f} {roi_pct:>6.1f}%{marker} {pnl:>+8,}')
+
     print('\nDone.')
 
 

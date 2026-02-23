@@ -9,16 +9,16 @@ predict.py / experiment.py の両方から利用する。
 
 設計原則:
   - Win-only戦略（Place ROI<100%のため単勝のみ）
-  - Win: rule-based (gap + 能力R)。Win ECE=0.072 のためKellyは使わない
+  - VB判定の主軸: EV (期待値) = calibrated_pred_proba_wv × odds
+  - 足切り: AR偏差値 (レース内相対評価)
+  - Gapは参考情報として維持
   - 1レース1単勝制約（2番手は複勝に降格）
-  - 2プリセット: standard (gap>=6) / wide (gap>=5)
-  - 能力R (rating): 高い=強い。74.3≈平均的勝ち馬、89.4=超強い、59.2=1秒劣る
-  - rating = 74.3 + ability_score * 15.1 (2点フィッティング)
+  - 2プリセット: standard (EV>=1.3) / wide (EV>=1.2)
 
-検証結果 (v5.8月別分析, 14ヶ月, 2025/01-2026/02):
-  - standard: gap>=6, rating>=56.2 → ROI 177.2%, CI=[100.5-275.8%], 355件
-  - wide:     gap>=5, rating>=56.2 → ROI 135.0%, 625件
-  - Place ROI<100%のためWin-only推奨
+VB判定フロー:
+  Step 1: rank_wv <= 3 (WVモデルのtop3のみ)
+  Step 2: ar_deviation >= threshold (レース内足切り)
+  Step 3: EV_win >= threshold (期待値プラス判定)
 """
 
 from __future__ import annotations
@@ -86,11 +86,12 @@ def get_grade_key(grade: str, age_class: str) -> str:
 @dataclass
 class BetStrategyParams:
     """戦略パラメータ"""
-    # --- Win (rule-based) ---
-    win_min_gap: int = 4
-    win_min_rating: float = 0.0      # AR絶対閾値 (0=無効、偏差値フィルタに移行)
+    # --- Win (EV-based, primary) ---
+    win_min_ev: float = 0.0           # Win EV threshold (0=disabled, 1.2=20% premium)
+    win_min_gap: int = 4              # Legacy gap filter (used when win_min_ev=0)
+    win_min_rating: float = 0.0       # AR絶対閾値 (0=無効、レガシー互換)
     win_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効, 45=推奨)
-    # Win doesn't use EV filter (ECE=0.072 makes it unreliable)
+    win_max_rank_wv: int = 3          # WVモデル順位のpre-filter (top N のみ)
 
     # --- Place (EV + Kelly) ---
     place_min_gap: int = 3
@@ -102,7 +103,7 @@ class BetStrategyParams:
 
     # --- 共通 ---
     danger_threshold: float = 5.0     # danger score threshold
-    danger_gap_boost: int = 2         # VB gap boost needed when danger detected
+    danger_gap_boost: int = 2         # gap mode: VB gap boost needed when danger detected
 
     # --- 単位 ---
     min_bet: int = 100
@@ -110,19 +111,24 @@ class BetStrategyParams:
 
 
 # --- プリセット ---
-# AR偏差値足切り: レース内相対評価で明らかにレベル不足の馬を除外
-# 偏差値45 ≈ 下位31%を除外（緩めの足切り）
+# EV (期待値) ベース: EV = calibrated_pred_proba_wv × odds
+# AR偏差値足切り: レース内相対評価で格下を除外
 # Place ROI<100%のためWin-only推奨
+#
+# バックテスト結果 (test 2025-2026):
+#   standard (EV>=1.2 dev>=47): 300件, ROI 161.9%, P&L +18,560
+#   wide     (EV>=1.1 dev>=45): 373件, ROI 132.1%, P&L +11,980
+# NOTE: EV>=1.3はEV1.3-1.5帯のROI=22%で非単調。1.2が最適閾値。
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
-        win_min_gap=6,
-        win_min_ar_deviation=45.0,
-        place_min_gap=99,   # Place無効化
+        win_min_ev=1.2,             # 20%プレミアム（1.3は非単調で損失）
+        win_min_ar_deviation=47.0,  # レース内偏差値足切り
+        place_min_gap=99,           # Place無効化
     ),
     'wide': BetStrategyParams(
-        win_min_gap=5,
-        win_min_ar_deviation=43.0,
-        place_min_gap=99,   # Place無効化
+        win_min_ev=1.1,             # 10%プレミアム
+        win_min_ar_deviation=45.0,  # レース内偏差値足切り
+        place_min_gap=99,           # Place無効化
     ),
 }
 
@@ -161,24 +167,45 @@ def evaluate_win(
     params: BetStrategyParams,
     is_danger: bool = False,
     ar_deviation: Optional[float] = None,
+    win_ev: Optional[float] = None,
 ) -> Tuple[bool, int]:
-    """単勝評価 (rule-based: gap + AR偏差値足切り)
+    """単勝評価
+
+    EV mode (win_min_ev > 0): EV >= threshold + AR偏差値足切り
+    Legacy gap mode: gap >= threshold + AR偏差値足切り
 
     Returns:
-        (should_bet, units) — units は gap に比例するベット倍率
+        (should_bet, units) — units はベット倍率
         1 unit = params.bet_unit (100円)
     """
+    # AR偏差値足切り (both modes, 0=無効)
+    if params.win_min_ar_deviation > 0 and ar_deviation is not None:
+        if ar_deviation < params.win_min_ar_deviation:
+            return False, 0
+
+    # === EV mode ===
+    if params.win_min_ev > 0:
+        if win_ev is None or win_ev < params.win_min_ev:
+            return False, 0
+
+        # ベット倍率: EV premium に比例
+        ev_premium = win_ev - params.win_min_ev
+        if ev_premium >= 0.5:
+            units = 3
+        elif ev_premium >= 0.2:
+            units = 2
+        else:
+            units = 1
+
+        return True, units
+
+    # === Legacy gap mode ===
     min_gap = params.win_min_gap
     if is_danger:
         min_gap += params.danger_gap_boost
 
     if gap < min_gap:
         return False, 0
-
-    # AR偏差値足切り (0=無効)
-    if params.win_min_ar_deviation > 0 and ar_deviation is not None:
-        if ar_deviation < params.win_min_ar_deviation:
-            return False, 0
 
     # AR絶対閾値 (後方互換、0=無効)
     if params.win_min_rating > 0 and rating is not None:
@@ -333,6 +360,7 @@ def generate_recommendations(
             gap = e.get('vb_gap', 0) or 0
             win_gap = e.get('win_vb_gap', 0) or 0
             rank_v = e.get('rank_v', 99)
+            rank_wv = e.get('rank_wv') or 99
             odds_rank = e.get('odds_rank', 0) or 0
             margin = e.get('predicted_margin')
             ar_dev = e.get('ar_deviation')
@@ -341,22 +369,27 @@ def generate_recommendations(
             win_ev = e.get('win_ev')
             place_ev = e.get('place_ev')
 
-            # rank_v > 3 はそもそもVB対象外
-            if rank_v > 3:
-                continue
-
             is_danger = umaban in danger_map
             danger_score = danger_map.get(umaban, 0.0)
 
             # --- 単勝評価 ---
-            win_ok, win_units = evaluate_win(
-                win_gap, margin, params, is_danger, ar_deviation=ar_dev,
-            )
+            # Pre-filter: WVモデルのtop N のみ (win_max_rank_wv, default=3)
+            if rank_wv > params.win_max_rank_wv:
+                win_ok, win_units = False, 0
+            else:
+                win_ok, win_units = evaluate_win(
+                    win_gap, margin, params, is_danger,
+                    ar_deviation=ar_dev, win_ev=win_ev,
+                )
 
             # --- 複勝評価 ---
-            place_ok, kelly_frac = evaluate_place(
-                gap, margin, p_top3_raw, place_odds, params, is_danger, ar_deviation=ar_dev,
-            )
+            # Pre-filter: Vモデルのtop3 のみ
+            if rank_v > 3:
+                place_ok, kelly_frac = False, 0.0
+            else:
+                place_ok, kelly_frac = evaluate_place(
+                    gap, margin, p_top3_raw, place_odds, params, is_danger, ar_deviation=ar_dev,
+                )
 
             if not win_ok and not place_ok:
                 continue
@@ -364,11 +397,17 @@ def generate_recommendations(
             # bet_type 決定
             if win_ok and place_ok:
                 bet_type = '単複'
-                strength = 'strong' if (win_gap >= params.win_min_gap + 2 or
-                                        gap >= params.place_min_gap + 2) else 'normal'
+                if params.win_min_ev > 0:
+                    strength = 'strong' if (win_ev is not None and win_ev >= params.win_min_ev + 0.3) else 'normal'
+                else:
+                    strength = 'strong' if (win_gap >= params.win_min_gap + 2 or
+                                            gap >= params.place_min_gap + 2) else 'normal'
             elif win_ok:
                 bet_type = '単勝'
-                strength = 'strong' if win_gap >= params.win_min_gap + 2 else 'normal'
+                if params.win_min_ev > 0:
+                    strength = 'strong' if (win_ev is not None and win_ev >= params.win_min_ev + 0.3) else 'normal'
+                else:
+                    strength = 'strong' if win_gap >= params.win_min_gap + 2 else 'normal'
             else:
                 bet_type = '複勝'
                 strength = 'strong' if gap >= params.place_min_gap + 2 else 'normal'
@@ -567,6 +606,7 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
                 'vb_gap': int(row.get('vb_gap', 0)),
                 'win_vb_gap': int(row.get('win_vb_gap', 0)),
                 'rank_v': int(row.get('pred_rank_v', 99)),
+                'rank_wv': int(row.get('pred_rank_wv', 99)) if pd.notna(row.get('pred_rank_wv')) else 99,
                 'odds_rank': int(row.get('odds_rank', 0)),
                 'place_odds_min': float(row['place_odds_low']) if pd.notna(row.get('place_odds_low')) else None,
                 'pred_proba_v_raw': float(row.get('pred_proba_v_raw', 0)),

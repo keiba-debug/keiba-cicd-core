@@ -65,9 +65,11 @@ export function getMarkColor(mark: string): string {
   return 'text-gray-400';
 }
 
-export function getEvColor(ev: number): string {
-  if (ev >= 2.0) return 'text-emerald-600 font-bold';
-  if (ev >= 1.5) return 'text-green-600 font-bold';
+export function getEvColor(ev: number | null | undefined): string {
+  if (ev == null) return 'text-gray-400';
+  if (ev >= 2.0) return 'text-amber-600 font-bold';
+  if (ev >= 1.5) return 'text-red-500 font-bold';
+  if (ev >= 1.2) return 'text-green-600 font-bold';
   if (ev >= 1.0) return 'text-green-500 font-semibold';
   if (ev >= 0.8) return 'text-yellow-600';
   return 'text-gray-400';

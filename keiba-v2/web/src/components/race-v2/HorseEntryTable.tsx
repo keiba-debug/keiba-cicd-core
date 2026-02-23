@@ -57,6 +57,7 @@ export interface MlPredictionEntry {
   odds_rank: number | null;
   gap: number | null;
   is_value_bet: boolean;
+  win_ev: number | null;
 }
 
 /** DB odds レスポンス型 */
@@ -504,24 +505,28 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         {myMark2 || '-'}
       </td>
 
-      {/* ML Value Bet */}
+      {/* ML Value Bet (EV-based) */}
       {mlPrediction !== undefined && (
         <td className={cn(
           "px-1 py-1.5 text-center border",
           mlPrediction.is_value_bet && "bg-amber-50 dark:bg-amber-900/20"
         )}>
           <div className="flex flex-col items-center gap-0.5">
-            {mlPrediction.is_value_bet ? (
+            {mlPrediction.is_value_bet && mlPrediction.win_ev != null ? (
               <span className={cn(
                 "inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold",
-                mlPrediction.gap !== null && mlPrediction.gap >= 5
+                mlPrediction.win_ev >= 1.5
                   ? "bg-gradient-to-r from-red-500 to-red-400 text-white"
-                  : mlPrediction.gap !== null && mlPrediction.gap >= 4
+                  : mlPrediction.win_ev >= 1.2
                     ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white"
                     : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white"
               )}
-                title={`VR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\n好走 市場: ${(mlPrediction.pred_proba_accuracy * 100).toFixed(1)}%\n好走 独自: ${(mlPrediction.pred_proba_value * 100).toFixed(1)}%`}
+                title={`EV ${mlPrediction.win_ev.toFixed(2)} | VR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\n好走 市場: ${(mlPrediction.pred_proba_accuracy * 100).toFixed(1)}%\n好走 独自: ${(mlPrediction.pred_proba_value * 100).toFixed(1)}%`}
               >
+                {mlPrediction.win_ev.toFixed(1)}
+              </span>
+            ) : mlPrediction.is_value_bet ? (
+              <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gradient-to-r from-emerald-500 to-emerald-400 text-white">
                 VB
               </span>
             ) : (

@@ -681,8 +681,7 @@ def predict_race(
             'rank_a': int(ra),
             'rank_v': int(rv),
             'odds_rank': odds_rank,
-            'vb_gap': int(gap),
-            'is_value_bet': gap >= VALUE_BET_MIN_GAP and odds_rank > 0,
+            'vb_gap': int(gap),  # 参考情報（EVベース判定に移行済み）
             # Win predictions (is_win)
             'pred_proba_w': round(float(pred_w[i]), 4) if has_win_model else None,
             'pred_proba_wv': round(float(pred_wv[i]), 4) if has_win_model else None,
@@ -725,6 +724,8 @@ def predict_race(
             'comment_has_stable': p['features'].get('comment_has_stable', 0) or 0,
             'comment_has_interview': p['features'].get('comment_has_interview', 0) or 0,
         }
+        # VBフラグ: EV >= 1.0 (期待値プラス) をVB候補とする
+        entry['is_value_bet'] = (entry.get('win_ev') or 0) >= 1.0
         result_entries.append(entry)
 
     # ソート: Model B確率の高い順
@@ -948,9 +949,11 @@ def main():
         recs = generate_recommendations(all_predictions, preset_params, budget=30000)
         all_recommendations[preset_name] = {
             'params': {
+                'win_min_ev': preset_params.win_min_ev,
                 'win_min_gap': preset_params.win_min_gap,
                 'win_min_rating': preset_params.win_min_rating,
                 'win_min_ar_deviation': preset_params.win_min_ar_deviation,
+                'win_max_rank_wv': preset_params.win_max_rank_wv,
                 'place_min_gap': preset_params.place_min_gap,
                 'place_min_rating': preset_params.place_min_rating,
                 'place_min_ar_deviation': preset_params.place_min_ar_deviation,
