@@ -204,14 +204,15 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
         <h3 className="mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">Value Bet戦略</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400">
           好走 独自モデル（市場情報なし）がレース内上位3位に予測 × 実際の人気が低い馬を購入。
-          独自モデルと市場の「乖離」が大きいほど、市場が見落としている可能性。
+          Gap（人気順位 - 独自ランク）が大きいほど市場が見落としている可能性が高い。
+          EVフィルター（P(win)×オッズ）で期待値プラスの馬に絞り込み。
         </p>
       </div>
 
       {/* Gap-based ROI tables */}
       <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
         <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">ランクギャップ別の回収率</h3>
-        <p className="mb-3 text-xs text-gray-500">gap = 人気順位 - 独自ランク。gapが大きい = 市場より高い評価</p>
+        <p className="mb-3 text-xs text-gray-500">gap = 人気順位 - 独自ランク(VR)。gapが大きい = 市場より高い評価。VB判定の主軸フィルター</p>
 
         <div className={cn(hasWinVb ? 'grid grid-cols-1 gap-6 lg:grid-cols-2' : '')}>
           <GapTable title="Place VB (複勝)" vb={placeVb} color="blue" />

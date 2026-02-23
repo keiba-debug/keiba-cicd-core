@@ -44,14 +44,13 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [venueFilter, setVenueFilter] = useState<string>('all');
   const [raceNumFilter, setRaceNumFilter] = useState<number>(0);
   const [trackFilter, setTrackFilter] = useState<string>('all');
-  const [minGap, setMinGap] = useState<number>(3);
   const [minEv, setMinEv] = useState<number>(0);
-  const [minRating, setMinRating] = useState<number | null>(null);
+  const [minArd, setMinArd] = useState<number | null>(null);
   const [betOnly, setBetOnly] = useState<boolean>(false);
 
   // ソート
-  const [vbSort, setVbSort] = useState<SortState>({ key: 'gap', dir: 'desc' });
-  const [betSort, setBetSort] = useState<SortState>({ key: 'amount', dir: 'desc' });
+  const [vbSort, setVbSort] = useState<SortState>({ key: 'race_number', dir: 'asc' });
+  const [betSort, setBetSort] = useState<SortState>({ key: 'race_number', dir: 'asc' });
 
   // TARGET馬印2 VB印反映
   const [markSyncing, setMarkSyncing] = useState(false);
@@ -361,7 +360,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       const entry = entryMap.get(`${sr.race_id}-${sr.umaban}`);
       if (!race || !entry) continue;
 
-      const danger = getRaceDanger(race.entries, 5);
+      const danger = getRaceDanger(race.entries);
 
       displayRecs.push({
         race,
@@ -396,7 +395,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
   const filteredVBEntries = useMemo(() => {
     let entries = allVBEntries;
-    if (minGap > 3) entries = entries.filter(e => getLiveGap(e.race.race_id, e.entry) >= minGap);
     if (venueFilter !== 'all') entries = entries.filter(e => e.race.venue_name === venueFilter);
     if (trackFilter !== 'all') {
       entries = entries.filter(e =>
@@ -411,14 +409,14 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         return ev !== null && ev >= minEv;
       });
     }
-    if (minRating !== null) {
-      entries = entries.filter(e => e.entry.predicted_margin != null && e.entry.predicted_margin >= minRating);
+    if (minArd !== null) {
+      entries = entries.filter(e => e.entry.ar_deviation != null && e.entry.ar_deviation >= minArd);
     }
     if (betOnly) {
       entries = entries.filter(e => betRecMap.has(`${e.race.race_id}-${e.entry.umaban}`));
     }
     return entries;
-  }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minGap, minEv, minRating, betOnly, oddsMap, getLiveGap, betRecMap]);
+  }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minEv, minArd, betOnly, oddsMap, getLiveGap, betRecMap]);
 
   const betSummary = useMemo(() => {
     let winCount = 0, placeCount = 0, winTotal = 0, placeTotal = 0;
@@ -437,18 +435,19 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     const entries: DangerHorseEntry[] = [];
     for (const race of races) {
       for (const e of race.entries) {
-        const currentRank = liveRankingMap[race.race_id]?.[e.umaban] ?? e.odds_rank;
-        if (currentRank > 0 && currentRank <= 3) {
-          const gap = e.rank_v - currentRank;
-          if (gap >= 5) {
-            entries.push({ race, entry: e, dangerScore: gap, oddsRank: currentRank, rankV: e.rank_v });
-          }
+        // 新条件: odds<=8 & ARd<50 & V%<15%
+        const liveOdds = oddsMap[race.race_id]?.[e.umaban]?.winOdds ?? e.odds;
+        const ard = e.ar_deviation ?? 999;
+        const predV = e.pred_proba_v ?? 0;
+        if (liveOdds > 0 && liveOdds <= 8.0 && ard < 50 && predV < 0.15) {
+          const oddsRank = liveRankingMap[race.race_id]?.[e.umaban] ?? e.odds_rank;
+          entries.push({ race, entry: e, oddsRank, odds: liveOdds, ard, predV });
         }
       }
     }
-    entries.sort((a, b) => a.race.race_number - b.race.race_number || b.dangerScore - a.dangerScore);
+    entries.sort((a, b) => a.race.race_number - b.race.race_number || a.race.race_id.localeCompare(b.race.race_id));
     return entries;
-  }, [races, liveRankingMap]);
+  }, [races, liveRankingMap, oddsMap]);
 
   const filteredDangerHorses = useMemo(() => {
     let entries = dangerHorses;
@@ -470,6 +469,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       let va: number, vb: number;
       switch (key) {
         case 'race': va = a.race.race_number; vb = b.race.race_number; break;
+        case 'race_number': {
+          const rn = a.race.race_number - b.race.race_number;
+          if (rn !== 0) return rn * mul;
+          return a.race.race_id.localeCompare(b.race.race_id) * mul;
+        }
         case 'umaban': va = a.entry.umaban; vb = b.entry.umaban; break;
         case 'winEv': va = a.winEv ?? -1; vb = b.winEv ?? -1; break;
         case 'placeEv': va = a.placeEv ?? -1; vb = b.placeEv ?? -1; break;
@@ -490,13 +494,21 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           break;
         }
         case 'margin': va = a.predictedMargin ?? -1; vb = b.predictedMargin ?? -1; break;
-        case 'danger': va = a.danger?.dangerScore ?? 0; vb = b.danger?.dangerScore ?? 0; break;
+        case 'ar_dev': va = a.entry.ar_deviation ?? -1; vb = b.entry.ar_deviation ?? -1; break;
+        case 'danger': va = a.danger?.isDanger ? 1 : 0; vb = b.danger?.isDanger ? 1 : 0; break;
+        case 'finish': {
+          const fa = getFinishPos(a.race.race_id, a.entry.umaban);
+          const fb = getFinishPos(b.race.race_id, b.entry.umaban);
+          va = fa > 0 ? fa : 999;
+          vb = fb > 0 ? fb : 999;
+          break;
+        }
         default: va = a.betAmountWin + a.betAmountPlace; vb = b.betAmountWin + b.betAmountPlace; break;
       }
       return (va - vb) * mul;
     });
     return recs;
-  }, [betRecommendations, betSort, venueFilter, trackFilter, raceNumFilter, oddsMap, getLiveGap]);
+  }, [betRecommendations, betSort, venueFilter, trackFilter, raceNumFilter, oddsMap, getLiveGap, getFinishPos]);
 
   const syncBetMarks = useCallback(async () => {
     setBetSyncing(true);
@@ -557,6 +569,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       let va: number, vb: number;
       switch (key) {
         case 'race': va = a.race.race_number; vb = b.race.race_number; break;
+        case 'race_number': {
+          const rn = a.race.race_number - b.race.race_number;
+          if (rn !== 0) return rn * mul;
+          return a.race.race_id.localeCompare(b.race.race_id) * mul;
+        }
         case 'umaban': va = a.entry.umaban; vb = b.entry.umaban; break;
         case 'rank_v': va = a.entry.rank_v; vb = b.entry.rank_v; break;
         case 'odds_rank': va = a.entry.odds_rank || 999; vb = b.entry.odds_rank || 999; break;
@@ -584,6 +601,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         case 'prob_v': va = a.entry.pred_proba_v; vb = b.entry.pred_proba_v; break;
         case 'win_gap': va = a.entry.win_vb_gap ?? -999; vb = b.entry.win_vb_gap ?? -999; break;
         case 'margin': va = a.entry.predicted_margin ?? -1; vb = b.entry.predicted_margin ?? -1; break;
+        case 'ar_dev': va = a.entry.ar_deviation ?? -1; vb = b.entry.ar_deviation ?? -1; break;
+        case 'rating': va = a.entry.kb_rating || 0; vb = b.entry.kb_rating || 0; break;
         case 'finish': {
           const pa = getFinishPos(a.race.race_id, a.entry.umaban);
           const pb = getFinishPos(b.race.race_id, b.entry.umaban);
@@ -608,45 +627,57 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       hasAnyPlaceOdds: boolean;
     };
     const initTrack = (): TrackROI => ({ vbCount: 0, winHits: 0, placeHits: 0, winPayout: 0, placePayout: 0, placeBetCount: 0, hasAnyPlaceOdds: false });
-    const all = initTrack();
-    const betRec = initTrack();
-    const betExcl = initTrack();
 
-    for (const { race, entry } of filteredVBEntries) {
-      const pos = getFinishPos(race.race_id, entry.umaban);
-      if (pos <= 0) continue;
-
-      const isBetRecommended = betRecMap.has(`${race.race_id}-${entry.umaban}`);
-      const buckets = [all];
-      if (isBetRecommended) buckets.push(betRec);
-      else buckets.push(betExcl);
-
-      for (const b of buckets) {
-        b.vbCount++;
-        const placeLimit = getPlaceLimit(race.num_runners);
-        const dbEntry = dbResults[race.race_id]?.[entry.umaban];
-        const confirmedWinOdds = dbEntry?.confirmedWinOdds ?? (results?.[race.race_id]?.[entry.umaban]?.odds ?? 0);
-
-        if (pos === 1 && confirmedWinOdds > 0) {
-          b.winHits++;
-          b.winPayout += confirmedWinOdds * 100;
-        }
-
-        if (placeLimit > 0) {
-          const plOddsMin = dbEntry?.confirmedPlaceOddsMin ?? getPlaceOddsMin(oddsMap, race.race_id, entry.umaban);
-          if (plOddsMin && plOddsMin > 0) {
-            b.hasAnyPlaceOdds = true;
-            b.placeBetCount++;
-            if (pos <= placeLimit) {
-              b.placeHits++;
-              b.placePayout += plOddsMin * 100;
-            }
+    const addEntry = (b: TrackROI, race: PredictionRace, entry: PredictionEntry, pos: number) => {
+      b.vbCount++;
+      const placeLimit = getPlaceLimit(race.num_runners);
+      const dbEntry = dbResults[race.race_id]?.[entry.umaban];
+      const confirmedWinOdds = dbEntry?.confirmedWinOdds ?? (results?.[race.race_id]?.[entry.umaban]?.odds ?? 0);
+      if (pos === 1 && confirmedWinOdds > 0) {
+        b.winHits++;
+        b.winPayout += confirmedWinOdds * 100;
+      }
+      if (placeLimit > 0) {
+        const plOddsMin = dbEntry?.confirmedPlaceOddsMin ?? getPlaceOddsMin(oddsMap, race.race_id, entry.umaban);
+        if (plOddsMin && plOddsMin > 0) {
+          b.hasAnyPlaceOdds = true;
+          b.placeBetCount++;
+          if (pos <= placeLimit) {
+            b.placeHits++;
+            b.placePayout += plOddsMin * 100;
           }
         }
       }
+    };
+
+    const all = initTrack();
+    const betExcl = initTrack();
+
+    // 全体 + 非推奨: VB候補ベース
+    for (const { race, entry } of filteredVBEntries) {
+      const pos = getFinishPos(race.race_id, entry.umaban);
+      if (pos <= 0) continue;
+      addEntry(all, race, entry, pos);
+      if (!betRecMap.has(`${race.race_id}-${entry.umaban}`)) {
+        addEntry(betExcl, race, entry, pos);
+      }
     }
 
-    if (all.vbCount === 0) return null;
+    // 購入プラン: betRecommendationsベース（VB外のbet recも含む）
+    const betRec = initTrack();
+    for (const r of betRecommendations) {
+      // フィルタ適用（VBテーブルと同じ絞り込み）
+      if (venueFilter !== 'all' && r.race.venue_name !== venueFilter) continue;
+      if (trackFilter !== 'all') {
+        if (trackFilter === 'turf' ? !isTurf(r.race.track_type) : !isDirt(r.race.track_type)) continue;
+      }
+      if (raceNumFilter > 0 && r.race.race_number !== raceNumFilter) continue;
+      const pos = getFinishPos(r.race.race_id, r.entry.umaban);
+      if (pos <= 0) continue;
+      addEntry(betRec, r.race, r.entry, pos);
+    }
+
+    if (all.vbCount === 0 && betRec.vbCount === 0) return null;
 
     const calcROI = (b: TrackROI) => ({
       vbCount: b.vbCount,
@@ -661,7 +692,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     });
 
     return { all: calcROI(all), betRec: calcROI(betRec), betExcl: calcROI(betExcl) };
-  }, [filteredVBEntries, dbResults, results, hasResults, oddsMap, getFinishPos, betRecMap]);
+  }, [filteredVBEntries, dbResults, results, hasResults, oddsMap, getFinishPos, betRecMap, betRecommendations, venueFilter, trackFilter, raceNumFilter]);
 
   // --- レンダリング ---
 
@@ -677,7 +708,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         <div>
           <h1 className="text-3xl font-bold">Value Bet</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {data.date} / Model v{data.model_version} / オッズ: {data.odds_source}
+            {data.date} / Live Model v{data.model_version} / オッズ: {data.odds_source}
             {data.db_odds_coverage && ` (${data.db_odds_coverage})`}
           </p>
         </div>
@@ -715,12 +746,10 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         setRaceNumFilter={setRaceNumFilter}
         trackFilter={trackFilter}
         setTrackFilter={setTrackFilter}
-        minGap={minGap}
-        setMinGap={setMinGap}
         minEv={minEv}
         setMinEv={setMinEv}
-        minRating={minRating}
-        setMinRating={setMinRating}
+        minArd={minArd}
+        setMinArd={setMinArd}
         betOnly={betOnly}
         setBetOnly={setBetOnly}
         filteredCount={filteredVBEntries.length}
@@ -786,8 +815,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       {/* 危険馬結果一覧 */}
       <DangerResults
         dangerHorses={filteredDangerHorses}
-        oddsMap={oddsMap}
-        dbResults={dbResults}
         getFinishPos={getFinishPos}
       />
 

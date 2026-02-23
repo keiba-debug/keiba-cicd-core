@@ -724,8 +724,7 @@ def predict_race(
             'comment_has_stable': p['features'].get('comment_has_stable', 0) or 0,
             'comment_has_interview': p['features'].get('comment_has_interview', 0) or 0,
         }
-        # VBフラグ: EV >= 1.0 (期待値プラス) をVB候補とする
-        entry['is_value_bet'] = (entry.get('win_ev') or 0) >= 1.0
+        entry['is_value_bet'] = False  # AR偏差値計算後に更新
         result_entries.append(entry)
 
     # ソート: Model B確率の高い順
@@ -745,6 +744,12 @@ def predict_race(
     else:
         for e in result_entries:
             e['ar_deviation'] = 50.0  # AR情報不足時は全員50
+
+    # VBフラグ更新: EV >= 1.0 かつ AR偏差値 >= 50（レース平均以上）
+    for e in result_entries:
+        ev_ok = (e.get('win_ev') or 0) >= 1.0
+        ard_ok = (e.get('ar_deviation') or 0) >= 50.0
+        e['is_value_bet'] = bool(ev_ok and ard_ok)
 
     return {
         'race_id': race['race_id'],
@@ -953,7 +958,7 @@ def main():
                 'win_min_gap': preset_params.win_min_gap,
                 'win_min_rating': preset_params.win_min_rating,
                 'win_min_ar_deviation': preset_params.win_min_ar_deviation,
-                'win_max_rank_wv': preset_params.win_max_rank_wv,
+                'win_max_rank': preset_params.win_max_rank,
                 'place_min_gap': preset_params.place_min_gap,
                 'place_min_rating': preset_params.place_min_rating,
                 'place_min_ar_deviation': preset_params.place_min_ar_deviation,

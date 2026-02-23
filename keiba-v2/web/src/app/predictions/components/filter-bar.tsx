@@ -7,12 +7,10 @@ interface FilterBarProps {
   setRaceNumFilter: (n: number) => void;
   trackFilter: string;
   setTrackFilter: (v: string) => void;
-  minGap: number;
-  setMinGap: (g: number) => void;
   minEv: number;
   setMinEv: (v: number) => void;
-  minRating: number | null;
-  setMinRating: (m: number | null) => void;
+  minArd: number | null;
+  setMinArd: (m: number | null) => void;
   betOnly: boolean;
   setBetOnly: (b: boolean) => void;
   filteredCount: number;
@@ -23,9 +21,8 @@ export function FilterBar({
   venues, venueFilter, setVenueFilter,
   raceNumbers, raceNumFilter, setRaceNumFilter,
   trackFilter, setTrackFilter,
-  minGap, setMinGap,
   minEv, setMinEv,
-  minRating, setMinRating,
+  minArd, setMinArd,
   betOnly, setBetOnly,
   filteredCount, totalCount,
 }: FilterBarProps) {
@@ -99,38 +96,20 @@ export function FilterBar({
         ))}
       </div>
 
-      {/* Gap */}
+      {/* ARd (AR偏差値) */}
       <div className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground mr-1">Gap:</span>
-        {[3, 4, 5].map(g => (
-          <button
-            key={g}
-            onClick={() => setMinGap(g)}
-            className={`px-2.5 py-1 text-xs rounded transition-colors ${
-              minGap === g
-                ? 'bg-orange-600 text-white shadow-sm'
-                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
-            }`}
-          >
-            &ge;{g}
-          </button>
-        ))}
-      </div>
-
-      {/* AR (Aura Rating) */}
-      <div className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground mr-1" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR:</span>
+        <span className="text-xs text-muted-foreground mr-1" title="ARd (AR偏差値) — レース内相対評価（mean=50, std=10）。50=平均">ARd:</span>
         {[
           { v: null as number | null, l: '全て' },
-          { v: 59, l: '\u226559' },
-          { v: 56, l: '\u226556' },
-          { v: 52, l: '\u226552' },
+          { v: 55, l: '\u226555' },
+          { v: 50, l: '\u226550' },
+          { v: 45, l: '\u226545' },
         ].map(({ v, l }) => (
           <button
             key={String(v)}
-            onClick={() => setMinRating(v)}
+            onClick={() => setMinArd(v)}
             className={`px-2.5 py-1 text-xs rounded transition-colors ${
-              minRating === v
+              minArd === v
                 ? 'bg-teal-600 text-white shadow-sm'
                 : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
             }`}

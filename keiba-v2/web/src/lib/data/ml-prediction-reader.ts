@@ -25,6 +25,8 @@ export interface MlHorsePrediction {
   gap: number | null;
   is_value_bet: boolean;
   win_ev: number | null;
+  predicted_margin: number | null;  // AR (Aura Rating)
+  ar_deviation: number | null;      // ARd (AR偏差値)
 }
 
 export interface MlRacePrediction {
@@ -64,6 +66,8 @@ interface V4Entry {
   kb_training_arrow: string;
   kb_rating: number | null;
   kb_comment: string;
+  predicted_margin?: number | null;
+  ar_deviation?: number | null;
 }
 
 interface V4Race {
@@ -123,6 +127,8 @@ function convertV4Entry(e: V4Entry): MlHorsePrediction {
     gap: e.vb_gap,
     is_value_bet: e.is_value_bet,
     win_ev: e.win_ev ?? null,
+    predicted_margin: e.predicted_margin ?? null,
+    ar_deviation: e.ar_deviation ?? null,
   };
 }
 
@@ -158,34 +164,75 @@ function findV4Race(races: V4Race[], raceId12: string): V4Race | undefined {
 }
 
 /**
+ * 日別アーカイブ (races/YYYY/MM/DD/predictions.json) からV4データをロード
+ */
+async function loadV4Archive(date: string): Promise<V4PredictionsLive | null> {
+  try {
+    const [y, m, d] = date.split('-');
+    if (!y || !m || !d) return null;
+    const filePath = path.join(DATA3_ROOT, 'races', y, m, d, 'predictions.json');
+    const content = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(content) as V4PredictionsLive;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * V4レースデータからMlHorsePredictionマップを生成
+ */
+function buildPredictionMap(race: V4Race): Record<number, MlHorsePrediction> {
+  const map: Record<number, MlHorsePrediction> = {};
+  for (const e of race.entries) {
+    map[e.umaban] = convertV4Entry(e);
+  }
+  return map;
+}
+
+/**
+ * V4PredictionsLiveから指定レースを検索
+ */
+function findRaceInV4(v4: V4PredictionsLive, raceId: string, raceId16?: string): V4Race | undefined {
+  let race: V4Race | undefined;
+  if (raceId16) {
+    race = v4.races.find((r) => r.race_id === raceId16);
+  }
+  if (!race) {
+    race = findV4Race(v4.races, raceId);
+  }
+  return race;
+}
+
+/**
  * 指定レースIDのML予測を取得
- * v4 (data3) → v2 (data2) フォールバック
+ * predictions_live.json → 日別アーカイブ フォールバック
  * @param raceId 12桁race_id
  * @param raceId16 16桁race_id（v4直接検索用、省略時は12桁から変換を試みる）
+ * @param date レース日付 YYYY-MM-DD（アーカイブフォールバック用）
  * @returns 馬番 → MlHorsePrediction のマップ（なければ null）
  */
 export async function getMlPredictions(
   raceId: string,
   raceId16?: string,
+  date?: string,
 ): Promise<Record<number, MlHorsePrediction> | null> {
-  // v4 (data3) を優先
+  // 1. predictions_live.json を優先
   const v4 = await loadV4();
   if (v4) {
-    // 16桁race_idが提供されている場合は直接検索
-    let race: V4Race | undefined;
-    if (raceId16) {
-      race = v4.races.find((r) => r.race_id === raceId16);
-    }
-    // フォールバック: 12桁からの変換検索
-    if (!race) {
-      race = findV4Race(v4.races, raceId);
-    }
+    const race = findRaceInV4(v4, raceId, raceId16);
     if (race) {
-      const map: Record<number, MlHorsePrediction> = {};
-      for (const e of race.entries) {
-        map[e.umaban] = convertV4Entry(e);
+      return buildPredictionMap(race);
+    }
+  }
+
+  // 2. 日別アーカイブにフォールバック
+  if (date) {
+    const archive = await loadV4Archive(date);
+    if (archive) {
+      const race = findRaceInV4(archive, raceId, raceId16);
+      if (race) {
+        return buildPredictionMap(race);
       }
-      return map;
     }
   }
 

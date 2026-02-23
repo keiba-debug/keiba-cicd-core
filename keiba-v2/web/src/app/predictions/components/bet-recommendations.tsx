@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import type { PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, SortState, DbResultsMap } from '../lib/types';
 import { BET_CONFIG, PRESET_OPTIONS, type ServerPresetKey, type AllocMode } from '../lib/bet-logic';
-import { getWinOdds, calcHeadRatio, getEvColor, getRecBadgeClass, getRaceLink, SortTh, getArColor } from '../lib/helpers';
+import { getWinOdds, calcHeadRatio, getGapColor, getEvColor, getRecBadgeClass, getRaceLink, SortTh, getArColor, getArdColor } from '../lib/helpers';
 
 interface BetRecommendationsProps {
   betRecommendations: BetRecommendation[];
@@ -169,18 +169,20 @@ export function BetRecommendations({
                 <SortTh sortKey="race" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">R</SortTh>
                 <SortTh sortKey="umaban" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">馬番</SortTh>
                 <th className="px-2 py-2 text-left border">馬名</th>
-                <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-amber-50 dark:bg-amber-900/20" title="単勝EV = calibrated P(win) × 単勝オッズ。VB判定の主軸">単EV</SortTh>
-                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
+                <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-amber-50 dark:bg-amber-900/20 font-bold" title="Gap（主軸） = 人気順位 - VR。VB判定の主フィルター">Gap</SortTh>
+                <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-amber-50/50 dark:bg-amber-900/10" title="単勝EV = calibrated P(win) × 単勝オッズ">EV</SortTh>
+                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
+                <SortTh sortKey="ar_dev" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-teal-50/50 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
                 <SortTh sortKey="amount" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-yellow-50 dark:bg-yellow-900/20" title="推奨金額">金額</SortTh>
                 <SortTh sortKey="odds" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
-                <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border text-gray-400" title="Gap（参考）">Gap*</SortTh>
                 <SortTh sortKey="placeEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="複勝EV">複EV</SortTh>
                 <SortTh sortKey="head" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="頭向き度">頭%</SortTh>
                 <SortTh sortKey="danger" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-orange-50 dark:bg-orange-900/20" title="危険な人気馬">危険馬</SortTh>
                 {hasResults && (
                   <>
-                    <th className="px-2 py-2 text-center border bg-gray-100 dark:bg-gray-800" title="確定着順">着順</th>
-                    <th className="px-2 py-2 text-center border bg-gray-100 dark:bg-gray-800" title="確定配当">配当</th>
+                    <SortTh sortKey="finish" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-gray-100 dark:bg-gray-800" title="確定着順">着順</SortTh>
+                    <th className="px-2 py-2 text-center border bg-gray-100 dark:bg-gray-800" title="単勝払い戻し">単払</th>
+                    <th className="px-2 py-2 text-center border bg-gray-100 dark:bg-gray-800" title="複勝払い戻し">複払</th>
                   </>
                 )}
               </tr>
@@ -206,11 +208,19 @@ export function BetRecommendations({
                     <td className="px-2 py-1.5 border text-center font-bold">{r.race.race_number}</td>
                     <td className="px-2 py-1.5 border text-center font-mono">{r.entry.umaban}</td>
                     <td className="px-2 py-1.5 border font-bold text-xs">{r.entry.horse_name}</td>
-                    <td className={`px-2 py-1.5 border text-center font-mono font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getEvColor(r.winEv ?? null)}`}>
+                    {(() => { const lg = getLiveGap(r.race.race_id, r.entry); return (
+                    <td className={`px-2 py-1.5 border text-center font-mono font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getGapColor(lg)}`} title="Gap（主軸）">
+                      +{lg}
+                    </td>
+                    ); })()}
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-amber-50/20 dark:bg-amber-900/5 ${getEvColor(r.winEv ?? null)}`}>
                       {r.winEv ? r.winEv.toFixed(2) : '-'}
                     </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${getArColor(r.predictedMargin)}`}>
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(r.predictedMargin)}`}>
                       {r.predictedMargin.toFixed(1)}
+                    </td>
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-teal-50/20 dark:bg-teal-900/5 ${getArdColor(r.entry.ar_deviation)}`} title="AR偏差値">
+                      {r.entry.ar_deviation != null ? r.entry.ar_deviation.toFixed(0) : '-'}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono font-bold bg-yellow-50/50 dark:bg-yellow-900/10">
                       {r.betAmountWin > 0 && <div className="text-red-600">&yen;{r.betAmountWin.toLocaleString()}</div>}
@@ -219,11 +229,6 @@ export function BetRecommendations({
                     <td className="px-2 py-1.5 border text-center font-mono text-xs">
                       {winOdds ? winOdds.toFixed(1) : '-'}
                     </td>
-                    {(() => { const lg = getLiveGap(r.race.race_id, r.entry); return (
-                    <td className="px-2 py-1.5 border text-center font-mono text-xs text-gray-400" title="Gap（参考）">
-                      +{lg}
-                    </td>
-                    ); })()}
                     <td className={`px-2 py-1.5 border text-center font-mono text-xs ${r.placeEv && r.placeEv >= 1.0 ? 'text-blue-600 font-bold' : 'text-gray-300'}`}>
                       {r.placeEv ? r.placeEv.toFixed(2) : '-'}
                     </td>
@@ -232,9 +237,8 @@ export function BetRecommendations({
                     </td>
                     <td className="px-2 py-1.5 border text-center text-[10px]">
                       {r.danger?.dangerHorse ? (
-                        <span className="text-orange-600 font-bold" title={`${r.danger.dangerHorse.horseName}: 人気${r.danger.dangerHorse.oddsRank}位 → V${r.danger.dangerHorse.rankV}位 (gap ${r.danger.dangerScore})`}>
+                        <span className="text-orange-600 font-bold" title={`${r.danger.dangerHorse.horseName}: ${r.danger.dangerHorse.odds?.toFixed(1)}倍 人気${r.danger.dangerHorse.oddsRank}位`}>
                           {r.danger.dangerHorse.umaban}{r.danger.dangerHorse.horseName.slice(0, 3)}
-                          <span className="text-orange-400 ml-0.5">+{r.danger.dangerScore}</span>
                         </span>
                       ) : '-'}
                     </td>
@@ -243,21 +247,21 @@ export function BetRecommendations({
                       const dbEntry = dbResults?.[r.race.race_id]?.[r.entry.umaban];
                       const isWinHit = fp === 1;
                       const isPlaceHit = fp >= 1 && fp <= 3;
-                      let payout = 0;
-                      if (isWinHit && r.betAmountWin > 0 && dbEntry?.confirmedWinOdds) {
-                        payout += Math.floor(dbEntry.confirmedWinOdds * r.betAmountWin / 100) * 100;
-                      }
-                      if (isPlaceHit && r.betAmountPlace > 0 && dbEntry?.confirmedPlaceOddsMin) {
-                        payout += Math.floor(dbEntry.confirmedPlaceOddsMin * r.betAmountPlace / 100) * 100;
-                      }
                       return (
                         <>
                           <td className={`px-2 py-1.5 border text-center font-mono text-xs font-bold ${
                             fp === 0 ? 'text-gray-300' : isWinHit ? 'text-amber-600 bg-amber-50/60 dark:bg-amber-900/20' : isPlaceHit ? 'text-green-600 bg-green-50/40 dark:bg-green-900/10' : 'text-gray-400'}`}>
                             {fp > 0 ? `${fp}着` : '-'}
                           </td>
-                          <td className={`px-2 py-1.5 border text-center font-mono text-xs ${payout > 0 ? 'text-emerald-700 font-bold' : 'text-gray-300'}`}>
-                            {payout > 0 ? `¥${payout.toLocaleString()}` : fp > 0 ? '¥0' : '-'}
+                          <td className={`px-2 py-1.5 border text-center font-mono text-xs ${isWinHit && dbEntry?.confirmedWinOdds ? 'text-red-600 font-bold' : 'text-gray-300'}`}>
+                            {isWinHit && dbEntry?.confirmedWinOdds
+                              ? `¥${Math.round(dbEntry.confirmedWinOdds * 100).toLocaleString()}`
+                              : ''}
+                          </td>
+                          <td className={`px-2 py-1.5 border text-center font-mono text-xs ${isPlaceHit && dbEntry?.confirmedPlaceOddsMin ? 'text-blue-600 font-bold' : 'text-gray-300'}`}>
+                            {isPlaceHit && dbEntry?.confirmedPlaceOddsMin
+                              ? `¥${Math.round(dbEntry.confirmedPlaceOddsMin * 100).toLocaleString()}`
+                              : ''}
                           </td>
                         </>
                       );

@@ -5,10 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { PredictionRace, PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, DbResultsMap, SortState } from '../lib/types';
 import {
-  getWinOdds, getPlaceOddsMin, calcHeadRatio,
-  getGapColor, getGapBg, getEvColor, getMarkColor, getRecBadgeClass,
+  getGapColor, getGapBg, getEvColor, getRecBadgeClass, getWinOdds,
   getTrackBadgeClass, getTrackLabel, getFinishColor, getPlaceLimit,
-  getRaceLink, getKoukakuDetail, getRaceDanger, getCommentColor, getCommentTooltip, getArColor, SortTh,
+  getRaceLink, getRaceDanger, getCommentColor, getCommentTooltip, getArColor, getArdColor, SortTh,
 } from '../lib/helpers';
 import type { RaceResultsMap } from '@/lib/data/predictions-reader';
 
@@ -72,21 +71,15 @@ export function VBTable({
                 <th className="px-2 py-2 text-center border" title="芝/ダート">馬場</th>
                 <SortTh sortKey="umaban" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border">馬番</SortTh>
                 <th className="px-2 py-2 text-left border">馬名</th>
-                <th className="px-2 py-2 text-center border" title="購入プラン推奨の券種">推奨</th>
-                <th className="px-2 py-2 text-center border" title="競馬ブック本紙予想の印">本紙</th>
-                <th className="px-2 py-2 text-center border" title="TARGET 馬印1（自分の印）">My</th>
-                <SortTh sortKey="rank_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="独自ランク — 好走 独自モデルによるレース内順位">VR</SortTh>
-                <SortTh sortKey="odds_rank" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="オッズ順人気">人気</SortTh>
-                <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ（DB最新）">オッズ</SortTh>
-                <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-amber-50 dark:bg-amber-900/30" title="単勝EV = calibrated P(win) × 単勝オッズ。VB判定の主軸">単EV</SortTh>
-                <SortTh sortKey="margin" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/30" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
-                <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border text-gray-400" title="Gap（参考） — 人気順位 - VR">Gap*</SortTh>
-                <SortTh sortKey="win_gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border text-gray-400" title="Win Gap（参考）：Win順位と人気の乖離">W-Gap*</SortTh>
-                <SortTh sortKey="place_ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-blue-50 dark:bg-blue-900/30" title="複勝EV = calibrated P(top3) × 複勝オッズ">複EV</SortTh>
-                <SortTh sortKey="head_ratio" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="頭向き度 = P(win)/P(top3)">頭%</SortTh>
+                <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-amber-50 dark:bg-amber-900/30" title="単勝EV = calibrated P(win) × 単勝オッズ">EV</SortTh>
+                <SortTh sortKey="margin" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/30" title="AR (Aura Rating) — グレード補正済みの絶対能力指数">AR</SortTh>
+                <SortTh sortKey="ar_dev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50/50 dark:bg-teal-900/20" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
+                <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-amber-50/50 dark:bg-amber-900/20" title="Gap = 人気順位 - VR。参考指標">Gap</SortTh>
+                <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
                 <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="好走 独自モデルの3着内確率">V%</SortTh>
                 <th className="px-2 py-2 text-center border" title="勝利 独自モデルの勝率予測">WV%</th>
-                <th className="px-2 py-2 text-center border" title="競馬ブック調教評価の矢印">調教</th>
+                <SortTh sortKey="rating" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="BR (Book Rating) — 競馬ブックレイティング">BR</SortTh>
+                <th className="px-2 py-2 text-center border" title="競馬ブック調教評価の矢印">調</th>
                 <th className="px-2 py-2 text-center border" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
                 {hasResults && <SortTh sortKey="finish" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="確定着順">着順</SortTh>}
                 {hasResults && <th className="px-2 py-2 text-center border" title="単勝払い戻し">単払</th>}
@@ -95,17 +88,12 @@ export function VBTable({
             </thead>
             <tbody>
               {sortedVBEntries.map(({ race, entry }) => {
-                const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
-                const placeOddsMin = entry.place_odds_min ?? getPlaceOddsMin(oddsMap, race.race_id, entry.umaban);
                 const liveGap = getLiveGap(race.race_id, entry);
                 const ev = entry.win_ev ?? null;
-                const placeEv = entry.place_ev ?? null;
-                const headRatio = calcHeadRatio(entry.pred_proba_wv, entry.pred_proba_v);
                 const finishPos = getFinishPos(race.race_id, entry.umaban);
                 const placeLimit = getPlaceLimit(race.num_runners);
                 const isPlaceHit = finishPos > 0 && placeLimit > 0 && finishPos <= placeLimit;
                 const dbEntry = dbResults[race.race_id]?.[entry.umaban];
-                const winGap = entry.win_vb_gap;
                 const margin = entry.predicted_margin;
                 const rec = betRecMap.get(`${race.race_id}-${entry.umaban}`);
                 return (
@@ -121,8 +109,8 @@ export function VBTable({
                       <Link href={getRaceLink(race)} target="_blank" className="hover:text-blue-600 hover:underline">
                         {race.venue_name}
                       </Link>
-                      {(() => { const dg = getRaceDanger(race.entries, 5); return dg.isDanger ? (
-                        <span className="ml-0.5 text-[9px] text-orange-500" title={`危険: ${dg.dangerHorse?.horseName} (人気${dg.dangerHorse?.oddsRank}→V${dg.dangerHorse?.rankV})`}>!</span>
+                      {(() => { const dg = getRaceDanger(race.entries); return dg.isDanger ? (
+                        <span className="ml-0.5 text-[9px] text-orange-500" title={`危険: ${dg.dangerHorse?.horseName} (${dg.dangerHorse?.odds?.toFixed(1)}倍)`}>!</span>
                       ) : null; })()}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-bold">
@@ -138,54 +126,46 @@ export function VBTable({
                     <td className="px-2 py-1.5 border text-center font-mono">{entry.umaban}</td>
                     <td className="px-2 py-1.5 border font-bold">
                       {entry.horse_name}
-                      {(entry.koukaku_rote_count ?? 0) > 0 && (
-                        <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" title={getKoukakuDetail(entry)}>
-                          降格{(entry.koukaku_rote_count ?? 0) > 1 ? `×${entry.koukaku_rote_count}` : ''}
-                        </span>
-                      )}
+                      {(() => {
+                        // 購入プランに入っている場合はそのバッジを優先
+                        if (rec) {
+                          return (
+                            <span className={`ml-1 px-1 py-0.5 rounded text-[9px] ${getRecBadgeClass(rec.betType, rec.strength)}`}>
+                              {rec.betType}
+                            </span>
+                          );
+                        }
+                        // VB候補全体: 単勝/複勝適性バッジ
+                        const headRatio = entry.pred_proba_wv && entry.pred_proba_v > 0
+                          ? entry.pred_proba_wv / entry.pred_proba_v : 0;
+                        const winSuited = (ev ?? 0) >= 1.0 && headRatio >= 0.30;
+                        const placeSuited = (entry.place_ev ?? 0) >= 1.0;
+                        if (winSuited && placeSuited) {
+                          return <span className="ml-1 px-1 py-0.5 rounded text-[9px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" title={`頭%=${(headRatio*100).toFixed(0)}% 単EV=${ev?.toFixed(2)} 複EV=${entry.place_ev?.toFixed(2)}`}>単複向</span>;
+                        }
+                        if (winSuited) {
+                          return <span className="ml-1 px-1 py-0.5 rounded text-[9px] bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400" title={`頭%=${(headRatio*100).toFixed(0)}% 単EV=${ev?.toFixed(2)}`}>単勝向</span>;
+                        }
+                        if (placeSuited) {
+                          return <span className="ml-1 px-1 py-0.5 rounded text-[9px] bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400" title={`複EV=${entry.place_ev?.toFixed(2)}`}>複勝向</span>;
+                        }
+                        return null;
+                      })()}
                     </td>
-                    <td className="px-2 py-1.5 border text-center">
-                      {rec ? (
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${getRecBadgeClass(rec.betType, rec.strength)}`}>
-                          {rec.betType}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-gray-300">-</span>
-                      )}
-                    </td>
-                    <td className={`px-2 py-1.5 border text-center ${getMarkColor(entry.kb_mark)}`}>
-                      {entry.kb_mark || '-'}
-                    </td>
-                    {(() => {
-                      const myMark = targetMarks?.[race.race_id]?.[entry.umaban];
-                      return (
-                        <td className={`px-2 py-1.5 border text-center font-bold ${myMark ? 'text-purple-700 dark:text-purple-300' : 'text-gray-300'}`}>
-                          {myMark || '-'}
-                        </td>
-                      );
-                    })()}
-                    <td className="px-2 py-1.5 border text-center font-mono font-bold text-blue-600">{entry.rank_v}</td>
-                    <td className="px-2 py-1.5 border text-center font-mono">{entry.odds_rank || '-'}</td>
-                    <td className="px-2 py-1.5 border text-center font-mono font-bold">
-                      {winOdds ? winOdds.toFixed(1) : '-'}
-                    </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getEvColor(ev)}`}>
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-amber-50/30 dark:bg-amber-900/10 ${getEvColor(ev)}`}>
                       {ev !== null ? ev.toFixed(2) : '-'}
                     </td>
                     <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(margin)}`}>
                       {margin != null ? margin.toFixed(1) : '-'}
                     </td>
-                    <td className="px-2 py-1.5 border text-center font-mono text-gray-400 text-xs" title="Gap（参考）">
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-teal-50/20 dark:bg-teal-900/5 ${getArdColor(entry.ar_deviation)}`} title="AR偏差値">
+                      {entry.ar_deviation != null ? entry.ar_deviation.toFixed(0) : '-'}
+                    </td>
+                    <td className={`px-2 py-1.5 border text-center font-mono font-bold bg-amber-50/20 dark:bg-amber-900/5 ${getGapColor(liveGap)}`} title="Gap">
                       +{liveGap}
                     </td>
-                    <td className="px-2 py-1.5 border text-center font-mono text-gray-400 text-xs" title="Win Gap（参考）">
-                      {winGap != null && winGap !== 0 ? (winGap > 0 ? `+${winGap}` : `${winGap}`) : '-'}
-                    </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${placeEv !== null && placeEv >= 1.0 ? 'text-blue-600 font-bold' : placeEv !== null ? 'text-blue-400' : 'text-gray-300'} bg-blue-50/30 dark:bg-blue-900/10`}>
-                      {placeEv !== null ? placeEv.toFixed(2) : '-'}
-                    </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${headRatio !== null && headRatio >= 0.35 ? 'text-red-600 font-bold' : headRatio !== null ? '' : 'text-gray-300'}`}>
-                      {headRatio !== null ? `${(headRatio * 100).toFixed(0)}` : '-'}
+                    <td className="px-2 py-1.5 border text-center font-mono text-xs">
+                      {(() => { const wo = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds); return wo ? wo.toFixed(1) : '-'; })()}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono text-xs">
                       {(entry.pred_proba_v * 100).toFixed(1)}
@@ -193,6 +173,7 @@ export function VBTable({
                     <td className="px-2 py-1.5 border text-center font-mono text-xs text-emerald-600">
                       {entry.pred_proba_wv != null ? (entry.pred_proba_wv * 100).toFixed(1) : '-'}
                     </td>
+                    <td className="px-2 py-1.5 border text-center font-mono text-xs">{entry.kb_rating > 0 ? entry.kb_rating.toFixed(1) : '-'}</td>
                     <td className="px-2 py-1.5 border text-center">{entry.kb_training_arrow}</td>
                     <td className={`px-2 py-1.5 border text-center font-mono text-xs ${entry.comment_has_stable ? getCommentColor(entry.comment_stable_condition ?? 0) : 'text-gray-300'}`} title={getCommentTooltip(entry)}>
                       {entry.comment_has_stable ? (entry.comment_stable_condition ?? 0) > 0 ? `+${entry.comment_stable_condition}` : `${entry.comment_stable_condition ?? 0}` : '-'}

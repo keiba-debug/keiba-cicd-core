@@ -46,16 +46,15 @@ export interface DbResultsResponse {
 // raceId → umaban → DbResultEntry
 export type DbResultsMap = Record<string, Record<number, DbResultEntry>>;
 
-// --- 危険な人気馬 ---
+// --- 危険な人気馬 (odds<=8 & ARd<50 & V%<15%) ---
 
 export interface DangerInfo {
   isDanger: boolean;
-  dangerScore: number;
   dangerHorse?: {
     umaban: number;
     horseName: string;
     oddsRank: number;
-    rankV: number;
+    odds: number;
   };
 }
 
@@ -64,9 +63,10 @@ export interface DangerInfo {
 export interface DangerHorseEntry {
   race: PredictionRace;
   entry: PredictionEntry;
-  dangerScore: number;    // rank_v - odds_rank
-  oddsRank: number;       // 人気順 (1-3)
-  rankV: number;          // モデルV順位
+  oddsRank: number;       // 人気順
+  odds: number;           // 単勝オッズ
+  ard: number;            // AR偏差値
+  predV: number;          // V% (好走確率)
 }
 
 // --- 推奨買い目（サーバー推奨 + レース/馬コンテキスト表示用） ---

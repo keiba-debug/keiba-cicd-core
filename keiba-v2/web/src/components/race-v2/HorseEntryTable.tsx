@@ -58,6 +58,8 @@ export interface MlPredictionEntry {
   gap: number | null;
   is_value_bet: boolean;
   win_ev: number | null;
+  predicted_margin: number | null;  // AR
+  ar_deviation: number | null;      // ARd
 }
 
 /** DB odds レスポンス型 */
@@ -541,6 +543,23 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         </td>
       )}
 
+      {/* ARd (AR偏差値) */}
+      {mlPrediction !== undefined && (
+        <td className="px-1 py-1.5 text-center border font-mono text-xs"
+            title={mlPrediction.predicted_margin != null ? `AR: ${mlPrediction.predicted_margin.toFixed(1)}` : undefined}>
+          {mlPrediction.ar_deviation != null ? (
+            <span className={
+              mlPrediction.ar_deviation >= 60 ? 'text-green-600 font-bold' :
+              mlPrediction.ar_deviation >= 50 ? 'text-blue-600 font-bold' :
+              mlPrediction.ar_deviation >= 45 ? 'text-yellow-600' :
+              'text-gray-400'
+            }>
+              {mlPrediction.ar_deviation.toFixed(0)}
+            </span>
+          ) : <span className="text-gray-300">-</span>}
+        </td>
+      )}
+
       {/* 馬名 + TARGETコメント + 直近戦績ドット（連勝/連敗バッジは着順セルに表示） */}
       <td className="px-2 py-1.5 border min-w-[10rem]">
         <div className="flex flex-col gap-0.5">
@@ -786,11 +805,68 @@ export default function HorseEntryTable({
     return map;
   }, [dbOdds, hasDbOdds]);
 
-  // 馬番順にソート（useMemoでキャッシュ）
-  const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => a.horse_number - b.horse_number),
-    [entries]
-  );
+  // --- ソート機能 ---
+  type SortKey = 'horse_number' | 'odds' | 'ai_index' | 'rating' | 'ard' | 'finish';
+  const [sortKey, setSortKey] = useState<SortKey>('horse_number');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      // デフォルト方向: 馬番/着順は昇順、それ以外は降順（大きいほど良い）
+      setSortDir(key === 'horse_number' || key === 'finish' || key === 'odds' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortIndicator = (key: SortKey) =>
+    sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
+  const sortedEntries = useMemo(() => {
+    const mul = sortDir === 'asc' ? 1 : -1;
+    return [...entries].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'horse_number':
+          cmp = a.horse_number - b.horse_number;
+          break;
+        case 'odds': {
+          const oa = parseFloat(a.entry_data.odds) || 9999;
+          const ob = parseFloat(b.entry_data.odds) || 9999;
+          cmp = oa - ob;
+          break;
+        }
+        case 'ai_index': {
+          const aa = parseAiIndex(a.entry_data.ai_index);
+          const ab = parseAiIndex(b.entry_data.ai_index);
+          cmp = aa - ab;
+          break;
+        }
+        case 'rating': {
+          const ra = parseRating(a.entry_data.rating);
+          const rb = parseRating(b.entry_data.rating);
+          cmp = ra - rb;
+          break;
+        }
+        case 'ard': {
+          const da = mlPredictions?.[a.horse_number]?.ar_deviation ?? -999;
+          const db = mlPredictions?.[b.horse_number]?.ar_deviation ?? -999;
+          cmp = da - db;
+          break;
+        }
+        case 'finish': {
+          const fa = parseInt(a.result?.finish_position || '99', 10);
+          const fb = parseInt(b.result?.finish_position || '99', 10);
+          cmp = fa - fb;
+          break;
+        }
+      }
+      if (cmp !== 0) return cmp * mul;
+      // tiebreaker: 馬番昇順
+      return a.horse_number - b.horse_number;
+    });
+  }, [entries, sortKey, sortDir, mlPredictions]);
 
   // レイティング・AI指数の統計計算（useMemoでキャッシュ）
   // entries が変わらない限り再計算しない（O(n log n)の計算を節約）
@@ -852,29 +928,32 @@ export default function HorseEntryTable({
         <thead>
           <tr className="bg-gray-100 dark:bg-gray-800">
             <th className="px-2 py-2 text-center border w-10">枠</th>
-            <th className="px-2 py-2 text-center border w-10">馬番</th>
+            <th className="px-2 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('horse_number')}>馬番{sortIndicator('horse_number')}</th>
             <th className="px-1 py-2 text-center border w-8 text-xs">本紙</th>
             <th className="px-1 py-2 text-center border w-8 text-xs">My印</th>
             <th className="px-1 py-2 text-center border w-8 text-xs">My2</th>
             {hasMlPredictions && (
-              <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
+              <>
+                <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
+                <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ard')} title="AR偏差値 — レース内相対能力 (50=平均)">ARd{sortIndicator('ard')}</th>
+              </>
             )}
             <th className="px-2 py-2 text-left border min-w-32">馬名</th>
             <th className="px-2 py-2 text-center border w-16">性齢</th>
             <th className="px-2 py-2 text-left border min-w-20">騎手</th>
             <th className="px-2 py-2 text-center border w-12">斤量</th>
-            <th className="px-2 py-2 text-right border w-16">単勝</th>
+            <th className="px-2 py-2 text-right border w-16 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('odds')}>単勝{sortIndicator('odds')}</th>
             {hasDbOdds && (
               <th className="px-2 py-2 text-right border w-24">複勝</th>
             )}
-            <th className="px-2 py-2 text-center border w-16">AI指数</th>
-            <th className="px-2 py-2 text-center border w-12" title="BR (Book Rating) — 競馬ブックレイティング">BR</th>
+            <th className="px-2 py-2 text-center border w-16 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_index')}>AI指数{sortIndicator('ai_index')}</th>
+            <th className="px-2 py-2 text-center border w-12 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('rating')} title="BR (Book Rating) — 競馬ブックレイティング">BR{sortIndicator('rating')}</th>
             <th className="px-2 py-2 text-center border w-10">P</th>
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
             <th className="px-2 py-2 text-left border min-w-20" title="パドック評価・コメント">パ</th>
             {showResult && (
               <>
-                <th className="px-2 py-2 text-center border w-10">着</th>
+                <th className="px-2 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('finish')}>着{sortIndicator('finish')}</th>
                 <th className="px-1 py-2 text-center border w-14 whitespace-nowrap" title="タイム・上り3F">タイム/上り</th>
               </>
             )}

@@ -28,7 +28,7 @@ export function SummaryCards({ totalRaces, totalEntries, totalVB, betCount, betT
       <Card className="border-amber-200 dark:border-amber-800">
         <CardContent className="pt-4 pb-3 text-center">
           <div className="text-3xl font-bold text-amber-600">{totalVB}</div>
-          <div className="text-xs text-muted-foreground">VB候補 (gap&ge;3)</div>
+          <div className="text-xs text-muted-foreground">VB候補</div>
         </CardContent>
       </Card>
       <Card className="border-indigo-200 dark:border-indigo-800">

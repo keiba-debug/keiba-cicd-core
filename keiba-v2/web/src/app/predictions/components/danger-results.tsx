@@ -3,13 +3,11 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
-import type { DangerHorseEntry, OddsMap, DbResultsMap, SortState } from '../lib/types';
-import { getWinOdds, getFinishColor, getPlaceLimit, getTrackBadgeClass, getTrackLabel, getRaceLink, SortTh } from '../lib/helpers';
+import type { DangerHorseEntry, SortState } from '../lib/types';
+import { getFinishColor, getPlaceLimit, getTrackBadgeClass, getTrackLabel, getRaceLink, getArdColor, SortTh } from '../lib/helpers';
 
 interface DangerResultsProps {
   dangerHorses: DangerHorseEntry[];
-  oddsMap: OddsMap;
-  dbResults: DbResultsMap;
   getFinishPos: (raceId: string, umaban: number) => number;
 }
 
@@ -21,8 +19,8 @@ function getVerdict(finishPos: number, numRunners: number): Verdict {
   return finishPos <= placeLimit ? 'incorrect' : 'correct';
 }
 
-export function DangerResults({ dangerHorses, oddsMap, dbResults, getFinishPos }: DangerResultsProps) {
-  const [sort, setSort] = useState<SortState>({ key: 'race', dir: 'asc' });
+export function DangerResults({ dangerHorses, getFinishPos }: DangerResultsProps) {
+  const [sort, setSort] = useState<SortState>({ key: 'race_number', dir: 'asc' });
 
   // サマリー集計
   let correct = 0, incorrect = 0, pending = 0;
@@ -54,20 +52,15 @@ export function DangerResults({ dangerHorses, oddsMap, dbResults, getFinishPos }
         case 'odds_rank':
           cmp = a.oddsRank - b.oddsRank;
           break;
-        case 'rank_v':
-          cmp = a.rankV - b.rankV;
+        case 'ar_dev':
+          cmp = a.ard - b.ard;
           break;
-        case 'gap':
-          cmp = a.dangerScore - b.dangerScore;
+        case 'prob_v':
+          cmp = a.predV - b.predV;
           break;
-        case 'odds': {
-          const oddsA = dbResults[a.race.race_id]?.[a.entry.umaban]?.confirmedWinOdds
-            ?? getWinOdds(oddsMap, a.race.race_id, a.entry.umaban, a.entry.odds) ?? 999;
-          const oddsB = dbResults[b.race.race_id]?.[b.entry.umaban]?.confirmedWinOdds
-            ?? getWinOdds(oddsMap, b.race.race_id, b.entry.umaban, b.entry.odds) ?? 999;
-          cmp = oddsA - oddsB;
+        case 'odds':
+          cmp = a.odds - b.odds;
           break;
-        }
         case 'finish': {
           const fA = getFinishPos(a.race.race_id, a.entry.umaban) || 99;
           const fB = getFinishPos(b.race.race_id, b.entry.umaban) || 99;
@@ -85,7 +78,7 @@ export function DangerResults({ dangerHorses, oddsMap, dbResults, getFinishPos }
       return cmp * dir;
     });
     return arr;
-  }, [dangerHorses, sort, oddsMap, dbResults, getFinishPos]);
+  }, [dangerHorses, sort, getFinishPos]);
 
   if (dangerHorses.length === 0) return null;
 
@@ -132,9 +125,9 @@ export function DangerResults({ dangerHorses, oddsMap, dbResults, getFinishPos }
                   <SortTh sortKey="umaban" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">馬番</SortTh>
                   <th className="px-2 py-2 text-left border">馬名</th>
                   <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">人気</SortTh>
-                  <SortTh sortKey="rank_v" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">VR</SortTh>
-                  <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">Gap</SortTh>
-                  <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">オッズ</SortTh>
+                  <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-2 text-center border bg-amber-50/50 dark:bg-amber-900/20" title="単勝オッズ (≤8.0)">オッズ</SortTh>
+                  <SortTh sortKey="ar_dev" sort={sort} setSort={setSort} className="px-2 py-2 text-center border bg-teal-50/50 dark:bg-teal-900/20" title="AR偏差値 (<50)">ARd</SortTh>
+                  <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-2 text-center border bg-red-50/50 dark:bg-red-900/20" title="好走確率 V% (<15%)">V%</SortTh>
                   <SortTh sortKey="finish" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">着順</SortTh>
                   <SortTh sortKey="verdict" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">判定</SortTh>
                 </tr>
@@ -143,8 +136,6 @@ export function DangerResults({ dangerHorses, oddsMap, dbResults, getFinishPos }
                 {sorted.map((dh) => {
                   const finishPos = getFinishPos(dh.race.race_id, dh.entry.umaban);
                   const verdict = getVerdict(finishPos, dh.race.num_runners);
-                  const winOdds = getWinOdds(oddsMap, dh.race.race_id, dh.entry.umaban, dh.entry.odds);
-                  const dbEntry = dbResults[dh.race.race_id]?.[dh.entry.umaban];
 
                   return (
                     <tr
@@ -170,11 +161,13 @@ export function DangerResults({ dangerHorses, oddsMap, dbResults, getFinishPos }
                       </td>
                       <td className="px-2 py-1.5 border text-center font-mono">{dh.entry.umaban}</td>
                       <td className="px-2 py-1.5 border font-bold text-xs">{dh.entry.horse_name}</td>
-                      <td className="px-2 py-1.5 border text-center font-mono text-orange-600 font-bold">{dh.oddsRank}</td>
-                      <td className="px-2 py-1.5 border text-center font-mono text-blue-600">{dh.rankV}</td>
-                      <td className="px-2 py-1.5 border text-center font-mono text-red-600 font-bold">-{dh.dangerScore}</td>
-                      <td className="px-2 py-1.5 border text-center font-mono text-xs">
-                        {dbEntry ? dbEntry.confirmedWinOdds.toFixed(1) : winOdds ? winOdds.toFixed(1) : '-'}
+                      <td className="px-2 py-1.5 border text-center font-mono text-orange-600 font-bold">{dh.oddsRank > 0 ? dh.oddsRank : '-'}</td>
+                      <td className="px-2 py-1.5 border text-center font-mono text-xs font-bold">{dh.odds.toFixed(1)}</td>
+                      <td className={`px-2 py-1.5 border text-center font-mono text-xs ${getArdColor(dh.ard)}`}>
+                        {dh.ard.toFixed(0)}
+                      </td>
+                      <td className="px-2 py-1.5 border text-center font-mono text-xs text-red-500 font-bold">
+                        {(dh.predV * 100).toFixed(1)}
                       </td>
                       <td className={`px-2 py-1.5 border text-center font-mono font-bold ${finishPos > 0 ? getFinishColor(finishPos) : 'text-gray-300'}`}>
                         {finishPos > 0 ? finishPos : '-'}

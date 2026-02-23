@@ -40,6 +40,26 @@ export function getArColor(rating: number | null | undefined): string {
 /** @deprecated Use getArColor instead */
 export const getRatingColor = getArColor;
 
+/** ARd (AR偏差値) の色クラス */
+export function getArdColor(ard: number | null | undefined): string {
+  if (ard == null) return 'text-gray-400';
+  if (ard >= 60) return 'text-green-600 font-bold';
+  if (ard >= 50) return 'text-blue-600 font-bold';
+  if (ard >= 45) return 'text-yellow-600';
+  return 'text-gray-400';
+}
+
+/** グレードバッジの色クラス */
+export function getGradeBadgeClass(grade: string | undefined): string {
+  if (!grade) return 'border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-400';
+  if (grade === 'G1' || grade === 'GI') return 'bg-amber-100 text-amber-800 border-amber-400 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700 font-bold';
+  if (/^G[23]$|^G[II]{2,3}$/.test(grade)) return 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-700';
+  if (grade === 'L' || grade === '(L)' || grade === 'Listed') return 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700';
+  if (grade === 'OP' || grade === 'オープン' || grade === 'OPEN') return 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700';
+  // 条件戦 (3勝, 2勝, 1勝, 未勝利, 新馬)
+  return 'border-gray-300 text-gray-500 dark:border-gray-600 dark:text-gray-400';
+}
+
 // --- 色・スタイル ---
 
 export function getGapColor(gap: number): string {
@@ -92,12 +112,14 @@ export function getFinishBg(pos: number): string {
 export function getTrackBadgeClass(trackType: string): string {
   if (trackType === '芝' || trackType === 'turf') return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300';
   if (trackType === 'ダ' || trackType === 'dirt') return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300';
+  if (trackType === '障' || trackType === 'obstacle') return 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300';
   return 'bg-gray-100 text-gray-600';
 }
 
 export function getTrackLabel(trackType: string): string {
   if (trackType === '芝' || trackType === 'turf') return '芝';
   if (trackType === 'ダ' || trackType === 'dirt') return 'ダ';
+  if (trackType === '障' || trackType === 'obstacle') return '障';
   return '?';
 }
 
@@ -204,29 +226,28 @@ export function getKoukakuDetail(entry: PredictionEntry): string {
 
 // --- 危険な人気馬 ---
 
-export function getRaceDanger(entries: PredictionEntry[], dangerThreshold: number): DangerInfo {
-  let maxDanger = 0;
+/** 危険馬検出: odds<=8 & ARd<50 & V%<15% */
+export function getRaceDanger(entries: PredictionEntry[]): DangerInfo {
   let dangerHorse: DangerInfo['dangerHorse'] = undefined;
 
   for (const e of entries) {
-    if (e.odds_rank > 0 && e.odds_rank <= 3) {
-      const dg = e.rank_v - e.odds_rank;
-      if (dg > maxDanger) {
-        maxDanger = dg;
-        dangerHorse = {
-          umaban: e.umaban,
-          horseName: e.horse_name,
-          oddsRank: e.odds_rank,
-          rankV: e.rank_v,
-        };
-      }
+    const odds = e.odds || 0;
+    const ard = e.ar_deviation ?? 999;
+    const predV = e.pred_proba_v ?? 0;
+    if (odds > 0 && odds <= 8.0 && ard < 50 && predV < 0.15) {
+      dangerHorse = {
+        umaban: e.umaban,
+        horseName: e.horse_name,
+        oddsRank: e.odds_rank,
+        odds,
+      };
+      break; // 1頭見つかればOK
     }
   }
 
   return {
-    isDanger: maxDanger >= dangerThreshold,
-    dangerScore: maxDanger,
-    dangerHorse: maxDanger >= dangerThreshold ? dangerHorse : undefined,
+    isDanger: !!dangerHorse,
+    dangerHorse,
   };
 }
 

@@ -823,7 +823,7 @@ def train_model(
         'test_size': len(X_test),
     }
 
-    return model, metrics, importance, y_pred_cal, calibrator
+    return model, metrics, importance, y_pred_cal, calibrator, y_pred_raw
 
 
 def calc_hit_analysis(df: pd.DataFrame, pred_col: str) -> List[dict]:
@@ -1602,23 +1602,23 @@ def main():
 
     # === Place モデル (is_top3) ===
     # Model A: 全特徴量
-    model_a, metrics_a, importance_a, pred_a, cal_a = train_model(
+    model_a, metrics_a, importance_a, pred_a, cal_a, pred_a_raw = train_model(
         df_train, df_val, df_test, feature_cols_all, PARAMS_A, 'is_top3', 'Model_A'
     )
 
     # Model B: Value特徴量（市場系除外）
-    model_b, metrics_b, importance_b, pred_b, cal_b = train_model(
+    model_b, metrics_b, importance_b, pred_b, cal_b, pred_b_raw = train_model(
         df_train, df_val, df_test, feature_cols_value, PARAMS_B, 'is_top3', 'Model_B'
     )
 
     # === Win モデル (is_win) ===
     # Model W: 全特徴量
-    model_w, metrics_w, importance_w, pred_w, cal_w = train_model(
+    model_w, metrics_w, importance_w, pred_w, cal_w, pred_w_raw = train_model(
         df_train, df_val, df_test, feature_cols_all, PARAMS_W, 'is_win', 'Model_W'
     )
 
     # Model WV: Value特徴量（市場系除外）
-    model_wv, metrics_wv, importance_wv, pred_wv, cal_wv = train_model(
+    model_wv, metrics_wv, importance_wv, pred_wv, cal_wv, pred_wv_raw = train_model(
         df_train, df_val, df_test, feature_cols_value, PARAMS_WV, 'is_win', 'Model_WV'
     )
 
@@ -1654,9 +1654,48 @@ def main():
     df_test['pred_margin_b'] = pred_reg_b
 
     # EV (calibrated) — EV分析・bet_engine両方で使用
-    pred_wv_cal = cal_wv.predict(pred_wv) if cal_wv is not None else pred_wv
-    pred_b_cal = cal_b.predict(pred_b) if cal_b is not None else pred_b
+    # NOTE: pred_wv/pred_b は train_model() 内で既にIsotonic calibration済み
+    # 以前ここで二重にcalibrationをかけていた（3倍過小予測の原因）
+    pred_wv_cal = pred_wv  # already calibrated by train_model()
+    pred_b_cal = pred_b    # already calibrated by train_model()
     df_test['win_ev'] = pred_wv_cal * df_test['odds']
+
+    # --- キャリブレーション診断: 確率帯別の予測vs実際 ---
+    print("\n[Calibration] WV model (win) -probability bin analysis (calibrated):")
+    print(f"  {'Bin':>12} {'Pred':>8} {'Actual':>8} {'Ratio':>7} {'N':>7}")
+    print(f"  {'-'*48}")
+    y_test_win = df_test['is_win'].values
+    bin_edges_diag = [0, 0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50, 1.0]
+    for i in range(len(bin_edges_diag) - 1):
+        lo, hi = bin_edges_diag[i], bin_edges_diag[i + 1]
+        mask = (pred_wv_cal >= lo) & (pred_wv_cal < hi)
+        if mask.sum() == 0:
+            continue
+        pred_mean = pred_wv_cal[mask].mean()
+        actual_mean = y_test_win[mask].mean()
+        ratio = actual_mean / pred_mean if pred_mean > 0 else float('inf')
+        print(f"  {lo:.0%}-{hi:.0%}  {pred_mean:>8.4f} {actual_mean:>8.4f} {ratio:>6.2f}x {mask.sum():>7,}")
+
+    print(f"\n[Calibration] B model (place/top3) -probability bin analysis (calibrated):")
+    print(f"  {'Bin':>12} {'Pred':>8} {'Actual':>8} {'Ratio':>7} {'N':>7}")
+    print(f"  {'-'*48}")
+    y_test_top3 = df_test['is_top3'].values
+    bin_edges_place = [0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.70, 1.0]
+    for i in range(len(bin_edges_place) - 1):
+        lo, hi = bin_edges_place[i], bin_edges_place[i + 1]
+        mask = (pred_b_cal >= lo) & (pred_b_cal < hi)
+        if mask.sum() == 0:
+            continue
+        pred_mean = pred_b_cal[mask].mean()
+        actual_mean = y_test_top3[mask].mean()
+        ratio = actual_mean / pred_mean if pred_mean > 0 else float('inf')
+        print(f"  {lo:.0%}-{hi:.0%}  {pred_mean:>8.4f} {actual_mean:>8.4f} {ratio:>6.2f}x {mask.sum():>7,}")
+
+    # Raw vs Calibrated comparison
+    print(f"\n[Calibration] Raw vs Calibrated summary (WV model):")
+    print(f"  Raw    mean={pred_wv_raw.mean():.6f}, min={pred_wv_raw.min():.6f}, max={pred_wv_raw.max():.6f}")
+    print(f"  Cal    mean={pred_wv_cal.mean():.6f}, min={pred_wv_cal.min():.6f}, max={pred_wv_cal.max():.6f}")
+    print(f"  Actual win_rate={y_test_win.mean():.6f}")
 
     # 分析
     print("\n[Analysis] Hit rate analysis...")
@@ -1715,7 +1754,8 @@ def main():
         from dataclasses import asdict as _asdict
 
         # df_test にbet_engine用の追加列を計算
-        df_test['pred_proba_v_raw'] = pred_b
+        # pred_b_raw: LightGBM生出力（Kelly計算用。sum≈3.0でP(top3)として正しい）
+        df_test['pred_proba_v_raw'] = pred_b_raw
         df_test['vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_v']).clip(lower=0).astype(int)
         df_test['win_vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_wv']).clip(lower=0).astype(int)
 
@@ -1723,7 +1763,13 @@ def main():
         place_odds_col = df_test['place_odds_low'].fillna(df_test['odds'] / 3.5)
         df_test['place_ev'] = pred_b_cal * place_odds_col
 
-        bet_race_preds = bet_df_to_recs(df_test)
+        # grade offsets for Method A (AR absolute rating)
+        from ml.bet_engine import load_grade_offsets as _load_grade_offsets
+        _grade_offsets = _load_grade_offsets()
+        if _grade_offsets:
+            print(f"  Grade offsets: {len(_grade_offsets)} grades loaded")
+
+        bet_race_preds = bet_df_to_recs(df_test, grade_offsets=_grade_offsets)
 
         # entry lookup for ROI calc
         entry_lookup = {}

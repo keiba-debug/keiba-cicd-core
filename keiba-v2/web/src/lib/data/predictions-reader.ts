@@ -108,7 +108,7 @@ export interface ServerBetPreset {
     win_min_gap: number;
     win_min_rating: number;
     win_min_ar_deviation?: number;
-    win_max_rank_wv?: number;
+    win_max_rank?: number;
     place_min_gap: number;
     place_min_rating: number;
     place_min_ar_deviation?: number;

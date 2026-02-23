@@ -13,7 +13,10 @@ export default async function PredictionsPage({
   const params = await searchParams;
   const dates = getAvailablePredictionDates();
   const targetDate = params.date || null;
-  let data = targetDate ? getPredictionsByDate(targetDate) : getPredictionsLive();
+  // デフォルト: 最新アーカイブ日付を使用（predictions_live.jsonは最後に実行した日付で上書きされるため）
+  let data = targetDate
+    ? getPredictionsByDate(targetDate)
+    : (dates.length > 0 ? getPredictionsByDate(dates[0]) : null) ?? getPredictionsLive();
 
   if (!data) {
     return (

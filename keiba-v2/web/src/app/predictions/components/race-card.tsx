@@ -9,7 +9,7 @@ import type { OddsMap, DbResultsMap, SortState } from '../lib/types';
 import {
   getWinOdds, calcWinEv, getGapColor, getGapBg, getEvColor, getMarkColor,
   getTrackBadgeClass, getFinishColor, getPlaceLimit,
-  getRaceLink, getCommentColor, getCommentTooltip, getArColor, SortTh,
+  getRaceLink, getCommentColor, getCommentTooltip, getArColor, getArdColor, getGradeBadgeClass, SortTh,
 } from '../lib/helpers';
 
 interface RaceCardProps {
@@ -66,6 +66,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
         }
         case 'gap': va = getLiveGap(a); vb = getLiveGap(b); break;
         case 'margin': va = a.predicted_margin ?? 99; vb = b.predicted_margin ?? 99; break;
+        case 'ar_dev': va = a.ar_deviation ?? -99; vb = b.ar_deviation ?? -99; break;
         case 'ev': {
           va = calcWinEv(a, getWinOdds(oddsMap, race.race_id, a.umaban, a.odds)) ?? -1;
           vb = calcWinEv(b, getWinOdds(oddsMap, race.race_id, b.umaban, b.odds)) ?? -1;
@@ -105,7 +106,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
               {race.track_type}{race.distance}m
             </Badge>
             {race.grade && (
-              <Badge variant="outline" className="text-[10px] border-gray-300 text-gray-600 dark:text-gray-300">
+              <Badge variant="outline" className={`text-[10px] ${getGradeBadgeClass(race.grade)}`}>
                 {race.grade}{race.age_class ? ` ${race.age_class}` : ''}
               </Badge>
             )}
@@ -140,9 +141,10 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                 <SortTh sortKey="rank_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走 独自モデルの順位">V順</SortTh>
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
-                <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-amber-50/50 dark:bg-amber-900/20" title="単勝EV = calibrated P(win) × 単勝オッズ。VB判定の主軸">単EV</SortTh>
+                <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-amber-50/50 dark:bg-amber-900/20 font-bold" title="Gap（主軸） = 人気順位 - VR。VB判定の主フィルター">Gap</SortTh>
+                <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝EV = calibrated P(win) × 単勝オッズ">EV</SortTh>
                 <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
-                <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 text-gray-400" title="Gap（参考） — 人気順位 - VR">Gap*</SortTh>
+                <SortTh sortKey="ar_dev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-teal-50/30 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
                 <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 市場モデルの3着内確率（%）">A%</SortTh>
                 <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 独自モデルの3着内確率（%）">V%</SortTh>
                 <SortTh sortKey="prob_wv" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利 独自モデルの勝率予測（%）">WV%</SortTh>
@@ -199,20 +201,23 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                     <td className="px-2 py-1 text-center font-mono text-xs font-bold">
                       {winOdds ? winOdds.toFixed(1) : '-'}
                     </td>
-                    <td className={`px-2 py-1 text-center font-mono text-xs font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getEvColor(ev)}`}>
+                    {(() => {
+                      const liveGap = getLiveGap(entry);
+                      return (
+                        <td className={`px-2 py-1 text-center font-mono text-xs font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getGapColor(liveGap)}`} title="Gap（主軸）">
+                          {liveGap > 0 ? `+${liveGap}` : liveGap === 0 ? '0' : liveGap}
+                        </td>
+                      );
+                    })()}
+                    <td className={`px-2 py-1 text-center font-mono text-xs ${getEvColor(ev)}`}>
                       {ev !== null ? ev.toFixed(2) : '-'}
                     </td>
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(entry.predicted_margin)}`}>
                       {entry.predicted_margin != null ? entry.predicted_margin.toFixed(1) : '-'}
                     </td>
-                    {(() => {
-                      const liveGap = getLiveGap(entry);
-                      return (
-                        <td className="px-2 py-1 text-center font-mono text-xs text-gray-400" title="Gap（参考）">
-                          {liveGap > 0 ? `+${liveGap}` : liveGap === 0 ? '0' : liveGap}
-                        </td>
-                      );
-                    })()}
+                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/20 dark:bg-teal-900/5 ${getArdColor(entry.ar_deviation)}`} title="AR偏差値">
+                      {entry.ar_deviation != null ? entry.ar_deviation.toFixed(0) : '-'}
+                    </td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_a * 100).toFixed(1)}</td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_v * 100).toFixed(1)}</td>
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-emerald-50/30 dark:bg-emerald-900/10 ${entry.rank_wv != null && entry.rank_wv <= 3 ? 'font-bold text-emerald-600' : ''}`}>

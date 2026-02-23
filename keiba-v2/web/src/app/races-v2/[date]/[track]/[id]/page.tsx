@@ -144,7 +144,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
     getTrainingSummaryMap(date),
     getRatingStandards(),
     loadTrainerPatterns(),
-    getMlPredictions(id, raceId16),
+    getMlPredictions(id, raceId16, date),
   ]);
 
   // v4(data3)優先 → data2でエンリッチ → data2フォールバック

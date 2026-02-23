@@ -61,7 +61,7 @@ function RegressionCard({ model }: { model: RegressionModelResult }) {
     <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
       <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">
         AR (Aura Rating)
-        <span className="ml-2 text-xs font-normal text-gray-400">能力予測 / 市場系除外</span>
+        <span className="ml-2 text-xs font-normal text-gray-400">能力予測 / 市場系除外 → AR, ARd, 複EV</span>
       </h3>
       <div className="grid grid-cols-3 gap-2">
         <MetricCard label="MAE (秒)" value={m.mae.toFixed(4)} highlight color="green" />
@@ -89,8 +89,8 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
       <div>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">好走モデル (3着内)</h2>
         <div className="grid grid-cols-2 gap-4">
-          <ModelCard title="好走 市場" model={data.models.accuracy} color="blue" targetLabel="全特徴量" />
-          <ModelCard title="好走 独自" model={data.models.value} color="blue" targetLabel="市場系除外" />
+          <ModelCard title="好走 市場" model={data.models.accuracy} color="blue" targetLabel="全特徴量 — VB未使用" />
+          <ModelCard title="好走 独自" model={data.models.value} color="blue" targetLabel="市場系除外 → V%, Gap, 頭%" />
         </div>
       </div>
 
@@ -99,8 +99,8 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
         <div>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">勝利モデル (1着)</h2>
           <div className="grid grid-cols-2 gap-4">
-            <ModelCard title="勝利 市場" model={data.models.win_accuracy!} color="emerald" targetLabel="全特徴量" />
-            <ModelCard title="勝利 独自" model={data.models.win_value!} color="emerald" targetLabel="市場系除外" />
+            <ModelCard title="勝利 市場" model={data.models.win_accuracy!} color="emerald" targetLabel="全特徴量 — VB未使用" />
+            <ModelCard title="勝利 独自" model={data.models.win_value!} color="emerald" targetLabel="市場系除外 → WV%, EV, 頭%" />
           </div>
         </div>
       )}

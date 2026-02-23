@@ -39,7 +39,7 @@ export default function MlAnalysisPage() {
         <div>
           <h1 className="text-2xl font-bold">ML Report</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {data.description ?? data.experiment} — {data.model ?? 'LightGBM'} ({data.experiment})
+            実験 v{data.version} — {data.model ?? 'LightGBM'} ({data.split?.train ?? ''} → {data.split?.test ?? ''})
           </p>
         </div>
         <VersionSelector value={selectedVersion} onChange={setSelectedVersion} />
@@ -50,10 +50,11 @@ export default function MlAnalysisPage() {
         <div><span className="font-semibold text-blue-700 dark:text-blue-400">好走 独自</span> — 市場系除外{data.models.value.features.length}特徴量で<strong>3着内</strong>を予測（独自能力評価）</div>
         {data.models.win_accuracy && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">勝利 市場</span> — 全{data.models.win_accuracy.features.length}特徴量で<strong>1着</strong>を予測（オッズ・人気含む）</div>}
         {data.models.win_value && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">勝利 独自</span> — 市場系除外{data.models.win_value.features.length}特徴量で<strong>1着</strong>を予測（独自能力評価）</div>}
-        {data.models.regression_value && <div><span className="font-semibold text-amber-700 dark:text-amber-400">チャクラ</span> — 能力予測モデル。勝ち馬とのタイム差を予測（市場系除外）</div>}
+        {data.models.regression_value && <div><span className="font-semibold text-amber-700 dark:text-amber-400">AR (Aura Rating)</span> — 能力予測モデル。勝ち馬とのタイム差を予測（市場系除外）</div>}
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">VR</span> — 好走 独自モデルによるレース内の順位（1=最も能力が高い）</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - VR。大きいほど市場が過小評価している馬</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — VR≤3 かつ Gap≥3 の馬。独自モデル上位評価だが人気薄</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - VR。大きいほど市場が過小評価している馬（VB判定の主軸）</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">EV</span> — 期待値 = calibrated P(win) × 単勝オッズ。1.0超えで期待値プラス（Gapの補助フィルター）</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — VR≤3 かつ Gap≥5 + EV条件。独自モデル上位評価だが人気薄</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">AUC</span> — モデルの判別力（0.5=ランダム、1.0=完全予測）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">ROI</span> — 回収率。100%超えで利益が出る戦略</div>
       </div>

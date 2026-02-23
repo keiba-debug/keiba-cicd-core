@@ -86,12 +86,13 @@ def get_grade_key(grade: str, age_class: str) -> str:
 @dataclass
 class BetStrategyParams:
     """戦略パラメータ"""
-    # --- Win (EV-based, primary) ---
-    win_min_ev: float = 0.0           # Win EV threshold (0=disabled, 1.2=20% premium)
-    win_min_gap: int = 4              # Legacy gap filter (used when win_min_ev=0)
+    # --- Win (Gap primary + EV secondary) ---
+    # Gap = odds_rank - rank_v (Place model基準。Win modelよりPlace modelのGapが高ROI)
+    win_min_gap: int = 5              # Place-model gap filter (primary)
+    win_min_ev: float = 0.0           # Win EV supplementary filter (0=disabled)
     win_min_rating: float = 0.0       # AR絶対閾値 (0=無効、レガシー互換)
     win_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効, 45=推奨)
-    win_max_rank_wv: int = 3          # WVモデル順位のpre-filter (top N のみ)
+    win_max_rank: int = 3             # rank_v (Place model) pre-filter
 
     # --- Place (EV + Kelly) ---
     place_min_gap: int = 3
@@ -111,23 +112,32 @@ class BetStrategyParams:
 
 
 # --- プリセット ---
-# EV (期待値) ベース: EV = calibrated_pred_proba_wv × odds
+# Gap主軸 + EV補助: Place model (rank_v) のGapが最も収益性が高い
+# v5.19のEV主軸はダブルキャリブレーションバグのアーティファクトだった
 # AR偏差値足切り: レース内相対評価で格下を除外
 # Place ROI<100%のためWin-only推奨
 #
-# バックテスト結果 (test 2025-2026):
-#   standard (EV>=1.2 dev>=47): 300件, ROI 161.9%, P&L +18,560
-#   wide     (EV>=1.1 dev>=45): 373件, ROI 132.1%, P&L +11,980
-# NOTE: EV>=1.3はEV1.3-1.5帯のROI=22%で非単調。1.2が最適閾値。
+# バックテスト結果 (test 2024-2026, v5.6 calibration fix):
+#   standard (gap>=5 EV>=1.5 dev>=50): ~445件, ROI ~116.5%
+#   wide     (gap>=5 dev>=50):         ~2,374件, ROI ~100.0%
+#   aggressive (gap>=5 EV>=1.8):       ~388件, ROI ~124.6%
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
-        win_min_ev=1.2,             # 20%プレミアム（1.3は非単調で損失）
-        win_min_ar_deviation=47.0,  # レース内偏差値足切り
+        win_min_gap=5,              # Place-model gap >= 5 (primary)
+        win_min_ev=1.5,             # EV >= 1.5 supplementary filter
+        win_min_ar_deviation=50.0,  # AR偏差値足切り（レース平均以上）
         place_min_gap=99,           # Place無効化
     ),
     'wide': BetStrategyParams(
-        win_min_ev=1.1,             # 10%プレミアム
-        win_min_ar_deviation=45.0,  # レース内偏差値足切り
+        win_min_gap=5,              # Place-model gap >= 5
+        win_min_ev=0.0,             # EV filter disabled (gap only)
+        win_min_ar_deviation=50.0,  # AR偏差値足切り（レース平均以上）
+        place_min_gap=99,           # Place無効化
+    ),
+    'aggressive': BetStrategyParams(
+        win_min_gap=5,              # Place-model gap >= 5
+        win_min_ev=1.8,             # EV >= 1.8 supplementary filter
+        win_min_ar_deviation=50.0,  # AR偏差値足切り（レース平均以上）
         place_min_gap=99,           # Place無効化
     ),
 }
@@ -169,37 +179,22 @@ def evaluate_win(
     ar_deviation: Optional[float] = None,
     win_ev: Optional[float] = None,
 ) -> Tuple[bool, int]:
-    """単勝評価
+    """単勝評価 (Gap primary + EV secondary)
 
-    EV mode (win_min_ev > 0): EV >= threshold + AR偏差値足切り
-    Legacy gap mode: gap >= threshold + AR偏差値足切り
+    Step 1: AR偏差値足切り
+    Step 2: Gap >= threshold (Place model基準)
+    Step 3: EV >= threshold (supplementary, 0=disabled)
 
     Returns:
         (should_bet, units) — units はベット倍率
         1 unit = params.bet_unit (100円)
     """
-    # AR偏差値足切り (both modes, 0=無効)
+    # AR偏差値足切り (0=無効)
     if params.win_min_ar_deviation > 0 and ar_deviation is not None:
         if ar_deviation < params.win_min_ar_deviation:
             return False, 0
 
-    # === EV mode ===
-    if params.win_min_ev > 0:
-        if win_ev is None or win_ev < params.win_min_ev:
-            return False, 0
-
-        # ベット倍率: EV premium に比例
-        ev_premium = win_ev - params.win_min_ev
-        if ev_premium >= 0.5:
-            units = 3
-        elif ev_premium >= 0.2:
-            units = 2
-        else:
-            units = 1
-
-        return True, units
-
-    # === Legacy gap mode ===
+    # === Gap filter (primary) ===
     min_gap = params.win_min_gap
     if is_danger:
         min_gap += params.danger_gap_boost
@@ -210,6 +205,11 @@ def evaluate_win(
     # AR絶対閾値 (後方互換、0=無効)
     if params.win_min_rating > 0 and rating is not None:
         if rating < params.win_min_rating:
+            return False, 0
+
+    # === EV filter (secondary, 0=disabled) ===
+    if params.win_min_ev > 0:
+        if win_ev is None or win_ev < params.win_min_ev:
             return False, 0
 
     # ベット倍率: gap が大きいほど厚く
@@ -294,22 +294,30 @@ def calc_kelly_fraction(prob: float, odds: float) -> float:
 
 def detect_danger(
     entries: List[dict],
-    threshold: float = 5.0,
-) -> Dict[int, float]:
-    """危険馬検出: comment_memo_trouble_score ベース
+    max_odds: float = 8.0,
+    max_ard: float = 50.0,
+    max_pred_v: float = 0.15,
+) -> Dict[int, bool]:
+    """危険馬検出: odds <= max_odds & ARd < max_ard & V% < max_pred_v
+
+    バックテスト実績: 勝率 8.7%, 複勝率 27.9% (ベースライン 21.0%, 51.4%)
 
     Args:
         entries: predict_race() の出力 entries リスト
-        threshold: この値以上で danger 判定
+        max_odds: オッズ上限 (この値以下が対象)
+        max_ard: AR偏差値上限 (この値未満が対象)
+        max_pred_v: V%上限 (この値未満が対象, calibrated)
 
     Returns:
-        {umaban: danger_score} — threshold 以上の馬のみ
+        {umaban: True} — 危険馬と判定された馬のみ
     """
     danger = {}
     for e in entries:
-        score = e.get('comment_memo_trouble_score', 0) or 0
-        if score >= threshold:
-            danger[e['umaban']] = score
+        odds = e.get('odds', 0) or 0
+        ard = e.get('ar_deviation') or 0
+        pred_v = e.get('pred_proba_v', 0) or 0
+        if 0 < odds <= max_odds and ard < max_ard and pred_v < max_pred_v:
+            danger[e['umaban']] = True
     return danger
 
 
@@ -348,8 +356,8 @@ def generate_recommendations(
         if not entries:
             continue
 
-        # 危険馬検出
-        danger_map = detect_danger(entries, params.danger_threshold)
+        # 危険馬検出 (odds<=8 & ARd<50 & V%<15%)
+        danger_map = detect_danger(entries)
 
         race_recs: List[BetRecommendation] = []
 
@@ -370,15 +378,17 @@ def generate_recommendations(
             place_ev = e.get('place_ev')
 
             is_danger = umaban in danger_map
-            danger_score = danger_map.get(umaban, 0.0)
+            danger_score = 1.0 if is_danger else 0.0
 
             # --- 単勝評価 ---
-            # Pre-filter: WVモデルのtop N のみ (win_max_rank_wv, default=3)
-            if rank_wv > params.win_max_rank_wv:
+            # Pre-filter: rank_v (Place model) top N のみ
+            # Place modelのGapがWin modelのGapより高ROI (v5.6検証済み)
+            if rank_v > params.win_max_rank:
                 win_ok, win_units = False, 0
             else:
+                # Gap = vb_gap (Place model基準: odds_rank - rank_v)
                 win_ok, win_units = evaluate_win(
-                    win_gap, margin, params, is_danger,
+                    gap, margin, params, is_danger,
                     ar_deviation=ar_dev, win_ev=win_ev,
                 )
 
@@ -394,20 +404,14 @@ def generate_recommendations(
             if not win_ok and not place_ok:
                 continue
 
-            # bet_type 決定
+            # bet_type 決定 (Gap基準でstrength判定)
             if win_ok and place_ok:
                 bet_type = '単複'
-                if params.win_min_ev > 0:
-                    strength = 'strong' if (win_ev is not None and win_ev >= params.win_min_ev + 0.3) else 'normal'
-                else:
-                    strength = 'strong' if (win_gap >= params.win_min_gap + 2 or
-                                            gap >= params.place_min_gap + 2) else 'normal'
+                strength = 'strong' if (gap >= params.win_min_gap + 2 or
+                                        gap >= params.place_min_gap + 2) else 'normal'
             elif win_ok:
                 bet_type = '単勝'
-                if params.win_min_ev > 0:
-                    strength = 'strong' if (win_ev is not None and win_ev >= params.win_min_ev + 0.3) else 'normal'
-                else:
-                    strength = 'strong' if win_gap >= params.win_min_gap + 2 else 'normal'
+                strength = 'strong' if gap >= params.win_min_gap + 2 else 'normal'
             else:
                 bet_type = '複勝'
                 strength = 'strong' if gap >= params.place_min_gap + 2 else 'normal'
@@ -449,7 +453,7 @@ def apply_single_win_constraint(
 ) -> List[BetRecommendation]:
     """1レース1単勝制約: 2番目以降の単勝を複勝に降格
 
-    優先順位: win_gap の大きい馬が単勝を取る
+    優先順位: gap (Place-model based) の大きい馬が単勝を取る
     """
     # 単勝候補を抽出 (単勝 or 単複)
     win_candidates = [r for r in recs if r.bet_type in ('単勝', '単複')]
@@ -457,8 +461,8 @@ def apply_single_win_constraint(
     if len(win_candidates) <= 1:
         return recs
 
-    # win_gap 降順ソート
-    win_candidates.sort(key=lambda r: (-r.win_gap, -r.odds))
+    # gap 降順ソート (Place model基準)
+    win_candidates.sort(key=lambda r: (-r.gap, -r.odds))
 
     # 1番目はそのまま、2番目以降を降格
     winner = win_candidates[0]
