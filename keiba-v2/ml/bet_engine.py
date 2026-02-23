@@ -23,8 +23,10 @@ predict.py / experiment.py の両方から利用する。
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field, asdict
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # 能力R変換定数 (ability_score → rating)
@@ -32,6 +34,49 @@ from typing import Dict, List, Optional, Tuple
 # rating = RATING_BASE + ability_score * RATING_SCALE
 RATING_SCALE = 14.7
 RATING_BASE = 74.2
+
+# グレードオフセット（Method A: 相対R→絶対R変換）
+# offset = grade_mean_R - global_mean_R
+# absolute_R = relative_R + offset
+AGE_SEPARATED_GRADES = {'G1', 'G2', 'G3', 'OP', 'Listed'}
+
+
+def load_grade_offsets(path: str = None) -> Dict[str, float]:
+    """rating_standards.jsonからグレードオフセットマップを読み込み
+
+    Returns:
+        {grade_key: offset} — offset = grade_mean_R - global_mean_R
+    """
+    if path is None:
+        path = 'C:/KEIBA-CICD/data3/analysis/rating_standards.json'
+    p = Path(path)
+    if not p.exists():
+        return {}
+
+    with open(p, encoding='utf-8') as f:
+        data = json.load(f)
+
+    global_mean = data.get('metadata', {}).get('global_mean_rating')
+    if global_mean is None:
+        return {}
+
+    by_grade = data.get('by_grade', {})
+    offsets = {}
+    for key, info in by_grade.items():
+        grade_mean = info.get('rating', {}).get('mean')
+        if grade_mean is not None:
+            offsets[key] = round(grade_mean - global_mean, 2)
+
+    return offsets
+
+
+def get_grade_key(grade: str, age_class: str) -> str:
+    """grade + age_class → rating_standards.jsonのキー"""
+    if not grade:
+        return ''
+    if grade in AGE_SEPARATED_GRADES and age_class:
+        return f"{grade}_{age_class}"
+    return grade
 
 
 # =====================================================================
@@ -470,18 +515,36 @@ def recommendations_summary(recs: List[BetRecommendation]) -> dict:
 # バックテスト用ユーティリティ
 # =====================================================================
 
-def df_to_race_predictions(df_test) -> List[dict]:
+def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> List[dict]:
     """DataFrame → generate_recommendations() 入力形式に変換
 
     experiment.py / backtest_bet_engine.py の両方から利用。
     df_test には pred_rank_v, odds_rank, pred_margin_b 等が必要。
+
+    Args:
+        grade_offsets: Method A グレードオフセット {grade_key: offset}
+            Noneの場合はオフセットなし（従来の相対R）
     """
     import pandas as pd
 
     races = []
     for race_id, group in df_test.groupby('race_id'):
+        # グレードオフセット（Method A）
+        offset = 0.0
+        grade = ''
+        age_class = ''
+        if grade_offsets:
+            row0 = group.iloc[0]
+            grade = str(row0.get('grade', ''))
+            age_class = str(row0.get('age_class', ''))
+            grade_key = get_grade_key(grade, age_class)
+            offset = grade_offsets.get(grade_key, 0.0)
+
         entries = []
         for _, row in group.iterrows():
+            relative_rating = RATING_BASE - float(row['pred_margin_b']) * RATING_SCALE if pd.notna(row.get('pred_margin_b')) else None
+            absolute_rating = (relative_rating + offset) if relative_rating is not None else None
+
             entries.append({
                 'umaban': int(row['umaban']),
                 'horse_name': str(row.get('horse_name', '')),
@@ -492,7 +555,7 @@ def df_to_race_predictions(df_test) -> List[dict]:
                 'odds_rank': int(row.get('odds_rank', 0)),
                 'place_odds_min': float(row['place_odds_low']) if pd.notna(row.get('place_odds_low')) else None,
                 'pred_proba_v_raw': float(row.get('pred_proba_v_raw', 0)),
-                'predicted_margin': RATING_BASE - float(row['pred_margin_b']) * RATING_SCALE if pd.notna(row.get('pred_margin_b')) else None,
+                'predicted_margin': absolute_rating,
                 'win_ev': float(row.get('win_ev', 0)) if pd.notna(row.get('win_ev')) else None,
                 'place_ev': float(row.get('place_ev', 0)) if pd.notna(row.get('place_ev')) else None,
                 'comment_memo_trouble_score': float(row.get('comment_memo_trouble', 0)),
@@ -504,6 +567,9 @@ def df_to_race_predictions(df_test) -> List[dict]:
         races.append({
             'race_id': str(race_id),
             'track_type': str(row.get('track_type_name', '')),
+            'grade': grade,
+            'age_class': age_class,
+            'grade_offset': offset,
             'entries': entries,
         })
     return races

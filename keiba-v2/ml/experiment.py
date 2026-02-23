@@ -441,6 +441,17 @@ def compute_features_for_race(
     distance = race.get('distance', 0)
     entry_count = race.get('num_runners', 0)
     current_grade = race.get('grade', '')
+    current_age_class = race.get('age_class', '')
+    if not current_age_class:
+        ages = [e.get('age', 0) for e in race.get('entries', []) if e.get('age', 0) > 0]
+        if ages:
+            min_a, max_a = min(ages), max(ages)
+            if max_a == 2:
+                current_age_class = '2歳'
+            elif min_a <= 3 and max_a == 3:
+                current_age_class = '3歳'
+            else:
+                current_age_class = '古馬'
     current_is_handicap = race.get('is_handicap', False)
     current_is_female_only = race.get('is_female_only', False)
     current_month = int(race_date.split('-')[1]) if len(race_date.split('-')) >= 2 else 0
@@ -569,7 +580,8 @@ def compute_features_for_race(
         feat['horse_name'] = entry.get('horse_name', '')
         feat['umaban'] = entry.get('umaban', 0)
         feat['venue_name'] = race.get('venue_name', '')
-        feat['grade'] = race.get('grade', '')
+        feat['grade'] = current_grade
+        feat['age_class'] = current_age_class
         feat['finish_position'] = fp
         feat['is_top3'] = 1 if fp <= 3 else 0
         feat['is_win'] = 1 if fp == 1 else 0

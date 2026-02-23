@@ -33,6 +33,7 @@ from ml.bet_engine import (
     PRESETS, BetStrategyParams,
     generate_recommendations, recommendations_summary,
     df_to_race_predictions, calc_bet_engine_roi,
+    load_grade_offsets,
 )
 
 
@@ -116,7 +117,10 @@ def main():
 
     # === bet_engine バックテスト ===
     print('\n[BetEngine] Converting to race predictions format...')
-    race_preds = df_to_race_predictions(df_test)
+    grade_offsets = load_grade_offsets()
+    if grade_offsets:
+        print(f'  Method A: {len(grade_offsets)} grade offsets loaded')
+    race_preds = df_to_race_predictions(df_test, grade_offsets=grade_offsets)
     print(f'  {len(race_preds)} races, {sum(len(r["entries"]) for r in race_preds):,} entries')
 
     # キャッシュ保存（再分析用）
@@ -145,125 +149,56 @@ def main():
               f' {roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%'
               f' {roi["place_bet"]:>9,} {roi["place_return"]:>9,} {roi["place_roi"]:>6.1f}%')
 
-    # === Win margin最適化 ===
+    # === Method A 有無比較 ===
     print(f'\n{"=" * 70}')
-    print(f'  Win margin 最適化 (Place無し)')
+    print(f'  Method A 有無比較')
     print(f'{"=" * 70}')
-    print(f'  {"win_gap":>8} {"win_margin":>11} {"WinBets":>8} {"WinBet":>9} '
+
+    # Method A なし版
+    race_preds_no_offset = df_to_race_predictions(df_test, grade_offsets=None)
+
+    comparison_configs = [
+        ('standard', PRESETS['standard']),
+        ('wide', PRESETS['wide']),
+    ]
+
+    print(f'  {"Preset":>14} {"Mode":>12} {"Bets":>5} {"TotalBet":>10} '
+          f'{"TotalRet":>10} {"ROI":>7} {"Hits":>5}')
+    print(f'  {"-" * 70}')
+
+    for name, params in comparison_configs:
+        for mode, preds in [('Method A', race_preds), ('No offset', race_preds_no_offset)]:
+            recs = generate_recommendations(preds, params, budget=30000)
+            roi = calc_bet_engine_roi(recs, preds)
+            marker = ' ***' if roi['total_roi'] >= 100 else ''
+            print(f'  {name:>14} {mode:>12} {roi["num_bets"]:>5} '
+                  f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
+                  f' {roi["win_hits"]:>5}')
+
+    # === Win-only rating sweep ===
+    print(f'\n{"=" * 70}')
+    print(f'  Win-only rating sweep (Method A)')
+    print(f'{"=" * 70}')
+    print(f'  {"win_gap":>8} {"min_rating":>11} {"Bets":>5} {"WinBet":>9} '
           f'{"WinRet":>9} {"WinROI":>7} {"Hits":>5}')
     print(f'  {"-" * 65}')
 
-    for win_gap in [3, 4, 5, 6]:
-        for win_margin in [0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 99.0]:
+    for win_gap in [4, 5, 6]:
+        for min_rating in [50.0, 53.0, 56.6, 59.0, 62.0, 99.0]:
             params = BetStrategyParams(
                 win_min_gap=win_gap,
-                win_max_margin=win_margin,
+                win_min_rating=min_rating,
                 place_min_gap=99,  # Place無効化
             )
             recs = generate_recommendations(race_preds, params, budget=30000)
             if not recs:
                 continue
             roi = calc_bet_engine_roi(recs, race_preds)
-            margin_label = 'none' if win_margin >= 90 else f'{win_margin:.1f}'
+            rating_label = 'none' if min_rating >= 90 else f'{min_rating:.1f}'
             marker = ' ***' if roi['win_roi'] >= 100 else ''
-            print(f'  {win_gap:>8} {margin_label:>11} {roi["num_bets"]:>8} '
+            print(f'  {win_gap:>8} {rating_label:>11} {roi["num_bets"]:>8} '
                   f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
                   f' {roi["win_hits"]:>5}')
-
-    # === Place margin最適化 ===
-    print(f'\n{"=" * 70}')
-    print(f'  Place margin 最適化 (Win無し)')
-    print(f'{"=" * 70}')
-    print(f'  {"plc_gap":>8} {"plc_margin":>11} {"plc_ev":>7} {"Bets":>5} '
-          f'{"PlcBet":>9} {"PlcRet":>9} {"PlcROI":>7} {"Hits":>5}')
-    print(f'  {"-" * 70}')
-
-    for place_gap in [2, 3, 4, 5]:
-        for place_margin in [0.6, 0.8, 1.0, 1.5, 99.0]:
-            for place_ev in [0.9, 1.0, 1.1, 1.2]:
-                params = BetStrategyParams(
-                    win_min_gap=99,  # Win無効化
-                    place_min_gap=place_gap,
-                    place_max_margin=place_margin,
-                    place_min_ev=place_ev,
-                )
-                recs = generate_recommendations(race_preds, params, budget=30000)
-                if not recs:
-                    continue
-                roi = calc_bet_engine_roi(recs, race_preds)
-                margin_label = 'none' if place_margin >= 90 else f'{place_margin:.1f}'
-                marker = ' ***' if roi['place_roi'] >= 100 else ''
-                print(f'  {place_gap:>8} {margin_label:>11} {place_ev:>7.1f} {roi["num_bets"]:>5} '
-                      f'{roi["place_bet"]:>9,} {roi["place_return"]:>9,} {roi["place_roi"]:>6.1f}%{marker}'
-                      f' {roi["place_hits"]:>5}')
-
-    # === 総合グリッドサーチ（Win+Place最適化済み組み合わせ）===
-    print(f'\n{"=" * 70}')
-    print(f'  総合グリッドサーチ')
-    print(f'{"=" * 70}')
-    print(f'  {"wg":>3} {"wm":>4} {"pg":>3} {"pm":>4} {"pev":>4} {"Bets":>5} '
-          f'{"TotalROI":>9} {"WinROI":>7} {"PlcROI":>7} {"Total$":>10}')
-    print(f'  {"-" * 65}')
-
-    best_roi = 0
-    best_params_str = ''
-
-    for win_gap in [4, 5, 6]:
-        for win_margin in [1.0, 1.2, 1.5]:
-            for place_gap in [3, 4, 5]:
-                for place_margin in [0.8, 1.0, 1.5]:
-                    for place_ev in [1.0, 1.1, 1.2]:
-                        params = BetStrategyParams(
-                            win_min_gap=win_gap,
-                            win_max_margin=win_margin,
-                            place_min_gap=place_gap,
-                            place_max_margin=place_margin,
-                            place_min_ev=place_ev,
-                        )
-                        recs = generate_recommendations(race_preds, params, budget=30000)
-                        if not recs:
-                            continue
-                        roi = calc_bet_engine_roi(recs, race_preds)
-                        if roi['total_roi'] > best_roi:
-                            best_roi = roi['total_roi']
-                            best_params_str = f'wg={win_gap} wm={win_margin} pg={place_gap} pm={place_margin} pev={place_ev}'
-                        if roi['total_roi'] >= 95:
-                            marker = ' ***' if roi['total_roi'] >= 100 else ''
-                            net = roi['total_return'] - roi['total_bet']
-                            print(f'  {win_gap:>3} {win_margin:>4.1f} {place_gap:>3} {place_margin:>4.1f} {place_ev:>4.1f} '
-                                  f'{roi["num_bets"]:>5} {roi["total_roi"]:>8.1f}%{marker} '
-                                  f'{roi["win_roi"]:>6.1f}% {roi["place_roi"]:>6.1f}% '
-                                  f'{net:>+10,}')
-
-    print(f'\n  Best: {best_params_str} → ROI {best_roi:.1f}%')
-
-    # === Win-only プリセット ===
-    print(f'\n{"=" * 70}')
-    print(f'  Win-only プリセット比較')
-    print(f'{"=" * 70}')
-
-    win_only_configs = [
-        ('win_g4_m1.2', BetStrategyParams(win_min_gap=4, win_max_margin=1.2, place_min_gap=99)),
-        ('win_g5_m1.2', BetStrategyParams(win_min_gap=5, win_max_margin=1.2, place_min_gap=99)),
-        ('win_g5_m1.5', BetStrategyParams(win_min_gap=5, win_max_margin=1.5, place_min_gap=99)),
-        ('win_g6_m1.2', BetStrategyParams(win_min_gap=6, win_max_margin=1.2, place_min_gap=99)),
-        ('win_g4_none', BetStrategyParams(win_min_gap=4, win_max_margin=99, place_min_gap=99)),
-        ('win_g5_none', BetStrategyParams(win_min_gap=5, win_max_margin=99, place_min_gap=99)),
-    ]
-
-    print(f'  {"Name":>14} {"Bets":>5} {"WinBet":>9} {"WinRet":>9} {"WinROI":>7} {"Net":>10} {"Hits":>5}')
-    print(f'  {"-" * 65}')
-
-    for name, params in win_only_configs:
-        recs = generate_recommendations(race_preds, params, budget=30000)
-        if not recs:
-            continue
-        roi = calc_bet_engine_roi(recs, race_preds)
-        net = roi['win_return'] - roi['win_bet']
-        marker = ' ***' if roi['win_roi'] >= 100 else ''
-        print(f'  {name:>14} {roi["num_bets"]:>5} '
-              f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
-              f' {net:>+10,} {roi["win_hits"]:>5}')
 
     print('\nDone.')
 

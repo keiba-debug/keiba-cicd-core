@@ -279,62 +279,99 @@ def _detect_age_class(race: dict) -> str:
     return '古馬'
 
 
+MIN_SAMPLE_COUNT = 30  # これ未満は全年齢プールにフォールバック
+
+
+def _compute_grade_stats(grade_races: list) -> Optional[dict]:
+    """レース群からグレード統計を算出。サンプル不足時はNone"""
+    all_ratings = []
+    all_stdevs = []
+    all_top3_diffs = []
+
+    for race in grade_races:
+        r = race['ratings']
+        all_ratings.extend(r)
+        if len(r) > 1:
+            all_stdevs.append(statistics.stdev(r))
+        if len(r) >= 4:
+            sr = sorted(r, reverse=True)
+            all_top3_diffs.append(sr[0] - sr[3])
+
+    if len(all_ratings) < 10:
+        return None
+
+    mean_rating = statistics.mean(all_ratings)
+    stdev_rating = statistics.stdev(all_ratings)
+    mean_race_stdev = statistics.mean(all_stdevs) if all_stdevs else 0
+    mean_top3_diff = statistics.mean(all_top3_diffs) if all_top3_diffs else 0
+
+    return {
+        "sample_count": len(grade_races),
+        "horse_count": len(all_ratings),
+        "rating": {
+            "mean": round(mean_rating, 2),
+            "stdev": round(stdev_rating, 2),
+            "median": round(statistics.median(all_ratings), 2),
+            "min": round(min(all_ratings), 2),
+            "max": round(max(all_ratings), 2),
+        },
+        "competitiveness": {
+            "mean_race_stdev": round(mean_race_stdev, 2),
+            "mean_top3_diff": round(mean_top3_diff, 2),
+            "description": interpret_competitiveness(mean_race_stdev),
+        },
+        "thresholds": {
+            "high_level": round(mean_rating + stdev_rating * 0.5, 2),
+            "low_level": round(mean_rating - stdev_rating * 0.5, 2),
+        },
+    }
+
+
 def calculate_stats(races: list) -> dict:
-    """クラス別統計を算出"""
-    by_grade = defaultdict(list)
+    """クラス別統計を算出（小サンプルカテゴリは全年齢プールにフォールバック）"""
+    # 年齢分離 & 全年齢プール両方を構築
+    by_grade = defaultdict(list)          # 年齢分離キー (G1_古馬 等)
+    by_grade_pooled = defaultdict(list)   # 全年齢プール (G1 等)
+
     for race in races:
         grade = race['grade']
         age_class = race['age_class']
         if grade in AGE_SEPARATED_GRADES and age_class:
-            key = f"{grade}_{age_class}"
+            by_grade[f"{grade}_{age_class}"].append(race)
+            by_grade_pooled[grade].append(race)
         else:
-            key = grade
-        by_grade[key].append(race)
+            by_grade[grade].append(race)
 
+    # 全年齢プールの統計を先に算出
+    pooled_stats = {}
+    for base_grade in AGE_SEPARATED_GRADES:
+        if base_grade in by_grade_pooled:
+            s = _compute_grade_stats(by_grade_pooled[base_grade])
+            if s:
+                pooled_stats[base_grade] = s
+
+    # 年齢分離の統計を算出（小サンプルはフォールバック）
     stats = {}
+    fallback_count = 0
     for grade in sorted(by_grade.keys(), key=lambda g: GRADE_SORT_ORDER.get(g, 50)):
-        grade_races = by_grade[grade]
-        all_ratings = []
-        all_stdevs = []
-        all_top3_diffs = []
-
-        for race in grade_races:
-            r = race['ratings']
-            all_ratings.extend(r)
-            if len(r) > 1:
-                all_stdevs.append(statistics.stdev(r))
-            if len(r) >= 4:
-                sr = sorted(r, reverse=True)
-                all_top3_diffs.append(sr[0] - sr[3])
-
-        if len(all_ratings) < 10:
+        s = _compute_grade_stats(by_grade[grade])
+        if s is None:
             continue
 
-        mean_rating = statistics.mean(all_ratings)
-        stdev_rating = statistics.stdev(all_ratings)
-        mean_race_stdev = statistics.mean(all_stdevs) if all_stdevs else 0
-        mean_top3_diff = statistics.mean(all_top3_diffs) if all_top3_diffs else 0
+        # 小サンプル→全年齢プールにフォールバック
+        base_grade = grade.rsplit('_', 1)[0] if '_' in grade else ''
+        if s['sample_count'] < MIN_SAMPLE_COUNT and base_grade in pooled_stats:
+            fallback = dict(pooled_stats[base_grade])
+            fallback['fallback_from'] = grade
+            fallback['fallback_to'] = base_grade
+            fallback['original_sample_count'] = s['sample_count']
+            stats[grade] = fallback
+            fallback_count += 1
+        else:
+            stats[grade] = s
 
-        stats[grade] = {
-            "sample_count": len(grade_races),
-            "horse_count": len(all_ratings),
-            "rating": {
-                "mean": round(mean_rating, 2),
-                "stdev": round(stdev_rating, 2),
-                "median": round(statistics.median(all_ratings), 2),
-                "min": round(min(all_ratings), 2),
-                "max": round(max(all_ratings), 2),
-            },
-            "competitiveness": {
-                "mean_race_stdev": round(mean_race_stdev, 2),
-                "mean_top3_diff": round(mean_top3_diff, 2),
-                "description": interpret_competitiveness(mean_race_stdev),
-            },
-            "thresholds": {
-                "high_level": round(mean_rating + stdev_rating * 0.5, 2),
-                "low_level": round(mean_rating - stdev_rating * 0.5, 2),
-            },
-        }
+    if fallback_count:
+        print(f"  Small-sample fallback: {fallback_count} categories")
 
     return stats
 
@@ -557,6 +594,13 @@ def main():
     for key, vs in venue_stats.items():
         print(f"    [{key}] mean={vs['mean']:.1f}, n={vs['horse_count']:,}")
 
+    # グローバル平均R（Method A: グレードオフセット基準点）
+    all_global_ratings = []
+    for race in races:
+        all_global_ratings.extend(race['ratings'])
+    global_mean_rating = round(statistics.mean(all_global_ratings), 2) if all_global_ratings else 0
+    print(f"\n  Global mean rating: {global_mean_rating}")
+
     # 出力
     standards = {
         "metadata": {
@@ -565,6 +609,7 @@ def main():
             "years": f"{args.since}-{datetime.now().year}",
             "total_races": len(races),
             "version": "4.0",
+            "global_mean_rating": global_mean_rating,
         },
         "by_grade": grade_stats,
         "competitiveness_thresholds": comp_thresholds,

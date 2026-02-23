@@ -41,6 +41,7 @@ from ml.features.slow_start_features import compute_slow_start_features
 from ml.bet_engine import (
     PRESETS, generate_recommendations,
     recommendations_to_dict, recommendations_summary,
+    load_grade_offsets, get_grade_key,
 )
 
 # === Value Bet閾値 ===
@@ -345,6 +346,7 @@ def predict_race(
     kb_ext_index: Optional[dict] = None,
     calibrators: Optional[dict] = None,
     model_reg_b=None,
+    grade_offsets: Optional[Dict[str, float]] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -619,8 +621,8 @@ def predict_race(
         rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w), 1)}
         rank_wv_dict = {i: r for r, i in enumerate(np.argsort(-pred_wv), 1)}
 
-    # === ability_score → rating_display ===
-    # 符号反転: 高い=強い。RATING_BASE + ability * RATING_SCALE でレーティング化
+    # === ability_score → rating_display (Method A: グレードオフセット付き) ===
+    # 符号反転: 高い=強い。RATING_BASE + ability * RATING_SCALE + grade_offset
     RATING_SCALE = 14.7
     RATING_BASE = 74.2
     ability_score = None
@@ -628,6 +630,11 @@ def predict_race(
     if model_reg_b is not None:
         ability_score = -model_reg_b.predict(arr_v)
         rating_display = RATING_BASE + ability_score * RATING_SCALE
+        # Method A: グレードオフセット適用
+        grade_key = get_grade_key(current_grade, current_age_class)
+        grade_offset = (grade_offsets or {}).get(grade_key, 0.0)
+        if grade_offset != 0.0:
+            rating_display = rating_display + grade_offset
 
     # ランク計算
     rank_a_dict = {i: r for r, i in enumerate(np.argsort(-pred_a), 1)}
@@ -879,6 +886,11 @@ def main():
         except Exception as e:
             print(f"[CK_DATA] Error loading training_summary: {e}")
 
+    # グレードオフセット読み込み（Method A）
+    grade_offsets = load_grade_offsets()
+    if grade_offsets:
+        print(f"[Grade] Method A: {len(grade_offsets)} grade offsets loaded")
+
     # 予測実行
     all_predictions = []
     vb_count = 0
@@ -897,6 +909,7 @@ def main():
             kb_ext_index=kb_ext_index,
             calibrators=calibrators,
             model_reg_b=model_reg_b,
+            grade_offsets=grade_offsets,
         )
         all_predictions.append(pred)
 
