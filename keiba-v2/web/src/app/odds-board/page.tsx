@@ -427,7 +427,7 @@ function OddsTable({ odds, filterMode, showDetails, expectedValues }: OddsTableP
                     </td>
                     <td
                       className={`px-1 py-1.5 text-right font-mono tabular-nums text-xs ${getRatingHeatmapClass(h.rating, allRatings)}`}
-                      title={h.rating != null ? `レイティング: ${h.rating.toFixed(1)}` : ''}
+                      title={h.rating != null ? `BR: ${h.rating.toFixed(1)}` : ''}
                     >
                       {h.rating != null ? h.rating.toFixed(1) : '-'}
                     </td>

@@ -117,9 +117,9 @@ export function FilterBar({
         ))}
       </div>
 
-      {/* 能力R */}
+      {/* AR (Aura Rating) */}
       <div className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground mr-1" title="能力R — 能力レーティング。高いほど強い">能力R:</span>
+        <span className="text-xs text-muted-foreground mr-1" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR:</span>
         {[
           { v: null as number | null, l: '全て' },
           { v: 59, l: '\u226559' },

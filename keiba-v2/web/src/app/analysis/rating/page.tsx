@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * レイティング分析ページ
+ * BR分析ページ
  * クラス別レイティング統計・レースレベル判定基準を表示
  */
 
@@ -175,16 +175,16 @@ export default function RatingAnalysisPage() {
           トップ
         </Link>
         <span>/</span>
-        <span className="text-foreground">レイティング分析</span>
+        <span className="text-foreground">BR分析</span>
       </nav>
 
       {/* ヘッダー */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          📈 レイティング分析
+          📈 BR分析
         </h1>
         <p className="text-muted-foreground mt-1">
-          クラス別レイティング統計・レースレベル判定基準
+          クラス別BR統計・レースレベル判定基準
         </p>
       </div>
 

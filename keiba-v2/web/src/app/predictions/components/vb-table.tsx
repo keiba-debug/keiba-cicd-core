@@ -8,7 +8,7 @@ import {
   getWinOdds, getPlaceOddsMin, calcHeadRatio,
   getGapColor, getGapBg, getEvColor, getMarkColor, getRecBadgeClass,
   getTrackBadgeClass, getTrackLabel, getFinishColor, getPlaceLimit,
-  getRaceLink, getKoukakuDetail, getRaceDanger, getCommentColor, getCommentTooltip, getRatingColor, SortTh,
+  getRaceLink, getKoukakuDetail, getRaceDanger, getCommentColor, getCommentTooltip, getArColor, SortTh,
 } from '../lib/helpers';
 import type { RaceResultsMap } from '@/lib/data/predictions-reader';
 
@@ -79,7 +79,7 @@ export function VBTable({
                 <SortTh sortKey="odds_rank" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="オッズ順人気">人気</SortTh>
                 <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="乖離度 — 人気順位 - VR。大きいほど市場が過小評価">Gap</SortTh>
-                <SortTh sortKey="margin" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/30" title="能力R — 能力レーティング。高いほど強い">能力R</SortTh>
+                <SortTh sortKey="margin" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/30" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
                 <SortTh sortKey="win_gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-emerald-50 dark:bg-emerald-900/30" title="Win VB Gap：Win順位と人気の乖離">W-Gap</SortTh>
                 <SortTh sortKey="ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
                 <SortTh sortKey="place_ev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-blue-50 dark:bg-blue-900/30" title="複勝EV = calibrated P(top3) × 複勝オッズ">複EV</SortTh>
@@ -172,7 +172,7 @@ export function VBTable({
                     <td className={`px-2 py-1.5 border text-center font-mono ${getGapColor(liveGap)}`}>
                       +{liveGap}
                     </td>
-                    <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getRatingColor(margin)}`}>
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(margin)}`}>
                       {margin != null ? margin.toFixed(1) : '-'}
                     </td>
                     <td className={`px-2 py-1.5 border text-center font-mono ${winGap != null && winGap >= 3 ? getGapColor(winGap) : 'text-gray-400'} bg-emerald-50/30 dark:bg-emerald-900/10`}>

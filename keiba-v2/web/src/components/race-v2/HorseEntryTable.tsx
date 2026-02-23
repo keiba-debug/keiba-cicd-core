@@ -863,7 +863,7 @@ export default function HorseEntryTable({
               <th className="px-2 py-2 text-right border w-24">複勝</th>
             )}
             <th className="px-2 py-2 text-center border w-16">AI指数</th>
-            <th className="px-2 py-2 text-center border w-12">レート</th>
+            <th className="px-2 py-2 text-center border w-12" title="BR (Book Rating) — 競馬ブックレイティング">BR</th>
             <th className="px-2 py-2 text-center border w-10">P</th>
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
             <th className="px-2 py-2 text-left border min-w-20" title="パドック評価・コメント">パ</th>

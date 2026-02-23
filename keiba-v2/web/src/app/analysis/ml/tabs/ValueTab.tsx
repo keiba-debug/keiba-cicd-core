@@ -128,13 +128,13 @@ function GapMarginHeatmap({ grid }: { grid: GapMarginGridEntry[] }) {
 
   return (
     <div className="mt-6 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-      <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">Gap × 能力R ヒートマップ (単勝ROI)</h3>
-      <p className="mb-3 text-xs text-gray-500">gap閾値と能力R閾値の組み合わせ別ROI。枠線=現在プリセット(単勝のみ)</p>
+      <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">Gap × AR ヒートマップ (単勝ROI)</h3>
+      <p className="mb-3 text-xs text-gray-500">gap閾値とAR閾値の組み合わせ別ROI。枠線=現在プリセット(単勝のみ)</p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="py-2 text-left text-gray-500">gap \ 能力R</th>
+              <th className="py-2 text-left text-gray-500">gap \ AR</th>
               {marginLabels.map((label, i) => (
                 <th key={i} className="py-2 text-center text-gray-500">{label}</th>
               ))}

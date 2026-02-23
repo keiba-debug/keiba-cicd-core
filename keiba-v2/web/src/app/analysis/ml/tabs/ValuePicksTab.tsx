@@ -4,8 +4,8 @@ import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import type { ValueBetPick } from '../types';
 
-// Session 41 バックテスト最適値: rating>=59.5→旧margin<=1.0, >=56.6→≤1.2
-const RATING_HIGHLIGHT_THRESHOLD = 56.6;
+// Session 41 バックテスト最適値: AR>=59.5→旧margin<=1.0, >=56.6→≤1.2
+const AR_HIGHLIGHT_THRESHOLD = 56.6;
 
 export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
   const [minGap, setMinGap] = useState(3);
@@ -55,7 +55,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">並び順:</span>
-          {([['gap', 'Gap大'], ['date', '日付'], ['odds', 'オッズ'], ['margin', '能力R']] as const).map(([k, l]) => (
+          {([['gap', 'Gap大'], ['date', '日付'], ['odds', 'オッズ'], ['margin', 'AR']] as const).map(([k, l]) => (
             <button key={k} onClick={() => setSortKey(k)}
               className={cn('rounded-md px-2.5 py-1 text-sm transition-colors',
                 sortKey === k
@@ -106,7 +106,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                 <th className="py-2 text-center">Gap</th>
                 <th className="py-2 text-right">オッズ</th>
                 <th className="py-2 text-right">V%</th>
-                <th className="py-2 text-right" title="能力R — 能力レーティング。高いほど強い">能力R</th>
+                <th className="py-2 text-right" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</th>
                 <th className="py-2 text-center">着順</th>
                 <th className="py-2 text-center">結果</th>
               </tr>
@@ -143,7 +143,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                       {(p.pred_proba_value * 100).toFixed(1)}
                     </td>
                     <td className={cn('py-1.5 text-right tabular-nums',
-                      p.predicted_margin != null && p.predicted_margin >= RATING_HIGHLIGHT_THRESHOLD
+                      p.predicted_margin != null && p.predicted_margin >= AR_HIGHLIGHT_THRESHOLD
                         ? 'text-green-600 dark:text-green-400 font-medium'
                         : 'text-gray-500'
                     )}>

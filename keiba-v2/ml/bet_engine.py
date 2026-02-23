@@ -88,12 +88,12 @@ class BetStrategyParams:
     """戦略パラメータ"""
     # --- Win (rule-based) ---
     win_min_gap: int = 4
-    win_min_rating: float = 56.6    # 能力R >= this (高い=強い、56.6≈ability>=-1.2)
+    win_min_rating: float = 56.6    # AR >= this (高い=強い、56.6≈ability>=-1.2)
     # Win doesn't use EV filter (ECE=0.072 makes it unreliable)
 
     # --- Place (EV + Kelly) ---
     place_min_gap: int = 3
-    place_min_rating: float = 59.5   # 能力R >= this (59.5≈ability>=-1.0)
+    place_min_rating: float = 59.5   # AR >= this (59.5≈ability>=-1.0)
     place_min_ev: float = 1.0
     kelly_fraction: float = 0.25      # 1/4 Kelly
     kelly_cap: float = 0.10           # max 10% of bankroll
@@ -112,7 +112,7 @@ class BetStrategyParams:
 #   standard: gap>=6, rating>=56.6 → ROI 177.2%, CI=[100.5-275.8%], 355件, P&L +27,410
 #   wide:     gap>=5, rating>=56.6 → ROI 135.0%, 625件, P&L +21,740
 # Place ROI<100%のためWin-only推奨
-# NOTE: 能力R = 74.2 + ability_score * 14.7。rating>=56.6は ability>=-1.2 と同等。
+# NOTE: AR = 74.2 + ability_score * 14.7 + grade_offset。rating>=56.6は ability>=-1.2 と同等。
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
         win_min_gap=6,

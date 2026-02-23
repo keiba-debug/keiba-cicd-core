@@ -37,8 +37,8 @@ export interface PredictionEntry {
   // EV (期待値)
   win_ev?: number;     // P(win) × 単勝オッズ
   place_ev?: number;   // P(top3) × 複勝オッズ最低値
-  // 能力R (v5.19)
-  predicted_margin?: number | null;  // 能力レーティング (高いほど好、74.3≈平均的勝ち馬)
+  // AR: Aura Rating (v5.19)
+  predicted_margin?: number | null;  // AR — グレード補正済みの絶対能力指数 (高い=強い)
   // keibabook
   kb_mark: string;
   kb_mark_point: number;
@@ -72,6 +72,7 @@ export interface PredictionRace {
   track_type: string;
   num_runners: number;
   grade?: string;
+  age_class?: string;
   is_handicap?: boolean;
   is_female_only?: boolean;
   entries: PredictionEntry[];

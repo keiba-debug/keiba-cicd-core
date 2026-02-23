@@ -505,7 +505,7 @@ function RatingAnalysisCard({ analysis, grade }: RatingAnalysisCardProps) {
         {/* 平均レイティング */}
         <div className="text-center p-3 bg-slate-50 rounded-lg">
           <div className="text-xl font-bold">{analysis.mean}</div>
-          <div className="text-xs text-muted-foreground">平均レイティング</div>
+          <div className="text-xs text-muted-foreground">平均BR</div>
         </div>
         
         {/* 上位差 */}

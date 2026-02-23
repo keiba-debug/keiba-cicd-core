@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import type { PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, SortState, DbResultsMap } from '../lib/types';
 import { BET_CONFIG, PRESET_OPTIONS, type ServerPresetKey, type AllocMode } from '../lib/bet-logic';
-import { getWinOdds, calcHeadRatio, getEvColor, getGapColor, getRecBadgeClass, getRaceLink, SortTh, getStarScore, getStarDisplay, getStarColor, getRatingColor } from '../lib/helpers';
+import { getWinOdds, calcHeadRatio, getEvColor, getGapColor, getRecBadgeClass, getRaceLink, SortTh, getStarScore, getStarDisplay, getStarColor, getArColor } from '../lib/helpers';
 
 interface BetRecommendationsProps {
   betRecommendations: BetRecommendation[];
@@ -171,7 +171,7 @@ export function BetRecommendations({
                 <th className="px-2 py-2 text-left border">馬名</th>
                 <SortTh sortKey="star" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="おいしさ (★★★=gap≥7, ★★=gap≥6, ★=gap≥5)">★</SortTh>
                 <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="VB Gap (勝利モデル)">Gap</SortTh>
-                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="能力R — 能力レーティング。高いほど強い">能力R</SortTh>
+                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
                 <SortTh sortKey="amount" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-yellow-50 dark:bg-yellow-900/20" title="推奨金額">金額</SortTh>
                 <SortTh sortKey="odds" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
                 <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
@@ -217,7 +217,7 @@ export function BetRecommendations({
                     </td>
                     </>
                     ); })()}
-                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${getRatingColor(r.predictedMargin)}`}>
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${getArColor(r.predictedMargin)}`}>
                       {r.predictedMargin.toFixed(1)}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono font-bold bg-yellow-50/50 dark:bg-yellow-900/10">

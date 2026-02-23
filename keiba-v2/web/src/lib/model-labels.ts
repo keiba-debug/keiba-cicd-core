@@ -11,7 +11,7 @@ export const MODEL_NAMES = {
   value:        { full: '好走 独自', short: '独自', letter: 'V', target: '3着内', desc: '市場系除外で3着内を予測（独自能力評価）' },
   win_accuracy: { full: '勝利 市場', short: 'W市場', letter: 'W', target: '1着', desc: '全特徴量で1着を予測（オッズ・人気含む）' },
   win_value:    { full: '勝利 独自', short: 'W独自', letter: 'WV', target: '1着', desc: '市場系除外で1着を予測（独自能力評価）' },
-  regression:   { full: '能力R', short: '能力R', letter: 'R', target: '着差', desc: '能力予測モデル（市場系除外・着差回帰）' },
+  regression:   { full: 'Aura Rating', short: 'AR', letter: 'R', target: '着差', desc: '能力予測モデル（市場系除外・着差回帰）' },
 } as const;
 
 export type ModelKey = keyof typeof MODEL_NAMES;
@@ -21,7 +21,7 @@ export type ModelKey = keyof typeof MODEL_NAMES;
 export const MODEL_GROUPS = {
   place:      { label: '好走モデル (3着内)', color: 'blue' },
   win:        { label: '勝利モデル (1着)', color: 'emerald' },
-  regression: { label: '能力予測モデル (着差)', color: 'amber' },
+  regression: { label: 'AR: Aura Rating (着差回帰)', color: 'amber' },
 } as const;
 
 // --- Concept Names (tooltips for VR, Gap etc.) ---
@@ -29,7 +29,7 @@ export const MODEL_GROUPS = {
 export const CONCEPT_TIPS = {
   vr:    '独自ランク — 好走 独自モデルによるレース内順位（1=最も能力が高い）',
   gap:   '乖離度 — 人気順位 - VR。大きいほど市場が過小評価している馬',
-  margin: '能力R — 能力レーティング。高いほど強い (74.3≈平均的勝ち馬)',
+  ar: 'AR (Aura Rating) — 覇気。グレード補正済みの絶対能力指数。高い=強い',
   vb:    'Value Bet — VR≤3 かつ Gap≥3 の馬。独自モデル上位評価だが人気薄',
   winEv: '単勝EV — P(win) × 単勝オッズ。1.0超えで期待値プラス',
   placeEv: '複勝EV — P(top3) × 複勝最低オッズ。1.0超えで期待値プラス',

@@ -28,14 +28,17 @@ export function getStarColor(score: number): string {
   return 'text-gray-300';
 }
 
-/** 能力R の色クラス (>=68 green, 58-68 normal, 56.6-58 yellow, <56.6 gray) */
-export function getRatingColor(rating: number | null | undefined): string {
+/** AR (Aura Rating) の色クラス (>=68 green, 58-68 normal, 56.6-58 yellow, <56.6 gray) */
+export function getArColor(rating: number | null | undefined): string {
   if (rating == null) return 'text-gray-300';
   if (rating >= 68) return 'text-green-600 font-bold';
   if (rating >= 58) return '';
   if (rating >= 56.6) return 'text-yellow-600';
   return 'text-gray-400';
 }
+
+/** @deprecated Use getArColor instead */
+export const getRatingColor = getArColor;
 
 // --- 色・スタイル ---
 

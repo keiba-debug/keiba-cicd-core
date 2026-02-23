@@ -9,7 +9,7 @@ import type { OddsMap, DbResultsMap, SortState } from '../lib/types';
 import {
   getWinOdds, calcWinEv, getGapColor, getGapBg, getEvColor, getMarkColor,
   getTrackBadgeClass, getFinishColor, getPlaceLimit,
-  getRaceLink, getCommentColor, getCommentTooltip, getRatingColor, SortTh,
+  getRaceLink, getCommentColor, getCommentTooltip, getArColor, SortTh,
 } from '../lib/helpers';
 
 interface RaceCardProps {
@@ -26,7 +26,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
   const hasResults = (dbRaceResult ? Object.keys(dbRaceResult).length > 0 : false) || (jsonRaceResult ? Object.keys(jsonRaceResult).length > 0 : false);
   const vbEntries = race.entries.filter(e => e.is_value_bet);
 
-  const [sort, setSort] = useState<SortState>({ key: 'umaban', dir: 'asc' });
+  const [sort, setSort] = useState<SortState>({ key: 'margin', dir: 'desc' });
 
   // リアルタイムオッズから人気順を再計算
   const liveRanking = useMemo(() => {
@@ -104,6 +104,11 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
             <Badge className={`text-[10px] ${getTrackBadgeClass(race.track_type)}`}>
               {race.track_type}{race.distance}m
             </Badge>
+            {race.grade && (
+              <Badge variant="outline" className="text-[10px] border-gray-300 text-gray-600 dark:text-gray-300">
+                {race.grade}{race.age_class ? ` ${race.age_class}` : ''}
+              </Badge>
+            )}
             <span className="text-sm text-muted-foreground">{race.num_runners}頭</span>
           </div>
           <div className="flex items-center gap-2">
@@ -136,12 +141,12 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="乖離度 — 人気順位 - VR。大きいほど市場が過小評価">Gap</SortTh>
-                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="能力R — 能力レーティング。高いほど強い">能力R</SortTh>
+                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
                 <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
                 <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 市場モデルの3着内確率（%）">A%</SortTh>
                 <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 独自モデルの3着内確率（%）">V%</SortTh>
                 <SortTh sortKey="prob_wv" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利 独自モデルの勝率予測（%）">WV%</SortTh>
-                <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="競馬ブックレイティング">Rate</SortTh>
+                <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="BR (Book Rating) — 競馬ブックレイティング">BR</SortTh>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック調教評価">調</th>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
                 {hasResults && <SortTh sortKey="finish" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="確定着順">着順</SortTh>}
@@ -202,7 +207,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                         </td>
                       );
                     })()}
-                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getRatingColor(entry.predicted_margin)}`}>
+                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(entry.predicted_margin)}`}>
                       {entry.predicted_margin != null ? entry.predicted_margin.toFixed(1) : '-'}
                     </td>
                     <td className="px-2 py-1 text-center font-mono text-xs text-gray-400" title="WVモデルECE=0.12のため参考値">
