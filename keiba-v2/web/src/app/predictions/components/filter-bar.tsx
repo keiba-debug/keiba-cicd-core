@@ -11,8 +11,8 @@ interface FilterBarProps {
   setMinGap: (g: number) => void;
   minEv: number;
   setMinEv: (v: number) => void;
-  maxMargin: number | null;
-  setMaxMargin: (m: number | null) => void;
+  minRating: number | null;
+  setMinRating: (m: number | null) => void;
   betOnly: boolean;
   setBetOnly: (b: boolean) => void;
   filteredCount: number;
@@ -25,7 +25,7 @@ export function FilterBar({
   trackFilter, setTrackFilter,
   minGap, setMinGap,
   minEv, setMinEv,
-  maxMargin, setMaxMargin,
+  minRating, setMinRating,
   betOnly, setBetOnly,
   filteredCount, totalCount,
 }: FilterBarProps) {
@@ -117,20 +117,20 @@ export function FilterBar({
         ))}
       </div>
 
-      {/* Margin */}
+      {/* 能力R */}
       <div className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground mr-1" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ:</span>
+        <span className="text-xs text-muted-foreground mr-1" title="能力R — 能力レーティング。高いほど強い">能力R:</span>
         {[
           { v: null as number | null, l: '全て' },
-          { v: 1.0, l: '\u22641.0' },
-          { v: 1.2, l: '\u22641.2' },
-          { v: 1.5, l: '\u22641.5' },
+          { v: 59, l: '\u226559' },
+          { v: 56, l: '\u226556' },
+          { v: 52, l: '\u226552' },
         ].map(({ v, l }) => (
           <button
             key={String(v)}
-            onClick={() => setMaxMargin(v)}
+            onClick={() => setMinRating(v)}
             className={`px-2.5 py-1 text-xs rounded transition-colors ${
-              maxMargin === v
+              minRating === v
                 ? 'bg-teal-600 text-white shadow-sm'
                 : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
             }`}

@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import type { PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, SortState, DbResultsMap } from '../lib/types';
 import { BET_CONFIG, PRESET_OPTIONS, type ServerPresetKey, type AllocMode } from '../lib/bet-logic';
-import { getWinOdds, calcHeadRatio, getEvColor, getGapColor, getRecBadgeClass, getRaceLink, SortTh } from '../lib/helpers';
+import { getWinOdds, calcHeadRatio, getEvColor, getGapColor, getRecBadgeClass, getRaceLink, SortTh, getStarScore, getStarDisplay, getStarColor, getRatingColor } from '../lib/helpers';
 
 interface BetRecommendationsProps {
   betRecommendations: BetRecommendation[];
@@ -106,7 +106,7 @@ export function BetRecommendations({
               <button
                 onClick={() => onAllocModeChange('kelly')}
                 className={`px-2 py-0.5 text-[10px] transition-colors ${allocMode === 'kelly' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                title="Kelly基準の傾斜配分">Kelly</button>
+                title="Gap比例の傾斜配分（gap大→厚め）">傾斜</button>
               <button
                 onClick={() => onAllocModeChange('equal')}
                 className={`px-2 py-0.5 text-[10px] transition-colors ${allocMode === 'equal' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
@@ -146,10 +146,12 @@ export function BetRecommendations({
             <div className="text-lg font-bold text-red-600">{betSummary.winCount}件</div>
             <div className="text-[10px] text-muted-foreground">単勝 &yen;{betSummary.winTotal.toLocaleString()}</div>
           </div>
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2">
-            <div className="text-lg font-bold text-blue-600">{betSummary.placeCount}件</div>
-            <div className="text-[10px] text-muted-foreground">複勝 &yen;{betSummary.placeTotal.toLocaleString()}</div>
-          </div>
+          {betSummary.placeCount > 0 && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2">
+              <div className="text-lg font-bold text-blue-600">{betSummary.placeCount}件</div>
+              <div className="text-[10px] text-muted-foreground">複勝 &yen;{betSummary.placeTotal.toLocaleString()}</div>
+            </div>
+          )}
           {betSummary.dangerRaces > 0 && (
             <div className="bg-orange-50 dark:bg-orange-900/20 rounded p-2 border border-orange-200 dark:border-orange-800">
               <div className="text-lg font-bold text-orange-600">{betSummary.dangerRaces}R</div>
@@ -167,10 +169,9 @@ export function BetRecommendations({
                 <SortTh sortKey="race" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">R</SortTh>
                 <SortTh sortKey="umaban" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">馬番</SortTh>
                 <th className="px-2 py-2 text-left border">馬名</th>
-                <th className="px-2 py-2 text-center border">推奨</th>
-                <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="VB Gap">Gap</SortTh>
-                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ</SortTh>
-                <SortTh sortKey="kelly" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="Kelly基準ベット比率">Kelly</SortTh>
+                <SortTh sortKey="star" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="おいしさ (★★★=gap≥7, ★★=gap≥6, ★=gap≥5)">★</SortTh>
+                <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="VB Gap (勝利モデル)">Gap</SortTh>
+                <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="能力R — 能力レーティング。高いほど強い">能力R</SortTh>
                 <SortTh sortKey="amount" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-yellow-50 dark:bg-yellow-900/20" title="推奨金額">金額</SortTh>
                 <SortTh sortKey="odds" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
                 <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
@@ -206,23 +207,18 @@ export function BetRecommendations({
                     <td className="px-2 py-1.5 border text-center font-bold">{r.race.race_number}</td>
                     <td className="px-2 py-1.5 border text-center font-mono">{r.entry.umaban}</td>
                     <td className="px-2 py-1.5 border font-bold text-xs">{r.entry.horse_name}</td>
-                    <td className="px-2 py-1.5 border text-center">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${getRecBadgeClass(r.betType, r.strength)}`}>
-                        {r.betType}
-                      </span>
+                    {(() => { const lg = getLiveGap(r.race.race_id, r.entry); const star = getStarScore(lg, r.predictedMargin); return (
+                    <>
+                    <td className={`px-2 py-1.5 border text-center text-sm ${getStarColor(star)}`} title={`gap=${lg} R=${r.predictedMargin.toFixed(1)}`}>
+                      {getStarDisplay(star)}
                     </td>
-                    {(() => { const lg = getLiveGap(r.race.race_id, r.entry); return (
                     <td className={`px-2 py-1.5 border text-center font-mono ${getGapColor(lg)}`}>
                       +{lg}
                     </td>
+                    </>
                     ); })()}
-                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${
-                      r.predictedMargin <= 1.2 ? 'text-green-600 font-bold' : 'text-red-500'
-                    }`}>
-                      {r.predictedMargin.toFixed(2)}s
-                    </td>
-                    <td className="px-2 py-1.5 border text-center font-mono text-xs">
-                      {(r.kellyFraction * 100).toFixed(1)}%
+                    <td className={`px-2 py-1.5 border text-center font-mono text-xs ${getRatingColor(r.predictedMargin)}`}>
+                      {r.predictedMargin.toFixed(1)}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono font-bold bg-yellow-50/50 dark:bg-yellow-900/10">
                       {r.betAmountWin > 0 && <div className="text-red-600">&yen;{r.betAmountWin.toLocaleString()}</div>}
@@ -343,7 +339,7 @@ export function BetRecommendations({
         })()}
 
         <div className="mt-3 text-[10px] text-muted-foreground">
-          購入プランエンジン / {allocMode === 'equal' ? '均等配分' : 'Kelly基準'} / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
+          購入プランエンジン / {allocMode === 'equal' ? '均等配分' : '傾斜配分'} / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
         </div>
       </CardContent>
     </Card>

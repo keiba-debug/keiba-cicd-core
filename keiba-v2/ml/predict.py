@@ -271,30 +271,58 @@ _TRACK_CODE_MAP = {
 
 
 def _fetch_race_shosai_from_db(race_id: str) -> Optional[dict]:
-    """DBのRACE_SHOSAIからtrack_type/distanceを取得（fallback用）"""
+    """DBのRACE_SHOSAIからtrack_type/distance/gradeを取得
+
+    GRADE_CODE + KYOSO_JOKEN_CODEから全クラスを正しく判定。
+    年齢クラス（2歳/3歳/古馬）も返す。
+    """
     try:
         from core.db import get_connection
+        from core.constants import GRADE_CODES, JOKEN_CLASS_MAP
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute(
-                'SELECT KYORI, TRACK_CODE, KYOSOMEI_HONDAI, GRADE_CODE '
+                'SELECT KYORI, TRACK_CODE, KYOSOMEI_HONDAI, GRADE_CODE, '
+                'KYOSO_JOKEN_CODE_2SAI, KYOSO_JOKEN_CODE_3SAI, '
+                'KYOSO_JOKEN_CODE_4SAI, KYOSO_JOKEN_CODE_5SAI_IJO, '
+                'KYOSO_JOKEN_CODE_SAIJAKUNEN '
                 'FROM RACE_SHOSAI WHERE RACE_CODE = %s',
                 (race_id,)
             )
             row = cur.fetchone()
             if not row:
                 return None
-            kyori, track_code, race_name, grade_code = row
+            kyori, track_code, race_name = row[0], row[1], row[2]
+            grade_code = (row[3] or '').strip()
+            j2sai = (row[4] or '').strip()
+            j3sai = (row[5] or '').strip()
+            j4sai = (row[6] or '').strip()
+            j5sai = (row[7] or '').strip()
+            j_min = (row[8] or '').strip()
+
             track_type = _TRACK_CODE_MAP.get(track_code.strip(), '')
             distance = int(kyori.strip()) if kyori and kyori.strip().isdigit() else 0
-            grade_map = {'A': 'G1', 'B': 'G2', 'C': 'G3', 'D': 'OP',
-                         'E': '3勝', 'F': '2勝', 'G': '1勝', 'H': '未勝利', 'J': '新馬'}
-            grade = grade_map.get(grade_code.strip(), '')
+
+            # grade判定: GRADE_CODE優先、空ならJOKENで条件クラス判定
+            grade = GRADE_CODES.get(grade_code, '')
+            if not grade and j_min:
+                grade = JOKEN_CLASS_MAP.get(j_min, '')
+
+            # 年齢クラス判定
+            age_class = ''
+            if j2sai != '000' and j3sai == '000':
+                age_class = '2歳'
+            elif j3sai != '000' and j4sai == '000':
+                age_class = '3歳'
+            elif j4sai != '000' or j5sai != '000':
+                age_class = '古馬'
+
             return {
                 'track_type': track_type,
                 'distance': distance,
                 'race_name': race_name.strip() if race_name else '',
                 'grade': grade,
+                'age_class': age_class,
             }
     except Exception:
         return None
@@ -342,9 +370,10 @@ def predict_race(
     current_grade = race.get('grade', '')
     current_is_handicap = race.get('is_handicap', False)
     current_is_female_only = race.get('is_female_only', False)
+    current_age_class = ''
 
-    # DB fallback: race JSONにtrack_type/distanceがない場合
-    if (not track_type or distance == 0):
+    # DB補完: track_type/distance/gradeが不足している場合
+    if not track_type or distance == 0 or not current_grade:
         _db_race = _fetch_race_shosai_from_db(race_id)
         if _db_race:
             if not track_type:
@@ -353,8 +382,21 @@ def predict_race(
                 distance = _db_race.get('distance', 0)
             if not current_grade:
                 current_grade = _db_race.get('grade', '')
+            current_age_class = _db_race.get('age_class', '')
             if race.get('race_name', '') == '':
                 race['race_name'] = _db_race.get('race_name', '')
+
+    # age_class未取得の場合、entries[]のageから推定
+    if not current_age_class:
+        ages = [e.get('age', 0) for e in race.get('entries', []) if e.get('age', 0) > 0]
+        if ages:
+            min_age, max_age = min(ages), max(ages)
+            if max_age == 2:
+                current_age_class = '2歳'
+            elif min_age <= 3 and max_age == 3:
+                current_age_class = '3歳'
+            else:
+                current_age_class = '古馬'
     current_month = int(race_date.split('-')[1]) if len(race_date.split('-')) >= 2 else 0
 
     kb_entries = kb_ext.get('entries', {}) if kb_ext else {}
@@ -577,10 +619,15 @@ def predict_race(
         rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w), 1)}
         rank_wv_dict = {i: r for r, i in enumerate(np.argsort(-pred_wv), 1)}
 
-    # === 着差回帰予測 ===
-    pred_margin = None
+    # === ability_score → rating_display ===
+    # 符号反転: 高い=強い。RATING_BASE + ability * RATING_SCALE でレーティング化
+    RATING_SCALE = 14.7
+    RATING_BASE = 74.2
+    ability_score = None
+    rating_display = None
     if model_reg_b is not None:
-        pred_margin = np.clip(model_reg_b.predict(arr_v), 0.0, None)
+        ability_score = -model_reg_b.predict(arr_v)
+        rating_display = RATING_BASE + ability_score * RATING_SCALE
 
     # ランク計算
     rank_a_dict = {i: r for r, i in enumerate(np.argsort(-pred_a), 1)}
@@ -645,8 +692,8 @@ def predict_race(
                 if has_win_model and pred_wv_for_ev is not None and p['odds'] > 0 else None,
             'place_ev': round(float(pred_b_for_ev[i]) * place_low, 4)
                 if place_low and place_low > 0 else None,
-            # 着差回帰予測
-            'predicted_margin': round(float(pred_margin[i]), 3) if pred_margin is not None else None,
+            # 能力R (rating_display: 高い=強い、74.3≈平均的勝ち馬)
+            'predicted_margin': round(float(rating_display[i]), 1) if rating_display is not None else None,
             # keibabook情報
             'kb_mark': p['kb_mark'],
             'kb_mark_point': p['kb_mark_point'],
@@ -685,6 +732,7 @@ def predict_race(
         'track_type': track_type,
         'num_runners': entry_count,
         'grade': current_grade,
+        'age_class': current_age_class,
         'is_handicap': current_is_handicap,
         'is_female_only': current_is_female_only,
         'entries': result_entries,
@@ -873,9 +921,9 @@ def main():
         all_recommendations[preset_name] = {
             'params': {
                 'win_min_gap': preset_params.win_min_gap,
-                'win_max_margin': preset_params.win_max_margin,
+                'win_min_rating': preset_params.win_min_rating,
                 'place_min_gap': preset_params.place_min_gap,
-                'place_max_margin': preset_params.place_max_margin,
+                'place_min_rating': preset_params.place_min_rating,
                 'place_min_ev': preset_params.place_min_ev,
                 'kelly_fraction': preset_params.kelly_fraction,
             },

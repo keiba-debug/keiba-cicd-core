@@ -37,8 +37,8 @@ export interface PredictionEntry {
   // EV (期待値)
   win_ev?: number;     // P(win) × 単勝オッズ
   place_ev?: number;   // P(top3) × 複勝オッズ最低値
-  // 着差回帰予測 (v5.11)
-  predicted_margin?: number | null;  // 着差予測秒数 (低いほど好)
+  // 能力R (v5.19)
+  predicted_margin?: number | null;  // 能力レーティング (高いほど好、74.3≈平均的勝ち馬)
   // keibabook
   kb_mark: string;
   kb_mark_point: number;
@@ -103,9 +103,9 @@ export interface ServerBetRecommendation {
 export interface ServerBetPreset {
   params: {
     win_min_gap: number;
-    win_max_margin: number;
+    win_min_rating: number;
     place_min_gap: number;
-    place_max_margin: number;
+    place_min_rating: number;
     place_min_ev: number;
     kelly_fraction: number;
   };

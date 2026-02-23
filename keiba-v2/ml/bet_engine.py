@@ -8,15 +8,17 @@ Python側で買い目推奨を一元生成するモジュール。
 predict.py / experiment.py の両方から利用する。
 
 設計原則:
-  - Win: rule-based (gap + margin)。Win ECE=0.072 のためKellyは使わない
-  - Place: gap + margin + calibrated EV + 1/4 Kelly
+  - Win-only戦略（Place ROI<100%のため単勝のみ）
+  - Win: rule-based (gap + 能力R)。Win ECE=0.072 のためKellyは使わない
   - 1レース1単勝制約（2番手は複勝に降格）
-  - 3プリセット: standard / conservative / aggressive
+  - 2プリセット: standard (gap>=6) / wide (gap>=5)
+  - 能力R (rating): 高い=強い。74.3≈平均的勝ち馬、89.4=超強い、59.2=1秒劣る
+  - rating = 74.3 + ability_score * 15.1 (2点フィッティング)
 
-検証結果 (verify_bet_engine_params.py, test=2025-2026):
-  - Win best: gap>=5, margin<=1.2, no EV filter → 123.8% (n=613)
-  - Win standard: gap>=4, margin<=1.2, no EV filter → 113.2% (n=1,024)
-  - Place: gap>=3 + EV>=1.0 → 82.8% (改善傾向だがROI<100)
+検証結果 (v5.8月別分析, 14ヶ月, 2025/01-2026/02):
+  - standard: gap>=6, rating>=56.2 → ROI 177.2%, CI=[100.5-275.8%], 355件
+  - wide:     gap>=5, rating>=56.2 → ROI 135.0%, 625件
+  - Place ROI<100%のためWin-only推奨
 """
 
 from __future__ import annotations
@@ -24,6 +26,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple
+
+# 能力R変換定数 (ability_score → rating)
+# ability_score = -pred_margin_b (符号反転: 高い=強い)
+# rating = RATING_BASE + ability_score * RATING_SCALE
+RATING_SCALE = 14.7
+RATING_BASE = 74.2
 
 
 # =====================================================================
@@ -35,12 +43,12 @@ class BetStrategyParams:
     """戦略パラメータ"""
     # --- Win (rule-based) ---
     win_min_gap: int = 4
-    win_max_margin: float = 1.2
+    win_min_rating: float = 56.6    # 能力R >= this (高い=強い、56.6≈ability>=-1.2)
     # Win doesn't use EV filter (ECE=0.072 makes it unreliable)
 
     # --- Place (EV + Kelly) ---
     place_min_gap: int = 3
-    place_max_margin: float = 1.0
+    place_min_rating: float = 59.5   # 能力R >= this (59.5≈ability>=-1.0)
     place_min_ev: float = 1.0
     kelly_fraction: float = 0.25      # 1/4 Kelly
     kelly_cap: float = 0.10           # max 10% of bankroll
@@ -55,39 +63,21 @@ class BetStrategyParams:
 
 
 # --- プリセット ---
-# バックテスト結果 (test=2025-2026, Kelly sized):
-#   win_only:     Win ROI 119.9%, Net +7,260 (wg=5, wm=1.2)
-#   conservative: Total ROI 108.3%, Net +4,980 (wg=5, wm=1.2, pg=5, pm=0.8, pev=1.2)
-#   standard:     Win ROI 105.7%, Total ROI ~97% (wg=4, wm=1.2)
-#   aggressive:   Win ROI 88.1%, Total ROI 83.8% (wg=3, wm=1.5)
+# v5.8月別分析結果 (14ヶ月, 2025/01-2026/02):
+#   standard: gap>=6, rating>=56.6 → ROI 177.2%, CI=[100.5-275.8%], 355件, P&L +27,410
+#   wide:     gap>=5, rating>=56.6 → ROI 135.0%, 625件, P&L +21,740
+# Place ROI<100%のためWin-only推奨
+# NOTE: 能力R = 74.2 + ability_score * 14.7。rating>=56.6は ability>=-1.2 と同等。
 PRESETS: Dict[str, BetStrategyParams] = {
-    'win_only': BetStrategyParams(
-        win_min_gap=5,
-        win_max_margin=1.2,
+    'standard': BetStrategyParams(
+        win_min_gap=6,
+        win_min_rating=56.6,
         place_min_gap=99,   # Place無効化
     ),
-    'standard': BetStrategyParams(
-        win_min_gap=4,
-        win_max_margin=1.2,
-        place_min_gap=4,
-        place_max_margin=0.8,
-        place_min_ev=1.2,
-    ),
-    'conservative': BetStrategyParams(
+    'wide': BetStrategyParams(
         win_min_gap=5,
-        win_max_margin=1.2,
-        place_min_gap=5,
-        place_max_margin=0.8,
-        place_min_ev=1.2,
-    ),
-    'aggressive': BetStrategyParams(
-        win_min_gap=3,
-        win_max_margin=1.5,
-        place_min_gap=2,
-        place_max_margin=1.5,
-        place_min_ev=0.9,
-        kelly_fraction=0.30,
-        kelly_cap=0.15,
+        win_min_rating=56.6,
+        place_min_gap=99,   # Place無効化
     ),
 }
 
@@ -122,11 +112,11 @@ class BetRecommendation:
 
 def evaluate_win(
     gap: int,
-    margin: Optional[float],
+    rating: Optional[float],
     params: BetStrategyParams,
     is_danger: bool = False,
 ) -> Tuple[bool, int]:
-    """単勝評価 (rule-based: gap + margin)
+    """単勝評価 (rule-based: gap + 能力R)
 
     Returns:
         (should_bet, units) — units は gap に比例するベット倍率
@@ -139,8 +129,8 @@ def evaluate_win(
     if gap < min_gap:
         return False, 0
 
-    # margin フィルタ (margin=None のときはスキップ: 回帰モデル未使用時)
-    if margin is not None and margin > params.win_max_margin:
+    # 能力R フィルタ (rating=None のときはスキップ: 回帰モデル未使用時)
+    if rating is not None and rating < params.win_min_rating:
         return False, 0
 
     # ベット倍率: gap が大きいほど厚く
@@ -156,13 +146,13 @@ def evaluate_win(
 
 def evaluate_place(
     gap: int,
-    margin: Optional[float],
+    rating: Optional[float],
     p_top3: Optional[float],
     place_odds: Optional[float],
     params: BetStrategyParams,
     is_danger: bool = False,
 ) -> Tuple[bool, float]:
-    """複勝評価 (gap + margin + EV + Kelly)
+    """複勝評価 (gap + 能力R + EV + Kelly)
 
     Returns:
         (should_bet, kelly_fraction) — kelly_fraction は 0~kelly_cap の範囲
@@ -174,8 +164,8 @@ def evaluate_place(
     if gap < min_gap:
         return False, 0.0
 
-    # margin フィルタ
-    if margin is not None and margin > params.place_max_margin:
+    # 能力R フィルタ
+    if rating is not None and rating < params.place_min_rating:
         return False, 0.0
 
     # EV フィルタ (確率・オッズがある場合)
@@ -254,7 +244,7 @@ def generate_recommendations(
               - race_id, track_type, entries[]
               - entries[]: umaban, horse_name, odds, vb_gap, win_vb_gap,
                            rank_v, odds_rank, place_odds_min, place_ev, win_ev,
-                           predicted_margin (optional),
+                           predicted_margin (能力R rating, optional),
                            pred_proba_v_raw (optional, for Kelly),
                            comment_memo_trouble_score (optional)
         params: 戦略パラメータ
@@ -333,7 +323,7 @@ def generate_recommendations(
                 place_amount=0,  # Kelly sizing in apply_budget
                 gap=gap,
                 win_gap=win_gap,
-                predicted_margin=round(margin, 3) if margin is not None else 0.0,
+                predicted_margin=round(margin, 1) if margin is not None else 0.0,
                 win_ev=round(win_ev, 4) if win_ev is not None else None,
                 place_ev=round(place_ev, 4) if place_ev is not None else None,
                 kelly_raw=round(kelly_frac / params.kelly_fraction, 4) if kelly_frac > 0 and params.kelly_fraction > 0 else 0.0,
@@ -502,7 +492,7 @@ def df_to_race_predictions(df_test) -> List[dict]:
                 'odds_rank': int(row.get('odds_rank', 0)),
                 'place_odds_min': float(row['place_odds_low']) if pd.notna(row.get('place_odds_low')) else None,
                 'pred_proba_v_raw': float(row.get('pred_proba_v_raw', 0)),
-                'predicted_margin': float(row['pred_margin_b']) if pd.notna(row.get('pred_margin_b')) else None,
+                'predicted_margin': RATING_BASE - float(row['pred_margin_b']) * RATING_SCALE if pd.notna(row.get('pred_margin_b')) else None,
                 'win_ev': float(row.get('win_ev', 0)) if pd.notna(row.get('win_ev')) else None,
                 'place_ev': float(row.get('place_ev', 0)) if pd.notna(row.get('place_ev')) else None,
                 'comment_memo_trouble_score': float(row.get('comment_memo_trouble', 0)),

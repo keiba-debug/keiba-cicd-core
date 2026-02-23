@@ -11,7 +11,7 @@ export const MODEL_NAMES = {
   value:        { full: '好走 独自', short: '独自', letter: 'V', target: '3着内', desc: '市場系除外で3着内を予測（独自能力評価）' },
   win_accuracy: { full: '勝利 市場', short: 'W市場', letter: 'W', target: '1着', desc: '全特徴量で1着を予測（オッズ・人気含む）' },
   win_value:    { full: '勝利 独自', short: 'W独自', letter: 'WV', target: '1着', desc: '市場系除外で1着を予測（独自能力評価）' },
-  regression:   { full: 'チャクラ', short: 'チャクラ', letter: 'CK', target: '着差', desc: '能力予測モデル（市場系除外・着差回帰）' },
+  regression:   { full: '能力R', short: '能力R', letter: 'R', target: '着差', desc: '能力予測モデル（市場系除外・着差回帰）' },
 } as const;
 
 export type ModelKey = keyof typeof MODEL_NAMES;
@@ -29,7 +29,7 @@ export const MODEL_GROUPS = {
 export const CONCEPT_TIPS = {
   vr:    '独自ランク — 好走 独自モデルによるレース内順位（1=最も能力が高い）',
   gap:   '乖離度 — 人気順位 - VR。大きいほど市場が過小評価している馬',
-  margin: 'チャクラ — 能力予測(秒)。勝ち馬とのタイム差予測。低いほど勝ちに近い',
+  margin: '能力R — 能力レーティング。高いほど強い (74.3≈平均的勝ち馬)',
   vb:    'Value Bet — VR≤3 かつ Gap≥3 の馬。独自モデル上位評価だが人気薄',
   winEv: '単勝EV — P(win) × 単勝オッズ。1.0超えで期待値プラス',
   placeEv: '複勝EV — P(top3) × 複勝最低オッズ。1.0超えで期待値プラス',

@@ -123,13 +123,11 @@ export default function RoiTab({ data }: { data: MlExperimentResultV2 }) {
 }
 
 const PRESET_LABELS: Record<string, string> = {
-  win_only: '単勝のみ',
-  conservative: '堅実',
-  standard: '標準',
-  aggressive: '攻め',
+  standard: 'Standard (gap≥6)',
+  wide: 'Wide (gap≥5)',
 };
 
-const PRESET_ORDER = ['win_only', 'conservative', 'standard', 'aggressive'];
+const PRESET_ORDER = ['standard', 'wide'];
 
 function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEnginePresetResult> }) {
   const sorted = PRESET_ORDER.filter((k) => k in presets);
@@ -157,7 +155,7 @@ function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEngineP
           {sorted.map((key) => {
             const p = presets[key];
             const net = p.total_return - p.total_bet;
-            const isRecommended = key === 'win_only';
+            const isRecommended = key === 'standard';
             return (
               <tr key={key} className={cn('border-b border-gray-50 dark:border-gray-800',
                 isRecommended && 'bg-amber-50/50 dark:bg-amber-950/20'

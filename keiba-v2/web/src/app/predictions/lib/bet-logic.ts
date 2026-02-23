@@ -8,14 +8,12 @@ export const BET_CONFIG = {
 } as const;
 
 /** サーバー側プリセットキー */
-export type ServerPresetKey = 'win_only' | 'conservative' | 'standard' | 'aggressive';
+export type ServerPresetKey = 'standard' | 'wide';
 
 /** プリセット表示オプション */
 export const PRESET_OPTIONS: { key: ServerPresetKey; label: string; description: string }[] = [
-  { key: 'win_only', label: '単勝のみ', description: 'Win特化 (推奨)' },
-  { key: 'conservative', label: '堅実', description: '単+複 厳選' },
-  { key: 'standard', label: '標準', description: '単+複 標準' },
-  { key: 'aggressive', label: '攻め', description: '単+複 広め' },
+  { key: 'standard', label: 'Standard', description: 'gap≥6 m≤1.2 (推奨)' },
+  { key: 'wide', label: 'Wide', description: 'gap≥5 m≤1.2 (件数重視)' },
 ];
 
 /**

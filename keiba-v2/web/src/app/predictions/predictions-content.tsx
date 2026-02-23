@@ -8,7 +8,7 @@ import type { PredictionsLive, PredictionRace, PredictionEntry, RaceResultsMap }
 import type { DbOddsResponse, OddsMap, DbResultsMap, DbResultEntry, DbResultsResponse, BetRecommendation, DangerHorseEntry, SortState } from './lib/types';
 import {
   getWinOdds, getPlaceOddsMin, calcWinEv, calcPlaceEv, calcHeadRatio,
-  isTurf, isDirt, getPlaceLimit, getRaceDanger,
+  isTurf, isDirt, getPlaceLimit, getRaceDanger, getStarScore,
 } from './lib/helpers';
 import { BET_CONFIG, rescaleBudget, equalDistribute, type ServerPresetKey, type AllocMode } from './lib/bet-logic';
 
@@ -46,7 +46,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [trackFilter, setTrackFilter] = useState<string>('all');
   const [minGap, setMinGap] = useState<number>(3);
   const [minEv, setMinEv] = useState<number>(0);
-  const [maxMargin, setMaxMargin] = useState<number | null>(null);
+  const [minRating, setMinRating] = useState<number | null>(null);
   const [betOnly, setBetOnly] = useState<boolean>(false);
 
   // ソート
@@ -69,11 +69,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     localStorage.setItem('keiba_daily_budget', String(v));
   }, []);
 
-  // 推奨買い目 プリセット選択（デフォルト: win_only）
-  const [preset, setPreset] = useState<ServerPresetKey>('win_only');
+  // 推奨買い目 プリセット選択（デフォルト: standard）
+  const [preset, setPreset] = useState<ServerPresetKey>('standard');
   useEffect(() => {
     const saved = localStorage.getItem('keiba_bet_preset');
-    if (saved && ['win_only', 'conservative', 'standard', 'aggressive'].includes(saved)) {
+    if (saved && ['standard', 'wide'].includes(saved)) {
       setPreset(saved as ServerPresetKey);
     }
   }, []);
@@ -411,14 +411,14 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         return ev !== null && ev >= minEv;
       });
     }
-    if (maxMargin !== null) {
-      entries = entries.filter(e => e.entry.predicted_margin != null && e.entry.predicted_margin <= maxMargin);
+    if (minRating !== null) {
+      entries = entries.filter(e => e.entry.predicted_margin != null && e.entry.predicted_margin >= minRating);
     }
     if (betOnly) {
       entries = entries.filter(e => betRecMap.has(`${e.race.race_id}-${e.entry.umaban}`));
     }
     return entries;
-  }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minGap, minEv, maxMargin, betOnly, oddsMap, getLiveGap, betRecMap]);
+  }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minGap, minEv, minRating, betOnly, oddsMap, getLiveGap, betRecMap]);
 
   const betSummary = useMemo(() => {
     let winCount = 0, placeCount = 0, winTotal = 0, placeTotal = 0;
@@ -474,7 +474,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         case 'winEv': va = a.winEv ?? -1; vb = b.winEv ?? -1; break;
         case 'placeEv': va = a.placeEv ?? -1; vb = b.placeEv ?? -1; break;
         case 'gap': va = getLiveGap(a.race.race_id, a.entry); vb = getLiveGap(b.race.race_id, b.entry); break;
-        case 'kelly': va = a.kellyFraction; vb = b.kellyFraction; break;
+        case 'star': {
+          va = getStarScore(getLiveGap(a.race.race_id, a.entry), a.predictedMargin);
+          vb = getStarScore(getLiveGap(b.race.race_id, b.entry), b.predictedMargin);
+          break;
+        }
         case 'odds': {
           va = getWinOdds(oddsMap, a.race.race_id, a.entry.umaban, a.entry.odds) ?? 9999;
           vb = getWinOdds(oddsMap, b.race.race_id, b.entry.umaban, b.entry.odds) ?? 9999;
@@ -485,7 +489,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           vb = calcHeadRatio(b.entry.pred_proba_wv, b.entry.pred_proba_v) ?? -1;
           break;
         }
-        case 'margin': va = a.predictedMargin ?? 99; vb = b.predictedMargin ?? 99; break;
+        case 'margin': va = a.predictedMargin ?? -1; vb = b.predictedMargin ?? -1; break;
         case 'danger': va = a.danger?.dangerScore ?? 0; vb = b.danger?.dangerScore ?? 0; break;
         default: va = a.betAmountWin + a.betAmountPlace; vb = b.betAmountWin + b.betAmountPlace; break;
       }
@@ -579,7 +583,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         case 'prob_a': va = a.entry.pred_proba_a; vb = b.entry.pred_proba_a; break;
         case 'prob_v': va = a.entry.pred_proba_v; vb = b.entry.pred_proba_v; break;
         case 'win_gap': va = a.entry.win_vb_gap ?? -999; vb = b.entry.win_vb_gap ?? -999; break;
-        case 'margin': va = a.entry.predicted_margin ?? 99; vb = b.entry.predicted_margin ?? 99; break;
+        case 'margin': va = a.entry.predicted_margin ?? -1; vb = b.entry.predicted_margin ?? -1; break;
         case 'finish': {
           const pa = getFinishPos(a.race.race_id, a.entry.umaban);
           const pb = getFinishPos(b.race.race_id, b.entry.umaban);
@@ -715,8 +719,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         setMinGap={setMinGap}
         minEv={minEv}
         setMinEv={setMinEv}
-        maxMargin={maxMargin}
-        setMaxMargin={setMaxMargin}
+        minRating={minRating}
+        setMinRating={setMinRating}
         betOnly={betOnly}
         setBetOnly={setBetOnly}
         filteredCount={filteredVBEntries.length}

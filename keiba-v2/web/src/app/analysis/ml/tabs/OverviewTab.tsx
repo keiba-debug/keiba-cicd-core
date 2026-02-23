@@ -60,7 +60,7 @@ function RegressionCard({ model }: { model: RegressionModelResult }) {
   return (
     <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
       <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">
-        チャクラ
+        能力R
         <span className="ml-2 text-xs font-normal text-gray-400">能力予測 / 市場系除外</span>
       </h3>
       <div className="grid grid-cols-3 gap-2">

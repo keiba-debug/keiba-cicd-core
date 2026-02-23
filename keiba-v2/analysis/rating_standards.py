@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from core.constants import GRADE_CODES, JOKEN_CLASS_MAP, GRADE_NORMALIZE
 
 
 def parse_rating(rating_str) -> Optional[float]:
@@ -85,10 +86,15 @@ GRADE_SORT_ORDER = {
     'G2_古馬': 3, 'G2_3歳': 4, 'G2_2歳': 5,
     'G3_古馬': 6, 'G3_3歳': 7, 'G3_2歳': 8,
     'G1': 2, 'G2': 5, 'G3': 8,
-    'OP': 9, 'Listed': 9,
-    '3勝クラス': 10, '2勝クラス': 11, '1勝クラス': 12,
-    '新馬': 13, '未勝利': 14, '未分類': 99,
+    'Listed_古馬': 9, 'Listed_3歳': 10, 'Listed_2歳': 11,
+    'OP_古馬': 12, 'OP_3歳': 13, 'OP_2歳': 14,
+    'Listed': 9, 'OP': 12,
+    '3勝クラス': 15, '2勝クラス': 16, '1勝クラス': 17,
+    '新馬': 18, '未勝利': 19, '未分類': 99,
 }
+
+# 年齢分離を行うグレード
+AGE_SEPARATED_GRADES = {'G1', 'G2', 'G3', 'OP', 'Listed'}
 
 
 def interpret_competitiveness(stdev: float) -> str:
@@ -99,6 +105,47 @@ def interpret_competitiveness(stdev: float) -> str:
     elif stdev < 8:
         return "標準的"
     return "力差明確"
+
+
+def _fetch_grade_from_db(race_id: str) -> dict:
+    """DBのRACE_SHOSAIからgrade/age_classを取得"""
+    try:
+        from core.db import get_connection
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                'SELECT GRADE_CODE, '
+                'KYOSO_JOKEN_CODE_2SAI, KYOSO_JOKEN_CODE_3SAI, '
+                'KYOSO_JOKEN_CODE_4SAI, KYOSO_JOKEN_CODE_5SAI_IJO, '
+                'KYOSO_JOKEN_CODE_SAIJAKUNEN '
+                'FROM RACE_SHOSAI WHERE RACE_CODE = %s',
+                (race_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                return {}
+            grade_code = (row[0] or '').strip()
+            j2sai = (row[1] or '').strip()
+            j3sai = (row[2] or '').strip()
+            j4sai = (row[3] or '').strip()
+            j5sai = (row[4] or '').strip()
+            j_min = (row[5] or '').strip()
+
+            grade = GRADE_CODES.get(grade_code, '')
+            if not grade and j_min:
+                grade = JOKEN_CLASS_MAP.get(j_min, '')
+
+            age_class = ''
+            if j2sai != '000' and j3sai == '000':
+                age_class = '2歳'
+            elif j3sai != '000' and j4sai == '000':
+                age_class = '3歳'
+            elif j4sai != '000' or j5sai != '000':
+                age_class = '古馬'
+
+            return {'grade': grade, 'age_class': age_class}
+    except Exception:
+        return {}
 
 
 def scan_data(since_year: int) -> list:
@@ -116,6 +163,7 @@ def scan_data(since_year: int) -> list:
 
     no_kb = 0
     no_ratings = 0
+    db_补完 = 0
 
     for year_dir in sorted(races_dir.iterdir()):
         if not year_dir.is_dir():
@@ -138,8 +186,20 @@ def scan_data(since_year: int) -> list:
                 grade = race.get('grade', '')
                 race_class = race.get('race_name', '')  # for display
                 track_type = extract_track_type(race.get('track_type', ''))
+                db_age_class = ''
 
-                # gradeが空のレースはスキップ（障害競走等）
+                # gradeが空の場合、DBからfallback取得
+                if not grade:
+                    db_info = _fetch_grade_from_db(race_id)
+                    grade = db_info.get('grade', '')
+                    db_age_class = db_info.get('age_class', '')
+                    if grade:
+                        db_补完 += 1
+
+                # grade正規化
+                grade = GRADE_NORMALIZE.get(grade, grade)
+
+                # gradeが依然空ならスキップ（障害競走等）
                 if not grade:
                     continue
 
@@ -170,14 +230,8 @@ def scan_data(since_year: int) -> list:
                 # 月を取得
                 month = int(date_parts[1])
 
-                # race JSONのgradeフィールドからage_classを導出
-                # sr_parserがrace_classを生成するが、race JSONにはgradeだけ入る
-                # → race JSONのgradeとrace_classを両方読む
-                # 現時点ではgradeフィールドのみ (G1/OP/未勝利等)
-                # 年齢はkb_extまたはrace entries から推定
-                # → race_class は build_race_master で保存されていないので
-                #   race entries の age から判定する
-                age_class = _detect_age_class(race)
+                # 年齢クラス: DB fallback優先、なければentries.ageから推定
+                age_class = db_age_class if db_age_class else _detect_age_class(race)
 
                 results.append({
                     'race_id': race_id,
@@ -198,6 +252,8 @@ def scan_data(since_year: int) -> list:
 
     print(f"\n  Total: {len(results):,} races")
     print(f"  No keibabook: {no_kb:,}, No ratings: {no_ratings:,}")
+    if db_补完 > 0:
+        print(f"  DB grade fallback: {db_补完:,} races")
 
     return results
 
@@ -229,7 +285,7 @@ def calculate_stats(races: list) -> dict:
     for race in races:
         grade = race['grade']
         age_class = race['age_class']
-        if grade in ('G1', 'G2', 'G3') and age_class:
+        if grade in AGE_SEPARATED_GRADES and age_class:
             key = f"{grade}_{age_class}"
         else:
             key = grade
@@ -360,8 +416,8 @@ def build_race_level_index(races: list, grade_stats: dict) -> dict:
         baselines[key] = (stats['rating']['mean'], stats['rating']['stdev'])
 
     def _get_baseline(grade: str, age_class: str):
-        # 重賞はage_class付きキーで引く
-        if grade in ('G1', 'G2', 'G3') and age_class:
+        # 年齢分離グレードはage_class付きキーで引く
+        if grade in AGE_SEPARATED_GRADES and age_class:
             key = f"{grade}_{age_class}"
             if key in baselines:
                 return baselines[key]

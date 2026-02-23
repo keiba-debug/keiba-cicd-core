@@ -25,10 +25,33 @@ BABA_CODES = {"1": "良", "2": "稍重", "3": "重", "4": "不良"}
 # トラックコード（先頭1桁）
 TRACK_TYPES = {"1": "turf", "2": "dirt"}
 
-# グレードコード（SR_DATA GradeCD @614）
+# グレードコード（SR_DATA GradeCD @614 / RACE_SHOSAI GRADE_CODE 共通）
+# D/F/G/H = 障害レース（自動フィルタで除外）
 GRADE_CODES = {
     "A": "G1", "B": "G2", "C": "G3",
     "L": "Listed", "E": "OP",
+}
+
+# 競走条件コード（JRA-VAN コード2007 KYOSO_JOKEN_CODE_SAIJAKUNEN）
+# GRADE_CODE空のとき、クラスを判定する
+JOKEN_CLASS_MAP = {
+    "701": "新馬",
+    "703": "未勝利",
+    "005": "1勝クラス",
+    "010": "2勝クラス",
+    "016": "3勝クラス",
+    "999": "OP",
+}
+
+# grade文字列 → rating_standards.json キー（正規化）
+# predict.py DB fallback 等で名称揺れを吸収
+GRADE_NORMALIZE = {
+    "G1": "G1", "G2": "G2", "G3": "G3",
+    "Listed": "Listed", "OP": "OP",
+    "3勝クラス": "3勝クラス", "3勝": "3勝クラス",
+    "2勝クラス": "2勝クラス", "2勝": "2勝クラス",
+    "1勝クラス": "1勝クラス", "1勝": "1勝クラス",
+    "未勝利": "未勝利", "新馬": "新馬",
 }
 
 # SE_DATA レコード長

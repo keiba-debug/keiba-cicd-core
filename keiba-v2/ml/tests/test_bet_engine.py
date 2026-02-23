@@ -40,125 +40,139 @@ class TestEvaluateWin:
     """単勝評価テスト"""
 
     def test_pass_standard(self):
-        """gap=5, margin=0.8 → 通過"""
+        """gap=7, margin=0.8 → standard (gap>=6) で通過"""
         params = PRESETS['standard']
+        ok, units = evaluate_win(7, 0.8, params)
+        assert ok is True
+        assert units >= 1
+
+    def test_pass_wide(self):
+        """gap=5, margin=0.8 → wide (gap>=5) で通過"""
+        params = PRESETS['wide']
         ok, units = evaluate_win(5, 0.8, params)
         assert ok is True
         assert units >= 1
 
-    def test_fail_gap_too_small(self):
-        """gap=3 < win_min_gap=4 → 不通過"""
+    def test_fail_gap_too_small_standard(self):
+        """gap=5 < win_min_gap=6 → standard で不通過"""
         params = PRESETS['standard']
-        ok, units = evaluate_win(3, 0.5, params)
+        ok, units = evaluate_win(5, 0.5, params)
+        assert ok is False
+        assert units == 0
+
+    def test_fail_gap_too_small_wide(self):
+        """gap=4 < win_min_gap=5 → wide で不通過"""
+        params = PRESETS['wide']
+        ok, units = evaluate_win(4, 0.5, params)
         assert ok is False
         assert units == 0
 
     def test_fail_margin_too_large(self):
-        """gap=5 but margin=2.0 > 1.2 → 不通過"""
+        """gap=6 but margin=2.0 > 1.2 → 不通過"""
         params = PRESETS['standard']
-        ok, units = evaluate_win(5, 2.0, params)
+        ok, units = evaluate_win(6, 2.0, params)
         assert ok is False
         assert units == 0
 
     def test_margin_none_passes(self):
         """margin=None → margin フィルタ skip"""
-        params = PRESETS['standard']
+        params = PRESETS['wide']
         ok, units = evaluate_win(5, None, params)
         assert ok is True
 
     def test_danger_raises_threshold(self):
-        """danger → min_gap +2 → gap=5 requires gap>=6"""
-        params = PRESETS['standard']  # win_min_gap=4
-        ok, _ = evaluate_win(5, 0.5, params, is_danger=True)
-        assert ok is False  # 4+2=6 > 5
+        """danger → min_gap +2 → standard (gap=6) requires gap>=8"""
+        params = PRESETS['standard']  # win_min_gap=6
+        ok, _ = evaluate_win(7, 0.5, params, is_danger=True)
+        assert ok is False  # 6+2=8 > 7
 
-        ok, _ = evaluate_win(6, 0.5, params, is_danger=True)
+        ok, _ = evaluate_win(8, 0.5, params, is_danger=True)
         assert ok is True
 
     def test_units_proportional_to_gap(self):
         """gap が大きいほど units が増える"""
-        params = PRESETS['standard']  # win_min_gap=4
-        _, u1 = evaluate_win(4, 0.5, params)
-        _, u2 = evaluate_win(5, 0.5, params)
-        _, u3 = evaluate_win(7, 0.5, params)
+        params = PRESETS['wide']  # win_min_gap=5
+        _, u1 = evaluate_win(5, 0.5, params)
+        _, u2 = evaluate_win(6, 0.5, params)
+        _, u3 = evaluate_win(8, 0.5, params)
         assert u1 == 1
         assert u2 == 2
         assert u3 == 3
 
-    def test_aggressive_lower_gap(self):
-        """aggressive: win_min_gap=3"""
-        params = PRESETS['aggressive']
-        ok, _ = evaluate_win(3, 1.0, params)
-        assert ok is True
-
-    def test_conservative_higher_gap(self):
-        """conservative: win_min_gap=5"""
-        params = PRESETS['conservative']
-        ok, _ = evaluate_win(4, 0.5, params)
-        assert ok is False
-        ok, _ = evaluate_win(5, 0.5, params)
-        assert ok is True
+    def test_standard_stricter_than_wide(self):
+        """standard (gap>=6) は wide (gap>=5) より厳しい"""
+        params_std = PRESETS['standard']
+        params_wide = PRESETS['wide']
+        # gap=5 → wide OK, standard NG
+        ok_wide, _ = evaluate_win(5, 0.8, params_wide)
+        ok_std, _ = evaluate_win(5, 0.8, params_std)
+        assert ok_wide is True
+        assert ok_std is False
 
 
 # =====================================================================
-# evaluate_place
+# evaluate_place (カスタムパラメータでロジックテスト)
 # =====================================================================
 
 class TestEvaluatePlace:
-    """複勝評価テスト"""
+    """複勝評価テスト（全プリセットでPlace無効化のためカスタムparamsでテスト）"""
+
+    PLACE_PARAMS = BetStrategyParams(
+        win_min_gap=5,
+        place_min_gap=3,
+        place_max_margin=1.0,
+        place_min_ev=1.0,
+    )
 
     def test_pass_with_ev(self):
         """gap=4, margin=0.5, EV=1.2 → 通過"""
-        params = PRESETS['standard']
-        ok, kelly = evaluate_place(4, 0.5, 0.4, 3.0, params)
+        ok, kelly = evaluate_place(4, 0.5, 0.4, 3.0, self.PLACE_PARAMS)
         assert ok is True
         assert kelly > 0
 
     def test_fail_gap_too_small(self):
         """gap=2 < place_min_gap=3 → 不通過"""
-        params = PRESETS['standard']
-        ok, kelly = evaluate_place(2, 0.5, 0.4, 3.0, params)
+        ok, kelly = evaluate_place(2, 0.5, 0.4, 3.0, self.PLACE_PARAMS)
         assert ok is False
 
     def test_fail_margin_too_large(self):
         """margin=2.0 > 1.0 → 不通過"""
-        params = PRESETS['standard']
-        ok, _ = evaluate_place(4, 2.0, 0.4, 3.0, params)
+        ok, _ = evaluate_place(4, 2.0, 0.4, 3.0, self.PLACE_PARAMS)
         assert ok is False
 
     def test_fail_ev_too_low(self):
         """EV=0.8 < 1.0 → 不通過"""
-        params = PRESETS['standard']
         # p_top3=0.2, odds=4.0 → EV=0.8
-        ok, _ = evaluate_place(4, 0.5, 0.2, 4.0, params)
+        ok, _ = evaluate_place(4, 0.5, 0.2, 4.0, self.PLACE_PARAMS)
         assert ok is False
 
     def test_margin_none_passes(self):
         """margin=None → margin フィルタ skip"""
-        params = PRESETS['standard']
-        ok, kelly = evaluate_place(4, None, 0.5, 3.0, params)
+        ok, kelly = evaluate_place(4, None, 0.5, 3.0, self.PLACE_PARAMS)
         assert ok is True
 
     def test_no_odds_fallback(self):
         """オッズ不明 → gap のみで判定、固定サイズ"""
-        params = PRESETS['standard']
-        ok, kelly = evaluate_place(4, 0.5, None, None, params)
+        ok, kelly = evaluate_place(4, 0.5, None, None, self.PLACE_PARAMS)
         assert ok is True
         assert kelly == pytest.approx(0.02)
 
     def test_danger_raises_threshold(self):
         """danger → min_gap +2"""
-        params = PRESETS['standard']  # place_min_gap=3
-        ok, _ = evaluate_place(4, 0.5, 0.5, 3.0, params, is_danger=True)
+        ok, _ = evaluate_place(4, 0.5, 0.5, 3.0, self.PLACE_PARAMS, is_danger=True)
         assert ok is False  # 3+2=5 > 4
 
     def test_kelly_capped(self):
         """Kelly が kelly_cap を超えない"""
-        params = PRESETS['standard']
-        # High prob, high odds → large Kelly
-        ok, kelly = evaluate_place(5, 0.3, 0.8, 5.0, params)
+        ok, kelly = evaluate_place(5, 0.3, 0.8, 5.0, self.PLACE_PARAMS)
         assert ok is True
-        assert kelly <= params.kelly_cap
+        assert kelly <= self.PLACE_PARAMS.kelly_cap
+
+    def test_presets_disable_place(self):
+        """全プリセットでPlace無効化されていることを確認"""
+        for name, params in PRESETS.items():
+            ok, _ = evaluate_place(10, 0.1, 0.9, 5.0, params)
+            assert ok is False, f"preset {name} should disable place"
 
 
 # =====================================================================
@@ -344,7 +358,7 @@ class TestGenerateRecommendations:
             'entries': [
                 {
                     'umaban': 1, 'horse_name': 'Horse1',
-                    'odds': 15.0, 'vb_gap': 6, 'win_vb_gap': 5,
+                    'odds': 15.0, 'vb_gap': 6, 'win_vb_gap': 7,
                     'rank_v': 1, 'odds_rank': 7,
                     'place_odds_min': 3.5,
                     'pred_proba_v_raw': 0.45,
@@ -354,7 +368,7 @@ class TestGenerateRecommendations:
                 },
                 {
                     'umaban': 3, 'horse_name': 'Horse3',
-                    'odds': 8.0, 'vb_gap': 4, 'win_vb_gap': 4,
+                    'odds': 8.0, 'vb_gap': 4, 'win_vb_gap': 6,
                     'rank_v': 2, 'odds_rank': 6,
                     'place_odds_min': 2.5,
                     'pred_proba_v_raw': 0.40,
@@ -386,16 +400,16 @@ class TestGenerateRecommendations:
         }
 
     def test_standard_preset(self, sample_race):
-        """standard プリセットでの推奨生成"""
+        """standard プリセット (gap>=6) での推奨生成"""
         params = PRESETS['standard']
         recs = generate_recommendations([sample_race], params, budget=30000)
 
         assert len(recs) > 0
 
-        # Horse1 (gap=6, win_gap=5, margin=0.3) → 単勝 or 単複 候補
+        # Horse1 (win_gap=7 >= 6, margin=0.3) → 単勝候補
         h1 = [r for r in recs if r.umaban == 1]
         assert len(h1) == 1
-        assert h1[0].bet_type in ('単勝', '単複')
+        assert h1[0].bet_type == '単勝'
 
         # Horse5 (gap=0) → VB対象外
         h5 = [r for r in recs if r.umaban == 5]
@@ -405,13 +419,13 @@ class TestGenerateRecommendations:
         h7 = [r for r in recs if r.umaban == 7]
         assert len(h7) == 0
 
-    def test_conservative_fewer_bets(self, sample_race):
-        """conservative → standard より少ない推奨"""
+    def test_wide_more_bets_than_standard(self, sample_race):
+        """wide (gap>=5) → standard (gap>=6) より多い推奨"""
         params_std = PRESETS['standard']
-        params_con = PRESETS['conservative']
+        params_wide = PRESETS['wide']
         recs_std = generate_recommendations([sample_race], params_std, budget=30000)
-        recs_con = generate_recommendations([sample_race], params_con, budget=30000)
-        assert len(recs_con) <= len(recs_std)
+        recs_wide = generate_recommendations([sample_race], params_wide, budget=30000)
+        assert len(recs_wide) >= len(recs_std)
 
     def test_single_win_constraint_applied(self):
         """2馬が単勝候補 → 1馬だけ残る"""
@@ -421,7 +435,7 @@ class TestGenerateRecommendations:
             'entries': [
                 {
                     'umaban': 1, 'horse_name': 'A',
-                    'odds': 20.0, 'vb_gap': 6, 'win_vb_gap': 6,
+                    'odds': 20.0, 'vb_gap': 6, 'win_vb_gap': 8,
                     'rank_v': 1, 'odds_rank': 7,
                     'place_odds_min': 4.0,
                     'pred_proba_v_raw': 0.5,
@@ -431,7 +445,7 @@ class TestGenerateRecommendations:
                 },
                 {
                     'umaban': 2, 'horse_name': 'B',
-                    'odds': 15.0, 'vb_gap': 5, 'win_vb_gap': 5,
+                    'odds': 15.0, 'vb_gap': 5, 'win_vb_gap': 7,
                     'rank_v': 2, 'odds_rank': 7,
                     'place_odds_min': 3.5,
                     'pred_proba_v_raw': 0.45,
@@ -461,7 +475,7 @@ class TestGenerateRecommendations:
             'entries': [
                 {
                     'umaban': 1, 'horse_name': 'DangerHorse',
-                    'odds': 10.0, 'vb_gap': 4, 'win_vb_gap': 4,
+                    'odds': 10.0, 'vb_gap': 4, 'win_vb_gap': 6,
                     'rank_v': 1, 'odds_rank': 5,
                     'place_odds_min': 2.5,
                     'pred_proba_v_raw': 0.4,
@@ -471,12 +485,20 @@ class TestGenerateRecommendations:
                 },
             ],
         }
-        params = PRESETS['standard']
+        params = PRESETS['standard']  # win_min_gap=6
         recs = generate_recommendations([race], params, budget=30000)
 
-        # gap=4 < win_min_gap(4)+danger_boost(2)=6 → 単勝不可
-        # gap=4 < place_min_gap(3)+danger_boost(2)=5 → 複勝不可
+        # win_gap=6 < win_min_gap(6)+danger_boost(2)=8 → 単勝不可
+        # place_min_gap=99 → 複勝も不可
         assert len(recs) == 0
+
+    def test_win_only_no_place_bets(self, sample_race):
+        """全プリセットがWin-only: 複勝推奨が出ないことを確認"""
+        for name, params in PRESETS.items():
+            recs = generate_recommendations([sample_race], params, budget=30000)
+            for r in recs:
+                assert r.bet_type == '単勝', \
+                    f"preset {name}: unexpected bet_type {r.bet_type} for umaban {r.umaban}"
 
 
 # =====================================================================
@@ -566,25 +588,21 @@ class TestPresets:
 
     def test_all_presets_exist(self):
         assert 'standard' in PRESETS
-        assert 'conservative' in PRESETS
-        assert 'aggressive' in PRESETS
-        assert 'win_only' in PRESETS
+        assert 'wide' in PRESETS
 
-    def test_win_only_no_place(self):
-        w = PRESETS['win_only']
-        assert w.place_min_gap >= 90  # effectively disabled
-
-    def test_conservative_stricter(self):
+    def test_standard_stricter_than_wide(self):
         s = PRESETS['standard']
-        c = PRESETS['conservative']
-        assert c.win_min_gap >= s.win_min_gap
-        assert c.place_min_gap >= s.place_min_gap
-        assert c.win_max_margin <= s.win_max_margin
-        assert c.place_min_ev >= s.place_min_ev
+        w = PRESETS['wide']
+        assert s.win_min_gap > w.win_min_gap
 
-    def test_aggressive_looser(self):
-        s = PRESETS['standard']
-        a = PRESETS['aggressive']
-        assert a.win_min_gap <= s.win_min_gap
-        assert a.place_min_gap <= s.place_min_gap
-        assert a.win_max_margin >= s.win_max_margin
+    def test_both_win_only(self):
+        """両プリセットともPlace無効化"""
+        for name, params in PRESETS.items():
+            assert params.place_min_gap >= 90, \
+                f"preset {name} should disable place (place_min_gap={params.place_min_gap})"
+
+    def test_margin_same(self):
+        """両プリセットともmargin<=1.2"""
+        for name, params in PRESETS.items():
+            assert params.win_max_margin == 1.2, \
+                f"preset {name} has unexpected max_margin={params.win_max_margin}"

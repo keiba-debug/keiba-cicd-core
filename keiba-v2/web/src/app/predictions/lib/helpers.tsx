@@ -1,6 +1,42 @@
 import type { PredictionRace, PredictionEntry } from '@/lib/data/predictions-reader';
 import type { OddsMap, DangerInfo, SortDir, SortState } from './types';
 
+// --- ★スコア（おいしさ）---
+
+/** winGap + rating から★スコアを算出 (3=★★★, 2=★★, 1=★, 0=条件外) */
+export function getStarScore(winGap: number, rating: number): number {
+  if (rating < 56.6) return 0;
+  if (winGap >= 7) return 3;
+  if (winGap >= 6) return 2;
+  if (winGap >= 5) return 1;
+  return 0;
+}
+
+/** ★スコアの表示文字列 */
+export function getStarDisplay(score: number): string {
+  if (score >= 3) return '\u2605\u2605\u2605';
+  if (score === 2) return '\u2605\u2605';
+  if (score === 1) return '\u2605';
+  return '-';
+}
+
+/** ★スコアの色クラス */
+export function getStarColor(score: number): string {
+  if (score >= 3) return 'text-amber-500 font-bold';
+  if (score === 2) return 'text-indigo-500 font-bold';
+  if (score === 1) return 'text-gray-400';
+  return 'text-gray-300';
+}
+
+/** 能力R の色クラス (>=68 green, 58-68 normal, 56.6-58 yellow, <56.6 gray) */
+export function getRatingColor(rating: number | null | undefined): string {
+  if (rating == null) return 'text-gray-300';
+  if (rating >= 68) return 'text-green-600 font-bold';
+  if (rating >= 58) return '';
+  if (rating >= 56.6) return 'text-yellow-600';
+  return 'text-gray-400';
+}
+
 // --- 色・スタイル ---
 
 export function getGapColor(gap: number): string {

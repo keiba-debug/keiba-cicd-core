@@ -78,7 +78,7 @@ def predict_on_df(df, model_a, model_b, model_w, model_wv, model_reg_b, calibrat
     df['pred_proba_v'] = pred_b_cal
     df['pred_proba_w'] = pred_w_cal
     df['pred_proba_wv'] = pred_wv_cal
-    df['pred_margin_b'] = pred_reg
+    df['pred_margin_b'] = -pred_reg  # ability_score: 高い=強い
 
     # ランク
     df['pred_rank_a'] = df.groupby('race_id')['pred_proba_a'].rank(ascending=False, method='min')
@@ -93,8 +93,11 @@ def predict_on_df(df, model_a, model_b, model_w, model_wv, model_reg_b, calibrat
     # EV
     df['win_ev'] = pred_wv_cal * df['odds']
 
-    # margin (predicted)
-    df['margin'] = pred_reg
+    # ability_score (= -pred_margin, 高い=強い)
+    df['margin'] = -pred_reg  # NOTE: 変数名'margin'は互換性のため維持（意味は反転）
+
+    # 能力R (rating表示用: 74.3 + ability * 15.1)
+    df['rating'] = 74.3 + df['margin'] * 15.1
 
     # 月カラム
     df['month'] = df['date'].str[:7]  # YYYY-MM
@@ -161,24 +164,24 @@ def bootstrap_roi_ci(bets_df, n_bootstrap=2000, ci_level=0.95):
     }
 
 
-def filter_win_only(df, min_gap=5, max_margin=1.2):
-    """win_only条件でフィルタ: win_gap >= min_gap, margin <= max_margin, pred_rank_wv <= 3"""
+def filter_win_only(df, min_gap=5, min_ability=-1.2):
+    """win_only条件でフィルタ: win_gap >= min_gap, ability >= min_ability, pred_rank_wv <= 3"""
     mask = (
         (df['pred_rank_wv'] <= 3) &
         (df['win_gap'] >= min_gap) &
-        (df['margin'] <= max_margin) &
+        (df['margin'] >= min_ability) &
         (df['odds'] > 0)
     )
     return df[mask].copy()
 
 
-def filter_selective(df, min_gap=6, min_ev=1.2, max_margin=0.8):
-    """selective条件: win_gap >= min_gap, win_ev >= min_ev, margin <= max_margin"""
+def filter_selective(df, min_gap=6, min_ev=1.2, min_ability=-0.8):
+    """selective条件: win_gap >= min_gap, win_ev >= min_ev, ability >= min_ability"""
     mask = (
         (df['pred_rank_wv'] <= 3) &
         (df['win_gap'] >= min_gap) &
         (df['win_ev'] >= min_ev) &
-        (df['margin'] <= max_margin) &
+        (df['margin'] >= min_ability) &
         (df['odds'] > 0)
     )
     return df[mask].copy()
@@ -316,17 +319,17 @@ def main():
         hit_rate = wins / total_in_band * 100 if total_in_band > 0 else 0
         print(f"{label:>10} | {wins:>6} | {pct:>6.1f}% | {total_in_band:>8} | {hit_rate:>5.1f}%")
 
-    # margin帯別
-    print("\n--- margin帯別 (predicted_margin) ---")
-    print(f"{'margin帯':>10} | {'的中数':>6} | {'構成比':>7} | {'該当件数':>8} | {'的中率':>6}")
+    # ability帯別 (margin = ability_score, 高い=強い)
+    print("\n--- ability帯別 (ability_score) ---")
+    print(f"{'ability帯':>10} | {'的中数':>6} | {'構成比':>7} | {'該当件数':>8} | {'的中率':>6}")
     print("-" * 50)
-    for m_min, m_max, label in [(None, 0.8, '<=0.8'), (0.8, 1.0, '0.8-1.0'), (1.0, 1.2, '1.0-1.2')]:
-        if m_min is None:
-            w_mask = winners['margin'] <= m_max
-            t_mask = wo_all_bets['margin'] <= m_max
+    for a_lo, a_hi, label in [(-0.8, None, '>=-0.8'), (-1.0, -0.8, '-1.0~-0.8'), (-1.2, -1.0, '-1.2~-1.0')]:
+        if a_hi is None:
+            w_mask = winners['margin'] >= a_lo
+            t_mask = wo_all_bets['margin'] >= a_lo
         else:
-            w_mask = (winners['margin'] > m_min) & (winners['margin'] <= m_max)
-            t_mask = (wo_all_bets['margin'] > m_min) & (wo_all_bets['margin'] <= m_max)
+            w_mask = (winners['margin'] >= a_lo) & (winners['margin'] < a_hi)
+            t_mask = (wo_all_bets['margin'] >= a_lo) & (wo_all_bets['margin'] < a_hi)
         wins = w_mask.sum()
         total_in_band = t_mask.sum()
         pct = wins / total_wins * 100 if total_wins > 0 else 0
@@ -354,18 +357,18 @@ def main():
         hit_rate = wins / total_in_band * 100 if total_in_band > 0 else 0
         print(f"{label:>10} | {wins:>6} | {pct:>6.1f}% | {total_in_band:>8} | {hit_rate:>5.1f}%")
 
-    # gap × margin クロス集計
-    print("\n--- gap × margin クロス集計 (件数 / 的中数 / ROI) ---")
-    print(f"{'':>10} | {'m<=0.8':>18} | {'0.8<m<=1.0':>18} | {'1.0<m<=1.2':>18}")
+    # gap × ability クロス集計
+    print("\n--- gap × ability クロス集計 (件数 / 的中数 / ROI) ---")
+    print(f"{'':>10} | {'a>=-0.8':>18} | {'-1.0<=a<-0.8':>18} | {'-1.2<=a<-1.0':>18}")
     print("-" * 70)
     for gap_min, gap_max, label in [(5, 5, 'gap=5'), (6, 6, 'gap=6'), (7, 8, 'gap=7-8'), (9, 99, 'gap=9+')]:
         cells = []
-        for m_min, m_max in [(None, 0.8), (0.8, 1.0), (1.0, 1.2)]:
+        for a_lo, a_hi in [(-0.8, None), (-1.0, -0.8), (-1.2, -1.0)]:
             gap_mask = (wo_all_bets['win_gap'] >= gap_min) & (wo_all_bets['win_gap'] <= gap_max)
-            if m_min is None:
-                m_mask = wo_all_bets['margin'] <= m_max
+            if a_hi is None:
+                m_mask = wo_all_bets['margin'] >= a_lo
             else:
-                m_mask = (wo_all_bets['margin'] > m_min) & (wo_all_bets['margin'] <= m_max)
+                m_mask = (wo_all_bets['margin'] >= a_lo) & (wo_all_bets['margin'] < a_hi)
             cell = wo_all_bets[gap_mask & m_mask]
             n = len(cell)
             w = int(cell['is_win'].sum())
@@ -375,12 +378,12 @@ def main():
 
     # 的中馬の詳細リスト
     print("\n--- 的中馬リスト (Top 50) ---")
-    print(f"{'日付':>12} | {'馬名':>14} | {'オッズ':>6} | {'win_gap':>7} | {'margin':>7} | {'EV':>5}")
+    print(f"{'日付':>12} | {'馬名':>14} | {'オッズ':>6} | {'win_gap':>7} | {'能力R':>6} | {'EV':>5}")
     print("-" * 65)
     winners_sorted = winners.sort_values('date')
     for _, row in winners_sorted.head(50).iterrows():
         print(f"{row['date']:>12} | {row['horse_name']:>14} | {row['odds']:>6.1f} | "
-              f"{row['win_gap']:>7} | {row['margin']:>7.2f} | {row['win_ev']:>5.2f}")
+              f"{row['win_gap']:>7} | {row['rating']:>6.1f} | {row['win_ev']:>5.2f}")
 
     elapsed = time.time() - t0
     print(f"\n[Done] Elapsed: {elapsed:.1f}s")

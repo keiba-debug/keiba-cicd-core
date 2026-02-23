@@ -9,7 +9,7 @@ import type { OddsMap, DbResultsMap, SortState } from '../lib/types';
 import {
   getWinOdds, calcWinEv, getGapColor, getGapBg, getEvColor, getMarkColor,
   getTrackBadgeClass, getFinishColor, getPlaceLimit,
-  getRaceLink, getKoukakuDetail, getCommentColor, getCommentTooltip, SortTh,
+  getRaceLink, getCommentColor, getCommentTooltip, getRatingColor, SortTh,
 } from '../lib/helpers';
 
 interface RaceCardProps {
@@ -136,7 +136,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="乖離度 — 人気順位 - VR。大きいほど市場が過小評価">Gap</SortTh>
-                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ</SortTh>
+                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="能力R — 能力レーティング。高いほど強い">能力R</SortTh>
                 <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 text-gray-400" title="WVモデルECE=0.12のため参考値">単EV*</SortTh>
                 <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 市場モデルの3着内確率（%）">A%</SortTh>
                 <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 独自モデルの3着内確率（%）">V%</SortTh>
@@ -172,11 +172,6 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                     <td className="px-2 py-1 font-bold text-xs">
                       {entry.horse_name}
                       {isVB && <span className="ml-1 text-amber-500 text-[10px]">VB</span>}
-                      {(entry.koukaku_rote_count ?? 0) > 0 && (
-                        <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" title={getKoukakuDetail(entry)}>
-                          降格{(entry.koukaku_rote_count ?? 0) > 1 ? `×${entry.koukaku_rote_count}` : ''}
-                        </span>
-                      )}
                     </td>
                     <td className={`px-2 py-1 text-center ${getMarkColor(entry.kb_mark)}`}>
                       {entry.kb_mark || '-'}
@@ -207,10 +202,8 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                         </td>
                       );
                     })()}
-                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${
-                      entry.predicted_margin != null && entry.predicted_margin <= 1.2 ? 'text-green-600 font-bold' : entry.predicted_margin != null && entry.predicted_margin > 1.2 ? 'text-red-500' : 'text-gray-300'
-                    }`}>
-                      {entry.predicted_margin != null ? `${entry.predicted_margin.toFixed(2)}` : '-'}
+                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getRatingColor(entry.predicted_margin)}`}>
+                      {entry.predicted_margin != null ? entry.predicted_margin.toFixed(1) : '-'}
                     </td>
                     <td className="px-2 py-1 text-center font-mono text-xs text-gray-400" title="WVモデルECE=0.12のため参考値">
                       {ev !== null ? ev.toFixed(2) : '-'}

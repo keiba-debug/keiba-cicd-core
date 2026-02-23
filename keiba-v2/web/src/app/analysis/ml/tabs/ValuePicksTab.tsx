@@ -4,8 +4,8 @@ import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import type { ValueBetPick } from '../types';
 
-// Session 41 バックテスト最適値: margin<=1.0→107.7%, <=1.2→119.9%, <=1.5→113.0%
-const MARGIN_HIGHLIGHT_THRESHOLD = 1.2;
+// Session 41 バックテスト最適値: rating>=59.5→旧margin<=1.0, >=56.6→≤1.2
+const RATING_HIGHLIGHT_THRESHOLD = 56.6;
 
 export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
   const [minGap, setMinGap] = useState(3);
@@ -18,7 +18,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
     list = [...list].sort((a, b) => {
       if (sortKey === 'gap') return b.gap - a.gap || a.date.localeCompare(b.date);
       if (sortKey === 'date') return b.date.localeCompare(a.date) || b.gap - a.gap;
-      if (sortKey === 'margin') return (a.predicted_margin ?? 99) - (b.predicted_margin ?? 99) || b.gap - a.gap;
+      if (sortKey === 'margin') return (b.predicted_margin ?? -1) - (a.predicted_margin ?? -1) || b.gap - a.gap;
       return (b.odds ?? 0) - (a.odds ?? 0);
     });
     return list;
@@ -55,7 +55,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">並び順:</span>
-          {([['gap', 'Gap大'], ['date', '日付'], ['odds', 'オッズ'], ['margin', 'チャクラ']] as const).map(([k, l]) => (
+          {([['gap', 'Gap大'], ['date', '日付'], ['odds', 'オッズ'], ['margin', '能力R']] as const).map(([k, l]) => (
             <button key={k} onClick={() => setSortKey(k)}
               className={cn('rounded-md px-2.5 py-1 text-sm transition-colors',
                 sortKey === k
@@ -106,7 +106,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                 <th className="py-2 text-center">Gap</th>
                 <th className="py-2 text-right">オッズ</th>
                 <th className="py-2 text-right">V%</th>
-                <th className="py-2 text-right" title="チャクラ — 能力予測(秒)。低いほど勝ちに近い">チャクラ</th>
+                <th className="py-2 text-right" title="能力R — 能力レーティング。高いほど強い">能力R</th>
                 <th className="py-2 text-center">着順</th>
                 <th className="py-2 text-center">結果</th>
               </tr>
@@ -143,11 +143,11 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                       {(p.pred_proba_value * 100).toFixed(1)}
                     </td>
                     <td className={cn('py-1.5 text-right tabular-nums',
-                      p.predicted_margin != null && p.predicted_margin <= MARGIN_HIGHLIGHT_THRESHOLD
+                      p.predicted_margin != null && p.predicted_margin >= RATING_HIGHLIGHT_THRESHOLD
                         ? 'text-green-600 dark:text-green-400 font-medium'
                         : 'text-gray-500'
                     )}>
-                      {p.predicted_margin != null ? p.predicted_margin.toFixed(2) : '-'}
+                      {p.predicted_margin != null ? p.predicted_margin.toFixed(1) : '-'}
                     </td>
                     <td className="py-1.5 text-center tabular-nums font-medium">
                       <span className={cn(
