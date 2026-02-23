@@ -730,6 +730,21 @@ def predict_race(
     # ソート: Model B確率の高い順
     result_entries.sort(key=lambda x: -x['pred_proba_v'])
 
+    # AR偏差値を計算（レース内相対評価、mean=50, std=10）
+    ar_scores = [e['predicted_margin'] for e in result_entries
+                 if e['predicted_margin'] is not None]
+    if len(ar_scores) >= 2:
+        ar_mean = np.mean(ar_scores)
+        ar_std = max(np.std(ar_scores), 3.0)  # 少頭数のstd不安定対策: floor=3.0
+        for e in result_entries:
+            if e['predicted_margin'] is not None:
+                e['ar_deviation'] = round(50 + 10 * (e['predicted_margin'] - ar_mean) / ar_std, 1)
+            else:
+                e['ar_deviation'] = None
+    else:
+        for e in result_entries:
+            e['ar_deviation'] = 50.0  # AR情報不足時は全員50
+
     return {
         'race_id': race['race_id'],
         'date': race_date,
@@ -935,8 +950,10 @@ def main():
             'params': {
                 'win_min_gap': preset_params.win_min_gap,
                 'win_min_rating': preset_params.win_min_rating,
+                'win_min_ar_deviation': preset_params.win_min_ar_deviation,
                 'place_min_gap': preset_params.place_min_gap,
                 'place_min_rating': preset_params.place_min_rating,
+                'place_min_ar_deviation': preset_params.place_min_ar_deviation,
                 'place_min_ev': preset_params.place_min_ev,
                 'kelly_fraction': preset_params.kelly_fraction,
             },

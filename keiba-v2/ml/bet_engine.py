@@ -88,12 +88,14 @@ class BetStrategyParams:
     """戦略パラメータ"""
     # --- Win (rule-based) ---
     win_min_gap: int = 4
-    win_min_rating: float = 56.6    # AR >= this (高い=強い、56.6≈ability>=-1.2)
+    win_min_rating: float = 0.0      # AR絶対閾値 (0=無効、偏差値フィルタに移行)
+    win_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効, 45=推奨)
     # Win doesn't use EV filter (ECE=0.072 makes it unreliable)
 
     # --- Place (EV + Kelly) ---
     place_min_gap: int = 3
-    place_min_rating: float = 59.5   # AR >= this (59.5≈ability>=-1.0)
+    place_min_rating: float = 0.0     # AR絶対閾値 (0=無効)
+    place_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効)
     place_min_ev: float = 1.0
     kelly_fraction: float = 0.25      # 1/4 Kelly
     kelly_cap: float = 0.10           # max 10% of bankroll
@@ -108,20 +110,18 @@ class BetStrategyParams:
 
 
 # --- プリセット ---
-# v5.8月別分析結果 (14ヶ月, 2025/01-2026/02):
-#   standard: gap>=6, rating>=56.6 → ROI 177.2%, CI=[100.5-275.8%], 355件, P&L +27,410
-#   wide:     gap>=5, rating>=56.6 → ROI 135.0%, 625件, P&L +21,740
+# AR偏差値足切り: レース内相対評価で明らかにレベル不足の馬を除外
+# 偏差値45 ≈ 下位31%を除外（緩めの足切り）
 # Place ROI<100%のためWin-only推奨
-# NOTE: AR = 74.2 + ability_score * 14.7 + grade_offset。rating>=56.6は ability>=-1.2 と同等。
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
         win_min_gap=6,
-        win_min_rating=56.6,
+        win_min_ar_deviation=45.0,
         place_min_gap=99,   # Place無効化
     ),
     'wide': BetStrategyParams(
         win_min_gap=5,
-        win_min_rating=56.6,
+        win_min_ar_deviation=43.0,
         place_min_gap=99,   # Place無効化
     ),
 }
@@ -160,8 +160,9 @@ def evaluate_win(
     rating: Optional[float],
     params: BetStrategyParams,
     is_danger: bool = False,
+    ar_deviation: Optional[float] = None,
 ) -> Tuple[bool, int]:
-    """単勝評価 (rule-based: gap + 能力R)
+    """単勝評価 (rule-based: gap + AR偏差値足切り)
 
     Returns:
         (should_bet, units) — units は gap に比例するベット倍率
@@ -174,9 +175,15 @@ def evaluate_win(
     if gap < min_gap:
         return False, 0
 
-    # 能力R フィルタ (rating=None のときはスキップ: 回帰モデル未使用時)
-    if rating is not None and rating < params.win_min_rating:
-        return False, 0
+    # AR偏差値足切り (0=無効)
+    if params.win_min_ar_deviation > 0 and ar_deviation is not None:
+        if ar_deviation < params.win_min_ar_deviation:
+            return False, 0
+
+    # AR絶対閾値 (後方互換、0=無効)
+    if params.win_min_rating > 0 and rating is not None:
+        if rating < params.win_min_rating:
+            return False, 0
 
     # ベット倍率: gap が大きいほど厚く
     if gap >= min_gap + 3:
@@ -196,8 +203,9 @@ def evaluate_place(
     place_odds: Optional[float],
     params: BetStrategyParams,
     is_danger: bool = False,
+    ar_deviation: Optional[float] = None,
 ) -> Tuple[bool, float]:
-    """複勝評価 (gap + 能力R + EV + Kelly)
+    """複勝評価 (gap + AR偏差値足切り + EV + Kelly)
 
     Returns:
         (should_bet, kelly_fraction) — kelly_fraction は 0~kelly_cap の範囲
@@ -209,9 +217,15 @@ def evaluate_place(
     if gap < min_gap:
         return False, 0.0
 
-    # 能力R フィルタ
-    if rating is not None and rating < params.place_min_rating:
-        return False, 0.0
+    # AR偏差値足切り (0=無効)
+    if params.place_min_ar_deviation > 0 and ar_deviation is not None:
+        if ar_deviation < params.place_min_ar_deviation:
+            return False, 0.0
+
+    # AR絶対閾値 (後方互換、0=無効)
+    if params.place_min_rating > 0 and rating is not None:
+        if rating < params.place_min_rating:
+            return False, 0.0
 
     # EV フィルタ (確率・オッズがある場合)
     if p_top3 is not None and place_odds is not None and place_odds > 0:
@@ -321,6 +335,7 @@ def generate_recommendations(
             rank_v = e.get('rank_v', 99)
             odds_rank = e.get('odds_rank', 0) or 0
             margin = e.get('predicted_margin')
+            ar_dev = e.get('ar_deviation')
             p_top3_raw = e.get('pred_proba_v_raw')
             place_odds = e.get('place_odds_min')
             win_ev = e.get('win_ev')
@@ -335,12 +350,12 @@ def generate_recommendations(
 
             # --- 単勝評価 ---
             win_ok, win_units = evaluate_win(
-                win_gap, margin, params, is_danger,
+                win_gap, margin, params, is_danger, ar_deviation=ar_dev,
             )
 
             # --- 複勝評価 ---
             place_ok, kelly_frac = evaluate_place(
-                gap, margin, p_top3_raw, place_odds, params, is_danger,
+                gap, margin, p_top3_raw, place_odds, params, is_danger, ar_deviation=ar_dev,
             )
 
             if not win_ok and not place_ok:
@@ -564,6 +579,21 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
                 'is_win': int(row.get('is_win', 0)),
                 'is_top3': int(row.get('is_top3', 0)),
             })
+        # AR偏差値を計算（レース内相対評価、mean=50, std=10）
+        ar_scores = [e['predicted_margin'] for e in entries if e['predicted_margin'] is not None]
+        if len(ar_scores) >= 2:
+            import numpy as np
+            ar_mean = np.mean(ar_scores)
+            ar_std = max(np.std(ar_scores), 3.0)  # 少頭数のstd不安定対策
+            for e in entries:
+                if e['predicted_margin'] is not None:
+                    e['ar_deviation'] = round(50 + 10 * (e['predicted_margin'] - ar_mean) / ar_std, 1)
+                else:
+                    e['ar_deviation'] = None
+        else:
+            for e in entries:
+                e['ar_deviation'] = 50.0
+
         races.append({
             'race_id': str(race_id),
             'track_type': str(row.get('track_type_name', '')),

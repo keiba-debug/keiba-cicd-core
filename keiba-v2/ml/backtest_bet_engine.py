@@ -200,6 +200,91 @@ def main():
                   f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
                   f' {roi["win_hits"]:>5}')
 
+    # === AR偏差値足切りスイープ ===
+    print(f'\n{"=" * 70}')
+    print(f'  AR偏差値足切りスイープ (Method A)')
+    print(f'{"=" * 70}')
+    print(f'  {"win_gap":>8} {"min_dev":>8} {"Bets":>5} {"WinBet":>9} '
+          f'{"WinRet":>9} {"WinROI":>7} {"Hits":>5} {"HitRate":>8} '
+          f'{"P&L":>8} {"Grade分布"}')
+    print(f'  {"-" * 95}')
+
+    for win_gap in [5, 6]:
+        for min_dev in [0.0, 35.0, 40.0, 43.0, 45.0, 47.0, 50.0]:
+            params = BetStrategyParams(
+                win_min_gap=win_gap,
+                win_min_ar_deviation=min_dev,
+                place_min_gap=99,  # Place無効化
+            )
+            recs = generate_recommendations(race_preds, params, budget=30000)
+            if not recs:
+                continue
+            roi = calc_bet_engine_roi(recs, race_preds)
+
+            # グレード別件数集計
+            grade_counts = {}
+            for r in recs:
+                for race in race_preds:
+                    if race['race_id'] == r.race_id:
+                        g = race.get('grade', '?') or '?'
+                        grade_counts[g] = grade_counts.get(g, 0) + 1
+                        break
+
+            hit_rate = roi['win_hits'] / roi['num_bets'] * 100 if roi['num_bets'] > 0 else 0
+            pnl = roi['win_return'] - roi['win_bet']
+            dev_label = 'none' if min_dev == 0 else f'{min_dev:.0f}'
+            marker = ' ***' if roi['win_roi'] >= 100 else ''
+            grade_str = ' '.join(f'{g}:{c}' for g, c in sorted(grade_counts.items())[:5])
+            print(f'  {win_gap:>8} {dev_label:>8} {roi["num_bets"]:>5} '
+                  f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
+                  f' {roi["win_hits"]:>5} {hit_rate:>7.1f}%'
+                  f' {pnl:>+8,} {grade_str}')
+
+    # === 偏差値フィルタで削られた勝ち馬の確認 ===
+    print(f'\n{"=" * 70}')
+    print(f'  偏差値フィルタで削られた勝ち馬（gap>=6, dev<45）')
+    print(f'{"=" * 70}')
+
+    # gap>=6でフィルタなし版
+    params_no_filter = BetStrategyParams(
+        win_min_gap=6, win_min_ar_deviation=0.0, place_min_gap=99,
+    )
+    recs_no_filter = generate_recommendations(race_preds, params_no_filter, budget=30000)
+
+    # gap>=6でdev>=45版
+    params_dev45 = BetStrategyParams(
+        win_min_gap=6, win_min_ar_deviation=45.0, place_min_gap=99,
+    )
+    recs_dev45 = generate_recommendations(race_preds, params_dev45, budget=30000)
+
+    # 勝ち馬の差分を抽出
+    no_filter_wins = set()
+    for r in recs_no_filter:
+        for race in race_preds:
+            if race['race_id'] == r.race_id:
+                for e in race['entries']:
+                    if e['umaban'] == r.umaban and e.get('is_win', 0) == 1:
+                        no_filter_wins.add((r.race_id, r.umaban))
+                break
+
+    dev45_set = {(r.race_id, r.umaban) for r in recs_dev45}
+    lost_winners = no_filter_wins - {k for k in no_filter_wins if k in dev45_set}
+
+    if lost_winners:
+        print(f'  削られた勝ち馬: {len(lost_winners)}頭')
+        for race_id, umaban in sorted(lost_winners):
+            for race in race_preds:
+                if race['race_id'] == race_id:
+                    for e in race['entries']:
+                        if e['umaban'] == umaban:
+                            print(f'    {race_id} 馬番{umaban} {e.get("horse_name","")} '
+                                  f'AR={e.get("predicted_margin","?"):.1f} dev={e.get("ar_deviation","?"):.1f} '
+                                  f'odds={e.get("odds",0):.1f} gap={e.get("win_vb_gap",0)} '
+                                  f'grade={race.get("grade","")}')
+                    break
+    else:
+        print('  削られた勝ち馬: なし')
+
     print('\nDone.')
 
 
