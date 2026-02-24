@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-from core.config import data_root, ml_dir
+from core.config import data_root, ml_dir, keibabook_dir, races_dir
 from core import db
 
 
@@ -78,6 +78,8 @@ class RaceEntry:
     place_ev: float
     kb_mark: str = ''         # 競馬ブック印（後から連携）
     kb_mark_point: int = 0
+    jockey_code: str = ''     # 騎手コード（後から連携）
+    jockey_name: str = ''     # 騎手名
 
 
 @dataclass
@@ -254,6 +256,140 @@ def load_backtest_predictions() -> dict:
         )
 
     return index
+
+
+# ============================================================
+# Step 1c: 競馬ブック印・レースJSON連携
+# ============================================================
+
+def _race_id_to_date_parts(race_id: str) -> tuple:
+    """race_id(16桁)から年/月/日を抽出。"""
+    return race_id[:4], race_id[4:6], race_id[6:8]
+
+
+def enrich_with_keibabook(pred_index: dict) -> int:
+    """
+    予測データにkb_ext(競馬ブック印)を連携する。
+    Returns: 連携できたレース数
+    """
+    linked = 0
+    for race_id, pred in pred_index.items():
+        yyyy, mm, dd = _race_id_to_date_parts(race_id)
+        kb_path = keibabook_dir() / yyyy / mm / dd / f'kb_ext_{race_id}.json'
+        if not kb_path.exists():
+            continue
+
+        try:
+            with open(kb_path, encoding='utf-8') as f:
+                kb_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        kb_entries = kb_data.get('entries', {})
+        for entry in pred.entries:
+            uma_key = str(entry.umaban)
+            kb_entry = kb_entries.get(uma_key, {})
+            entry.kb_mark = kb_entry.get('honshi_mark', '') or ''
+            entry.kb_mark_point = int(kb_entry.get('mark_point', 0) or 0)
+
+        linked += 1
+
+    return linked
+
+
+@dataclass
+class RaceExtra:
+    """レースJSON由来の追加情報"""
+    race_id: str
+    grade: str = ''
+    track_type: str = ''
+    track_condition: str = ''
+    distance: int = 0
+    num_runners: int = 0
+    race_name: str = ''
+    venue_name: str = ''
+    popularity_winner: int = 0  # 勝ち馬の人気順
+
+
+def load_race_extras(race_ids: set) -> dict:
+    """
+    レースJSONから追加情報を取得。
+    Returns: race_id → RaceExtra の辞書
+    """
+    extras = {}
+    for race_id in race_ids:
+        yyyy, mm, dd = _race_id_to_date_parts(race_id)
+        race_path = races_dir() / yyyy / mm / dd / f'race_{race_id}.json'
+        if not race_path.exists():
+            continue
+
+        try:
+            with open(race_path, encoding='utf-8') as f:
+                race_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        # 勝ち馬の人気を取得
+        pop_winner = 0
+        for e in race_data.get('entries', []):
+            if e.get('finish_position') == 1:
+                pop_winner = int(e.get('popularity', 0) or 0)
+                break
+
+        extras[race_id] = RaceExtra(
+            race_id=race_id,
+            grade=race_data.get('grade', ''),
+            track_type=race_data.get('track_type', ''),
+            track_condition=race_data.get('track_condition', ''),
+            distance=int(race_data.get('distance', 0) or 0),
+            num_runners=int(race_data.get('num_runners', 0) or 0),
+            race_name=race_data.get('race_name', ''),
+            venue_name=race_data.get('venue_name', ''),
+            popularity_winner=pop_winner,
+        )
+
+    return extras
+
+
+def enrich_with_jockey_info(pred_index: dict, race_ids: set) -> int:
+    """
+    レースJSONから騎手情報を読み込んでRaceEntryに付与する。
+    Returns: 連携できたレース数
+    """
+    linked = 0
+    for race_id in race_ids:
+        pred = pred_index.get(race_id)
+        if not pred:
+            continue
+
+        yyyy, mm, dd = _race_id_to_date_parts(race_id)
+        race_path = races_dir() / yyyy / mm / dd / f'race_{race_id}.json'
+        if not race_path.exists():
+            continue
+
+        try:
+            with open(race_path, encoding='utf-8') as f:
+                race_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        # umaban → jockey マッピング
+        jockey_by_uma = {}
+        for e in race_data.get('entries', []):
+            uma = int(e.get('umaban', 0) or 0)
+            jockey_by_uma[uma] = {
+                'code': (e.get('jockey_code') or '').strip(),
+                'name': (e.get('jockey_name') or '').strip(),
+            }
+
+        for entry in pred.entries:
+            jinfo = jockey_by_uma.get(entry.umaban, {})
+            entry.jockey_code = jinfo.get('code', '')
+            entry.jockey_name = jinfo.get('name', '')
+
+        linked += 1
+
+    return linked
 
 
 # ============================================================
@@ -470,6 +606,16 @@ STRATEGIES = {
     'budget_tight': lambda pred, rt: strategy_budget(pred, rt, 'tight'),
     'budget_normal': lambda pred, rt: strategy_budget(pred, rt, 'normal'),
     'budget_wide': lambda pred, rt: strategy_budget(pred, rt, 'wide'),
+    # 人気順（市場オッズ）ベース ← AI予測との比較用
+    'pop_top1': lambda pred, rt: sorted(pred.entries, key=lambda e: e.odds_rank)[:1],
+    'pop_top2': lambda pred, rt: sorted(pred.entries, key=lambda e: e.odds_rank)[:2],
+    'pop_top3': lambda pred, rt: sorted(pred.entries, key=lambda e: e.odds_rank)[:3],
+    'pop_top5': lambda pred, rt: sorted(pred.entries, key=lambda e: e.odds_rank)[:5],
+    # 競馬ブック◎印ベース
+    'kb_honmei': lambda pred, rt: [e for e in pred.entries if e.kb_mark == '◎'] or
+        sorted(pred.entries, key=lambda e: -e.kb_mark_point)[:1],
+    'kb_top2': lambda pred, rt: sorted(pred.entries, key=lambda e: -e.kb_mark_point)[:2],
+    'kb_top3': lambda pred, rt: sorted(pred.entries, key=lambda e: -e.kb_mark_point)[:3],
 }
 
 
@@ -678,6 +824,7 @@ def print_hit_details(results: list):
 def build_aggregation_tables(
     weeks: list,
     pred_index: dict,
+    race_extras: dict = None,
 ) -> dict:
     """
     集計テーブル①〜④を構築する汎用関数。
@@ -805,6 +952,135 @@ def build_aggregation_tables(
 
     tables['payout_composition'] = table4
 
+    # ---- 集計⑤: 人気順別勝利数 ----
+    pop_bins = list(range(1, 19))  # 1-18番人気
+    table5 = {f'{p}番人気': {'R1': 0, 'R2': 0, 'R3': 0, 'R4': 0, 'R5': 0, 'total': 0}
+              for p in pop_bins}
+
+    for rd in all_race_data:
+        if not rd['winner']:
+            continue
+        pop = rd['winner'].odds_rank
+        if 1 <= pop <= 18:
+            key = f'{pop}番人気'
+            race_key = f'R{rd["race_idx"] + 1}'
+            table5[key][race_key] += 1
+            table5[key]['total'] += 1
+
+    tables['popularity_wins'] = table5
+
+    # ---- 集計⑥: グレード別の予測精度 ----
+    if race_extras:
+        grade_stats = defaultdict(lambda: {'total': 0, 'v_top1': 0, 'v_top3': 0, 'v_top5': 0,
+                                           'pop_top1': 0, 'pop_top3': 0})
+        for rd in all_race_data:
+            if not rd['winner']:
+                continue
+            extra = race_extras.get(rd['race_id'])
+            grade = extra.grade if extra else rd['pred'].grade or '不明'
+            if not grade:
+                grade = '不明'
+            gs = grade_stats[grade]
+            gs['total'] += 1
+            w = rd['winner']
+            if w.rank_v <= 1:
+                gs['v_top1'] += 1
+            if w.rank_v <= 3:
+                gs['v_top3'] += 1
+            if w.rank_v <= 5:
+                gs['v_top5'] += 1
+            if w.odds_rank <= 1:
+                gs['pop_top1'] += 1
+            if w.odds_rank <= 3:
+                gs['pop_top3'] += 1
+
+        tables['grade_accuracy'] = dict(grade_stats)
+
+    # ---- 集計⑦: 馬場状態別の予測精度 ----
+    if race_extras:
+        baba_stats = defaultdict(lambda: {'total': 0, 'v_top1': 0, 'v_top3': 0, 'v_top5': 0,
+                                          'pop_top1': 0, 'pop_top3': 0})
+        for rd in all_race_data:
+            if not rd['winner']:
+                continue
+            extra = race_extras.get(rd['race_id'])
+            baba = extra.track_condition if extra else '不明'
+            if not baba:
+                baba = '不明'
+            bs = baba_stats[baba]
+            bs['total'] += 1
+            w = rd['winner']
+            if w.rank_v <= 1:
+                bs['v_top1'] += 1
+            if w.rank_v <= 3:
+                bs['v_top3'] += 1
+            if w.rank_v <= 5:
+                bs['v_top5'] += 1
+            if w.odds_rank <= 1:
+                bs['pop_top1'] += 1
+            if w.odds_rank <= 3:
+                bs['pop_top3'] += 1
+
+        tables['track_condition_accuracy'] = dict(baba_stats)
+
+    # ---- 集計⑧: 騎手別 WIN5対象レース勝率 ----
+    jockey_stats = defaultdict(lambda: {
+        'rides': 0, 'wins': 0, 'v_top1_rides': 0, 'v_top1_match': 0,
+    })
+    for rd in all_race_data:
+        for e in rd['pred'].entries:
+            if not e.jockey_code:
+                continue
+            key = e.jockey_code
+            js = jockey_stats[key]
+            js['name'] = e.jockey_name
+            js['rides'] += 1
+            if e.is_win:
+                js['wins'] += 1
+            if e.rank_v == 1:
+                js['v_top1_rides'] += 1
+                if e.is_win:
+                    js['v_top1_match'] += 1
+
+    tables['jockey_wins'] = dict(jockey_stats)
+
+    # ---- 集計⑨: 騎手×ARd 複合勝率 ----
+    # 勝利数上位5騎手を特定（安定した主戦騎手）
+    top5_jockeys = sorted(
+        [(code, s) for code, s in jockey_stats.items() if s['rides'] >= 10],
+        key=lambda x: (-x[1]['wins'], -x[1]['rides'])
+    )[:5]
+    top5_codes = {code for code, _ in top5_jockeys}
+
+    jockey_ard_combos = [
+        ('ARd>=65 & 勝率上位5騎手',
+         lambda e: e.ar_deviation >= 65 and e.jockey_code in top5_codes),
+        ('ARd>=65 & その他騎手',
+         lambda e: e.ar_deviation >= 65 and e.jockey_code not in top5_codes),
+        ('ARd55-64 & 勝率上位5騎手',
+         lambda e: 55 <= e.ar_deviation < 65 and e.jockey_code in top5_codes),
+        ('ARd<45 & 勝率上位5騎手',
+         lambda e: e.ar_deviation < 45 and e.jockey_code in top5_codes),
+    ]
+    table9 = {}
+    for label, fn in jockey_ard_combos:
+        matches = 0
+        wins = 0
+        for rd in all_race_data:
+            for e in rd['pred'].entries:
+                if fn(e):
+                    matches += 1
+                    if e.is_win:
+                        wins += 1
+        table9[label] = {
+            'count': matches,
+            'wins': wins,
+            'win_rate': wins / matches if matches > 0 else 0,
+        }
+
+    tables['jockey_ard_combo'] = table9
+    tables['_top5_jockeys'] = [(code, s['name']) for code, s in top5_jockeys]
+
     return tables
 
 
@@ -846,6 +1122,85 @@ def print_aggregation_tables(tables: dict):
     print(f'  {"払戻帯":15s} {"週数":>5s} {"1番人気勝利":>10s} {"ARd>=65勝利":>10s}')
     for label, row in tables['payout_composition'].items():
         print(f'  {label:15s} {row["weeks"]:5d} {row["pop1_wins"]:10d} {row["ard65_wins"]:10d}')
+
+    # 集計⑤: 人気順別勝利数
+    if 'popularity_wins' in tables:
+        print('\n' + '=' * 70)
+        print('  集計⑤: 人気順別勝利数')
+        print('=' * 70)
+        print(f'  {"人気":10s} {"R1":>4s} {"R2":>4s} {"R3":>4s} {"R4":>4s} {"R5":>4s} {"合計":>5s}')
+        for label, row in tables['popularity_wins'].items():
+            if row['total'] > 0:
+                print(f'  {label:10s} {row["R1"]:4d} {row["R2"]:4d} {row["R3"]:4d} '
+                      f'{row["R4"]:4d} {row["R5"]:4d} {row["total"]:5d}')
+
+    # 集計⑥: グレード別精度
+    if 'grade_accuracy' in tables:
+        print('\n' + '=' * 70)
+        print('  集計⑥: グレード別 予測精度 (rank_v vs 人気順)')
+        print('=' * 70)
+        print(f'  {"グレード":10s} {"レース数":>7s} {"v_Top1":>7s} {"v_Top3":>7s} {"v_Top5":>7s} '
+              f'{"人気Top1":>8s} {"人気Top3":>8s}')
+        for grade in sorted(tables['grade_accuracy'].keys()):
+            gs = tables['grade_accuracy'][grade]
+            n = gs['total']
+            if n == 0:
+                continue
+            print(f'  {grade:10s} {n:7d} '
+                  f'{gs["v_top1"]/n*100:6.1f}% {gs["v_top3"]/n*100:6.1f}% {gs["v_top5"]/n*100:6.1f}% '
+                  f'{gs["pop_top1"]/n*100:7.1f}% {gs["pop_top3"]/n*100:7.1f}%')
+
+    # 集計⑦: 馬場状態別精度
+    if 'track_condition_accuracy' in tables:
+        print('\n' + '=' * 70)
+        print('  集計⑦: 馬場状態別 予測精度 (rank_v vs 人気順)')
+        print('=' * 70)
+        print(f'  {"馬場":10s} {"レース数":>7s} {"v_Top1":>7s} {"v_Top3":>7s} {"v_Top5":>7s} '
+              f'{"人気Top1":>8s} {"人気Top3":>8s}')
+        for baba in ['良', '稍重', '重', '不良', '不明']:
+            bs = tables['track_condition_accuracy'].get(baba)
+            if not bs or bs['total'] == 0:
+                continue
+            n = bs['total']
+            print(f'  {baba:10s} {n:7d} '
+                  f'{bs["v_top1"]/n*100:6.1f}% {bs["v_top3"]/n*100:6.1f}% {bs["v_top5"]/n*100:6.1f}% '
+                  f'{bs["pop_top1"]/n*100:7.1f}% {bs["pop_top3"]/n*100:7.1f}%')
+
+    # 集計⑧: 騎手別勝率
+    if 'jockey_wins' in tables:
+        print('\n' + '=' * 70)
+        print('  集計⑧: 騎手別 WIN5対象レース勝率（上位20名）')
+        print('=' * 70)
+        jw = tables['jockey_wins']
+        # 勝利数降順でソート
+        sorted_j = sorted(
+            [(code, s) for code, s in jw.items() if s['wins'] > 0],
+            key=lambda x: (-x[1]['wins'], -x[1]['rides'])
+        )[:20]
+        print(f'  {"騎手名":10s} {"騎乗数":>6s} {"勝利数":>6s} {"勝率":>7s} '
+              f'{"v_Top1騎乗":>8s} {"v_Top1一致":>8s}')
+        for code, s in sorted_j:
+            rides = s['rides']
+            wins = s['wins']
+            v1_rides = s['v_top1_rides']
+            v1_match = s['v_top1_match']
+            name = s.get('name', code)
+            print(f'  {name:10s} {rides:6d} {wins:6d} {wins/rides*100:6.1f}% '
+                  f'{v1_rides:8d} {v1_match:8d}')
+
+        # 上位5騎手の合計
+        top5_info = tables.get('_top5_jockeys', [])
+        if top5_info:
+            print(f'\n  勝率上位5騎手: {", ".join(name for _, name in top5_info)}')
+
+    # 集計⑨: 騎手×ARd複合勝率
+    if 'jockey_ard_combo' in tables:
+        print('\n' + '=' * 70)
+        print('  集計⑨: 騎手×ARd 複合勝率')
+        print('=' * 70)
+        print(f'  {"条件":30s} {"勝率":>7s} {"件数":>6s}')
+        for label, row in tables['jockey_ard_combo'].items():
+            print(f'  {label:30s} {row["win_rate"]*100:6.1f}% {row["count"]:5d}')
 
 
 # ============================================================
@@ -959,6 +1314,10 @@ def main():
     pred_index = load_backtest_predictions()
     print(f'  {len(pred_index)}レースの予測データ')
 
+    print('[Load] 競馬ブック印 (kb_ext)...')
+    kb_linked = enrich_with_keibabook(pred_index)
+    print(f'  {kb_linked}/{len(pred_index)}レースにkb_mark連携')
+
     # 予測データとマッチする週を抽出
     matched_weeks = []
     for week in weeks:
@@ -1001,9 +1360,22 @@ def main():
     # 勝ち馬ランク分析
     analyze_winner_ranks(matched_weeks, pred_index)
 
-    # 集計テーブル①〜④
+    # レースJSON追加情報ロード
+    print('\n[Load] レースJSON (グレード・馬場・距離・騎手)...')
+    win5_race_ids = set()
+    for week in matched_weeks:
+        for race in week.races:
+            win5_race_ids.add(race.race_id)
+    race_extras = load_race_extras(win5_race_ids)
+    print(f'  {len(race_extras)}/{len(win5_race_ids)}レースのJSON読み込み')
+
+    # 騎手情報連携
+    jockey_linked = enrich_with_jockey_info(pred_index, win5_race_ids)
+    print(f'  {jockey_linked}/{len(win5_race_ids)}レースに騎手情報連携')
+
+    # 集計テーブル①〜⑦
     print('\n[Aggregate] 集計テーブル作成中...')
-    tables = build_aggregation_tables(matched_weeks, pred_index)
+    tables = build_aggregation_tables(matched_weeks, pred_index, race_extras)
     print_aggregation_tables(tables)
 
     # あきらめ基準の判定
