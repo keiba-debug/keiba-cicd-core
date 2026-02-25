@@ -40,11 +40,14 @@ def compute_past_features(
     distance: int,
     entry_count: int,
     history_cache: dict,
+    race_level_index: dict = None,
 ) -> dict:
     """
     馬の過去走成績から特徴量を計算。
 
     時系列リーク防止: race_date より前のレースのみ使用。
+
+    v5.6: race_level_index を使った前走レースレベル特徴量追加
     """
     result = {
         'avg_finish_last3': -1,
@@ -71,6 +74,10 @@ def compute_past_features(
         'track_type_top3_rate_smoothed': None,
         'distance_fitness_smoothed': None,
         'career_stage': 0,  # 0=debut, 1=2戦目, 2=3-5戦, 3=6-10戦, 4=11+
+        # v5.6: 前走レースレベル
+        'prev_race_level_vs_class': None,
+        'avg_race_level_last3': None,
+        'prev_race_level_rank': None,
     }
 
     runs = history_cache.get(ketto_num, [])
@@ -205,5 +212,28 @@ def compute_past_features(
     if prev_ec > 0:
         result['prev_race_entry_count'] = prev_ec
         result['entry_count_change'] = entry_count - prev_ec
+
+    # v5.6: 前走レースレベル特徴量
+    if race_level_index:
+        _LEVEL_RANK_MAP = {'H': 2, 'M': 1, 'L': 0}
+
+        # 前走レースレベル
+        prev_rid = last_race.get('race_id', '')
+        prev_level = race_level_index.get(prev_rid)
+        if prev_level:
+            result['prev_race_level_vs_class'] = prev_level.get('level_vs_class')
+            result['prev_race_level_rank'] = _LEVEL_RANK_MAP.get(
+                prev_level.get('level_rank', ''), None)
+
+        # 直近3走の平均レースレベル
+        level_vals = []
+        for r in last3:
+            rid = r.get('race_id', '')
+            lv = race_level_index.get(rid)
+            if lv and lv.get('level_vs_class') is not None:
+                level_vals.append(lv['level_vs_class'])
+        if level_vals:
+            result['avg_race_level_last3'] = round(
+                sum(level_vals) / len(level_vals), 2)
 
     return result

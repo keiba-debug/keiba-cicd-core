@@ -27,6 +27,7 @@ export interface V4RaceEntry {
   horse_weight_diff: string;
   finish_position: number;
   time: string;
+  margin: string;
   last_3f: string;
   odds: number;
   popularity: number;

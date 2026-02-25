@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 // スタートメモのプリセット
 const START_MEMO_PRESETS = [
@@ -67,6 +68,7 @@ interface HorsePositionData {
   predictedPosition: '逃げ' | '好位' | '中位' | '後方' | null; // 予想での位置
   actualGroup: '逃げ' | '好位' | '中位' | '後方'; // 実際の位置グループ
   innerOuter: '内' | '中' | '外'; // 内外推定
+  isSlowStart: boolean; // 出遅れフラグ
 }
 
 // 丸数字を数値に変換するマップ
@@ -292,6 +294,7 @@ export default function EarlyPositionComparison({
         predictedPosition: predictedPositionMap.get(e.horse_number) || null,
         actualGroup: getPositionGroup(firstCornerPos, entries.length),
         innerOuter,
+        isSlowStart: e.is_slow_start || false,
       };
     })
     // ソート: 内外順（内→中→外）を第一キー、馬番を第二キー
@@ -440,8 +443,15 @@ export default function EarlyPositionComparison({
                         </td>
 
                         {/* 馬名（短縮表示） */}
-                        <td className="px-1 py-2 font-medium text-xs truncate max-w-16" title={horse.horseName}>
-                          {horse.horseName.slice(0, 5)}
+                        <td className="px-1 py-2 font-medium text-xs max-w-20" title={horse.horseName}>
+                          <span className="flex items-center gap-0.5">
+                            <span className="truncate">{horse.horseName.slice(0, 5)}</span>
+                            {horse.isSlowStart && (
+                              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[9px] font-bold shrink-0" title="出遅れ">
+                                遅
+                              </span>
+                            )}
+                          </span>
                         </td>
 
                         {/* 内外 */}
@@ -711,24 +721,37 @@ function PositionDiagram({ groups, showInnerOuter, type }: PositionDiagramProps)
 }
 
 // 馬マーカー（内外表示付き）
-function HorseMarkerWithInnerOuter({ 
-  horse, 
-  showInnerOuter 
-}: { 
-  horse: HorsePositionData; 
+function HorseMarkerWithInnerOuter({
+  horse,
+  showInnerOuter
+}: {
+  horse: HorsePositionData;
   showInnerOuter: boolean;
 }) {
   const circleNum = toCircleNumber(horse.horseNumber);
-  
+
   return (
-    <div 
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white dark:bg-gray-900 rounded border text-xs"
-      title={`${horse.horseName} (${horse.waku}枠)`}
+    <div
+      className={cn(
+        "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-xs",
+        horse.isSlowStart
+          ? "bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700"
+          : "bg-white dark:bg-gray-900"
+      )}
+      title={`${horse.horseName} (${horse.waku}枠)${horse.isSlowStart ? ' 出遅れ' : ''}`}
     >
       <span className="font-bold">{circleNum}</span>
-      <span className="text-gray-500 truncate max-w-12 text-[10px]">
+      <span className={cn(
+        "truncate max-w-12 text-[10px]",
+        horse.isSlowStart ? "text-red-600 dark:text-red-400" : "text-gray-500"
+      )}>
         {horse.horseName.slice(0, 4)}
       </span>
+      {horse.isSlowStart && (
+        <span className="text-[9px] px-0.5 rounded bg-red-200 dark:bg-red-800 text-red-700 dark:text-red-300 font-bold">
+          遅
+        </span>
+      )}
       {showInnerOuter && (
         <span className={`text-[9px] px-1 rounded ${
           horse.innerOuter === '内' ? 'bg-green-200 text-green-700' :

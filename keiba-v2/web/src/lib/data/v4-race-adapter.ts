@@ -252,7 +252,7 @@ function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null, raceFirst3f: string)
       ? {
           finish_position: String(v4.finish_position),
           time: String(v4.time),
-          margin: '',
+          margin: v4.margin || '',
           last_3f: String(v4.last_3f),
           passing_orders: v4.corners.join('-'),
           last_corner_position: v4.corners.length > 0 ? String(v4.corners[v4.corners.length - 1]) : '',
@@ -328,5 +328,6 @@ function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null, raceFirst3f: string)
     oikiri_summary: oikiriSummary,
     past_performances: pastPerformances,
     history_features: historyFeatures,
+    is_slow_start: kb?.is_slow_start || false,
   };
 }

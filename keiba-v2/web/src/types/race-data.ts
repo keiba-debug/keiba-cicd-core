@@ -216,6 +216,7 @@ export interface HorseEntry {
   oikiri_summary?: OikiriSummary | null;
   past_performances: PastPerformances;
   history_features: HistoryFeatures | null;
+  is_slow_start?: boolean;
 }
 
 // ==========================================

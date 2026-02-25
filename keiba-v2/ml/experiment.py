@@ -56,6 +56,8 @@ PAST_FEATURES = [
     'win_rate_smoothed', 'top3_rate_smoothed',
     'venue_top3_rate_smoothed', 'track_type_top3_rate_smoothed',
     'distance_fitness_smoothed', 'career_stage',
+    # v5.6: 前走レースレベル
+    'prev_race_level_vs_class', 'avg_race_level_last3', 'prev_race_level_rank',
 ]
 
 # 調教師特徴量（100%マッチ）
@@ -66,6 +68,8 @@ TRAINER_FEATURES = [
 # 騎手特徴量
 JOCKEY_FEATURES = [
     'jockey_win_rate', 'jockey_top3_rate', 'jockey_venue_top3_rate',
+    # v5.6: 接戦勝率
+    'jockey_close_win_rate',
 ]
 
 # 脚質特徴量 (v3.1)
@@ -360,7 +364,7 @@ def build_training_summary_index(date_index: dict) -> dict:
     return ts_index
 
 
-def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict]:
+def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
     """data3からデータをロード"""
     print("[Load] Loading data3...")
 
@@ -390,6 +394,16 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict]:
         date_index = json.load(f)
     print(f"  Date index: {len(date_index):,} dates")
 
+    # Race level index (v5.6)
+    rl_path = config.indexes_dir() / "race_level_index.json"
+    race_level_index = {}
+    if rl_path.exists():
+        with open(rl_path, encoding='utf-8') as f:
+            race_level_index = json.load(f)
+        print(f"  Race level index: {len(race_level_index):,} races")
+    else:
+        print("  Race level index: NOT FOUND (skipping)")
+
     # Pace index
     pace_index = build_pace_index(date_index)
 
@@ -400,7 +414,8 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict]:
     training_summary_index = build_training_summary_index(date_index)
 
     return (history_cache, trainer_index, jockey_index,
-            date_index, pace_index, kb_ext_index, training_summary_index)
+            date_index, pace_index, kb_ext_index, training_summary_index,
+            race_level_index)
 
 
 def compute_features_for_race(
@@ -413,6 +428,7 @@ def compute_features_for_race(
     db_odds: dict = None,
     training_summary_index: dict = None,
     db_place_odds: dict = None,
+    race_level_index: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
@@ -420,6 +436,7 @@ def compute_features_for_race(
         db_odds: mykeibadbから取得した事前オッズ {umaban: {'odds': float, 'ninki': int}}
         training_summary_index: CK_DATA調教サマリ {date_str: {ketto_num: summary}}
         db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
+        race_level_index: レースレベルインデックス {race_id: {level_vs_class, level_rank, ...}}
     """
     from ml.features.base_features import extract_base_features
     from ml.features.past_features import compute_past_features
@@ -490,6 +507,7 @@ def compute_features_for_race(
             distance=distance,
             entry_count=entry_count,
             history_cache=history_cache,
+            race_level_index=race_level_index,
         )
         feat.update(past)
 
@@ -608,12 +626,14 @@ def build_dataset(
     max_year: int,
     use_db_odds: bool = True,
     training_summary_index: dict = None,
+    race_level_index: dict = None,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
 
     Args:
         use_db_odds: True=mykeibadbから事前オッズ取得, False=JSON確定オッズ（従来動作）
         training_summary_index: CK_DATA調教サマリインデックス
+        race_level_index: レースレベルインデックス
     """
     print(f"\n[Build] Building dataset for {min_year}-{max_year}...")
 
@@ -661,6 +681,7 @@ def build_dataset(
                 db_odds=db_odds_index.get(race_id),
                 training_summary_index=training_summary_index,
                 db_place_odds=db_place_odds_index.get(race_id),
+                race_level_index=race_level_index,
             )
             all_rows.extend(rows)
             race_count += 1
@@ -1523,23 +1544,27 @@ def main():
 
     # データロード
     (history_cache, trainer_index, jockey_index,
-     date_index, pace_index, kb_ext_index, training_summary_index) = load_data()
+     date_index, pace_index, kb_ext_index, training_summary_index,
+     race_level_index) = load_data()
 
     # データセット構築（3-way split）
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, train_min, train_max, use_db_odds=use_db_odds,
         training_summary_index=training_summary_index,
+        race_level_index=race_level_index,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, val_min, val_max, use_db_odds=use_db_odds,
         training_summary_index=training_summary_index,
+        race_level_index=race_level_index,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, test_min, test_max, use_db_odds=use_db_odds,
         training_summary_index=training_summary_index,
+        race_level_index=race_level_index,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "

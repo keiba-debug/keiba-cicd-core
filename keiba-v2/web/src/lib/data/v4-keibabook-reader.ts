@@ -50,6 +50,7 @@ export interface KbEntryExt {
     mark_score: number;
     comment: string;
   } | null;
+  is_slow_start?: boolean;
   cyokyo_detail?: {
     sessions: Array<{
       is_oikiri: boolean;

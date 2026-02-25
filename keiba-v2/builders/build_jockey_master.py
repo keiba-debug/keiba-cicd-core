@@ -92,11 +92,89 @@ def build_jockey_stats(years: List[int]) -> Dict[str, Dict]:
     return jockeys
 
 
-def finalize_stats(jockeys: Dict[str, Dict]) -> List[Dict]:
+def build_close_finish_stats(years: List[int]) -> Dict[str, Dict]:
+    """レースJSONから騎手別の接戦成績を集計
+
+    接戦の定義: 1着と2着のタイム差 <= 0.1秒
+    """
+    print(f"[Close] Scanning race JSONs for close finish stats...")
+
+    close_stats = defaultdict(lambda: {'close_wins': 0, 'close_seconds': 0})
+    race_count = 0
+    close_count = 0
+
+    for year in years:
+        year_dir = config.races_dir() / str(year)
+        if not year_dir.exists():
+            continue
+        for json_file in year_dir.rglob("race_[0-9]*.json"):
+            try:
+                data = json.loads(json_file.read_text(encoding='utf-8'))
+            except Exception:
+                continue
+            race_count += 1
+
+            entries = data.get('entries', [])
+            # 1着と2着を探す
+            first = None
+            second = None
+            for e in entries:
+                fp = e.get('finish_position', 0)
+                if fp == 1:
+                    first = e
+                elif fp == 2:
+                    second = e
+            if not first or not second:
+                continue
+
+            # タイム差を計算
+            t1 = _parse_time(first.get('time', ''))
+            t2 = _parse_time(second.get('time', ''))
+            if t1 is None or t2 is None:
+                continue
+
+            diff = abs(t2 - t1)
+            if diff <= 0.1:
+                close_count += 1
+                jc1 = first.get('jockey_code', '')
+                jc2 = second.get('jockey_code', '')
+                if jc1:
+                    close_stats[jc1]['close_wins'] += 1
+                if jc2:
+                    close_stats[jc2]['close_seconds'] += 1
+
+    print(f"  Scanned {race_count:,} races, "
+          f"found {close_count:,} close finishes (<=0.1s), "
+          f"{len(close_stats):,} jockeys with close data")
+    return close_stats
+
+
+def _parse_time(time_str: str):
+    """走破タイム文字列を秒に変換 (例: '1:14.1' -> 74.1)"""
+    if not time_str:
+        return None
+    try:
+        if ':' in time_str:
+            parts = time_str.split(':')
+            return float(parts[0]) * 60 + float(parts[1])
+        return float(time_str)
+    except (ValueError, IndexError):
+        return None
+
+
+def finalize_stats(jockeys: Dict[str, Dict],
+                   close_stats: Dict[str, Dict] = None) -> List[Dict]:
     """勝率・連対率・複勝率を計算して最終形式に変換"""
     result = []
     for code, j in jockeys.items():
         runs = j['total_runs']
+
+        # 接戦統計をマージ
+        cs = (close_stats or {}).get(code, {})
+        close_wins = cs.get('close_wins', 0)
+        close_seconds = cs.get('close_seconds', 0)
+        close_total = close_wins + close_seconds
+
         entry = {
             'code': j['code'],
             'name': j['name'],
@@ -107,6 +185,11 @@ def finalize_stats(jockeys: Dict[str, Dict]) -> List[Dict]:
             'win_rate': round(j['wins'] / runs, 4) if runs > 0 else 0,
             'top2_rate': round(j['top2'] / runs, 4) if runs > 0 else 0,
             'top3_rate': round(j['top3'] / runs, 4) if runs > 0 else 0,
+            # v5.6: 接戦統計
+            'close_wins': close_wins,
+            'close_seconds': close_seconds,
+            'close_total': close_total,
+            'close_win_rate': round(close_wins / close_total, 4) if close_total > 0 else 0,
             'venue_stats': {
                 vc: {
                     'runs': vs['runs'],
@@ -153,7 +236,8 @@ def main():
     t0 = time.time()
 
     jockeys = build_jockey_stats(years)
-    result = finalize_stats(jockeys)
+    close_stats = build_close_finish_stats(years)
+    result = finalize_stats(jockeys, close_stats)
 
     # 保存
     out_path = config.masters_dir() / "jockeys.json"
@@ -176,7 +260,8 @@ def main():
     print(f"\n  Top 5 by runs:")
     for j in top5:
         print(f"    {j['name']:>8} ({j['code']}): {j['total_runs']:>5} runs, "
-              f"win={j['win_rate']:.1%}, top3={j['top3_rate']:.1%}")
+              f"win={j['win_rate']:.1%}, top3={j['top3_rate']:.1%}, "
+              f"close={j['close_wins']}/{j['close_total']}={j['close_win_rate']:.1%}")
     print(f"{'='*60}\n")
 
 

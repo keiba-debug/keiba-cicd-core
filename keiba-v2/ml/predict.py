@@ -215,7 +215,15 @@ def load_master_data():
     pace_index = build_pace_index(date_index)
     kb_ext_index = build_kb_ext_index(date_index)
 
-    return history_cache, trainer_index, jockey_index, pace_index, kb_ext_index
+    # Race level index (v5.6)
+    rl_path = config.indexes_dir() / "race_level_index.json"
+    race_level_index = {}
+    if rl_path.exists():
+        with open(rl_path, encoding='utf-8') as f:
+            race_level_index = json.load(f)
+        print(f"  Race level index: {len(race_level_index):,} races")
+
+    return history_cache, trainer_index, jockey_index, pace_index, kb_ext_index, race_level_index
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -347,6 +355,7 @@ def predict_race(
     calibrators: Optional[dict] = None,
     model_reg_b=None,
     grade_offsets: Optional[Dict[str, float]] = None,
+    race_level_index: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -430,6 +439,7 @@ def predict_race(
             distance=distance,
             entry_count=entry_count,
             history_cache=history_cache,
+            race_level_index=race_level_index,
         )
         feat.update(past)
 
@@ -836,7 +846,7 @@ def main():
 
     # マスタデータロード
     print("[Load] Loading master data...")
-    history_cache, trainer_index, jockey_index, pace_index, kb_ext_index = load_master_data()
+    history_cache, trainer_index, jockey_index, pace_index, kb_ext_index, race_level_index = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
@@ -931,6 +941,7 @@ def main():
             calibrators=calibrators,
             model_reg_b=model_reg_b,
             grade_offsets=grade_offsets,
+            race_level_index=race_level_index,
         )
         all_predictions.append(pred)
 

@@ -144,6 +144,7 @@ def create_race_master(
             horse_weight_diff=e['horse_weight_diff'],
             finish_position=e['finish_position'],
             time=e['time'],
+            margin=e.get('margin', ''),
             last_3f=e['last_3f'],
             last_4f=e['last_4f'],
             odds=e['odds'],

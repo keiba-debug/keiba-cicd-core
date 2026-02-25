@@ -32,6 +32,7 @@ class RaceEntry:
     last_4f: float
     odds: float
     popularity: int
+    margin: str = ''
     corners: List[int] = field(default_factory=list)
     # 将来拡張用（jockey_code, trainer_code）
     jockey_code: str = ''

@@ -391,7 +391,14 @@ function ResultRow({ entry, isFastestLast3f, ratingStats, totalHorses }: ResultR
       
       {/* 馬名 */}
       <td className="px-2 py-1.5 border font-medium">
-        {entry.horse_name}
+        <span className="flex items-center gap-1">
+          {entry.horse_name}
+          {entry.is_slow_start && (
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded-sm bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] font-bold shrink-0" title="出遅れ">
+              遅
+            </span>
+          )}
+        </span>
       </td>
       
       {/* タイム */}

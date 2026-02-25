@@ -64,6 +64,7 @@ def parse_record(record: bytes) -> Optional[Dict]:
       328-330: ZogenSa (3)
       334-335: FinishPosition (2)
       338-341: Time MSST (4)
+      342-344: ChakusaCD (3) 着差コード
       351-358: Corners c1-c4 各2桁 (8)
       359-362: Odds x10 (4)
       363-364: Popularity (2)
@@ -122,6 +123,10 @@ def parse_record(record: bytes) -> Optional[Dict]:
     zogen_sa = _int(record, 328, 3)
     weight_diff = zogen_sa if zogen_fugo != '-' else -zogen_sa
 
+    # 着差コード（@342, 3バイト）
+    chakusa_cd = _decode(record, 342, 3)
+    margin = _decode_chakusa(chakusa_cd)
+
     sex_cd = _decode(record, 78, 1)
 
     # 調教師コード: offset 85-89 (5桁), offset 84 = tozai_cd
@@ -152,12 +157,59 @@ def parse_record(record: bytes) -> Optional[Dict]:
         'horse_weight_diff': weight_diff,
         'finish_position': _int(record, 334, 2),
         'time': time_str,
+        'margin': margin,
         'last_3f': last_3f,
         'last_4f': last_4f,
         'odds': odds,
         'popularity': _int(record, 363, 2),
         'corners': corners,
     }
+
+
+def _decode_chakusa(code: str) -> str:
+    """ChakusaCD（着差コード）を日本語表記に変換
+
+    JRA-VAN SE_DATA @342 (3bytes):
+      '' = 1着, H = ハナ, A = アタマ, K = クビ, S = 同着
+      12 = 1/2, 34 = 3/4, 14 = 1/4
+      1 = 1馬身, 2 = 2馬身, ..., 9 = 9馬身
+      T = 10馬身, D/Z = 大差
+      112 = 1.1/2, 114 = 1.1/4, 134 = 1.3/4
+      212 = 2.1/2, 312 = 3.1/2, etc.
+    """
+    if not code:
+        return ''
+
+    # 特殊コード
+    special = {
+        'H': 'ハナ',
+        'A': 'アタマ',
+        'K': 'クビ',
+        'S': '同着',
+        'T': '10',
+        'D': '大差',
+        'Z': '大差',
+    }
+    if code in special:
+        return special[code]
+
+    # 分数コード: 12=1/2, 34=3/4, 14=1/4
+    frac_map = {'12': '1/2', '34': '3/4', '14': '1/4'}
+    if code in frac_map:
+        return frac_map[code]
+
+    # 純粋な整数（1-9馬身）
+    if code.isdigit() and len(code) == 1:
+        return code
+
+    # 複合コード: N + 分数 (例: 112→1.1/2, 134→1.3/4, 212→2.1/2)
+    if len(code) == 3 and code.isdigit():
+        whole = code[0]
+        frac = code[1:]
+        if frac in frac_map:
+            return f'{whole}.{frac_map[frac]}'
+
+    return code
 
 
 def _format_time(raw: str) -> str:
