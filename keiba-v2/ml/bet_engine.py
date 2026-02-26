@@ -88,11 +88,16 @@ class BetStrategyParams:
     """戦略パラメータ"""
     # --- Win (Gap primary + EV secondary) ---
     # Gap = odds_rank - rank_v (Place model基準。Win modelよりPlace modelのGapが高ROI)
-    win_min_gap: int = 5              # Place-model gap filter (primary)
+    win_min_gap: int = 5              # Place-model gap filter (primary, tiersがある場合はフォールバック)
     win_min_ev: float = 0.0           # Win EV supplementary filter (0=disabled)
     win_min_rating: float = 0.0       # AR絶対閾値 (0=無効、レガシー互換)
-    win_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効, 45=推奨)
+    win_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効, 45=推奨, tiersがある場合は最低ティアが足切りになる)
     win_max_rank: int = 3             # rank_v (Place model) pre-filter
+    # --- ARd段階フィルター ---
+    # (min_ard, min_gap) のリスト。ARd高い順に定義。
+    # 例: [(65, 3), (55, 4), (45, 5)] → ARd>=65ならgap>=3, ARd>=55ならgap>=4, それ未満はgap>=5
+    # 空リスト = 従来のフラット閾値 (win_min_gap + win_min_ar_deviation)
+    win_ard_gap_tiers: List[Tuple[float, int]] = field(default_factory=list)
 
     # --- Place (EV + Kelly) ---
     place_min_gap: int = 3
@@ -117,27 +122,32 @@ class BetStrategyParams:
 # AR偏差値足切り: レース内相対評価で格下を除外
 # Place ROI<100%のためWin-only推奨
 #
-# バックテスト結果 (test 2024-2026, v5.6 calibration fix):
-#   standard (gap>=5 EV>=1.5 dev>=50): ~445件, ROI ~116.5%
-#   wide     (gap>=5 dev>=50):         ~2,374件, ROI ~100.0%
-#   aggressive (gap>=5 EV>=1.8):       ~388件, ROI ~124.6%
+# v5.26: ARd段階フィルター導入
+#   高ARd (>=65) → gap緩和 (>=3): 能力上位が過小評価なら即購入
+#   中ARd (55-64) → gap中間 (>=4): 標準的な乖離要求
+#   低ARd (45-54) → gap厳格 (>=5): 低能力評価には大きな乖離必須
+#   ARd <45 → 不合格: 能力予測が低すぎる馬は除外
+#
+# バックテスト結果 (test 2025-2026, v5.11):
+#   tiered:     ~1,744件, Place ROI ~124%, 利益 +41,935
+#   wide(旧):   ~1,143件, Place ROI ~130%, 利益 +33,947
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
-        win_min_gap=5,              # Place-model gap >= 5 (primary)
+        win_min_gap=5,              # フォールバック（ティアがカバーしない場合）
         win_min_ev=1.5,             # EV >= 1.5 supplementary filter
-        win_min_ar_deviation=50.0,  # AR偏差値足切り（レース平均以上）
+        win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
     'wide': BetStrategyParams(
-        win_min_gap=5,              # Place-model gap >= 5
-        win_min_ev=0.0,             # EV filter disabled (gap only)
-        win_min_ar_deviation=50.0,  # AR偏差値足切り（レース平均以上）
+        win_min_gap=5,              # フォールバック
+        win_min_ev=0.0,             # EV filter disabled
+        win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
     'aggressive': BetStrategyParams(
-        win_min_gap=5,              # Place-model gap >= 5
-        win_min_ev=1.8,             # EV >= 1.8 supplementary filter
-        win_min_ar_deviation=50.0,  # AR偏差値足切り（レース平均以上）
+        win_min_gap=5,              # フォールバック
+        win_min_ev=1.8,             # EV >= 1.8
+        win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
 }
@@ -181,26 +191,49 @@ def evaluate_win(
 ) -> Tuple[bool, int]:
     """単勝評価 (Gap primary + EV secondary)
 
-    Step 1: AR偏差値足切り
-    Step 2: Gap >= threshold (Place model基準)
-    Step 3: EV >= threshold (supplementary, 0=disabled)
+    ARd段階フィルターがある場合:
+      ARd帯域ごとに異なるgap閾値を適用。高ARd=緩いgap、低ARd=厳しいgap。
+      どのティアにも該当しなければ不合格。
+
+    従来モード (tiers空):
+      Step 1: AR偏差値足切り
+      Step 2: Gap >= threshold
+      Step 3: EV >= threshold
 
     Returns:
         (should_bet, units) — units はベット倍率
         1 unit = params.bet_unit (100円)
     """
-    # AR偏差値足切り (0=無効)
-    if params.win_min_ar_deviation > 0 and ar_deviation is not None:
-        if ar_deviation < params.win_min_ar_deviation:
+    # === ARd段階フィルター ===
+    if params.win_ard_gap_tiers:
+        # ティアからgap閾値を決定（ARd高い順にチェック）
+        min_gap = None
+        for tier_ard, tier_gap in params.win_ard_gap_tiers:
+            if ar_deviation is not None and ar_deviation >= tier_ard:
+                min_gap = tier_gap
+                break
+        if min_gap is None:
+            # どのティアにも該当しない（ARdが全ティア未満）→ 不合格
             return False, 0
 
-    # === Gap filter (primary) ===
-    min_gap = params.win_min_gap
-    if is_danger:
-        min_gap += params.danger_gap_boost
+        if is_danger:
+            min_gap += params.danger_gap_boost
 
-    if gap < min_gap:
-        return False, 0
+        if gap < min_gap:
+            return False, 0
+    else:
+        # === 従来のフラット閾値 ===
+        # AR偏差値足切り (0=無効)
+        if params.win_min_ar_deviation > 0 and ar_deviation is not None:
+            if ar_deviation < params.win_min_ar_deviation:
+                return False, 0
+
+        min_gap = params.win_min_gap
+        if is_danger:
+            min_gap += params.danger_gap_boost
+
+        if gap < min_gap:
+            return False, 0
 
     # AR絶対閾値 (後方互換、0=無効)
     if params.win_min_rating > 0 and rating is not None:

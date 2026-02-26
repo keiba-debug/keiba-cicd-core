@@ -4,12 +4,12 @@ import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import type { ValueBetPick } from '../types';
 
-// Session 41 バックテスト最適値: AR>=59.5→旧margin<=1.0, >=56.6→≤1.2
-const AR_HIGHLIGHT_THRESHOLD = 56.6;
+// AR偏差値50以上 = レース平均以上の能力（プリセット足切り基準）
+const AR_HIGHLIGHT_THRESHOLD = 50.0;
 
 export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
   const [minGap, setMinGap] = useState(3);
-  const [sortKey, setSortKey] = useState<'gap' | 'date' | 'odds' | 'margin'>('gap');
+  const [sortKey, setSortKey] = useState<'gap' | 'date' | 'odds' | 'margin' | 'ev'>('gap');
   const [showHitsOnly, setShowHitsOnly] = useState(false);
 
   const filtered = useMemo(() => {
@@ -19,6 +19,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
       if (sortKey === 'gap') return b.gap - a.gap || a.date.localeCompare(b.date);
       if (sortKey === 'date') return b.date.localeCompare(a.date) || b.gap - a.gap;
       if (sortKey === 'margin') return (b.predicted_margin ?? -1) - (a.predicted_margin ?? -1) || b.gap - a.gap;
+      if (sortKey === 'ev') return (b.win_ev ?? 0) - (a.win_ev ?? 0) || b.gap - a.gap;
       return (b.odds ?? 0) - (a.odds ?? 0);
     });
     return list;
@@ -55,7 +56,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">並び順:</span>
-          {([['gap', 'Gap大'], ['date', '日付'], ['odds', 'オッズ'], ['margin', 'AR']] as const).map(([k, l]) => (
+          {([['gap', 'Gap大'], ['date', '日付'], ['odds', 'オッズ'], ['margin', 'AR'], ['ev', 'EV']] as const).map(([k, l]) => (
             <button key={k} onClick={() => setSortKey(k)}
               className={cn('rounded-md px-2.5 py-1 text-sm transition-colors',
                 sortKey === k
@@ -107,6 +108,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                 <th className="py-2 text-right">オッズ</th>
                 <th className="py-2 text-right">V%</th>
                 <th className="py-2 text-right" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</th>
+                <th className="py-2 text-right" title="期待値 = P(win) × オッズ">EV</th>
                 <th className="py-2 text-center">着順</th>
                 <th className="py-2 text-center">結果</th>
               </tr>
@@ -148,6 +150,13 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                         : 'text-gray-500'
                     )}>
                       {p.predicted_margin != null ? p.predicted_margin.toFixed(1) : '-'}
+                    </td>
+                    <td className={cn('py-1.5 text-right tabular-nums',
+                      (p.win_ev ?? 0) >= 1.5 ? 'text-green-600 dark:text-green-400 font-medium'
+                        : (p.win_ev ?? 0) >= 1.0 ? 'text-blue-600 dark:text-blue-400'
+                        : 'text-gray-400'
+                    )}>
+                      {p.win_ev != null ? p.win_ev.toFixed(2) : '-'}
                     </td>
                     <td className="py-1.5 text-center tabular-nums font-medium">
                       <span className={cn(

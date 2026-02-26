@@ -27,6 +27,31 @@ export interface HitAnalysisEntry {
   total: number;
 }
 
+export interface Top3DistributionEntry {
+  count: number;   // 0, 1, 2, 3
+  races: number;
+  pct: number;
+}
+
+export interface HitAnalysisV2 {
+  top1_win_rate: number;
+  top1_place_rate: number;
+  top1_total: number;
+  top1_wins: number;
+  top1_places: number;
+  top3_distribution: Top3DistributionEntry[];
+  legacy: HitAnalysisEntry[];
+}
+
+export interface ArdThresholdEntry {
+  threshold: number;
+  total: number;
+  wins: number;
+  win_rate: number;
+  places: number;
+  place_rate: number;
+}
+
 export interface RoiBetSummary {
   total_bet: number;
   total_return: number;
@@ -105,6 +130,7 @@ export interface ValueBetPick {
   pred_proba_accuracy: number;
   pred_proba_value: number;
   predicted_margin?: number | null;
+  win_ev?: number | null;
   actual_position: number;
   is_top3: number;
 }
@@ -112,6 +138,16 @@ export interface ValueBetPick {
 export interface GapMarginGridEntry {
   min_gap: number;
   max_margin: number | null;  // null = margin制限なし
+  count: number;
+  win_hits: number;
+  win_roi: number;
+  place_hits: number;
+  place_roi: number;
+}
+
+export interface GapArdGridEntry {
+  min_gap: number;
+  min_ard: number | null;  // null = ARd制限なし
   count: number;
   win_hits: number;
   win_roi: number;
@@ -133,6 +169,9 @@ export interface BetEnginePresetResult {
   place_roi: number;
   place_hits: number;
   num_bets: number;
+  bootstrap_ci_low?: number;
+  bootstrap_ci_high?: number;
+  bootstrap_std?: number;
 }
 
 export interface RegressionMetrics {
@@ -163,12 +202,20 @@ export interface MlExperimentResultV2 {
     win_value?: MlModelResult;
     regression_value?: RegressionModelResult;
   };
-  hit_analysis: HitAnalysisEntry[] | { accuracy: HitAnalysisEntry[]; value: HitAnalysisEntry[] };
+  hit_analysis: HitAnalysisEntry[] | {
+    accuracy: HitAnalysisEntry[];
+    value: HitAnalysisEntry[];
+    accuracy_v2?: HitAnalysisV2;
+    value_v2?: HitAnalysisV2;
+    regression_v2?: HitAnalysisV2;
+    ard_analysis?: ArdThresholdEntry[];
+  };
   roi_analysis: {
     accuracy_model: RoiAnalysis;
     value_model: RoiAnalysis;
     win_accuracy_model?: RoiAnalysis;
     win_value_model?: RoiAnalysis;
+    regression_model?: RoiAnalysis;
     value_bets: {
       by_rank_gap: ValueBetGapEntry[];
       win_by_rank_gap?: ValueBetGapEntry[];
@@ -177,5 +224,6 @@ export interface MlExperimentResultV2 {
   race_predictions: RacePredictionV2[];
   value_bet_picks?: ValueBetPick[];
   gap_margin_grid?: GapMarginGridEntry[];
+  gap_ard_grid?: GapArdGridEntry[];
   bet_engine_presets?: Record<string, BetEnginePresetResult>;
 }

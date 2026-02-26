@@ -92,6 +92,7 @@ export function normalizeResult(raw: any): MlExperimentResultV2 {
       value_model: makeRoi(roiRaw?.value ?? {}),
       ...(roiRaw?.win_accuracy ? { win_accuracy_model: makeRoi(roiRaw.win_accuracy) } : {}),
       ...(roiRaw?.win_value ? { win_value_model: makeRoi(roiRaw.win_value) } : {}),
+      ...(roiRaw?.regression ? { regression_model: makeRoi(roiRaw.regression) } : {}),
       value_bets: d.value_bets ?? { by_rank_gap: [] },
     };
   }
@@ -183,6 +184,31 @@ export const FEATURE_LABELS: Record<string, string> = {
   ck_laprank_accel: 'CK 加速度', ck_time_rank: 'CKタイムランク',
   ck_final_laprank_score: 'CK最終lapRank', ck_final_time4f: 'CK最終4Fタイム',
   ck_final_lap1: 'CK最終ラスト1F',
+  // NLPコメント (v5.3)
+  comment_stable_condition: '厩舎コメント状態', comment_stable_confidence: '厩舎コメント確信度',
+  comment_stable_mark: '厩舎コメント印', comment_stable_excuse_flag: '厩舎言い訳フラグ',
+  comment_interview_condition: '取材コメント状態', comment_interview_excuse_score: '取材言い訳スコア',
+  comment_memo_condition: 'メモ状態', comment_memo_trouble_score: 'メモ問題スコア',
+  comment_has_stable: '厩舎コメント有無', comment_has_interview: '取材コメント有無',
+  // v5.4: ベイズ平滑化
+  win_rate_smoothed: '勝率(平滑化)', top3_rate_smoothed: '複勝率(平滑化)',
+  venue_top3_rate_smoothed: '会場複勝率(平滑化)', track_type_top3_rate_smoothed: '馬場複勝率(平滑化)',
+  distance_fitness_smoothed: '距離適性(平滑化)', career_stage: 'キャリア段階',
+  // v5.6: 前走レースレベル・騎手接戦勝率
+  prev_race_level_vs_class: '前走Lvvsクラス', avg_race_level_last3: '直近3走Lv平均',
+  prev_race_level_rank: '前走Lv順位', jockey_close_win_rate: '騎手接戦勝率',
+  // 血統 (v5.10): 集計統計量
+  sire_top3_rate: '父産駒複勝率', bms_top3_rate: '母父産駒複勝率', dam_top3_rate: '母産駒複勝率',
+  sire_fresh_advantage: '父:休み明け優位', sire_tight_penalty: '父:詰め使い耐性',
+  bms_fresh_advantage: '母父:休み明け優位', bms_tight_penalty: '母父:詰め使い耐性',
+  dam_fresh_advantage: '母:休み明け優位', dam_tight_penalty: '母:詰め使い耐性',
+  sire_sprint_top3_rate: '父:瞬発複勝率', sire_sustained_top3_rate: '父:持続複勝率',
+  sire_finish_type_pref: '父:瞬発vs持続', bms_sprint_top3_rate: '母父:瞬発複勝率',
+  bms_sustained_top3_rate: '母父:持続複勝率', bms_finish_type_pref: '母父:瞬発vs持続',
+  dam_sprint_top3_rate: '母:瞬発複勝率', dam_sustained_top3_rate: '母:持続複勝率',
+  dam_finish_type_pref: '母:瞬発vs持続',
+  sire_maturity_index: '父:成長曲線', bms_maturity_index: '母父:成長曲線',
+  dam_maturity_index: '母:成長曲線',
 };
 
 /** 特徴量カテゴリ分類 */
@@ -192,6 +218,7 @@ export const FEATURE_CATEGORIES: Record<string, { label: string; color: string }
   PACE: { label: 'PACE', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
   TRAINING: { label: 'TRAINING', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' },
   CK: { label: 'CK', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  PEDIGREE: { label: 'PEDIGREE', color: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400' },
 };
 
 const MARKET_FEATURES = new Set([
@@ -200,6 +227,10 @@ const MARKET_FEATURES = new Set([
   'ck_laprank_accel', 'ck_final_time4f', 'prev_grade_level',
   'ck_laprank_class', 'grade_level_diff', 'kb_aggregate_mark_point',
   'venue_rank_diff', 'ck_final_lap1', 'ck_time_rank',
+  'comment_stable_mark',
+  'win_rate_smoothed', 'top3_rate_smoothed',
+  'venue_top3_rate_smoothed', 'track_type_top3_rate_smoothed',
+  'distance_fitness_smoothed',
 ]);
 const ROTATION_FEATURES = new Set([
   'futan_diff', 'futan_diff_ratio', 'weight_change_ratio',
@@ -224,10 +255,21 @@ const CK_FEATURES = new Set([
   'ck_laprank_score', 'ck_laprank_class', 'ck_laprank_accel', 'ck_time_rank',
   'ck_final_laprank_score', 'ck_final_time4f', 'ck_final_lap1',
 ]);
+const PEDIGREE_FEATURES_SET = new Set([
+  'sire_top3_rate', 'bms_top3_rate', 'dam_top3_rate',
+  'sire_fresh_advantage', 'sire_tight_penalty',
+  'bms_fresh_advantage', 'bms_tight_penalty',
+  'dam_fresh_advantage', 'dam_tight_penalty',
+  'sire_sprint_top3_rate', 'sire_sustained_top3_rate', 'sire_finish_type_pref',
+  'bms_sprint_top3_rate', 'bms_sustained_top3_rate', 'bms_finish_type_pref',
+  'dam_sprint_top3_rate', 'dam_sustained_top3_rate', 'dam_finish_type_pref',
+  'sire_maturity_index', 'bms_maturity_index', 'dam_maturity_index',
+]);
 
 export function getFeatureCategory(feature: string): string | null {
   if (MARKET_FEATURES.has(feature)) return 'MARKET';
   if (CK_FEATURES.has(feature)) return 'CK';
+  if (PEDIGREE_FEATURES_SET.has(feature)) return 'PEDIGREE';
   if (ROTATION_FEATURES.has(feature)) return 'ROTATION';
   if (PACE_FEATURES.has(feature)) return 'PACE';
   if (TRAINING_FEATURES.has(feature)) return 'TRAINING';

@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { MetricCard } from '../utils';
-import type { MlExperimentResultV2, MlModelResult, RegressionModelResult } from '../types';
+import type { MlExperimentResultV2, MlModelResult, RegressionModelResult, HitAnalysisV2, ArdThresholdEntry } from '../types';
 
 function EceBadge({ ece }: { ece: number }) {
   if (ece < 0.03) {
@@ -71,15 +71,120 @@ function RegressionCard({ model }: { model: RegressionModelResult }) {
       <div className="mt-2 text-xs text-gray-500">
         Features: <span className="font-medium text-gray-700 dark:text-gray-300">{model.feature_count ?? model.features.length}</span>
         <span className="ml-3 text-gray-400">target: {model.target}</span>
-        <span className="ml-3 text-gray-400">MAE = 勝ち馬とのタイム差(秒)の平均誤差</span>
+      </div>
+      <div className="mt-3 rounded border border-amber-100 bg-amber-50/50 p-2.5 text-xs text-gray-600 dark:border-amber-900/30 dark:bg-amber-950/10 dark:text-gray-400">
+        <div className="mb-1 font-medium text-amber-700 dark:text-amber-400">ARの使われ方</div>
+        <div className="space-y-0.5">
+          <div><strong>AR</strong> — 勝ち馬とのタイム差を秒単位で予測（0に近いほど強い）。MAE={m.mae.toFixed(2)}秒は平均誤差</div>
+          <div><strong>ARd (AR偏差値)</strong> — ARをレース内でz-score正規化（平均50, SD10）。50以上=レース平均以上の能力</div>
+          <div><strong>複EV</strong> — ARの生確率 × 複勝オッズ。P(top3)はsum≈3.0の生値を使用（正規化するとsum=1.0で過小評価）</div>
+          <div><strong>VBフィルター</strong> — ARd≥50をプリセット共通の足切り基準として使用</div>
+        </div>
       </div>
     </div>
   );
 }
 
+function Top1Card({ label, v2, color }: { label: string; v2: HitAnalysisV2; color: string }) {
+  return (
+    <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+      <h4 className={cn('mb-2 text-xs font-semibold', color)}>{label}</h4>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded bg-gray-50 p-2.5 text-center dark:bg-gray-800/50">
+          <div className="text-[10px] text-gray-500">Top1 勝率</div>
+          <div className={cn('mt-0.5 text-lg font-bold tabular-nums', color)}>
+            {(v2.top1_win_rate * 100).toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-gray-400">{v2.top1_wins}/{v2.top1_total}R</div>
+        </div>
+        <div className="rounded bg-gray-50 p-2.5 text-center dark:bg-gray-800/50">
+          <div className="text-[10px] text-gray-500">Top1 好走率</div>
+          <div className={cn('mt-0.5 text-lg font-bold tabular-nums', color)}>
+            {(v2.top1_place_rate * 100).toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-gray-400">{v2.top1_places}/{v2.top1_total}R</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Top3DistributionBar({ v2 }: { v2: HitAnalysisV2 }) {
+  const dist = v2.top3_distribution;
+  const total = dist.reduce((s, d) => s + d.races, 0);
+  const colors = [
+    'bg-red-300 dark:bg-red-700',
+    'bg-yellow-300 dark:bg-yellow-600',
+    'bg-green-300 dark:bg-green-600',
+    'bg-emerald-400 dark:bg-emerald-500',
+  ];
+  return (
+    <div>
+      <div className="flex h-6 w-full overflow-hidden rounded">
+        {dist.map((d) => (
+          d.races > 0 && (
+            <div key={d.count} className={cn('flex items-center justify-center text-[10px] font-medium text-gray-800 dark:text-white', colors[d.count])}
+              style={{ width: `${(d.races / total) * 100}%` }}
+              title={`${d.count}頭: ${d.races}R (${d.pct}%)`}>
+              {d.pct >= 5 && `${d.pct}%`}
+            </div>
+          )
+        ))}
+      </div>
+      <div className="mt-1.5 flex gap-3 text-[10px] text-gray-500">
+        {dist.map((d) => (
+          <div key={d.count} className="flex items-center gap-1">
+            <span className={cn('inline-block h-2 w-2 rounded-sm', colors[d.count])} />
+            {d.count}頭: {d.races}R ({d.pct}%)
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ArdAnalysisTable({ entries }: { entries: ArdThresholdEntry[] }) {
+  return (
+    <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
+      <h3 className="mb-1 text-sm font-semibold text-amber-700 dark:text-amber-400">ARd (AR偏差値) 閾値別成績</h3>
+      <p className="mb-3 text-[10px] text-gray-500">全出走馬のうちARd条件を満たす馬の勝率・好走率。閾値が高いほど精鋭揃い</p>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700">
+            <th className="py-2 text-left">条件</th>
+            <th className="py-2 text-right">該当頭数</th>
+            <th className="py-2 text-right">勝率</th>
+            <th className="py-2 text-right">好走率(3着内)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e) => (
+            <tr key={e.threshold} className="border-b border-gray-50 dark:border-gray-800">
+              <td className="py-2 font-medium">{'\u2265'}{e.threshold}</td>
+              <td className="py-2 text-right tabular-nums text-gray-500">{e.total.toLocaleString()}</td>
+              <td className="py-2 text-right tabular-nums">
+                <span className={cn('font-medium', e.win_rate >= 0.15 ? 'text-green-600 dark:text-green-400' : e.win_rate >= 0.10 ? 'text-blue-600 dark:text-blue-400' : '')}>
+                  {(e.win_rate * 100).toFixed(1)}%
+                </span>
+              </td>
+              <td className="py-2 text-right tabular-nums">
+                <span className={cn('font-bold', e.place_rate >= 0.45 ? 'text-green-600 dark:text-green-400' : e.place_rate >= 0.35 ? 'text-blue-600 dark:text-blue-400' : '')}>
+                  {(e.place_rate * 100).toFixed(1)}%
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
-  const hitAccuracy = Array.isArray(data.hit_analysis) ? data.hit_analysis : data.hit_analysis.accuracy;
-  const hitValue = Array.isArray(data.hit_analysis) ? [] : data.hit_analysis.value;
+  const ha = Array.isArray(data.hit_analysis) ? null : data.hit_analysis;
+  const hitAccuracy = ha?.accuracy ?? (Array.isArray(data.hit_analysis) ? data.hit_analysis : []);
+  const hitValue = ha?.value ?? [];
+  const hasV2 = !!(ha?.accuracy_v2);
   const hasWin = !!data.models.win_accuracy;
   const hasRegression = !!data.models.regression_value;
 
@@ -135,8 +240,52 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
         )}
       </div>
 
-      {/* Hit Analysis */}
-      {hitAccuracy.length > 0 && (
+      {/* Hit Analysis v2 */}
+      {hasV2 && ha?.accuracy_v2 && ha?.value_v2 ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+            <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+              Top1 成績比較
+              <span className="ml-2 text-xs font-normal text-gray-400">各モデルの予測1位がどれだけ当たるか</span>
+            </h3>
+            <div className={cn('grid gap-3', ha.regression_v2 ? 'grid-cols-3' : 'grid-cols-2')}>
+              <Top1Card label="好走 市場" v2={ha.accuracy_v2} color="text-blue-600 dark:text-blue-400" />
+              <Top1Card label="好走 独自" v2={ha.value_v2} color="text-blue-600 dark:text-blue-400" />
+              {ha.regression_v2 && (
+                <Top1Card label="AR (能力予測)" v2={ha.regression_v2} color="text-amber-600 dark:text-amber-400" />
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+            <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">
+              Top3 的中分布
+            </h3>
+            <p className="mb-3 text-[10px] text-gray-500">予測上位3頭のうち何頭が3着以内に入ったかの分布</p>
+            <div className="space-y-3">
+              <div>
+                <div className="mb-1 text-xs font-medium text-blue-600 dark:text-blue-400">好走 市場</div>
+                <Top3DistributionBar v2={ha.accuracy_v2} />
+              </div>
+              <div>
+                <div className="mb-1 text-xs font-medium text-blue-600 dark:text-blue-400">好走 独自</div>
+                <Top3DistributionBar v2={ha.value_v2} />
+              </div>
+              {ha.regression_v2 && (
+                <div>
+                  <div className="mb-1 text-xs font-medium text-amber-600 dark:text-amber-400">AR (能力予測)</div>
+                  <Top3DistributionBar v2={ha.regression_v2} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {ha.ard_analysis && ha.ard_analysis.length > 0 && (
+            <ArdAnalysisTable entries={ha.ard_analysis} />
+          )}
+        </div>
+      ) : hitAccuracy.length > 0 && (
+        /* Legacy fallback */
         <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
           <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
             Top-N予測の的中率

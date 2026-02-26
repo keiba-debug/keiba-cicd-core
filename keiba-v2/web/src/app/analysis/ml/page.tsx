@@ -54,8 +54,12 @@ export default function MlAnalysisPage() {
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">VR</span> — 好走 独自モデルによるレース内の順位（1=最も能力が高い）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - VR。大きいほど市場が過小評価している馬（VB判定の主軸）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">EV</span> — 期待値 = calibrated P(win) × 単勝オッズ。1.0超えで期待値プラス（Gapの補助フィルター）</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — VR≤3 かつ Gap≥5 + EV条件。独自モデル上位評価だが人気薄</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">AUC</span> — モデルの判別力（0.5=ランダム、1.0=完全予測）</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">ARd</span> — AR偏差値。レース内z-score正規化（平均50）。能力の相対位置を示す</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — VR≤3 × Gap≥5 × AR偏差値≥50。3プリセット: Standard(EV≥1.5), Wide(EVなし), Aggressive(EV≥1.8)</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">AUC</span> — モデルの判別力（0.5=ランダム、1.0=完全予測）。0.82超えで実用水準</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Brier</span> — 確率予測の精度（0=完璧、低いほど良い）。予測確率と実結果の二乗誤差</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">ECE</span> — Expected Calibration Error。予測確率の信頼度（0=完璧）。<strong>{'<'}0.03</strong>=Kelly適格、<strong>{'<'}0.05</strong>=要注意、<strong>{'≥'}0.05</strong>=Kelly不適</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">MAE</span> — AR回帰モデルの平均絶対誤差(秒)。勝ち馬とのタイム差予測の精度</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">ROI</span> — 回収率。100%超えで利益が出る戦略</div>
       </div>
 

@@ -71,6 +71,9 @@ export default function RoiTab({ data }: { data: MlExperimentResultV2 }) {
   if (data.roi_analysis.win_value_model) {
     models.push({ label: '勝利 独自', roi: data.roi_analysis.win_value_model, color: 'border-emerald-200 dark:border-emerald-800' });
   }
+  if (data.roi_analysis.regression_model) {
+    models.push({ label: 'AR (能力予測)', roi: data.roi_analysis.regression_model, color: 'border-amber-200 dark:border-amber-800' });
+  }
 
   return (
     <div className="space-y-6">
@@ -123,11 +126,12 @@ export default function RoiTab({ data }: { data: MlExperimentResultV2 }) {
 }
 
 const PRESET_LABELS: Record<string, string> = {
-  standard: 'Standard (gap≥6)',
-  wide: 'Wide (gap≥5)',
+  standard: 'Standard (gap≥5, EV≥1.5)',
+  wide: 'Wide (gap≥5, EVなし)',
+  aggressive: 'Aggressive (gap≥5, EV≥1.8)',
 };
 
-const PRESET_ORDER = ['standard', 'wide'];
+const PRESET_ORDER = ['standard', 'wide', 'aggressive'];
 
 function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEnginePresetResult> }) {
   const sorted = PRESET_ORDER.filter((k) => k in presets);
@@ -136,7 +140,7 @@ function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEngineP
     <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
       <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">
         購入プラン比較
-        <span className="ml-2 text-xs font-normal text-gray-400">バックテスト結果 (Kelly sizing, budget=30,000)</span>
+        <span className="ml-2 text-xs font-normal text-gray-400">バックテスト結果 (Kelly sizing, budget=30,000) 共通条件: VR≤3, ARd≥50</span>
       </h3>
       <table className="w-full text-sm">
         <thead>
@@ -146,8 +150,7 @@ function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEngineP
             <th className="py-2 text-right">投資</th>
             <th className="py-2 text-right">回収</th>
             <th className="py-2 text-right">総合ROI</th>
-            <th className="py-2 text-right">Win ROI</th>
-            <th className="py-2 text-right">Place ROI</th>
+            <th className="py-2 text-right">95% CI</th>
             <th className="py-2 text-right">純利益</th>
           </tr>
         </thead>
@@ -156,6 +159,7 @@ function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEngineP
             const p = presets[key];
             const net = p.total_return - p.total_bet;
             const isRecommended = key === 'standard';
+            const hasCi = p.bootstrap_ci_low != null && p.bootstrap_ci_high != null;
             return (
               <tr key={key} className={cn('border-b border-gray-50 dark:border-gray-800',
                 isRecommended && 'bg-amber-50/50 dark:bg-amber-950/20'
@@ -174,20 +178,13 @@ function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEngineP
                     {p.total_roi.toFixed(1)}%
                   </span>
                 </td>
-                <td className="py-2 text-right tabular-nums">
-                  <span className={cn('font-medium', p.win_roi >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500')}>
-                    {p.win_bet > 0 ? `${p.win_roi.toFixed(1)}%` : '-'}
-                  </span>
-                </td>
-                <td className="py-2 text-right tabular-nums">
-                  <span className={cn('font-medium', p.place_roi >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500')}>
-                    {p.place_bet > 0 ? `${p.place_roi.toFixed(1)}%` : '-'}
-                  </span>
+                <td className="py-2 text-right tabular-nums text-xs text-gray-500">
+                  {hasCi ? `${p.bootstrap_ci_low!.toFixed(1)}–${p.bootstrap_ci_high!.toFixed(1)}%` : '-'}
                 </td>
                 <td className={cn('py-2 text-right tabular-nums font-medium',
                   net >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'
                 )}>
-                  {net >= 0 ? '+' : ''}{net.toLocaleString()}
+                  {net >= 0 ? '+' : ''}¥{net.toLocaleString()}
                 </td>
               </tr>
             );

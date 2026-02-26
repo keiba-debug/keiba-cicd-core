@@ -905,7 +905,7 @@ def train_model(
 
 
 def calc_hit_analysis(df: pd.DataFrame, pred_col: str) -> List[dict]:
-    """Top-N的中率分析"""
+    """Top-N的中率分析（従来互換: legacy形式）"""
     results = []
     for top_n in [1, 2, 3]:
         df['pred_rank'] = df.groupby('race_id')[pred_col].rank(ascending=False, method='min')
@@ -924,6 +924,115 @@ def calc_hit_analysis(df: pd.DataFrame, pred_col: str) -> List[dict]:
     return results
 
 
+def calc_hit_analysis_v2(df: pd.DataFrame, pred_col: str, ascending: bool = False) -> dict:
+    """Top-N的中率 詳細分析 v2。
+
+    Returns:
+        {
+            'top1_win_rate': float,      # Top1が1着の確率
+            'top1_place_rate': float,     # Top1が3着内の確率
+            'top1_total': int,
+            'top1_wins': int,
+            'top1_places': int,
+            'top3_distribution': [       # Top3選出のうち何頭が3着内か
+                {'count': 0, 'races': N, 'pct': float},  # 0頭
+                {'count': 1, 'races': N, 'pct': float},
+                {'count': 2, 'races': N, 'pct': float},
+                {'count': 3, 'races': N, 'pct': float},
+            ],
+            'legacy': [...]              # 従来形式（互換性）
+        }
+    """
+    df['_hit_rank'] = df.groupby('race_id')[pred_col].rank(
+        ascending=ascending, method='min'
+    )
+
+    # --- Top1 成績 ---
+    top1 = df[df['_hit_rank'] == 1]
+    top1_total = int(top1['race_id'].nunique())
+    top1_wins = int(top1[top1['is_win'] == 1]['race_id'].nunique())
+    top1_places = int(top1[top1['is_top3'] == 1]['race_id'].nunique())
+
+    # --- Top3 的中分布 (0/1/2/3頭) ---
+    top3 = df[df['_hit_rank'] <= 3].copy()
+    top3_hit_counts = top3.groupby('race_id')['is_top3'].sum().astype(int)
+    total_races = int(df['race_id'].nunique())
+    distribution = []
+    for cnt in [0, 1, 2, 3]:
+        if cnt == 0:
+            # Top3に選出されたレースのうち0頭的中 + Top3に3頭未満しかいないレース
+            races_with_top3 = int(top3_hit_counts[top3_hit_counts == 0].count())
+            races_without_top3 = total_races - int(top3_hit_counts.count())
+            n_races = races_with_top3 + races_without_top3
+        else:
+            n_races = int(top3_hit_counts[top3_hit_counts == cnt].count())
+        distribution.append({
+            'count': cnt,
+            'races': n_races,
+            'pct': round(n_races / total_races * 100, 1) if total_races > 0 else 0,
+        })
+
+    # --- 従来形式 (legacy互換) ---
+    legacy = []
+    for top_n in [1, 2, 3]:
+        picks = df[df['_hit_rank'] <= top_n]
+        total = picks['race_id'].nunique()
+        hits = picks[picks['is_win'] == 1]['race_id'].nunique() if top_n == 1 else \
+               picks[picks['is_top3'] == 1]['race_id'].nunique()
+        legacy.append({
+            'top_n': top_n,
+            'hit_rate': round(hits / total, 4) if total > 0 else 0,
+            'hits': int(hits),
+            'total': int(total),
+        })
+
+    df.drop(columns=['_hit_rank'], inplace=True, errors='ignore')
+
+    return {
+        'top1_win_rate': round(top1_wins / top1_total, 4) if top1_total > 0 else 0,
+        'top1_place_rate': round(top1_places / top1_total, 4) if top1_total > 0 else 0,
+        'top1_total': top1_total,
+        'top1_wins': top1_wins,
+        'top1_places': top1_places,
+        'top3_distribution': distribution,
+        'legacy': legacy,
+    }
+
+
+def calc_ard_threshold_analysis(df: pd.DataFrame) -> List[dict]:
+    """ARd(AR偏差値)閾値別の勝率・好走率分析。
+
+    Returns:
+        [
+            {'threshold': 50, 'total': N, 'wins': N, 'win_rate': float,
+             'places': N, 'place_rate': float},
+            ...
+        ]
+    """
+    results = []
+    for threshold in [50, 55, 60, 65, 70]:
+        subset = df[df['ar_deviation'] >= threshold]
+        total = len(subset)
+        if total == 0:
+            results.append({
+                'threshold': threshold,
+                'total': 0, 'wins': 0, 'win_rate': 0,
+                'places': 0, 'place_rate': 0,
+            })
+            continue
+        wins = int(subset['is_win'].sum())
+        places = int(subset['is_top3'].sum())
+        results.append({
+            'threshold': threshold,
+            'total': total,
+            'wins': wins,
+            'win_rate': round(wins / total, 4),
+            'places': places,
+            'place_rate': round(places / total, 4),
+        })
+    return results
+
+
 def _get_place_odds(row) -> float:
     """複勝オッズを取得: DB実績値があればそれを使用、なければ推定"""
     place_low = row.get('place_odds_low')
@@ -933,9 +1042,9 @@ def _get_place_odds(row) -> float:
     return max(row['odds'] / 3.5, 1.1)
 
 
-def calc_roi_analysis(df: pd.DataFrame, pred_col: str) -> dict:
+def calc_roi_analysis(df: pd.DataFrame, pred_col: str, ascending: bool = False) -> dict:
     """ROI分析（Top1）"""
-    df['pred_rank'] = df.groupby('race_id')[pred_col].rank(ascending=False, method='min')
+    df['pred_rank'] = df.groupby('race_id')[pred_col].rank(ascending=ascending, method='min')
     top1 = df[df['pred_rank'] == 1].copy()
 
     # 単勝ROI
@@ -1319,6 +1428,50 @@ def calc_gap_margin_grid(df: pd.DataFrame) -> List[dict]:
             grid.append({
                 'min_gap': min_gap,
                 'max_margin': max_margin,
+                'count': int(len(subset)),
+                'win_hits': int(subset['is_win'].sum()),
+                'win_roi': round(win_return / total_bet * 100, 1) if total_bet > 0 else 0,
+                'place_hits': int(subset['is_top3'].sum()),
+                'place_roi': round(place_return / total_bet * 100, 1) if total_bet > 0 else 0,
+            })
+    return grid
+
+
+def calc_gap_ard_grid(df: pd.DataFrame) -> List[dict]:
+    """gap × ARd クロス集計 (ML Report ヒートマップ用)
+
+    VB候補 (pred_rank_v <= 3) に対して、gap閾値とARd閾値の
+    組み合わせごとの件数・単勝ROI・複勝ROIを計算する。
+    """
+    if 'pred_rank_v' not in df.columns or 'ar_deviation' not in df.columns:
+        return []
+
+    grid = []
+    for min_gap in [3, 4, 5, 6]:
+        for min_ard in [None, 45, 50, 55, 60, 65]:
+            mask = (
+                (df['pred_rank_v'] <= 3) &
+                (df['odds_rank'] >= df['pred_rank_v'] + min_gap)
+            )
+            if min_ard is not None:
+                mask = mask & (df['ar_deviation'] >= min_ard)
+            subset = df[mask]
+            if len(subset) == 0:
+                continue
+
+            total_bet = len(subset) * 100
+            win_return = float(subset[subset['is_win'] == 1]['odds'].sum()) * 100
+            place_col = 'place_odds_low' if 'place_odds_low' in df.columns else 'place_odds_min'
+            place_return = 0.0
+            if place_col in df.columns:
+                place_subset = subset[subset['is_top3'] == 1]
+                place_return = float(place_subset[place_col].fillna(
+                    subset['odds'] / 3.5
+                ).clip(lower=1.1).sum()) * 100 if len(place_subset) > 0 else 0.0
+
+            grid.append({
+                'min_gap': min_gap,
+                'min_ard': min_ard,
                 'count': int(len(subset)),
                 'win_hits': int(subset['is_win'].sum()),
                 'win_roi': round(win_return / total_bet * 100, 1) if total_bet > 0 else 0,
@@ -1786,15 +1939,35 @@ def main():
     print(f"  Cal    mean={pred_wv_cal.mean():.6f}, min={pred_wv_cal.min():.6f}, max={pred_wv_cal.max():.6f}")
     print(f"  Actual win_rate={y_test_win.mean():.6f}")
 
+    # --- AR偏差値 (ARd) を df_test に計算 ---
+    # predict.py / bet_engine.py と同じロジック: RATING変換後にARdを算出
+    from ml.bet_engine import RATING_BASE, RATING_SCALE
+    df_test['_ar_rating'] = RATING_BASE - df_test['pred_margin_b'] * RATING_SCALE
+    ar_groups = df_test.groupby('race_id')['_ar_rating']
+    ar_mean = ar_groups.transform('mean')
+    ar_std = ar_groups.transform('std').clip(lower=3.0)  # floor=3.0はレーティングスケール
+    df_test['ar_deviation'] = (50 + 10 * (df_test['_ar_rating'] - ar_mean) / ar_std).round(1)
+    df_test.drop(columns=['_ar_rating'], inplace=True)
+
     # 分析
-    print("\n[Analysis] Hit rate analysis...")
+    print("\n[Analysis] Hit rate analysis (v2)...")
     hit_a = calc_hit_analysis(df_test, 'pred_proba_a')
     hit_b = calc_hit_analysis(df_test, 'pred_proba_v')
+    hit_v2_accuracy = calc_hit_analysis_v2(df_test, 'pred_proba_a')
+    hit_v2_value = calc_hit_analysis_v2(df_test, 'pred_proba_v')
+    hit_v2_regression = calc_hit_analysis_v2(df_test, 'pred_margin_b', ascending=True)
+    ard_analysis = calc_ard_threshold_analysis(df_test)
+    print(f"  Top1 好走率: A={hit_v2_accuracy['top1_place_rate']:.1%} V={hit_v2_value['top1_place_rate']:.1%} AR={hit_v2_regression['top1_place_rate']:.1%}")
+    print(f"  Top1 勝率:   A={hit_v2_accuracy['top1_win_rate']:.1%} V={hit_v2_value['top1_win_rate']:.1%} AR={hit_v2_regression['top1_win_rate']:.1%}")
+    print(f"  ARd閾値別:")
+    for a in ard_analysis:
+        print(f"    ARd>={a['threshold']}: {a['total']}頭 勝率{a['win_rate']:.1%} 好走率{a['place_rate']:.1%}")
 
     roi_a = calc_roi_analysis(df_test, 'pred_proba_a')
     roi_b = calc_roi_analysis(df_test, 'pred_proba_v')
     roi_w = calc_roi_analysis(df_test, 'pred_proba_w')
     roi_wv = calc_roi_analysis(df_test, 'pred_proba_wv')
+    roi_reg = calc_roi_analysis(df_test, 'pred_margin_b', ascending=True)
 
     print("\n[Analysis] Value Bet analysis (Place model)...")
     vb_analysis = calc_value_bet_analysis(df_test, rank_col='pred_rank_v')
@@ -1829,6 +2002,10 @@ def main():
     print("\n[Analysis] Gap × Margin grid...")
     gap_margin_grid = calc_gap_margin_grid(df_test)
     print(f"  Gap×Margin grid: {len(gap_margin_grid)} cells")
+
+    print("\n[Analysis] Gap × ARd grid...")
+    gap_ard_grid = calc_gap_ard_grid(df_test)
+    print(f"  Gap×ARd grid: {len(gap_ard_grid)} cells")
 
     # --- bet_engine プリセット バックテスト ---
     print("\n[Analysis] bet_engine preset backtest...")
@@ -1956,6 +2133,7 @@ def main():
     print(f"  ROI (Model B): Win={roi_b['top1_win_roi']:.1f}%, Place={roi_b['top1_place_roi']:.1f}%")
     print(f"  ROI (Model W): Win={roi_w['top1_win_roi']:.1f}%, Place={roi_w['top1_place_roi']:.1f}%")
     print(f"  ROI (Model WV):Win={roi_wv['top1_win_roi']:.1f}%, Place={roi_wv['top1_place_roi']:.1f}%")
+    print(f"  ROI (AR Reg):  Win={roi_reg['top1_win_roi']:.1f}%, Place={roi_reg['top1_place_roi']:.1f}%")
 
     print(f"\n  Value Bet Analysis (Place):")
     for vb in vb_analysis:
@@ -1989,9 +2167,14 @@ def main():
             pred_a, pred_b,
         )
 
-    # バージョン未指定の場合はフォールバック
+    # バージョン未指定の場合はmodel_meta.jsonから読む
     if not experiment_version:
-        experiment_version = '5.5'
+        meta_path = config.ml_dir() / "model_meta.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding='utf-8'))
+            experiment_version = meta.get('version', '5.5')
+        else:
+            experiment_version = '5.5'
         print(f"\n  [WARN] --version 未指定のため v{experiment_version} を使用")
 
     # モデル保存（旧バージョンをアーカイブしてから上書き）
@@ -2114,12 +2297,17 @@ def main():
         'hit_analysis': {
             'accuracy': hit_a,
             'value': hit_b,
+            'accuracy_v2': hit_v2_accuracy,
+            'value_v2': hit_v2_value,
+            'regression_v2': hit_v2_regression,
+            'ard_analysis': ard_analysis,
         },
         'roi_analysis': {
             'accuracy': roi_a,
             'value': roi_b,
             'win_accuracy': roi_w,
             'win_value': roi_wv,
+            'regression': roi_reg,
         },
         'value_bets': {
             'by_rank_gap': vb_analysis,
@@ -2130,6 +2318,7 @@ def main():
         'value_bet_picks': vb_picks,
         'race_predictions': race_preds,
         'gap_margin_grid': gap_margin_grid,
+        'gap_ard_grid': gap_ard_grid,
         'ev_gap_comparison': ev_gap_results if ev_gap_results else None,
         'bet_engine_presets': bet_engine_presets if bet_engine_presets else None,
     }
