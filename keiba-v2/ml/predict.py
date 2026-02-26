@@ -223,7 +223,25 @@ def load_master_data():
             race_level_index = json.load(f)
         print(f"  Race level index: {len(race_level_index):,} races")
 
-    return history_cache, trainer_index, jockey_index, pace_index, kb_ext_index, race_level_index
+    # Pedigree index + sire stats (v5.8)
+    ped_path = config.indexes_dir() / "pedigree_index.json"
+    pedigree_index = {}
+    if ped_path.exists():
+        with open(ped_path, encoding='utf-8') as f:
+            pedigree_index = json.load(f)
+        print(f"  Pedigree index: {len(pedigree_index):,} horses")
+
+    sire_stats_path = config.indexes_dir() / "sire_stats_index.json"
+    sire_stats_index = {}
+    if sire_stats_path.exists():
+        with open(sire_stats_path, encoding='utf-8') as f:
+            sire_stats_index = json.load(f)
+        sire_count = len(sire_stats_index.get('sire', {}))
+        bms_count = len(sire_stats_index.get('bms', {}))
+        print(f"  Sire stats: {sire_count:,} sires, {bms_count:,} BMS")
+
+    return (history_cache, trainer_index, jockey_index, pace_index,
+            kb_ext_index, race_level_index, pedigree_index, sire_stats_index)
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -356,6 +374,8 @@ def predict_race(
     model_reg_b=None,
     grade_offsets: Optional[Dict[str, float]] = None,
     race_level_index: Optional[dict] = None,
+    pedigree_index: Optional[dict] = None,
+    sire_stats_index: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -367,9 +387,16 @@ def predict_race(
         db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
         calibrators: IsotonicRegressionキャリブレーター辞書 (Optional)
         model_reg_b: 着差回帰モデル (Optional)
+        pedigree_index: 血統インデックス {ketto_num: {sire, bms}} (Optional)
+        sire_stats_index: 種牡馬/母父統計 {sire: {...}, bms: {...}} (Optional)
     """
+    from ml.features.pedigree_features import get_pedigree_features, build_sire_index
+
     features_all = meta['features_all']
     features_value = meta['features_value']
+
+    # Sire/BMS index (build once per predict_race call)
+    _sire_idx, _bms_idx = build_sire_index(sire_stats_index or {})
 
     race_date = race['date']
     race_id = race['race_id']
@@ -523,6 +550,10 @@ def predict_race(
             kb_ext_index=kb_ext_index or {},
         )
         feat.update(slow_feat)
+
+        # 血統特徴量 (v5.8): 事前計算の集計統計量
+        ped_feat = get_pedigree_features(ketto_num, pedigree_index or {}, _sire_idx, _bms_idx)
+        feat.update(ped_feat)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = np.nan  # placeholder — real oddsがあればランク化される
@@ -846,7 +877,8 @@ def main():
 
     # マスタデータロード
     print("[Load] Loading master data...")
-    history_cache, trainer_index, jockey_index, pace_index, kb_ext_index, race_level_index = load_master_data()
+    (history_cache, trainer_index, jockey_index, pace_index,
+     kb_ext_index, race_level_index, pedigree_index, sire_stats_index) = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
@@ -942,6 +974,8 @@ def main():
             model_reg_b=model_reg_b,
             grade_offsets=grade_offsets,
             race_level_index=race_level_index,
+            pedigree_index=pedigree_index,
+            sire_stats_index=sire_stats_index,
         )
         all_predictions.append(pred)
 

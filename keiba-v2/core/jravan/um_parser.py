@@ -57,6 +57,10 @@ class HorseRecord:
     del_date: str
     owner_name: str
     breeder_name: str
+    # 3代血統 (v5.7)
+    sire_num: str = ''       # 父 HansyokuNum (繁殖登録番号 @250)
+    dam_num: str = ''        # 母 HansyokuNum (@296)
+    bms_num: str = ''        # 母父 HansyokuNum (@434)
 
     @property
     def is_active(self) -> bool:
@@ -99,6 +103,14 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[HorseRecord]:
       849:     TozaiCD (1)
       850-854: TrainerCode (5)
       855-862: TrainerName (8, Shift-JIS)
+    3代血統 Ketto3Info (各46B: HansyokuNum 10B + Bamei 36B):
+      250-295:  父 (sire)
+      296-341:  母 (dam)
+      342-387:  父父
+      388-433:  父母
+      434-479:  母父 (broodmare sire)
+      480-525:  母母
+      526-847:  曽祖父母 (8頭)
     """
     record = data[offset:offset + UM_RECORD_LEN]
     if len(record) < UM_RECORD_LEN:
@@ -133,6 +145,16 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[HorseRecord]:
     except Exception:
         pass
 
+    # 3代血統: HansyokuNum (10 bytes ASCII digits)
+    def _parse_hansyoku(off: int) -> str:
+        raw = record[off:off + 10]
+        s = ''.join(chr(b) for b in raw if 0x30 <= b <= 0x39)
+        return s if len(s) >= 8 else ''
+
+    sire_num = _parse_hansyoku(250)   # 父
+    dam_num = _parse_hansyoku(296)    # 母
+    bms_num = _parse_hansyoku(434)    # 母父
+
     return HorseRecord(
         ketto_num=ketto_num,
         name=_decode(record, 46, 36),
@@ -150,6 +172,9 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[HorseRecord]:
         del_date=_decode(record, 30, 8),
         owner_name=owner_name,
         breeder_name=breeder_name,
+        sire_num=sire_num,
+        dam_num=dam_num,
+        bms_num=bms_num,
     )
 
 

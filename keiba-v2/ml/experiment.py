@@ -148,6 +148,14 @@ SLOW_START_FEATURES = [
     # 'horse_slow_start_resilience',
 ]
 
+# 血統特徴量 (v5.8): 事前計算の集計統計量
+# v5.7のLabelEncoding直接投入は過学習で失敗 → 集計特徴量に変更
+PEDIGREE_FEATURES = [
+    'sire_top3_rate', 'bms_top3_rate',           # ベースライン
+    'sire_fresh_advantage', 'sire_tight_penalty', # H3/H4: 休み明け/間隔詰め
+    'bms_fresh_advantage', 'bms_tight_penalty',   # H3/H4: BMS版
+]
+
 # 市場系特徴量（Model Bでは除外）
 MARKET_FEATURES = {
     'odds', 'popularity', 'odds_rank', 'popularity_trend',
@@ -175,7 +183,7 @@ FEATURE_COLS_ALL = (
     PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
     PACE_FEATURES + TRAINING_FEATURES + KB_MARK_FEATURES + SPEED_FEATURES +
-    COMMENT_FEATURES + SLOW_START_FEATURES
+    COMMENT_FEATURES + SLOW_START_FEATURES + PEDIGREE_FEATURES
 )
 
 # Value特徴量（Model B = 市場系除外）
@@ -364,7 +372,7 @@ def build_training_summary_index(date_index: dict) -> dict:
     return ts_index
 
 
-def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
+def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
     """data3からデータをロード"""
     print("[Load] Loading data3...")
 
@@ -404,6 +412,28 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
     else:
         print("  Race level index: NOT FOUND (skipping)")
 
+    # Pedigree index (v5.7)
+    ped_path = config.indexes_dir() / "pedigree_index.json"
+    pedigree_index = {}
+    if ped_path.exists():
+        with open(ped_path, encoding='utf-8') as f:
+            pedigree_index = json.load(f)
+        print(f"  Pedigree index: {len(pedigree_index):,} horses")
+    else:
+        print("  Pedigree index: NOT FOUND (skipping)")
+
+    # Sire stats index (v5.8)
+    sire_path = config.indexes_dir() / "sire_stats_index.json"
+    sire_stats_index = {}
+    if sire_path.exists():
+        with open(sire_path, encoding='utf-8') as f:
+            sire_stats_index = json.load(f)
+        n_sire = len(sire_stats_index.get('sire', {}))
+        n_bms = len(sire_stats_index.get('bms', {}))
+        print(f"  Sire stats: {n_sire:,} sires, {n_bms:,} BMS")
+    else:
+        print("  Sire stats: NOT FOUND (skipping)")
+
     # Pace index
     pace_index = build_pace_index(date_index)
 
@@ -415,7 +445,7 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
 
     return (history_cache, trainer_index, jockey_index,
             date_index, pace_index, kb_ext_index, training_summary_index,
-            race_level_index)
+            race_level_index, pedigree_index, sire_stats_index)
 
 
 def compute_features_for_race(
@@ -429,6 +459,8 @@ def compute_features_for_race(
     training_summary_index: dict = None,
     db_place_odds: dict = None,
     race_level_index: dict = None,
+    pedigree_index: dict = None,
+    sire_stats_index: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
@@ -437,6 +469,7 @@ def compute_features_for_race(
         training_summary_index: CK_DATA調教サマリ {date_str: {ketto_num: summary}}
         db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
         race_level_index: レースレベルインデックス {race_id: {level_vs_class, level_rank, ...}}
+        pedigree_index: 血統インデックス {ketto_num: {sire: hansyoku_num, bms: hansyoku_num}}
     """
     from ml.features.base_features import extract_base_features
     from ml.features.past_features import compute_past_features
@@ -449,6 +482,10 @@ def compute_features_for_race(
     from ml.features.speed_features import compute_speed_features
     from ml.features.comment_features import compute_comment_features
     from ml.features.slow_start_features import compute_slow_start_features
+    from ml.features.pedigree_features import get_pedigree_features, build_sire_index
+
+    # Sire/BMS index (build once per race call)
+    _sire_idx, _bms_idx = build_sire_index(sire_stats_index or {})
 
     race_date = race['date']
     race_id = race['race_id']
@@ -591,6 +628,10 @@ def compute_features_for_race(
         )
         feat.update(slow_feat)
 
+        # 血統特徴量 (v5.8): 事前計算の集計統計量
+        ped_feat = get_pedigree_features(ketto_num, pedigree_index or {}, _sire_idx, _bms_idx)
+        feat.update(ped_feat)
+
         # メタ情報（学習には使わないが分析用）
         feat['race_id'] = race_id
         feat['date'] = race_date
@@ -627,6 +668,8 @@ def build_dataset(
     use_db_odds: bool = True,
     training_summary_index: dict = None,
     race_level_index: dict = None,
+    pedigree_index: dict = None,
+    sire_stats_index: dict = None,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
 
@@ -682,6 +725,8 @@ def build_dataset(
                 training_summary_index=training_summary_index,
                 db_place_odds=db_place_odds_index.get(race_id),
                 race_level_index=race_level_index,
+                pedigree_index=pedigree_index,
+                sire_stats_index=sire_stats_index,
             )
             all_rows.extend(rows)
             race_count += 1
@@ -696,9 +741,8 @@ def build_dataset(
     df = pd.DataFrame(all_rows)
 
     # None-only特徴量列をfloat64に変換（LightGBMはobject型を受け付けない）
-    _numeric_cols = set(FEATURE_COLS_ALL)
     for col in df.columns:
-        if col in _numeric_cols and df[col].dtype == object:
+        if col in set(FEATURE_COLS_ALL) and df[col].dtype == object:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
     # odds_rank（レース内オッズ順位）を追加
@@ -1334,6 +1378,7 @@ def train_regression_model(
     X_test = df_test.loc[mask_test, feature_cols]
     y_test = df_test.loc[mask_test, 'target_margin']
 
+    # 血統カテゴリ特徴量の検出
     print(f"\n[Train] {model_name}: {len(feature_cols)} features, "
           f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}")
 
@@ -1545,7 +1590,7 @@ def main():
     # データロード
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index) = load_data()
+     race_level_index, pedigree_index, sire_stats_index) = load_data()
 
     # データセット構築（3-way split）
     df_train = build_dataset(
@@ -1553,18 +1598,24 @@ def main():
         kb_ext_index, train_min, train_max, use_db_odds=use_db_odds,
         training_summary_index=training_summary_index,
         race_level_index=race_level_index,
+        pedigree_index=pedigree_index,
+        sire_stats_index=sire_stats_index,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, val_min, val_max, use_db_odds=use_db_odds,
         training_summary_index=training_summary_index,
         race_level_index=race_level_index,
+        pedigree_index=pedigree_index,
+        sire_stats_index=sire_stats_index,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, test_min, test_max, use_db_odds=use_db_odds,
         training_summary_index=training_summary_index,
         race_level_index=race_level_index,
+        pedigree_index=pedigree_index,
+        sire_stats_index=sire_stats_index,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
@@ -1972,6 +2023,8 @@ def main():
         'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
         'has_calibrators': True,
         'has_regression_model': True,
+        'has_pedigree_features': True,
+        'pedigree_features': PEDIGREE_FEATURES,
         'sklearn_version': sklearn.__version__,
         'created_at': datetime.now().isoformat(timespec='seconds'),
     }
