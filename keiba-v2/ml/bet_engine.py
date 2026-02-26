@@ -92,7 +92,8 @@ class BetStrategyParams:
     win_min_ev: float = 0.0           # Win EV supplementary filter (0=disabled)
     win_min_rating: float = 0.0       # AR絶対閾値 (0=無効、レガシー互換)
     win_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効, 45=推奨, tiersがある場合は最低ティアが足切りになる)
-    win_max_rank: int = 3             # rank_v (Place model) pre-filter
+    win_max_rank: int = 3             # rank_v (Place model) pre-filter (v_ratio_min>0なら無視)
+    win_v_ratio_min: float = 0.0      # V%比率フィルター (0=無効→rank_v使用, 0.75=top1の75%以上)
     # --- ARd段階フィルター ---
     # (min_ard, min_gap) のリスト。ARd高い順に定義。
     # 例: [(65, 3), (55, 4), (45, 5)] → ARd>=65ならgap>=3, ARd>=55ならgap>=4, それ未満はgap>=5
@@ -131,22 +132,29 @@ class BetStrategyParams:
 # バックテスト結果 (test 2025-2026, v5.11):
 #   tiered:     ~1,744件, Place ROI ~124%, 利益 +41,935
 #   wide(旧):   ~1,143件, Place ROI ~130%, 利益 +33,947
+#
+# v5.30: V%比率フィルター導入（rank_v順位ベース→V%比率ベース）
+#   大混戦（top1-4がほぼ同率）で実力差のない馬を正しく拾う
+#   V%比率 = 馬のV% / レース内最大V%。0.75=top1の75%以上
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
         win_min_gap=5,              # フォールバック（ティアがカバーしない場合）
         win_min_ev=1.5,             # EV >= 1.5 supplementary filter
+        win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
     'wide': BetStrategyParams(
         win_min_gap=5,              # フォールバック
         win_min_ev=0.0,             # EV filter disabled
+        win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
     'aggressive': BetStrategyParams(
         win_min_gap=5,              # フォールバック
         win_min_ev=1.8,             # EV >= 1.8
+        win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
@@ -392,6 +400,13 @@ def generate_recommendations(
         # 危険馬検出 (odds<=8 & ARd<50 & V%<15%)
         danger_map = detect_danger(entries)
 
+        # V%比率フィルター用: レース内最大V%を計算
+        if params.win_v_ratio_min > 0:
+            v_pcts = [(e.get('pred_proba_v_raw') or 0) for e in entries]
+            race_max_v = max(v_pcts) if v_pcts else 0
+        else:
+            race_max_v = 0
+
         race_recs: List[BetRecommendation] = []
 
         for e in entries:
@@ -414,9 +429,17 @@ def generate_recommendations(
             danger_score = 1.0 if is_danger else 0.0
 
             # --- 単勝評価 ---
-            # Pre-filter: rank_v (Place model) top N のみ
-            # Place modelのGapがWin modelのGapより高ROI (v5.6検証済み)
-            if rank_v > params.win_max_rank:
+            # Pre-filter: V%比率 or rank_v
+            #   V%比率: レース内top1のV%に対する比率で足切り（大混戦に対応）
+            #   rank_v: 従来の順位ベース足切り（V%比率が0の場合のフォールバック）
+            if params.win_v_ratio_min > 0:
+                v_pct = p_top3_raw or 0
+                v_ratio = v_pct / race_max_v if race_max_v > 0 else 0
+                win_prefilter_pass = v_ratio >= params.win_v_ratio_min
+            else:
+                win_prefilter_pass = rank_v <= params.win_max_rank
+
+            if not win_prefilter_pass:
                 win_ok, win_units = False, 0
             else:
                 # Gap = vb_gap (Place model基準: odds_rank - rank_v)
@@ -426,8 +449,12 @@ def generate_recommendations(
                 )
 
             # --- 複勝評価 ---
-            # Pre-filter: Vモデルのtop3 のみ
-            if rank_v > 3:
+            # Pre-filter: V%比率 or rank_v top3
+            if params.win_v_ratio_min > 0:
+                place_prefilter_pass = win_prefilter_pass  # 単勝と同じ基準
+            else:
+                place_prefilter_pass = rank_v <= 3
+            if not place_prefilter_pass:
                 place_ok, kelly_frac = False, 0.0
             else:
                 place_ok, kelly_frac = evaluate_place(
