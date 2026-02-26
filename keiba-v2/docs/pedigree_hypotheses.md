@@ -138,3 +138,47 @@ v5.7でID直接投入（LabelEncoding + categorical_feature）は過学習で失
 - `sire_young_top3_rate`: 3歳以下の複勝率
 - `sire_mature_top3_rate`: 4歳以上の複勝率
 - `sire_maturity_index`: mature率 - young率（正=晩成型）
+
+---
+
+## 次回セッション引継ぎノート（Session 51 → 次回）
+
+### 完了済み
+- **H0 ベースライン**: sire/bms_top3_rate → v5.8デプロイ済み、Model B #1特徴量
+- **H3 休み明け**: sire/bms_fresh_advantage → v5.8デプロイ済み、有効
+- **H4 間隔詰め**: sire/bms_tight_penalty → v5.8デプロイ済み、有効
+- **インフラ**: pedigree_index.json + sire_stats_index.json + builder全部完成
+
+### 次回タスク候補
+
+#### 1. 血統分析Webページ（web-roadmap #14）
+- **パターン**: 出遅れ分析ページと同じ（builder JSON → API → Frontend）
+- **データソース**: `data3/indexes/sire_stats_index.json`（既存、2.8MB）
+- **タブ案**: 種牡馬ランキング / 休み明け耐性 / 間隔詰め耐性 / 母父統計
+- **UI変更**: 再集計ボタンをAdmin→各分析ページに移動
+  - 出遅れ分析ページにも「出遅れデータ再集計」ボタン
+  - 血統分析ページに「血統統計再集計」ボタン
+  - 各ページがPython builderをAPI経由で実行する形
+- **参考実装**: `/analysis/slow-start` + `/api/admin/build-slow-start`
+
+#### 2. 残り仮説の検証（H1, H2, H5, H6）
+- build_sire_stats.py を拡張して条件付き集計を追加
+- 各仮説のデータ検証 → 有効なら特徴量化 → 実験
+- **優先度**: H5(瞬発/持続) > H6(成長曲線) > H1(枠順) > H2(ペース)
+
+#### 3. 分析ページ再集計ボタン設計
+- **現状**: Admin画面の「ツール」セクションに全builder集約
+- **目標**: 各分析ページ内に対応する再集計ボタンを配置
+  - 分析ページから直接API呼び出し → builder実行 → 画面リフレッシュ
+  - Admin側は残してもOK（一括実行用）
+
+### 関連ファイル
+| ファイル | 役割 |
+|---------|------|
+| `builders/build_sire_stats.py` | sire/bms統計builder（--analyzeで分析出力） |
+| `ml/features/pedigree_features.py` | 特徴量モジュール |
+| `data3/indexes/sire_stats_index.json` | 統計インデックス |
+| `data3/indexes/pedigree_index.json` | 馬→sire/bmsマッピング |
+| `web/app/analysis/slow-start/` | 参考: 出遅れ分析ページ |
+| `web/app/api/admin/` | 参考: builder実行API |
+| `docs/roadmap/web-roadmap.md` | #14 血統分析ページ仕様 |
