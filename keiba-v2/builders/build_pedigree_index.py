@@ -28,7 +28,7 @@ def build_pedigree_index() -> Dict[str, Dict[str, str]]:
     """UM_DATAから血統インデックスを構築
 
     Returns:
-        {ketto_num: {"sire": hansyoku_num, "bms": hansyoku_num}}
+        {ketto_num: {"sire": hansyoku_num, "dam": hansyoku_num, "bms": hansyoku_num}}
     """
     print("[UM] Scanning all UM_DATA files...")
     index = {}
@@ -56,6 +56,8 @@ def build_pedigree_index() -> Dict[str, Dict[str, str]]:
             entry = {}
             if rec.sire_num:
                 entry['sire'] = rec.sire_num
+            if rec.dam_num:
+                entry['dam'] = rec.dam_num
             if rec.bms_num:
                 entry['bms'] = rec.bms_num
 
@@ -66,11 +68,14 @@ def build_pedigree_index() -> Dict[str, Dict[str, str]]:
 
     # 統計
     sire_count = sum(1 for v in index.values() if 'sire' in v)
+    dam_count = sum(1 for v in index.values() if 'dam' in v)
     bms_count = sum(1 for v in index.values() if 'bms' in v)
     unique_sires = len(set(v['sire'] for v in index.values() if 'sire' in v))
+    unique_dams = len(set(v['dam'] for v in index.values() if 'dam' in v))
     unique_bms = len(set(v['bms'] for v in index.values() if 'bms' in v))
 
     print(f"  Sire coverage: {sire_count:,} ({unique_sires:,} unique sires)")
+    print(f"  Dam coverage:  {dam_count:,} ({unique_dams:,} unique dams)")
     print(f"  BMS coverage:  {bms_count:,} ({unique_bms:,} unique BMS)")
 
     return index

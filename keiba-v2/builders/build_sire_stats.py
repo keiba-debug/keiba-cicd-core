@@ -1,14 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-種牡馬(sire)・母父(bms)統計インデックス構築
+種牡馬(sire)・母馬(dam)・母父(bms)統計インデックス構築
 
-race JSONsとpedigree_index.jsonから、sire/bms別の集計統計を構築。
-ベースライン(勝率/複勝率) + 条件別(休み明け/間隔詰め)の統計を算出。
+race JSONsとpedigree_index.jsonから、sire/dam/bms別の集計統計を構築。
+ベースライン(勝率/複勝率) + 条件別統計を算出。
+
+対応仮説:
+  H0: ベースライン (sire/bms基本勝率・複勝率)
+  H3: 休み明け上昇型 (days >= 56)
+  H4: 間隔詰め疲労型 (days <= 21)
+  H5: 瞬発vs持続適性 (RPCI >= 55 vs <= 45)
+  H6: 成長曲線 (age <= 3 vs age >= 4)
 
 Usage:
     python -m builders.build_sire_stats             # ビルドのみ
-    python -m builders.build_sire_stats --analyze    # ビルド + H3/H4分析
+    python -m builders.build_sire_stats --analyze    # ビルド + 全仮説分析
 """
 
 import json
@@ -23,6 +30,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from core.jravan import um_parser
 
 
 # ============================================================
@@ -46,6 +54,83 @@ def bayesian_rate(successes: int, total: int, alpha: float, beta: float) -> floa
 FRESH_DAYS = 56     # 8週以上 = 休み明け
 TIGHT_DAYS = 21     # 3週以内 = 間隔詰め
 MIN_RUNS_CONDITIONAL = 10  # 条件付きrateの最小サンプル数
+
+# H5: 瞬発vs持続 (実データ: mean=51, SD=2.1, range=45-58)
+RPCI_SPRINT_THRESHOLD = 53     # RPCI >= 53 = 後傾（瞬発レース、上位≈13%）
+RPCI_SUSTAINED_THRESHOLD = 49  # RPCI <= 49 = 前傾（持続レース、下位≈14%）
+
+# H6: 成長曲線
+YOUNG_AGE_MAX = 3   # 若駒: 2-3歳
+MATURE_AGE_MIN = 4  # 本格期: 4歳以上
+
+
+def load_sire_names() -> Dict[str, str]:
+    """UM_DATAから繁殖登録番号→種牡馬/母馬/母父名マッピングを構築
+
+    UM_DATA Ketto3Info (各46B = HansyokuNum 10B + Bamei 36B):
+      @204: 父 (sire)
+      @250: 母 (dam)
+      @388: 母父 (BMS)
+    """
+    UM_LEN = 1609
+    names: Dict[str, str] = {}
+    files = um_parser.get_um_files(0)  # 全ファイル
+    print(f"  Scanning {len(files)} UM files for sire/dam/BMS names...")
+
+    for um_file in files:
+        try:
+            data = um_file.read_bytes()
+        except Exception:
+            continue
+
+        num = len(data) // UM_LEN
+        for i in range(num):
+            off = i * UM_LEN
+            # 簡易レコードタイプチェック
+            if data[off:off + 2] != b'UM':
+                continue
+
+            # 父: HansyokuNum @204(10B), Bamei @214(36B)
+            sire_num = _extract_hansyoku(data, off + 204)
+            if sire_num and sire_num not in names:
+                sire_name = _extract_sjis(data, off + 214, 36)
+                if sire_name:
+                    names[sire_num] = sire_name
+
+            # 母: HansyokuNum @250(10B), Bamei @260(36B)
+            dam_num = _extract_hansyoku(data, off + 250)
+            if dam_num and dam_num not in names:
+                dam_name = _extract_sjis(data, off + 260, 36)
+                if dam_name:
+                    names[dam_num] = dam_name
+
+            # 母父: HansyokuNum @388(10B), Bamei @398(36B)
+            bms_num = _extract_hansyoku(data, off + 388)
+            if bms_num and bms_num not in names:
+                bms_name = _extract_sjis(data, off + 398, 36)
+                if bms_name:
+                    names[bms_num] = bms_name
+
+    print(f"  Found {len(names):,} sire/dam/BMS names")
+    return names
+
+
+def _extract_hansyoku(data: bytes, offset: int) -> str:
+    """10バイトのHansyokuNum抽出"""
+    raw = data[offset:offset + 10]
+    s = ''.join(chr(b) for b in raw if 0x30 <= b <= 0x39)
+    return s if len(s) >= 8 else ''
+
+
+def _extract_sjis(data: bytes, offset: int, length: int) -> str:
+    """Shift-JIS名前抽出"""
+    try:
+        decoded = data[offset:offset + length].decode('shift_jis', errors='replace').strip()
+        # サロゲート文字・置換文字を除去
+        decoded = ''.join(c for c in decoded if not (0xD800 <= ord(c) <= 0xDFFF) and c != '\ufffd')
+        return decoded.replace('\u3000', '').replace('@', '').strip()
+    except Exception:
+        return ''
 
 
 def load_race_jsons() -> List[dict]:
@@ -79,28 +164,34 @@ def load_pedigree_index() -> Dict[str, dict]:
 
 
 def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict:
-    """sire/bms別統計を構築
+    """sire/dam/bms別統計を構築
 
     各馬の前走日を追跡してdays_since_last_raceを計算し、
-    sire/bms別にベースライン+条件別の成績を集計。
+    sire/dam/bms別にベースライン+条件別の成績を集計。
     """
 
     # 馬ごとの最終出走日を追跡
     horse_last_date: Dict[str, str] = {}  # ketto_num → date string
 
-    # sire/bms別集計
-    sire_stats = defaultdict(lambda: {
-        'total_runs': 0, 'wins': 0, 'top3': 0,
-        'fresh_runs': 0, 'fresh_wins': 0, 'fresh_top3': 0,
-        'tight_runs': 0, 'tight_wins': 0, 'tight_top3': 0,
-        'normal_runs': 0, 'normal_wins': 0, 'normal_top3': 0,
-    })
-    bms_stats = defaultdict(lambda: {
-        'total_runs': 0, 'wins': 0, 'top3': 0,
-        'fresh_runs': 0, 'fresh_wins': 0, 'fresh_top3': 0,
-        'tight_runs': 0, 'tight_wins': 0, 'tight_top3': 0,
-        'normal_runs': 0, 'normal_wins': 0, 'normal_top3': 0,
-    })
+    # sire/dam/bms別集計
+    def _new_accum():
+        return {
+            'total_runs': 0, 'wins': 0, 'top3': 0,
+            # H3/H4: 休み明け・間隔詰め
+            'fresh_runs': 0, 'fresh_wins': 0, 'fresh_top3': 0,
+            'tight_runs': 0, 'tight_wins': 0, 'tight_top3': 0,
+            'normal_runs': 0, 'normal_wins': 0, 'normal_top3': 0,
+            # H5: 瞬発vs持続
+            'sprint_runs': 0, 'sprint_wins': 0, 'sprint_top3': 0,
+            'sustained_runs': 0, 'sustained_wins': 0, 'sustained_top3': 0,
+            # H6: 成長曲線
+            'young_runs': 0, 'young_wins': 0, 'young_top3': 0,
+            'mature_runs': 0, 'mature_wins': 0, 'mature_top3': 0,
+        }
+
+    sire_stats = defaultdict(_new_accum)
+    dam_stats = defaultdict(_new_accum)
+    bms_stats = defaultdict(_new_accum)
 
     total_entries = 0
     matched_entries = 0
@@ -110,6 +201,10 @@ def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict
         race_date = race.get('date', '')
         if not race_date:
             continue
+
+        # H5: レース単位のRPCI取得
+        pace = race.get('pace') or {}
+        rpci = pace.get('rpci')
 
         entries = race.get('entries', [])
         for entry in entries:
@@ -129,8 +224,9 @@ def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict
                 continue
 
             sire_id = ped.get('sire')
+            dam_id = ped.get('dam')
             bms_id = ped.get('bms')
-            if not sire_id and not bms_id:
+            if not sire_id and not dam_id and not bms_id:
                 continue
 
             matched_entries += 1
@@ -155,37 +251,54 @@ def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict
             horse_last_date[ketto_num] = race_date
 
             # 条件分類
-            cond = _classify_rest(days)
+            rest_cond = _classify_rest(days)
+            pace_cond = _classify_pace(rpci)
+            age_cond = _classify_age(entry.get('age'))
 
             # sire集計
             if sire_id:
-                _accumulate(sire_stats[sire_id], is_win, is_top3, cond)
+                _accumulate(sire_stats[sire_id], is_win, is_top3,
+                            rest_cond, pace_cond, age_cond)
+
+            # dam集計
+            if dam_id:
+                _accumulate(dam_stats[dam_id], is_win, is_top3,
+                            rest_cond, pace_cond, age_cond)
 
             # bms集計
             if bms_id:
-                _accumulate(bms_stats[bms_id], is_win, is_top3, cond)
+                _accumulate(bms_stats[bms_id], is_win, is_top3,
+                            rest_cond, pace_cond, age_cond)
 
     print(f"  Total entries: {total_entries:,}")
     print(f"  Matched (pedigree): {matched_entries:,} ({matched_entries/max(total_entries,1)*100:.1f}%)")
     print(f"  No prev race (debut): {no_prev_race:,}")
     print(f"  Unique sires: {len(sire_stats):,}")
+    print(f"  Unique dams: {len(dam_stats):,}")
     print(f"  Unique BMS: {len(bms_stats):,}")
 
     # 統計量を計算
     sire_result = _finalize_stats(sire_stats)
+    dam_result = _finalize_stats(dam_stats)
     bms_result = _finalize_stats(bms_stats)
 
     return {
         'sire': sire_result,
+        'dam': dam_result,
         'bms': bms_result,
         'meta': {
             'total_races': len(races),
             'total_entries': total_entries,
             'matched_entries': matched_entries,
             'unique_sires': len(sire_stats),
+            'unique_dams': len(dam_stats),
             'unique_bms': len(bms_stats),
             'fresh_days_threshold': FRESH_DAYS,
             'tight_days_threshold': TIGHT_DAYS,
+            'rpci_sprint_threshold': RPCI_SPRINT_THRESHOLD,
+            'rpci_sustained_threshold': RPCI_SUSTAINED_THRESHOLD,
+            'young_age_max': YOUNG_AGE_MAX,
+            'mature_age_min': MATURE_AGE_MIN,
             'min_runs_conditional': MIN_RUNS_CONDITIONAL,
             'built_at': datetime.now().isoformat(timespec='seconds'),
         }
@@ -203,7 +316,31 @@ def _classify_rest(days: Optional[int]) -> str:
     return 'normal'
 
 
-def _accumulate(stats: dict, is_win: bool, is_top3: bool, cond: str):
+def _classify_pace(rpci: Optional[float]) -> Optional[str]:
+    """H5: RPCI→瞬発/持続分類"""
+    if rpci is None:
+        return None
+    if rpci >= RPCI_SPRINT_THRESHOLD:
+        return 'sprint'
+    if rpci <= RPCI_SUSTAINED_THRESHOLD:
+        return 'sustained'
+    return None  # 中間ペースは集計しない
+
+
+def _classify_age(age) -> Optional[str]:
+    """H6: 年齢→若駒/本格期分類"""
+    if age is None or age == 0:
+        return None
+    if age <= YOUNG_AGE_MAX:
+        return 'young'
+    if age >= MATURE_AGE_MIN:
+        return 'mature'
+    return None
+
+
+def _accumulate(stats: dict, is_win: bool, is_top3: bool,
+                rest_cond: str, pace_cond: Optional[str],
+                age_cond: Optional[str]):
     """成績を加算"""
     stats['total_runs'] += 1
     if is_win:
@@ -211,14 +348,29 @@ def _accumulate(stats: dict, is_win: bool, is_top3: bool, cond: str):
     if is_top3:
         stats['top3'] += 1
 
-    if cond == 'debut':
-        return  # デビュー戦は条件別集計に含めない
+    # H3/H4: 休み明け・間隔詰め
+    if rest_cond != 'debut':
+        stats[f'{rest_cond}_runs'] += 1
+        if is_win:
+            stats[f'{rest_cond}_wins'] += 1
+        if is_top3:
+            stats[f'{rest_cond}_top3'] += 1
 
-    stats[f'{cond}_runs'] += 1
-    if is_win:
-        stats[f'{cond}_wins'] += 1
-    if is_top3:
-        stats[f'{cond}_top3'] += 1
+    # H5: 瞬発vs持続
+    if pace_cond:
+        stats[f'{pace_cond}_runs'] += 1
+        if is_win:
+            stats[f'{pace_cond}_wins'] += 1
+        if is_top3:
+            stats[f'{pace_cond}_top3'] += 1
+
+    # H6: 成長曲線
+    if age_cond:
+        stats[f'{age_cond}_runs'] += 1
+        if is_win:
+            stats[f'{age_cond}_wins'] += 1
+        if is_top3:
+            stats[f'{age_cond}_top3'] += 1
 
 
 def _finalize_stats(raw_stats: dict) -> dict:
@@ -265,6 +417,48 @@ def _finalize_stats(raw_stats: dict) -> dict:
             if normal_top3_rate is not None:
                 entry['tight_penalty'] = round(tight_rate - normal_top3_rate, 4)
 
+        # H5: 瞬発vs持続
+        sprint_rate = None
+        sustained_rate = None
+
+        if s['sprint_runs'] >= MIN_RUNS_CONDITIONAL:
+            sprint_rate = bayesian_rate(
+                s['sprint_top3'], s['sprint_runs'],
+                PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+            entry['sprint_runs'] = s['sprint_runs']
+            entry['sprint_top3_rate'] = sprint_rate
+
+        if s['sustained_runs'] >= MIN_RUNS_CONDITIONAL:
+            sustained_rate = bayesian_rate(
+                s['sustained_top3'], s['sustained_runs'],
+                PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+            entry['sustained_runs'] = s['sustained_runs']
+            entry['sustained_top3_rate'] = sustained_rate
+
+        if sprint_rate is not None and sustained_rate is not None:
+            entry['finish_type_pref'] = round(sprint_rate - sustained_rate, 4)
+
+        # H6: 成長曲線
+        young_rate = None
+        mature_rate = None
+
+        if s['young_runs'] >= MIN_RUNS_CONDITIONAL:
+            young_rate = bayesian_rate(
+                s['young_top3'], s['young_runs'],
+                PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+            entry['young_runs'] = s['young_runs']
+            entry['young_top3_rate'] = young_rate
+
+        if s['mature_runs'] >= MIN_RUNS_CONDITIONAL:
+            mature_rate = bayesian_rate(
+                s['mature_top3'], s['mature_runs'],
+                PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+            entry['mature_runs'] = s['mature_runs']
+            entry['mature_top3_rate'] = mature_rate
+
+        if young_rate is not None and mature_rate is not None:
+            entry['maturity_index'] = round(mature_rate - young_rate, 4)
+
         result[sid] = entry
 
     return result
@@ -274,69 +468,74 @@ def _finalize_stats(raw_stats: dict) -> dict:
 # 分析モード
 # ============================================================
 
-def analyze_h3_h4(stats: dict):
-    """H3(休み明け上昇)・H4(間隔詰め疲労)の統計的検証"""
+def analyze_all_hypotheses(stats: dict):
+    """全仮説(H3/H4/H5/H6)の統計的検証"""
 
     print(f"\n{'='*60}")
-    print(f"  H3/H4 血統仮説検証")
+    print(f"  全血統仮説検証 (H3/H4/H5/H6)")
     print(f"{'='*60}")
 
-    for label, data in [('Sire (父)', stats['sire']), ('BMS (母父)', stats['bms'])]:
-        print(f"\n--- {label} ---")
+    for label, data in [('Sire (父)', stats['sire']), ('Dam (母)', stats.get('dam', {})), ('BMS (母父)', stats['bms'])]:
+        print(f"\n{'='*60}")
+        print(f"  {label}")
+        print(f"{'='*60}")
         print(f"  Total entries: {len(data):,}")
 
-        # 有効なサンプルのフィルタ
-        has_fresh = [(sid, s) for sid, s in data.items() if 'fresh_advantage' in s]
-        has_tight = [(sid, s) for sid, s in data.items() if 'tight_penalty' in s]
+        # H3/H4
+        _analyze_hypothesis(data, 'fresh_advantage', 'H3 休み明け', '得意', '苦手')
+        _analyze_hypothesis(data, 'tight_penalty', 'H4 間隔詰め', '得意', '苦手')
 
-        print(f"  Has fresh_advantage (fresh>=10 & normal>=10): {len(has_fresh):,}")
-        print(f"  Has tight_penalty  (tight>=10 & normal>=10): {len(has_tight):,}")
+        # H5: 瞬発vs持続
+        has_pref = [(sid, s) for sid, s in data.items() if 'finish_type_pref' in s]
+        print(f"\n  Has finish_type_pref (sprint>=10 & sustained>=10): {len(has_pref):,}")
 
-        # H3: 休み明け上昇分析
-        if has_fresh:
-            advantages = [s['fresh_advantage'] for _, s in has_fresh]
-            _print_distribution("H3 fresh_advantage", advantages)
+        if has_pref:
+            prefs = [s['finish_type_pref'] for _, s in has_pref]
+            _print_distribution("H5 finish_type_pref (正=瞬発型, 負=持続型)", prefs)
 
-            # 上位5（休み明け得意）
-            top5 = sorted(has_fresh, key=lambda x: x[1]['fresh_advantage'], reverse=True)[:10]
-            print(f"\n  Top 10 休み明け得意 sire/bms:")
-            for sid, s in top5:
-                print(f"    {sid}: advantage={s['fresh_advantage']:+.4f} "
-                      f"(fresh={s['fresh_runs']}走 rate={s['fresh_top3_rate']:.3f}, "
-                      f"normal={s['normal_runs']}走 rate={s['normal_top3_rate']:.3f})")
+            # 瞬発得意Top 10
+            top10 = sorted(has_pref, key=lambda x: x[1]['finish_type_pref'], reverse=True)[:10]
+            print(f"\n  Top 10 瞬発得意 (sprint > sustained):")
+            for sid, s in top10:
+                print(f"    {sid}: pref={s['finish_type_pref']:+.4f} "
+                      f"(sprint={s['sprint_runs']}走 rate={s['sprint_top3_rate']:.3f}, "
+                      f"sustained={s['sustained_runs']}走 rate={s['sustained_top3_rate']:.3f})")
 
-            # 下位5（休み明け苦手）
-            bot5 = sorted(has_fresh, key=lambda x: x[1]['fresh_advantage'])[:10]
-            print(f"\n  Top 10 休み明け苦手 sire/bms:")
-            for sid, s in bot5:
-                print(f"    {sid}: advantage={s['fresh_advantage']:+.4f} "
-                      f"(fresh={s['fresh_runs']}走 rate={s['fresh_top3_rate']:.3f}, "
-                      f"normal={s['normal_runs']}走 rate={s['normal_top3_rate']:.3f})")
+            # 持続得意Top 10
+            bot10 = sorted(has_pref, key=lambda x: x[1]['finish_type_pref'])[:10]
+            print(f"\n  Top 10 持続得意 (sustained > sprint):")
+            for sid, s in bot10:
+                print(f"    {sid}: pref={s['finish_type_pref']:+.4f} "
+                      f"(sprint={s['sprint_runs']}走 rate={s['sprint_top3_rate']:.3f}, "
+                      f"sustained={s['sustained_runs']}走 rate={s['sustained_top3_rate']:.3f})")
 
-        # H4: 間隔詰め疲労分析
-        if has_tight:
-            penalties = [s['tight_penalty'] for _, s in has_tight]
-            _print_distribution("H4 tight_penalty", penalties)
+        # H6: 成長曲線
+        has_maturity = [(sid, s) for sid, s in data.items() if 'maturity_index' in s]
+        print(f"\n  Has maturity_index (young>=10 & mature>=10): {len(has_maturity):,}")
 
-            # 上位5（詰め使い得意）
-            top5 = sorted(has_tight, key=lambda x: x[1]['tight_penalty'], reverse=True)[:10]
-            print(f"\n  Top 10 間隔詰め得意 sire/bms:")
-            for sid, s in top5:
-                print(f"    {sid}: penalty={s['tight_penalty']:+.4f} "
-                      f"(tight={s['tight_runs']}走 rate={s['tight_top3_rate']:.3f}, "
-                      f"normal={s['normal_runs']}走 rate={s['normal_top3_rate']:.3f})")
+        if has_maturity:
+            indices = [s['maturity_index'] for _, s in has_maturity]
+            _print_distribution("H6 maturity_index (正=晩成型, 負=早熟型)", indices)
 
-            # 下位5（詰め使い苦手）
-            bot5 = sorted(has_tight, key=lambda x: x[1]['tight_penalty'])[:10]
-            print(f"\n  Top 10 間隔詰め苦手 sire/bms:")
-            for sid, s in bot5:
-                print(f"    {sid}: penalty={s['tight_penalty']:+.4f} "
-                      f"(tight={s['tight_runs']}走 rate={s['tight_top3_rate']:.3f}, "
-                      f"normal={s['normal_runs']}走 rate={s['normal_top3_rate']:.3f})")
+            # 晩成型Top 10
+            top10 = sorted(has_maturity, key=lambda x: x[1]['maturity_index'], reverse=True)[:10]
+            print(f"\n  Top 10 晩成型 (mature > young):")
+            for sid, s in top10:
+                print(f"    {sid}: index={s['maturity_index']:+.4f} "
+                      f"(young={s['young_runs']}走 rate={s['young_top3_rate']:.3f}, "
+                      f"mature={s['mature_runs']}走 rate={s['mature_top3_rate']:.3f})")
+
+            # 早熟型Top 10
+            bot10 = sorted(has_maturity, key=lambda x: x[1]['maturity_index'])[:10]
+            print(f"\n  Top 10 早熟型 (young > mature):")
+            for sid, s in bot10:
+                print(f"    {sid}: index={s['maturity_index']:+.4f} "
+                      f"(young={s['young_runs']}走 rate={s['young_top3_rate']:.3f}, "
+                      f"mature={s['mature_runs']}走 rate={s['mature_top3_rate']:.3f})")
 
     # ベースライン統計
     print(f"\n--- ベースライン統計 ---")
-    for label, data in [('Sire', stats['sire']), ('BMS', stats['bms'])]:
+    for label, data in [('Sire', stats['sire']), ('Dam', stats.get('dam', {})), ('BMS', stats['bms'])]:
         if not data:
             print(f"  {label}: no data")
             continue
@@ -347,6 +546,27 @@ def analyze_h3_h4(stats: dict):
         print(f"  {label}: {len(data):,} entries, "
               f">=30runs={has_30_plus:,}, >=100runs={has_100_plus:,}, "
               f"top3_rate median={statistics.median(top3_rates):.4f}")
+
+
+def _analyze_hypothesis(data: dict, field: str, name: str,
+                        high_label: str, low_label: str):
+    """個別仮説の分析ヘルパー"""
+    has_field = [(sid, s) for sid, s in data.items() if field in s]
+    print(f"\n  Has {field}: {len(has_field):,}")
+
+    if has_field:
+        values = [s[field] for _, s in has_field]
+        _print_distribution(f"{name} {field}", values)
+
+        top10 = sorted(has_field, key=lambda x: x[1][field], reverse=True)[:10]
+        print(f"\n  Top 10 {name}{high_label}:")
+        for sid, s in top10:
+            print(f"    {sid}: {field}={s[field]:+.4f}")
+
+        bot10 = sorted(has_field, key=lambda x: x[1][field])[:10]
+        print(f"\n  Top 10 {name}{low_label}:")
+        for sid, s in bot10:
+            print(f"    {sid}: {field}={s[field]:+.4f}")
 
 
 def _print_distribution(name: str, values: List[float]):
@@ -376,7 +596,7 @@ def _print_distribution(name: str, values: List[float]):
 
 def main():
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD v4 - Sire/BMS Stats Builder")
+    print(f"  KeibaCICD v4 - Sire/Dam/BMS Stats Builder")
     print(f"{'='*60}\n")
 
     t0 = time.time()
@@ -394,8 +614,18 @@ def main():
     print("\n[2/3] Loading race JSONs...")
     races = load_race_jsons()
 
-    print(f"\n[3/3] Building sire/bms stats...")
+    print("\n[3/3] Building sire/dam/bms stats...")
     stats = build_sire_stats(races, pedigree_index)
+
+    print("\n[4/4] Loading sire/dam/BMS names from UM_DATA...")
+    sire_names = load_sire_names()
+    named = 0
+    for category in ('sire', 'dam', 'bms'):
+        for sid, entry in stats[category].items():
+            if sid in sire_names:
+                entry['name'] = sire_names[sid]
+                named += 1
+    print(f"  Named {named:,} / {sum(len(stats[c]) for c in ('sire','dam','bms')):,} entries")
 
     # 保存
     out_path = config.indexes_dir() / "sire_stats_index.json"
@@ -414,6 +644,7 @@ def main():
     print(f"  Results")
     print(f"{'='*60}")
     print(f"  Sires:     {len(stats['sire']):,}")
+    print(f"  Dams:      {len(stats['dam']):,}")
     print(f"  BMS:       {len(stats['bms']):,}")
     print(f"  File size: {file_size:.1f} MB")
     print(f"  Output:    {out_path}")
@@ -422,7 +653,7 @@ def main():
 
     # 分析モード
     if do_analyze:
-        analyze_h3_h4(stats)
+        analyze_all_hypotheses(stats)
 
     print()
 

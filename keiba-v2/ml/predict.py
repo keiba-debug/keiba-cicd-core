@@ -387,16 +387,16 @@ def predict_race(
         db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
         calibrators: IsotonicRegressionキャリブレーター辞書 (Optional)
         model_reg_b: 着差回帰モデル (Optional)
-        pedigree_index: 血統インデックス {ketto_num: {sire, bms}} (Optional)
-        sire_stats_index: 種牡馬/母父統計 {sire: {...}, bms: {...}} (Optional)
+        pedigree_index: 血統インデックス {ketto_num: {sire, dam, bms}} (Optional)
+        sire_stats_index: 種牡馬/母馬/母父統計 {sire: {...}, dam: {...}, bms: {...}} (Optional)
     """
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
 
     features_all = meta['features_all']
     features_value = meta['features_value']
 
-    # Sire/BMS index (build once per predict_race call)
-    _sire_idx, _bms_idx = build_sire_index(sire_stats_index or {})
+    # Sire/Dam/BMS index (build once per predict_race call)
+    _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
 
     race_date = race['date']
     race_id = race['race_id']
@@ -552,7 +552,7 @@ def predict_race(
         feat.update(slow_feat)
 
         # 血統特徴量 (v5.8): 事前計算の集計統計量
-        ped_feat = get_pedigree_features(ketto_num, pedigree_index or {}, _sire_idx, _bms_idx)
+        ped_feat = get_pedigree_features(ketto_num, pedigree_index or {}, _sire_idx, _dam_idx, _bms_idx)
         feat.update(ped_feat)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算

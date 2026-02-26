@@ -148,12 +148,24 @@ SLOW_START_FEATURES = [
     # 'horse_slow_start_resilience',
 ]
 
-# 血統特徴量 (v5.8): 事前計算の集計統計量
-# v5.7のLabelEncoding直接投入は過学習で失敗 → 集計特徴量に変更
+# 血統特徴量 (v5.10): 事前計算の集計統計量
+# v5.7: LabelEncoding直接投入は過学習で失敗
+# v5.8-v5.9: バグデータ(母をsireとして集計)で偽の大幅改善
+# v5.10: オフセット修正後の正しいデータでAUC改善+プリセットROI大幅改善
 PEDIGREE_FEATURES = [
-    'sire_top3_rate', 'bms_top3_rate',           # ベースライン
-    'sire_fresh_advantage', 'sire_tight_penalty', # H3/H4: 休み明け/間隔詰め
-    'bms_fresh_advantage', 'bms_tight_penalty',   # H3/H4: BMS版
+    'sire_top3_rate', 'bms_top3_rate', 'dam_top3_rate',    # H0: ベースライン
+    'sire_fresh_advantage', 'sire_tight_penalty',           # H3/H4: 休み明け/間隔詰め
+    'bms_fresh_advantage', 'bms_tight_penalty',             # H3/H4: BMS版
+    'dam_fresh_advantage', 'dam_tight_penalty',             # H3/H4: Dam版
+    'sire_sprint_top3_rate', 'sire_sustained_top3_rate',    # H5: 瞬発/持続(sire)
+    'sire_finish_type_pref',                                # H5: 瞬発-持続 差分
+    'bms_sprint_top3_rate', 'bms_sustained_top3_rate',      # H5: 瞬発/持続(bms)
+    'bms_finish_type_pref',                                 # H5: BMS版差分
+    'dam_sprint_top3_rate', 'dam_sustained_top3_rate',      # H5: 瞬発/持続(dam)
+    'dam_finish_type_pref',                                 # H5: Dam版差分
+    'sire_maturity_index',                                  # H6: 成長曲線(sire)
+    'bms_maturity_index',                                   # H6: 成長曲線(bms)
+    'dam_maturity_index',                                   # H6: 成長曲線(dam)
 ]
 
 # 市場系特徴量（Model Bでは除外）
@@ -429,8 +441,9 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
         with open(sire_path, encoding='utf-8') as f:
             sire_stats_index = json.load(f)
         n_sire = len(sire_stats_index.get('sire', {}))
+        n_dam = len(sire_stats_index.get('dam', {}))
         n_bms = len(sire_stats_index.get('bms', {}))
-        print(f"  Sire stats: {n_sire:,} sires, {n_bms:,} BMS")
+        print(f"  Sire stats: {n_sire:,} sires, {n_dam:,} dams, {n_bms:,} BMS")
     else:
         print("  Sire stats: NOT FOUND (skipping)")
 
@@ -484,8 +497,8 @@ def compute_features_for_race(
     from ml.features.slow_start_features import compute_slow_start_features
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
 
-    # Sire/BMS index (build once per race call)
-    _sire_idx, _bms_idx = build_sire_index(sire_stats_index or {})
+    # Sire/Dam/BMS index (build once per race call)
+    _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
 
     race_date = race['date']
     race_id = race['race_id']
@@ -628,8 +641,8 @@ def compute_features_for_race(
         )
         feat.update(slow_feat)
 
-        # 血統特徴量 (v5.8): 事前計算の集計統計量
-        ped_feat = get_pedigree_features(ketto_num, pedigree_index or {}, _sire_idx, _bms_idx)
+        # 血統特徴量 (v5.9): 事前計算の集計統計量
+        ped_feat = get_pedigree_features(ketto_num, pedigree_index or {}, _sire_idx, _dam_idx, _bms_idx)
         feat.update(ped_feat)
 
         # メタ情報（学習には使わないが分析用）
