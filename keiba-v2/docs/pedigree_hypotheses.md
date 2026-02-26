@@ -12,13 +12,13 @@ v5.7でID直接投入（LabelEncoding + categorical_feature）は過学習で失
 
 | # | 仮説 | 条件変数 | ステータス |
 |---|------|---------|-----------|
-| H0 | ベースライン（sire/bms基本勝率） | - | 検証中 |
+| H0 | ベースライン（sire/bms基本勝率） | - | ✅ v5.8 デプロイ |
 | H1 | 枠順×頭数の血統差 | wakuban, entry_count | 未着手 |
 | H2 | ペース変化耐性 | RPCI変化量 | 未着手 |
-| H3 | 休み明け上昇型 | days_since_last_race >= 56 | 検証中 |
-| H4 | 間隔詰め疲労型 | days_since_last_race <= 21 | 検証中 |
-| H5 | 瞬発vs持続適性 | rpci, lap33 | 未着手 |
-| H6 | 成長曲線（早熟/晩成） | age, finish | 未着手 |
+| H3 | 休み明け上昇型 | days_since_last_race >= 56 | ✅ v5.8 デプロイ |
+| H4 | 間隔詰め疲労型 | days_since_last_race <= 21 | ✅ v5.8 デプロイ |
+| H5 | 瞬発vs持続適性 | rpci (>=53/<=49) | ⚠️ v5.9 低カバレッジ |
+| H6 | 成長曲線（早熟/晩成） | age (<=3/>=4) | ✅ v5.9 Model B #4 |
 
 ---
 
@@ -141,44 +141,57 @@ v5.7でID直接投入（LabelEncoding + categorical_feature）は過学習で失
 
 ---
 
-## 次回セッション引継ぎノート（Session 51 → 次回）
+## 次回セッション引継ぎノート（Session 53 → 次回）
 
-### 完了済み
-- **H0 ベースライン**: sire/bms_top3_rate → v5.8デプロイ済み、Model B #1特徴量
-- **H3 休み明け**: sire/bms_fresh_advantage → v5.8デプロイ済み、有効
-- **H4 間隔詰め**: sire/bms_tight_penalty → v5.8デプロイ済み、有効
-- **インフラ**: pedigree_index.json + sire_stats_index.json + builder全部完成
+### Session 53 完了: オフセット修正 → 3パターン実験 → v5.10デプロイ
 
-### 次回タスク候補
+#### オフセットバグ修正（前半）
+- um_parser.py Ketto3Info: @250→@204(父), @296→@250(母), @434→@388(母父)
+- 検証: コントレイル(2017101835)の@204=ディープインパクト確認
+- pedigree_index/sire_stats_index 再ビルド済み
 
-#### 1. 血統分析Webページ（web-roadmap #14）
-- **パターン**: 出遅れ分析ページと同じ（builder JSON → API → Frontend）
-- **データソース**: `data3/indexes/sire_stats_index.json`（既存、2.8MB）
-- **タブ案**: 種牡馬ランキング / 休み明け耐性 / 間隔詰め耐性 / 母父統計
-- **UI変更**: 再集計ボタンをAdmin→各分析ページに移動
-  - 出遅れ分析ページにも「出遅れデータ再集計」ボタン
-  - 血統分析ページに「血統統計再集計」ボタン
-  - 各ページがPython builderをAPI経由で実行する形
-- **参考実装**: `/analysis/slow-start` + `/api/admin/build-slow-start`
+#### ML再実験結果（後半）
+3パターンで体系的に比較:
 
-#### 2. 残り仮説の検証（H1, H2, H5, H6）
-- build_sire_stats.py を拡張して条件付き集計を追加
-- 各仮説のデータ検証 → 有効なら特徴量化 → 実験
-- **優先度**: H5(瞬発/持続) > H6(成長曲線) > H1(枠順) > H2(ペース)
+| 実験 | A AUC | B AUC | Preset standard | wide |
+|------|:---:|:---:|:---:|:---:|
+| 血統なし(0) | 0.8225 | 0.7837 | 118.7% | 114.4% |
+| H0+H3/H4(6) | 0.8250 | 0.7876 | 134.1% | 116.6% |
+| **All14** | **0.8251** | **0.7880** | **136.3%** | **137.5%** |
 
-#### 3. 分析ページ再集計ボタン設計
-- **現状**: Admin画面の「ツール」セクションに全builder集約
-- **目標**: 各分析ページ内に対応する再集計ボタンを配置
-  - 分析ページから直接API呼び出し → builder実行 → 画面リフレッシュ
-  - Admin側は残してもOK（一括実行用）
+→ **All14がベスト**。v5.10としてデプロイ済み。
+
+**重要発見**: 母馬(dam)効果 > 父馬(sire)効果
+- v5.8(バグデータ)のsire_top3_rate=#1(227K)は実は母の産駒成績だった
+- 正しいデータではbms_top3_rate=#8(17K)に落ち着く
+
+### 次回タスク候補（優先度順）
+
+#### 1. 母馬(dam)統計量の追加
+- sire_stats_indexに母(dam)カテゴリを追加
+- バグデータ時代に母の産駒成績が最強予測因子だったことが確認済み
+- build_sire_stats.pyにdam集計ロジック追加 → pedigree_features.pyに dam_top3_rate等
+
+#### 2. Optuna導入 + シード固定
+- ハイパーパラメータ最適化
+- LightGBM bagging_seedの固定（run-to-run variance軽減）
+
+#### 3. 残り仮説の検証（H1, H2）
+- H1 枠順×頭数: wakuban/entry_count条件付き集計
+- H2 ペース変化耐性: RPCI変化量条件付き集計
+
+#### 4. Point-in-Time化
+- trainer/jockey masterの時点別集計
 
 ### 関連ファイル
 | ファイル | 役割 |
 |---------|------|
-| `builders/build_sire_stats.py` | sire/bms統計builder（--analyzeで分析出力） |
-| `ml/features/pedigree_features.py` | 特徴量モジュール |
-| `data3/indexes/sire_stats_index.json` | 統計インデックス |
-| `data3/indexes/pedigree_index.json` | 馬→sire/bmsマッピング |
-| `web/app/analysis/slow-start/` | 参考: 出遅れ分析ページ |
-| `web/app/api/admin/` | 参考: builder実行API |
-| `docs/roadmap/web-roadmap.md` | #14 血統分析ページ仕様 |
+| `core/jravan/um_parser.py` | UM_DATAパーサー（**オフセット修正済み**） |
+| `builders/build_sire_stats.py` | sire/bms統計builder（H0-H6 + 名前抽出） |
+| `builders/build_pedigree_index.py` | 馬→sire/bmsマッピングbuilder |
+| `ml/features/pedigree_features.py` | 特徴量モジュール（9フィールド×sire/bms） |
+| `ml/experiment.py` | v5.10: PEDIGREE_FEATURES=14特徴量 |
+| `data3/indexes/sire_stats_index.json` | 統計インデックス（0.6MB, 780 sires + 1,259 BMS） |
+| `data3/indexes/pedigree_index.json` | 馬→sire/bmsマッピング（4,119 unique sires） |
+| `web/src/app/analysis/pedigree/page.tsx` | 血統分析Webページ |
+| `docs/ml-experiments/v5.10_pedigree_corrected.md` | 実験レポート |

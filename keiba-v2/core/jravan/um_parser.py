@@ -104,13 +104,13 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[HorseRecord]:
       850-854: TrainerCode (5)
       855-862: TrainerName (8, Shift-JIS)
     3代血統 Ketto3Info (各46B: HansyokuNum 10B + Bamei 36B):
-      250-295:  父 (sire)
-      296-341:  母 (dam)
-      342-387:  父父
-      388-433:  父母
-      434-479:  母父 (broodmare sire)
-      480-525:  母母
-      526-847:  曽祖父母 (8頭)
+      204-249:  父 (sire)
+      250-295:  母 (dam)
+      296-341:  父父
+      342-387:  父母
+      388-433:  母父 (broodmare sire)
+      434-479:  母母
+      480-847:  曽祖父母 (8頭)
     """
     record = data[offset:offset + UM_RECORD_LEN]
     if len(record) < UM_RECORD_LEN:
@@ -151,9 +151,9 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[HorseRecord]:
         s = ''.join(chr(b) for b in raw if 0x30 <= b <= 0x39)
         return s if len(s) >= 8 else ''
 
-    sire_num = _parse_hansyoku(250)   # 父
-    dam_num = _parse_hansyoku(296)    # 母
-    bms_num = _parse_hansyoku(434)    # 母父
+    sire_num = _parse_hansyoku(204)   # 父
+    dam_num = _parse_hansyoku(250)    # 母
+    bms_num = _parse_hansyoku(388)    # 母父
 
     return HorseRecord(
         ketto_num=ketto_num,
