@@ -340,15 +340,19 @@ export default function AdminPage() {
   const isRunning = status === 'running';
 
   // カテゴリ別にアクションを分類
-  const batchActions = ACTIONS.filter((a) => a.category === 'batch' && !a.id.startsWith('v4_'));
+  const primaryBatchActions = ACTIONS.filter((a) =>
+    ['batch_prepare', 'batch_after_race'].includes(a.id)
+  );
+  const secondaryBatchActions = ACTIONS.filter((a) =>
+    ['v4_pipeline', 'sunpyo_update'].includes(a.id)
+  );
+  const scrapeActions = ACTIONS.filter((a) => a.category === 'fetch');
+  const stepActions = ACTIONS.filter((a) =>
+    ['v4_build_race', 'v4_predict'].includes(a.id)
+  );
   const indexActions = ACTIONS.filter((a) =>
     ['build_horse_name_index', 'build_trainer_index'].includes(a.id)
   );
-  const v4PipelineAction = ACTIONS.find((a) => a.id === 'v4_pipeline');
-  const v4IndividualActions = ACTIONS.filter((a) =>
-    ['v4_build_race', 'v4_predict'].includes(a.id)
-  );
-  const sunpyoAction = ACTIONS.find((a) => a.id === 'sunpyo_update');
   const analysisActions = ACTIONS.filter((a) => a.category === 'analysis');
   // データリフレッシュが必要なアクション
   const dataRefreshActions: ActionType[] = ['batch_prepare', 'batch_after_race', 'v4_pipeline', 'v4_build_race'];
@@ -427,7 +431,7 @@ export default function AdminPage() {
           <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
             <div className="text-sm font-medium flex items-center gap-2">
               ⏱ 当日取得オプション
-              <span className="text-xs font-normal text-muted-foreground">（パドック/成績/直前情報・結果情報構築）</span>
+              <span className="text-xs font-normal text-muted-foreground">（パドック/成績/レース後更新）</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-sm text-muted-foreground">開始レース</label>
@@ -472,7 +476,7 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-      {/* 一括実行 - 上部に移動、強調表示 */}
+      {/* 一括実行 */}
       <Card className="mb-6 border-2 border-indigo-200 dark:border-indigo-800 shadow-lg">
         <CardHeader className="pb-3 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
           <CardTitle className="text-xl flex items-center gap-2">
@@ -482,8 +486,9 @@ export default function AdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-6 space-y-4">
+          {/* メインワークフロー */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {batchActions.map((action) => (
+            {primaryBatchActions.map((action) => (
               <ActionButton
                 key={action.id}
                 icon={action.icon}
@@ -499,30 +504,19 @@ export default function AdminPage() {
 
           <Separator />
 
-          {/* 補助一括実行 */}
+          {/* 補助アクション */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* v4パイプライン */}
-            {v4PipelineAction && (
+            {secondaryBatchActions.map((action) => (
               <ActionButton
-                icon={v4PipelineAction.icon}
-                label={v4PipelineAction.label}
-                description="スクレイプ済みデータを再処理（レース構築→調教補強→ML予測）"
-                onClick={() => executeAction(v4PipelineAction.id)}
+                key={action.id}
+                icon={action.icon}
+                label={action.label}
+                description={action.description}
+                onClick={() => executeAction(action.id)}
                 disabled={isRunning}
-                loading={isRunning && currentAction === v4PipelineAction.label}
+                loading={isRunning && currentAction === action.label}
               />
-            )}
-            {/* 寸評更新 */}
-            {sunpyoAction && (
-              <ActionButton
-                icon={sunpyoAction.icon}
-                label={sunpyoAction.label}
-                description={sunpyoAction.description}
-                onClick={() => executeAction(sunpyoAction.id)}
-                disabled={isRunning}
-                loading={isRunning && currentAction === sunpyoAction.label}
-              />
-            )}
+            ))}
           </div>
         </CardContent>
       </Card>
@@ -531,7 +525,7 @@ export default function AdminPage() {
 
       {/* ツール・システム - 折りたたみ可能 */}
       <div className="space-y-4">
-        {/* ツール（個別実行） */}
+        {/* ツール（個別実行・メンテナンス） */}
         <Collapsible open={isToolsOpen} onOpenChange={setIsToolsOpen}>
           <Card className="border-muted">
             <CollapsibleTrigger asChild>
@@ -539,7 +533,7 @@ export default function AdminPage() {
                 <CardTitle className="text-lg flex items-center justify-between">
                   <span className="flex items-center gap-2">
                     🔧 ツール
-                    <span className="text-xs font-normal text-muted-foreground">（個別実行）</span>
+                    <span className="text-xs font-normal text-muted-foreground">（個別実行・メンテナンス）</span>
                   </span>
                   {isToolsOpen ? (
                     <ChevronUp className="h-5 w-5 text-muted-foreground" />
@@ -552,27 +546,47 @@ export default function AdminPage() {
             <CollapsibleContent>
               <CardContent>
                 <div className="space-y-6">
-                  {/* v4個別ステップ（デバッグ用） */}
-                  {v4IndividualActions.length > 0 && (
-                    <div>
-                      <div className="text-sm font-medium text-muted-foreground mb-3">
-                        v4 個別ステップ（デバッグ・部分再実行用）
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {v4IndividualActions.map((action) => (
-                          <ActionButton
-                            key={action.id}
-                            icon={action.icon}
-                            label={action.label}
-                            description={action.description}
-                            onClick={() => executeAction(action.id)}
-                            disabled={isRunning}
-                            loading={isRunning && currentAction === action.label}
-                          />
-                        ))}
-                      </div>
+                  {/* 個別スクレイプ */}
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-3">
+                      個別スクレイプ（keibabook）
                     </div>
-                  )}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {scrapeActions.map((action) => (
+                        <ActionButton
+                          key={action.id}
+                          icon={action.icon}
+                          label={action.label}
+                          description={action.description}
+                          onClick={() => executeAction(action.id)}
+                          disabled={isRunning}
+                          loading={isRunning && currentAction === action.label}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* 個別ステップ */}
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-3">
+                      個別ステップ（部分再実行用）
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {stepActions.map((action) => (
+                        <ActionButton
+                          key={action.id}
+                          icon={action.icon}
+                          label={action.label}
+                          description={action.description}
+                          onClick={() => executeAction(action.id)}
+                          disabled={isRunning}
+                          loading={isRunning && currentAction === action.label}
+                        />
+                      ))}
+                    </div>
+                  </div>
 
                   <Separator />
 
@@ -644,11 +658,8 @@ export default function AdminPage() {
 
                   {/* データ分析 */}
                   <div>
-                    <div className="text-sm font-medium text-muted-foreground mb-2">
+                    <div className="text-sm font-medium text-muted-foreground mb-3">
                       データ分析（基準値算出・統計分析）
-                    </div>
-                    <div className="text-sm text-muted-foreground mb-3">
-                      JRA-VANデータから統計分析を実行し、基準値を更新します。
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {analysisActions.map((action) => (
@@ -670,13 +681,31 @@ export default function AdminPage() {
                         href="/analysis/rpci"
                         className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
                       >
-                        📊 RPCI分析結果 →
+                        📊 RPCI分析 →
                       </a>
                       <a
                         href="/analysis/rating"
                         className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
                       >
-                        📈 レイティング分析結果 →
+                        📈 レイティング分析 →
+                      </a>
+                      <a
+                        href="/analysis/pedigree"
+                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        🧬 血統分析 →
+                      </a>
+                      <a
+                        href="/analysis/slow-start"
+                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        🐌 出遅れ分析 →
+                      </a>
+                      <a
+                        href="/analysis/ml"
+                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        🤖 ML分析 →
                       </a>
                     </div>
                   </div>

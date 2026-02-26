@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { RecalcButton } from '@/components/admin/recalc-button';
 
 // ============================================================
 // Types
@@ -188,9 +189,12 @@ export default function SlowStartAnalysisPage() {
               {' '}({pct(data.coverage.total_slow_starts / data.coverage.total_entries)})
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">
-            <RefreshCw className="h-4 w-4" />更新
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">
+              <RefreshCw className="h-4 w-4" />更新
+            </Button>
+            <RecalcButton actionId="rebuild_slow_start" onComplete={fetchData} />
+          </div>
         </div>
       </div>
 

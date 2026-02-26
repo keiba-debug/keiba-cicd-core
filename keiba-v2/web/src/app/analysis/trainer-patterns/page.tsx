@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { RecalcButton } from '@/components/admin/recalc-button';
 
 // =============================================
 // Types
@@ -975,10 +976,13 @@ export default function TrainingAnalysisPage() {
         </div>
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">調教分析</h1>
-          <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">
-            <RefreshCw className="h-4 w-4" />
-            更新
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">
+              <RefreshCw className="h-4 w-4" />
+              更新
+            </Button>
+            <RecalcButton actionId="analyze_training" onComplete={fetchData} />
+          </div>
         </div>
         {metadata && (
           <p className="text-sm text-muted-foreground mt-1">

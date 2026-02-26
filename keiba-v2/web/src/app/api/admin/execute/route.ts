@@ -177,6 +177,10 @@ export async function POST(request: NextRequest) {
           commands = [['-m', 'analysis.trainer_patterns', '--since', '2023']];
         } else if (action === 'analyze_training') {
           commands = [['-m', 'analysis.training_analysis', '--since', '2023']];
+        } else if (action === 'rebuild_sire_stats') {
+          commands = [['-m', 'builders.build_sire_stats']];
+        } else if (action === 'rebuild_slow_start') {
+          commands = [['-m', 'builders.build_slow_start_analysis']];
         } else if (action === 'v4_build_race') {
           const dateArg = date || '';
           commands = [dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']];

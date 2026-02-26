@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, RefreshCw, Search, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Search, AlertTriangle, TrendingUp, TrendingDown, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { RecalcButton } from '@/components/admin/recalc-button';
 
 // ============================================================
 // Types
@@ -23,10 +24,14 @@ interface SireEntry {
   // H3/H4
   fresh_advantage?: number;
   tight_penalty?: number;
-  // H5
+  // H5 (RPCI)
   sprint_top3_rate?: number;
   sustained_top3_rate?: number;
   finish_type_pref?: number;
+  // H5b (race_trend_v2 3カテゴリ)
+  cat_sprint_top3_rate?: number;
+  cat_balance_top3_rate?: number;
+  cat_sustained_top3_rate?: number;
   // H6
   young_top3_rate?: number;
   mature_top3_rate?: number;
@@ -92,6 +97,9 @@ function toEntries(raw: Record<string, Record<string, unknown>>): SireEntry[] {
     sprint_top3_rate: v.sprint_top3_rate as number | undefined,
     sustained_top3_rate: v.sustained_top3_rate as number | undefined,
     finish_type_pref: v.finish_type_pref as number | undefined,
+    cat_sprint_top3_rate: v.cat_sprint_top3_rate as number | undefined,
+    cat_balance_top3_rate: v.cat_balance_top3_rate as number | undefined,
+    cat_sustained_top3_rate: v.cat_sustained_top3_rate as number | undefined,
     young_top3_rate: v.young_top3_rate as number | undefined,
     mature_top3_rate: v.mature_top3_rate as number | undefined,
     maturity_index: v.maturity_index as number | undefined,
@@ -173,11 +181,17 @@ export default function PedigreeAnalysisPage() {
               {' '}構築: {data.meta.built_at?.slice(0, 10)}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">
-            <RefreshCw className="h-4 w-4" />更新
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">
+              <RefreshCw className="h-4 w-4" />更新
+            </Button>
+            <RecalcButton actionId="rebuild_sire_stats" onComplete={fetchData} />
+          </div>
         </div>
       </div>
+
+      {/* 指標の見方 */}
+      <MetricsGuide />
 
       {/* Tabs */}
       <Tabs defaultValue="sire">
@@ -202,10 +216,75 @@ export default function PedigreeAnalysisPage() {
 }
 
 // ============================================================
+// Metrics Guide Component
+// ============================================================
+
+function MetricsGuide() {
+  const [open, setOpen] = useState(false);
+
+  const metrics = [
+    {
+      name: '複勝率',
+      desc: '産駒が3着以内に入る確率。ベイズ平滑化（Beta-Binomial）済みで、出走数が少ない種牡馬でも安定した推定値になる。',
+      reading: '30%以上は高水準。緑太字=35%以上、赤=15%以下。',
+    },
+    {
+      name: '成長曲線',
+      desc: '4歳以上の複勝率 − 3歳以下の複勝率。晩成型か早熟型かを示す指標。',
+      reading: '正の値=晩成型（古馬で成績上昇）、負の値=早熟型（若駒に強い）。±2%以上で色分け。',
+    },
+    {
+      name: '休み明け',
+      desc: '8週以上の間隔を空けた出走時の複勝率 − 通常間隔（4〜7週）の複勝率。',
+      reading: '正=休み明けでも走る・叩き不要タイプ。負=叩いてから良化するタイプ。',
+    },
+    {
+      name: '詰め使い',
+      desc: '中2週以内の連戦時の複勝率 − 通常間隔（4〜7週）の複勝率。',
+      reading: '負=疲労が出やすく連戦に弱い血統。0付近=連戦してもパフォーマンス維持。',
+    },
+    {
+      name: '瞬発系 / バランス / 持続系',
+      desc: 'レースペース分析（v2分類）に基づく3カテゴリ別複勝率。瞬発系=瞬発+軽瞬発、バランス=平均+ロンスパ、持続系=HP+強L3+道悪。',
+      reading: '3列を比較して得意なレースタイプを判断。差が大きいほど適性がはっきりしている。',
+    },
+  ];
+
+  return (
+    <Card>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+      >
+        <Info className="h-4 w-4 text-blue-500 shrink-0" />
+        <span className="text-sm font-medium">指標の見方</span>
+        <span className="text-xs text-muted-foreground ml-auto">{open ? '閉じる' : '開く'}</span>
+      </button>
+      {open && (
+        <CardContent className="pt-0 pb-4 px-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {metrics.map((m) => (
+              <div key={m.name} className="rounded-lg bg-muted/30 p-3 space-y-1">
+                <div className="font-medium text-sm">{m.name}</div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{m.desc}</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400 leading-relaxed">{m.reading}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            ※ 全指標は種牡馬(父)・母父それぞれで独立集計。ベイズ平滑化により出走数の少ない種牡馬ほど全体平均に引き寄せられる。
+          </p>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ============================================================
 // Ranking Table Component
 // ============================================================
 
-type SortKey = 'top3_rate' | 'win_rate' | 'total_runs' | 'maturity_index' | 'fresh_advantage' | 'tight_penalty' | 'finish_type_pref';
+type SortKey = 'top3_rate' | 'win_rate' | 'total_runs' | 'maturity_index' | 'fresh_advantage' | 'tight_penalty' | 'finish_type_pref' | 'cat_sprint_top3_rate' | 'cat_balance_top3_rate' | 'cat_sustained_top3_rate';
 
 function RankingTable({ entries, label }: { entries: SireEntry[]; label: string }) {
   const [minRuns, setMinRuns] = useState(50);
@@ -319,8 +398,14 @@ function RankingTable({ entries, label }: { entries: SireEntry[]; label: string 
                 <th className={thClass} onClick={() => handleSort('tight_penalty')}>
                   <span title="間隔詰め(3週内)と通常の複勝率差">詰め使い{sortIcon('tight_penalty')}</span>
                 </th>
-                <th className={thClass} onClick={() => handleSort('finish_type_pref')}>
-                  <span title="瞬発レース率-持続レース率">瞬発/持続{sortIcon('finish_type_pref')}</span>
+                <th className={thClass} onClick={() => handleSort('cat_sprint_top3_rate')}>
+                  <span title="瞬発系レース(瞬発・軽瞬発)での複勝率">瞬発系{sortIcon('cat_sprint_top3_rate')}</span>
+                </th>
+                <th className={thClass} onClick={() => handleSort('cat_balance_top3_rate')}>
+                  <span title="バランス系レース(平均・ロンスパ)での複勝率">バランス{sortIcon('cat_balance_top3_rate')}</span>
+                </th>
+                <th className={thClass} onClick={() => handleSort('cat_sustained_top3_rate')}>
+                  <span title="持続系レース(持続HP・持続強L3・道悪)での複勝率">持続系{sortIcon('cat_sustained_top3_rate')}</span>
                 </th>
               </tr>
             </thead>
@@ -352,8 +437,14 @@ function RankingTable({ entries, label }: { entries: SireEntry[]; label: string 
                   <td className={`text-right py-1.5 px-2 font-mono ${diffColor(e.tight_penalty)}`}>
                     {signed(e.tight_penalty)}
                   </td>
-                  <td className={`text-right py-1.5 px-2 font-mono ${diffColor(e.finish_type_pref)}`}>
-                    {signed(e.finish_type_pref)}
+                  <td className={`text-right py-1.5 px-2 font-mono ${rateColor(e.cat_sprint_top3_rate ?? 0)}`}>
+                    {pct(e.cat_sprint_top3_rate)}
+                  </td>
+                  <td className={`text-right py-1.5 px-2 font-mono ${rateColor(e.cat_balance_top3_rate ?? 0)}`}>
+                    {pct(e.cat_balance_top3_rate)}
+                  </td>
+                  <td className={`text-right py-1.5 px-2 font-mono ${rateColor(e.cat_sustained_top3_rate ?? 0)}`}>
+                    {pct(e.cat_sustained_top3_rate)}
                   </td>
                 </tr>
               ))}
@@ -380,7 +471,9 @@ function RankingTable({ entries, label }: { entries: SireEntry[]; label: string 
         <span>成長曲線: 正=晩成型, 負=早熟型</span>
         <span>休み明け: 8週以上 vs 通常</span>
         <span>詰め使い: 3週以内 vs 通常</span>
-        <span>瞬発/持続: RPCI{'\u2265'}53 vs {'\u2264'}49</span>
+        <span>瞬発系: 瞬発+軽瞬発</span>
+        <span>バランス: 平均+ロンスパ</span>
+        <span>持続系: HP+強L3+道悪</span>
       </div>
     </Card>
   );

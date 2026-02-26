@@ -56,8 +56,16 @@ TIGHT_DAYS = 21     # 3週以内 = 間隔詰め
 MIN_RUNS_CONDITIONAL = 10  # 条件付きrateの最小サンプル数
 
 # H5: 瞬発vs持続 (実データ: mean=51, SD=2.1, range=45-58)
-RPCI_SPRINT_THRESHOLD = 53     # RPCI >= 53 = 後傾（瞬発レース、上位≈13%）
-RPCI_SUSTAINED_THRESHOLD = 49  # RPCI <= 49 = 前傾（持続レース、下位≈14%）
+# RPCI = last_3f / (first_3f + last_3f) * 100
+# 高RPCI = 後半遅い = 前傾（ハイペース）= 持続/消耗レース
+# 低RPCI = 後半速い = 後傾（スロー）= 瞬発レース
+RPCI_SPRINT_THRESHOLD = 49     # RPCI <= 49 = 後傾（瞬発レース）
+RPCI_SUSTAINED_THRESHOLD = 53  # RPCI >= 53 = 前傾（持続レース）
+
+# H5b: レースタイプ3カテゴリ（race_trend_v2ベース）
+RACE_TYPE_SPRINT = {'sprint', 'sprint_mild'}            # 瞬発系
+RACE_TYPE_BALANCE = {'even', 'long_sprint'}             # バランス
+RACE_TYPE_SUSTAINED = {'sustained_hp', 'sustained_strong', 'sustained_doroashi'}  # 持続系
 
 # H6: 成長曲線
 YOUNG_AGE_MAX = 3   # 若駒: 2-3歳
@@ -181,9 +189,13 @@ def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict
             'fresh_runs': 0, 'fresh_wins': 0, 'fresh_top3': 0,
             'tight_runs': 0, 'tight_wins': 0, 'tight_top3': 0,
             'normal_runs': 0, 'normal_wins': 0, 'normal_top3': 0,
-            # H5: 瞬発vs持続
+            # H5: 瞬発vs持続 (RPCIベース)
             'sprint_runs': 0, 'sprint_wins': 0, 'sprint_top3': 0,
             'sustained_runs': 0, 'sustained_wins': 0, 'sustained_top3': 0,
+            # H5b: レースタイプ3カテゴリ (race_trend_v2ベース)
+            'cat_sprint_runs': 0, 'cat_sprint_wins': 0, 'cat_sprint_top3': 0,
+            'cat_balance_runs': 0, 'cat_balance_wins': 0, 'cat_balance_top3': 0,
+            'cat_sustained_runs': 0, 'cat_sustained_wins': 0, 'cat_sustained_top3': 0,
             # H6: 成長曲線
             'young_runs': 0, 'young_wins': 0, 'young_top3': 0,
             'mature_runs': 0, 'mature_wins': 0, 'mature_top3': 0,
@@ -205,6 +217,8 @@ def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict
         # H5: レース単位のRPCI取得
         pace = race.get('pace') or {}
         rpci = pace.get('rpci')
+        # H5b: レースタイプ3カテゴリ
+        race_type_cat = _classify_race_type(pace.get('race_trend_v2'))
 
         entries = race.get('entries', [])
         for entry in entries:
@@ -258,17 +272,17 @@ def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict
             # sire集計
             if sire_id:
                 _accumulate(sire_stats[sire_id], is_win, is_top3,
-                            rest_cond, pace_cond, age_cond)
+                            rest_cond, pace_cond, age_cond, race_type_cat)
 
             # dam集計
             if dam_id:
                 _accumulate(dam_stats[dam_id], is_win, is_top3,
-                            rest_cond, pace_cond, age_cond)
+                            rest_cond, pace_cond, age_cond, race_type_cat)
 
             # bms集計
             if bms_id:
                 _accumulate(bms_stats[bms_id], is_win, is_top3,
-                            rest_cond, pace_cond, age_cond)
+                            rest_cond, pace_cond, age_cond, race_type_cat)
 
     print(f"  Total entries: {total_entries:,}")
     print(f"  Matched (pedigree): {matched_entries:,} ({matched_entries/max(total_entries,1)*100:.1f}%)")
@@ -317,14 +331,29 @@ def _classify_rest(days: Optional[int]) -> str:
 
 
 def _classify_pace(rpci: Optional[float]) -> Optional[str]:
-    """H5: RPCI→瞬発/持続分類"""
+    """H5: RPCI→瞬発/持続分類
+    低RPCI = 後半速い = 瞬発レース, 高RPCI = 後半遅い = 持続レース
+    """
     if rpci is None:
         return None
-    if rpci >= RPCI_SPRINT_THRESHOLD:
+    if rpci <= RPCI_SPRINT_THRESHOLD:
         return 'sprint'
-    if rpci <= RPCI_SUSTAINED_THRESHOLD:
+    if rpci >= RPCI_SUSTAINED_THRESHOLD:
         return 'sustained'
     return None  # 中間ペースは集計しない
+
+
+def _classify_race_type(trend_v2: Optional[str]) -> Optional[str]:
+    """H5b: race_trend_v2 → 3カテゴリ分類"""
+    if not trend_v2:
+        return None
+    if trend_v2 in RACE_TYPE_SPRINT:
+        return 'cat_sprint'
+    if trend_v2 in RACE_TYPE_BALANCE:
+        return 'cat_balance'
+    if trend_v2 in RACE_TYPE_SUSTAINED:
+        return 'cat_sustained'
+    return None
 
 
 def _classify_age(age) -> Optional[str]:
@@ -340,7 +369,7 @@ def _classify_age(age) -> Optional[str]:
 
 def _accumulate(stats: dict, is_win: bool, is_top3: bool,
                 rest_cond: str, pace_cond: Optional[str],
-                age_cond: Optional[str]):
+                age_cond: Optional[str], race_type_cat: Optional[str] = None):
     """成績を加算"""
     stats['total_runs'] += 1
     if is_win:
@@ -356,13 +385,21 @@ def _accumulate(stats: dict, is_win: bool, is_top3: bool,
         if is_top3:
             stats[f'{rest_cond}_top3'] += 1
 
-    # H5: 瞬発vs持続
+    # H5: 瞬発vs持続 (RPCIベース)
     if pace_cond:
         stats[f'{pace_cond}_runs'] += 1
         if is_win:
             stats[f'{pace_cond}_wins'] += 1
         if is_top3:
             stats[f'{pace_cond}_top3'] += 1
+
+    # H5b: レースタイプ3カテゴリ (race_trend_v2ベース)
+    if race_type_cat:
+        stats[f'{race_type_cat}_runs'] += 1
+        if is_win:
+            stats[f'{race_type_cat}_wins'] += 1
+        if is_top3:
+            stats[f'{race_type_cat}_top3'] += 1
 
     # H6: 成長曲線
     if age_cond:
@@ -437,6 +474,17 @@ def _finalize_stats(raw_stats: dict) -> dict:
 
         if sprint_rate is not None and sustained_rate is not None:
             entry['finish_type_pref'] = round(sprint_rate - sustained_rate, 4)
+
+        # H5b: レースタイプ3カテゴリ
+        for cat_key in ('cat_sprint', 'cat_balance', 'cat_sustained'):
+            runs_key = f'{cat_key}_runs'
+            top3_key = f'{cat_key}_top3'
+            if s[runs_key] >= MIN_RUNS_CONDITIONAL:
+                rate = bayesian_rate(
+                    s[top3_key], s[runs_key],
+                    PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+                entry[f'{cat_key}_runs'] = s[runs_key]
+                entry[f'{cat_key}_top3_rate'] = rate
 
         # H6: 成長曲線
         young_rate = None

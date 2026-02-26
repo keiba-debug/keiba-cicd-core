@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, ArrowLeft, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import Link from 'next/link';
 import { RpciGauge, RpciBar, StatCard } from '@/components/ui/visualization';
+import { RecalcButton } from '@/components/admin/recalc-button';
 import { cn } from '@/lib/utils';
 
 // 型定義
@@ -588,14 +589,17 @@ export default function RpciAnalysisPage() {
               更新: {new Date(data.metadata.created_at).toLocaleString('ja-JP')} |
               ソース: {data.metadata.source}
             </span>
-            <button
-              onClick={fetchData}
-              className="flex items-center gap-1 hover:text-foreground transition-colors"
-              disabled={loading}
-            >
-              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-              再読み込み
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={fetchData}
+                className="flex items-center gap-1 hover:text-foreground transition-colors"
+                disabled={loading}
+              >
+                <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+                再読み込み
+              </button>
+              <RecalcButton actionId="calc_race_type_standards" onComplete={fetchData} />
+            </div>
           </div>
 
           {/* タブ */}

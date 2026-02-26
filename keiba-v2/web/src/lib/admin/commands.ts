@@ -18,9 +18,11 @@ export type ActionType =
   | 'build_trainer_index'        // 調教師インデックス作成
   | 'analyze_trainer_patterns'   // 調教師パターン分析
   | 'analyze_training'           // 調教分析
-  | 'v4_build_race'              // v4 JRA-VAN → data3/races/
-  | 'v4_predict'                 // v4 ML v3予測 → data3/ml/predictions_live.json
-  | 'v4_pipeline';               // v4 上記を連結実行
+  | 'rebuild_sire_stats'         // 血統統計再集計
+  | 'rebuild_slow_start'         // 出遅れ分析再集計
+  | 'v4_build_race'              // JRA-VAN → data3/races/
+  | 'v4_predict'                 // ML予測 → data3/ml/predictions_live.json
+  | 'v4_pipeline';               // 上記を連結実行
 
 export interface ActionConfig {
   id: ActionType;
@@ -39,70 +41,70 @@ export interface CommandOptions {
 }
 
 export const ACTIONS: ActionConfig[] = [
-  // データ取得（v2 batch_scraper経由）
+  // --- 個別スクレイプ（keibabook）---
   {
     id: 'schedule',
     label: 'スケジュール取得',
-    description: 'keibabook.co.jpから開催日程を取得',
+    description: '開催日程を取得',
     icon: '📅',
     category: 'fetch',
   },
   {
     id: 'basic',
     label: '基本データ取得',
-    description: '出馬表・調教・談話・勝因を取得 → kb_ext直接構築',
+    description: '出馬表・調教・談話・勝因を取得→kb_ext構築',
     icon: '📋',
     category: 'fetch',
   },
   {
     id: 'paddok',
     label: 'パドック取得',
-    description: 'パドック情報を取得 → kb_ext更新（レース当日用）',
+    description: 'パドック情報を取得→kb_ext更新',
     icon: '🐎',
     category: 'fetch',
   },
   {
     id: 'seiseki',
     label: '成績取得',
-    description: 'レース結果を取得 → kb_ext更新（レース後用）',
+    description: 'レース結果を取得→kb_ext更新',
     icon: '🏆',
     category: 'fetch',
   },
   {
     id: 'babakeikou',
     label: '馬場情報取得',
-    description: '当日の馬場情報を取得',
+    description: '当日の馬場傾向を取得',
     icon: '🌱',
     category: 'fetch',
   },
-  // 一括実行
+  // --- 一括実行 ---
   {
     id: 'batch_prepare',
-    label: '基本情報構築',
-    description: '日程取得 → 基本データ取得 → kb_ext構築 → レースJSON(keibabook) → レースJSON(JRA-VAN上書き) → 調教補強・ML予測',
+    label: 'レース前準備',
+    description: '日程→出馬表・調教→レースJSON構築→ML予測（新規開催の初回実行）',
     icon: '🌅',
     category: 'batch',
   },
   {
     id: 'batch_after_race',
-    label: '直前情報・結果情報構築',
-    description: 'パドック → 成績 → kb_ext更新 → レースJSONを成績で更新(JRA-VAN) → 調教補強・ML予測',
-    icon: '🔄',
+    label: 'レース後更新',
+    description: 'パドック→成績→レースJSON更新→ML予測（レース後に実行）',
+    icon: '🏁',
     category: 'batch',
   },
-  // 過去データ更新（日付範囲対応）
+  // --- 補助 ---
   {
     id: 'sunpyo_update',
-    label: '成績完全版更新',
-    description: '寸評・インタビュー・次走メモを取得 → kb_ext更新',
+    label: '成績詳細取得',
+    description: '寸評・インタビュー・次走メモを取得→kb_ext更新（翌日以降）',
     icon: '📝',
     category: 'update',
   },
-  // データ分析
+  // --- データ分析 ---
   {
     id: 'calc_race_type_standards',
     label: 'レース特性基準値算出',
-    description: 'data3/racesからRPCI瞬発戦/持続戦の基準値を算出',
+    description: 'RPCI瞬発戦/持続戦の基準値を算出',
     icon: '📊',
     category: 'analysis',
     noDateRequired: true,
@@ -115,58 +117,76 @@ export const ACTIONS: ActionConfig[] = [
     category: 'analysis',
     noDateRequired: true,
   },
+  // --- インデックス ---
   {
     id: 'build_horse_name_index',
-    label: '馬名インデックス作成',
-    description: 'data3/masters/horsesから馬名→血統番号の辞書を再構築（新馬対応・年1回推奨）',
+    label: '馬名インデックス構築',
+    description: '馬名→血統番号の辞書を再構築（新馬登録時）',
     icon: '📖',
     category: 'generate',
     noDateRequired: true,
   },
   {
     id: 'build_trainer_index',
-    label: '調教師インデックス作成',
-    description: 'data3/mastersから調教師コード↔名前の対応辞書を構築',
+    label: '調教師インデックス構築',
+    description: '調教師コード↔名前の対応辞書を構築',
     icon: '👨‍🏫',
     category: 'generate',
     noDateRequired: true,
   },
   {
     id: 'analyze_trainer_patterns',
-    label: '調教師パターン分析(旧)',
-    description: 'keibabook調教詳細×着順データから調教師別好走パターンを統計分析',
+    label: '調教師パターン分析(KB)',
+    description: 'keibabook調教詳細×着順から調教師別好走パターンを統計分析',
     icon: '🔬',
     category: 'analysis',
     noDateRequired: true,
   },
   {
     id: 'analyze_training',
-    label: '調教分析',
+    label: '調教分析(JRA-VAN)',
     description: 'CK_DATA調教×レース成績の統合分析（全体+調教師別パターン）',
     icon: '🏋️',
     category: 'analysis',
     noDateRequired: true,
   },
-  // v4パイプライン（JRA-VAN基盤）
+  // --- 分析再集計（各分析ページから呼び出し）---
+  {
+    id: 'rebuild_sire_stats',
+    label: '血統統計再集計',
+    description: '種牡馬/母馬/母父の産駒成績を全レースから再集計',
+    icon: '🧬',
+    category: 'analysis',
+    noDateRequired: true,
+  },
+  {
+    id: 'rebuild_slow_start',
+    label: '出遅れ分析再集計',
+    description: '出遅れデータを全レースから再集計',
+    icon: '🐌',
+    category: 'analysis',
+    noDateRequired: true,
+  },
+  // --- パイプライン・個別ステップ ---
   {
     id: 'v4_build_race',
-    label: 'v4 レース構築',
-    description: 'JRA-VAN SE/SR → data3/races/ レースJSON生成',
+    label: 'レースJSON構築',
+    description: 'JRA-VAN SE/SR→レースJSON再構築',
     icon: '🏗️',
     category: 'generate',
   },
   {
     id: 'v4_predict',
-    label: 'v4 ML予測',
-    description: 'ML v3モデルで当日レースのValue Bet予測',
+    label: 'ML予測',
+    description: 'MLモデルで予測を再生成（predictions更新）',
     icon: '🤖',
     category: 'generate',
   },
   {
     id: 'v4_pipeline',
-    label: 'v4 パイプライン',
-    description: 'レース構築 → 調教詳細補強 → ML予測 を一括実行',
-    icon: '🚀',
+    label: '再処理パイプライン',
+    description: 'レースJSON構築→調教補強→ML予測（スクレイプなし・データ再処理用）',
+    icon: '♻️',
     category: 'batch',
   },
 ];
@@ -246,6 +266,8 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
     case 'build_trainer_index':
     case 'analyze_trainer_patterns':
     case 'analyze_training':
+    case 'rebuild_sire_stats':
+    case 'rebuild_slow_start':
     case 'v4_build_race':
     case 'v4_predict':
     case 'v4_pipeline':
@@ -308,6 +330,8 @@ export function getCommandArgsRange(
     case 'build_trainer_index':
     case 'analyze_trainer_patterns':
     case 'analyze_training':
+    case 'rebuild_sire_stats':
+    case 'rebuild_slow_start':
     case 'v4_build_race':
     case 'v4_predict':
     case 'v4_pipeline':

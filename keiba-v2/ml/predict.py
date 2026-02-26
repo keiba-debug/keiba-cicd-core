@@ -237,8 +237,9 @@ def load_master_data():
         with open(sire_stats_path, encoding='utf-8') as f:
             sire_stats_index = json.load(f)
         sire_count = len(sire_stats_index.get('sire', {}))
+        dam_count = len(sire_stats_index.get('dam', {}))
         bms_count = len(sire_stats_index.get('bms', {}))
-        print(f"  Sire stats: {sire_count:,} sires, {bms_count:,} BMS")
+        print(f"  Sire stats: {sire_count:,} sires, {dam_count:,} dams, {bms_count:,} BMS")
 
     return (history_cache, trainer_index, jockey_index, pace_index,
             kb_ext_index, race_level_index, pedigree_index, sire_stats_index)

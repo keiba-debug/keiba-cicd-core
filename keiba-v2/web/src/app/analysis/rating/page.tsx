@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, ArrowLeft, Star } from 'lucide-react';
 import Link from 'next/link';
+import { RecalcButton } from '@/components/admin/recalc-button';
 
 // 型定義
 interface RatingStats {
@@ -242,14 +243,17 @@ export default function RatingAnalysisPage() {
             <span>
               更新日時: {new Date(data.metadata.created_at).toLocaleString('ja-JP')} | ソース: {data.metadata.source}
             </span>
-            <button
-              onClick={fetchData}
-              className="flex items-center gap-1 hover:text-foreground transition-colors"
-              disabled={loading}
-            >
-              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-              再読み込み
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={fetchData}
+                className="flex items-center gap-1 hover:text-foreground transition-colors"
+                disabled={loading}
+              >
+                <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+                再読み込み
+              </button>
+              <RecalcButton actionId="calc_rating_standards" onComplete={fetchData} />
+            </div>
           </div>
 
           {/* クラス別レイティング */}
