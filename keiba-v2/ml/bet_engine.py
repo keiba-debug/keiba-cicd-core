@@ -94,6 +94,10 @@ class BetStrategyParams:
     win_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効, 45=推奨, tiersがある場合は最低ティアが足切りになる)
     win_max_rank: int = 3             # rank_v (Place model) pre-filter (v_ratio_min>0なら無視)
     win_v_ratio_min: float = 0.0      # V%比率フィルター (0=無効→rank_v使用, 0.75=top1の75%以上)
+    # V%比率バイパス: V%比率が閾値未満でも、Gap+EVが十分高ければ通過させる
+    # 「モデル評価は低いが市場がさらに低評価→超穴馬」を拾うルート
+    win_v_bypass_gap: int = 0         # バイパス用Gap下限 (0=無効, 7=推奨)
+    win_v_bypass_ev: float = 0.0      # バイパス用EV下限 (0=無効, 3.0=推奨)
     # --- ARd段階フィルター ---
     # (min_ard, min_gap) のリスト。ARd高い順に定義。
     # 例: [(65, 3), (55, 4), (45, 5)] → ARd>=65ならgap>=3, ARd>=55ならgap>=4, それ未満はgap>=5
@@ -136,11 +140,17 @@ class BetStrategyParams:
 # v5.30: V%比率フィルター導入（rank_v順位ベース→V%比率ベース）
 #   大混戦（top1-4がほぼ同率）で実力差のない馬を正しく拾う
 #   V%比率 = 馬のV% / レース内最大V%。0.75=top1の75%以上
+#
+# v5.30b: V%比率バイパスルート追加
+#   V%比率<0.75でも Gap>=7 + EV>=3.0 なら通過（超穴馬救済）
+#   バイパス単体: 58件 Win ROI 460.5%、ベースライン合算で ROI 109.7%→134.9%
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
         win_min_gap=5,              # フォールバック（ティアがカバーしない場合）
         win_min_ev=1.5,             # EV >= 1.5 supplementary filter
         win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
+        win_v_bypass_gap=7,         # バイパス: Gap>=7
+        win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
@@ -148,6 +158,8 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_min_gap=5,              # フォールバック
         win_min_ev=0.0,             # EV filter disabled
         win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
+        win_v_bypass_gap=7,         # バイパス: Gap>=7
+        win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
@@ -155,6 +167,8 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_min_gap=5,              # フォールバック
         win_min_ev=1.8,             # EV >= 1.8
         win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
+        win_v_bypass_gap=7,         # バイパス: Gap>=7
+        win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         place_min_gap=99,           # Place無効化
     ),
@@ -431,11 +445,18 @@ def generate_recommendations(
             # --- 単勝評価 ---
             # Pre-filter: V%比率 or rank_v
             #   V%比率: レース内top1のV%に対する比率で足切り（大混戦に対応）
+            #   バイパス: V%比率未達でもGap+EVが十分高い穴馬を例外通過
             #   rank_v: 従来の順位ベース足切り（V%比率が0の場合のフォールバック）
             if params.win_v_ratio_min > 0:
                 v_pct = p_top3_raw or 0
                 v_ratio = v_pct / race_max_v if race_max_v > 0 else 0
                 win_prefilter_pass = v_ratio >= params.win_v_ratio_min
+                # バイパス: V%比率未達でも高Gap+高EVなら通過
+                if not win_prefilter_pass and params.win_v_bypass_gap > 0 and params.win_v_bypass_ev > 0:
+                    bypass_gap_ok = gap >= params.win_v_bypass_gap
+                    bypass_ev_ok = (win_ev or 0) >= params.win_v_bypass_ev
+                    if bypass_gap_ok and bypass_ev_ok:
+                        win_prefilter_pass = True
             else:
                 win_prefilter_pass = rank_v <= params.win_max_rank
 

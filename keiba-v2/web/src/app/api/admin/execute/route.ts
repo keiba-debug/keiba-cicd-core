@@ -67,6 +67,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 日付範囲 → 日付リスト展開（--dateのみ対応のスクリプト用）
+    const expandDateRange = (start: string, end: string): string[] => {
+      const dates: string[] = [];
+      const cur = new Date(start + 'T00:00:00');
+      const last = new Date(end + 'T00:00:00');
+      while (cur <= last) {
+        dates.push(cur.toISOString().slice(0, 10));
+        cur.setDate(cur.getDate() + 1);
+      }
+      return dates;
+    };
+
     // SSEストリームを作成
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -119,13 +131,15 @@ export async function POST(request: NextRequest) {
 
         if (action === 'batch_prepare') {
           // 前日準備: スクレイピング(basic) → v4パイプライン(race_build→cyokyo_enrich→predict)
-          const dateArg = date || '';
           if (isRangeAction && startDate && endDate) {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'basic'],
-              ...buildV4AfterScrapeCommands(dateArg, true),
             ];
+            for (const d of expandDateRange(startDate, endDate)) {
+              commands.push(...buildV4AfterScrapeCommands(d, true));
+            }
           } else {
+            const dateArg = date || '';
             commands = [
               ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'basic'],
               ...buildV4AfterScrapeCommands(dateArg, true),
@@ -134,7 +148,6 @@ export async function POST(request: NextRequest) {
         } else if (action === 'batch_after_race') {
           // レース後更新: paddok → seiseki → build_race_master のみ（SE_DATAでrace_*.jsonを成績付きで上書き）→ cyokyo_enrich → predict
           // 成績（着・タイム・上り）は race_*.json の entries にのみ格納。build_race_from_keibabook は実行しない（出馬表で上書きすると成績が消える）
-          const dateArg = date || '';
           const afterRaceV4 = (d: string): string[][] => [
             ['-m', 'builders.build_race_master', '--date', d],
             ['-m', 'keibabook.cyokyo_enricher', '--date', d],
@@ -144,9 +157,12 @@ export async function POST(request: NextRequest) {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'paddok'],
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
-              ...afterRaceV4(dateArg || startDate),
             ];
+            for (const d of expandDateRange(startDate, endDate)) {
+              commands.push(...afterRaceV4(d));
+            }
           } else {
+            const dateArg = date || '';
             commands = [
               ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'paddok'],
               ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'seiseki'],
@@ -182,14 +198,32 @@ export async function POST(request: NextRequest) {
         } else if (action === 'rebuild_slow_start') {
           commands = [['-m', 'builders.build_slow_start_analysis']];
         } else if (action === 'v4_build_race') {
-          const dateArg = date || '';
-          commands = [dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']];
+          if (isRangeAction && startDate && endDate) {
+            for (const d of expandDateRange(startDate, endDate)) {
+              commands.push(['-m', 'builders.build_race_master', '--date', d]);
+            }
+          } else {
+            const dateArg = date || '';
+            commands = [dateArg ? ['-m', 'builders.build_race_master', '--date', dateArg] : ['-m', 'builders.build_race_master']];
+          }
         } else if (action === 'v4_predict') {
-          const dateArg = date || '';
-          commands = [dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']];
+          if (isRangeAction && startDate && endDate) {
+            for (const d of expandDateRange(startDate, endDate)) {
+              commands.push(['-m', 'ml.predict', '--date', d]);
+            }
+          } else {
+            const dateArg = date || '';
+            commands = [dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']];
+          }
         } else if (action === 'v4_pipeline') {
-          const dateArg = date || '';
-          commands = buildV4PipelineCommands(dateArg, true);
+          if (isRangeAction && startDate && endDate) {
+            for (const d of expandDateRange(startDate, endDate)) {
+              commands.push(...buildV4PipelineCommands(d, true));
+            }
+          } else {
+            const dateArg = date || '';
+            commands = buildV4PipelineCommands(dateArg, true);
+          }
         } else {
           commands = isRangeAction && startDate && endDate
             ? getCommandArgsRange(action, startDate, endDate, options)

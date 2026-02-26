@@ -8,12 +8,13 @@ export const BET_CONFIG = {
 } as const;
 
 /** サーバー側プリセットキー */
-export type ServerPresetKey = 'standard' | 'wide';
+export type ServerPresetKey = 'standard' | 'wide' | 'aggressive';
 
 /** プリセット表示オプション */
 export const PRESET_OPTIONS: { key: ServerPresetKey; label: string; description: string }[] = [
-  { key: 'standard', label: 'Standard', description: 'Gap≥5 EV≥1.5 ARd≥50 (推奨)' },
-  { key: 'wide', label: 'Wide', description: 'Gap≥5 ARd≥50 (件数重視)' },
+  { key: 'standard', label: '標準', description: 'EV≥1.5で期待値のある馬を選定（推奨）' },
+  { key: 'wide', label: '手広く', description: 'EV条件なしで幅広く買い目を拾う（件数多め）' },
+  { key: 'aggressive', label: '厳選', description: 'EV≥1.8の高期待値馬のみに絞る（件数少・ROI重視）' },
 ];
 
 /**
