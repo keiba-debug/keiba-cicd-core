@@ -100,6 +100,7 @@ export interface ServerBetRecommendation {
   danger_score: number;
   odds: number;
   place_odds_min: number | null;
+  ar_deviation: number | null;
 }
 
 export interface ServerBetPreset {

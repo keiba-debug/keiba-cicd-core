@@ -32,6 +32,9 @@ interface BetRecommendationsProps {
   onAllocModeChange: (mode: AllocMode) => void;
   dbResults?: DbResultsMap;
   getFinishPos?: (raceId: string, umaban: number) => number;
+  bankrollBalance?: number | null;
+  budgetLinked?: boolean;
+  toggleBudgetLink?: () => void;
 }
 
 function PresetButtons({ preset, onPresetChange }: { preset: ServerPresetKey; onPresetChange: (p: ServerPresetKey) => void }) {
@@ -58,6 +61,7 @@ export function BetRecommendations({
   preset, onPresetChange,
   allocMode, onAllocModeChange,
   dbResults, getFinishPos,
+  bankrollBalance, budgetLinked, toggleBudgetLink,
 }: BetRecommendationsProps) {
   const hasResults = dbResults && Object.keys(dbResults).length > 0;
 
@@ -102,6 +106,22 @@ export function BetRecommendations({
                 className="w-20 px-1.5 py-0.5 text-xs text-right rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
               />
             </label>
+            {bankrollBalance != null && toggleBudgetLink && (
+              <button
+                onClick={toggleBudgetLink}
+                className={`px-1.5 py-0.5 text-[10px] rounded border transition-colors ${
+                  budgetLinked
+                    ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700'
+                    : 'bg-gray-50 text-gray-400 border-gray-300 dark:bg-gray-800 dark:text-gray-500 dark:border-gray-600'
+                }`}
+                title={budgetLinked
+                  ? `資金連動ON: 現在資金 ¥${bankrollBalance.toLocaleString()} × 日次上限% = ¥${dailyBudget.toLocaleString()}`
+                  : `資金連動OFF: クリックで現在資金ベースに切替`
+                }
+              >
+                {budgetLinked ? `連動 ¥${(bankrollBalance / 10000).toFixed(1)}万` : '連動OFF'}
+              </button>
+            )}
             <div className="flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
               <button
                 onClick={() => onAllocModeChange('kelly')}
@@ -169,6 +189,7 @@ export function BetRecommendations({
                 <SortTh sortKey="race" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">R</SortTh>
                 <SortTh sortKey="umaban" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">馬番</SortTh>
                 <th className="px-2 py-2 text-left border">馬名</th>
+                <SortTh sortKey="strength" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-yellow-50/50 dark:bg-yellow-900/10" title="強度: Strong=単勝重視配分, Normal=複勝重視配分">強度</SortTh>
                 <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-amber-50 dark:bg-amber-900/20 font-bold" title="Gap（主軸） = 人気順位 - VR。VB判定の主フィルター">Gap</SortTh>
                 <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-amber-50/50 dark:bg-amber-900/10" title="単勝EV = calibrated P(win) × 単勝オッズ">EV</SortTh>
                 <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
@@ -208,6 +229,13 @@ export function BetRecommendations({
                     <td className="px-2 py-1.5 border text-center font-bold">{r.race.race_number}</td>
                     <td className="px-2 py-1.5 border text-center font-mono">{r.entry.umaban}</td>
                     <td className="px-2 py-1.5 border font-bold text-xs">{r.entry.horse_name}</td>
+                    <td className={`px-2 py-1.5 border text-center text-[10px] font-bold ${
+                      r.strength === 'strong'
+                        ? 'text-yellow-700 bg-yellow-50/50 dark:text-yellow-300 dark:bg-yellow-900/20'
+                        : 'text-gray-400'
+                    }`}>
+                      {r.strength === 'strong' ? 'S' : 'N'}
+                    </td>
                     {(() => { const lg = getLiveGap(r.race.race_id, r.entry); return (
                     <td className={`px-2 py-1.5 border text-center font-mono font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getGapColor(lg)}`} title="Gap（主軸）">
                       +{lg}

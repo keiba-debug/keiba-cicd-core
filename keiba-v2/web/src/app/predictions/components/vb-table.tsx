@@ -130,9 +130,14 @@ export function VBTable({
                         // 購入プランに入っている場合はそのバッジを優先
                         if (rec) {
                           return (
-                            <span className={`ml-1 px-1 py-0.5 rounded text-[9px] ${getRecBadgeClass(rec.betType, rec.strength)}`}>
-                              {rec.betType}
-                            </span>
+                            <>
+                              <span className={`ml-1 px-1 py-0.5 rounded text-[9px] ${getRecBadgeClass(rec.betType, rec.strength)}`}>
+                                {rec.betType}
+                              </span>
+                              {rec.strength === 'strong' && (
+                                <span className="ml-0.5 px-0.5 py-0.5 rounded text-[8px] bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300 font-bold" title="strong: 単勝重視配分">S</span>
+                              )}
+                            </>
                           );
                         }
                         // VB候補全体: 単勝/複勝適性バッジ

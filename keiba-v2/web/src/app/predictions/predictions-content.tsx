@@ -56,17 +56,59 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [markSyncing, setMarkSyncing] = useState(false);
   const [markResult, setMarkResult] = useState<{ marks: Record<string, number>; markedHorses: number } | null>(null);
 
-  // 推奨買い目 予算設定
+  // 推奨買い目 予算設定（bankroll連動）
   const [dailyBudget, setDailyBudget] = useState<number>(BET_CONFIG.defaultBudget);
+  const [bankrollBalance, setBankrollBalance] = useState<number | null>(null);
+  const [bankrollBudget, setBankrollBudget] = useState<number | null>(null); // 計算済み日次予算
+  const [budgetLinked, setBudgetLinked] = useState<boolean>(true); // bankroll連動モード
+
+  // bankroll API から現在資金と設定を取得
   useEffect(() => {
-    const saved = localStorage.getItem('keiba_daily_budget');
-    if (saved) setDailyBudget(Number(saved));
+    const savedLinked = localStorage.getItem('keiba_budget_linked');
+    if (savedLinked !== null) setBudgetLinked(savedLinked === 'true');
+
+    Promise.all([
+      fetch('/api/bankroll/fund').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/bankroll/config').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([fund, config]) => {
+      if (fund?.current_balance != null) {
+        setBankrollBalance(fund.current_balance);
+        const pct = config?.settings?.daily_limit_percent ?? 5.0;
+        const computed = Math.max(1000, Math.floor(fund.current_balance * pct / 100 / 1000) * 1000);
+        setBankrollBudget(computed);
+
+        // 連動モードならbankroll予算を適用
+        const isLinked = savedLinked !== null ? savedLinked === 'true' : true;
+        if (isLinked) {
+          setDailyBudget(computed);
+          return; // localStorage の値は使わない
+        }
+      }
+      // 連動なし or 取得失敗 → localStorage
+      const saved = localStorage.getItem('keiba_daily_budget');
+      if (saved) setDailyBudget(Number(saved));
+    });
   }, []);
+
   const updateBudget = useCallback((value: number) => {
     const v = Math.max(1000, Math.round(value / 1000) * 1000);
     setDailyBudget(v);
     localStorage.setItem('keiba_daily_budget', String(v));
-  }, []);
+    // 手動変更したら連動解除
+    if (bankrollBudget !== null && v !== bankrollBudget) {
+      setBudgetLinked(false);
+      localStorage.setItem('keiba_budget_linked', 'false');
+    }
+  }, [bankrollBudget]);
+
+  const toggleBudgetLink = useCallback(() => {
+    const next = !budgetLinked;
+    setBudgetLinked(next);
+    localStorage.setItem('keiba_budget_linked', String(next));
+    if (next && bankrollBudget !== null) {
+      setDailyBudget(bankrollBudget);
+    }
+  }, [budgetLinked, bankrollBudget]);
 
   // 推奨買い目 プリセット選択（デフォルト: standard）
   const [preset, setPreset] = useState<ServerPresetKey>('standard');
@@ -496,6 +538,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         case 'margin': va = a.predictedMargin ?? -1; vb = b.predictedMargin ?? -1; break;
         case 'ar_dev': va = a.entry.ar_deviation ?? -1; vb = b.entry.ar_deviation ?? -1; break;
         case 'danger': va = a.danger?.isDanger ? 1 : 0; vb = b.danger?.isDanger ? 1 : 0; break;
+        case 'strength': va = a.strength === 'strong' ? 1 : 0; vb = b.strength === 'strong' ? 1 : 0; break;
         case 'finish': {
           const fa = getFinishPos(a.race.race_id, a.entry.umaban);
           const fb = getFinishPos(b.race.race_id, b.entry.umaban);
@@ -791,6 +834,9 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         onAllocModeChange={updateAllocMode}
         dbResults={dbResults}
         getFinishPos={getFinishPos}
+        bankrollBalance={bankrollBalance}
+        budgetLinked={budgetLinked}
+        toggleBudgetLink={toggleBudgetLink}
       />
 
       {/* VB候補 */}

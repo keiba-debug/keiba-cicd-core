@@ -17,51 +17,77 @@ export const PRESET_OPTIONS: { key: ServerPresetKey; label: string; description:
   { key: 'aggressive', label: '厳選', description: 'EV≥1.8の高期待値馬のみに絞る（件数少・ROI重視）' },
 ];
 
-/**
- * 予算変更時のrescale
- * サーバーはbaseBudget=30,000円で金額計算済み → ユーザー予算に合わせて比例配分
- */
 /** 配分モード */
 export type AllocMode = 'kelly' | 'equal';
 
+/**
+ * 傾斜配分: 日予算全額を各ベットの元金額比率で按分
+ *
+ * bet_engine.py が Gap に応じた重み付き金額を生成済み（例: gap大→win_amount=300, gap小→100）
+ * これを比率として保持しつつ、合計が日予算と一致するようにスケーリング
+ * クロス配分の単複比率も維持される
+ */
 export function rescaleBudget(
   recs: ServerBetRecommendation[],
   newBudget: number,
-  baseBudget: number = 30000,
 ): ServerBetRecommendation[] {
-  if (newBudget === baseBudget) return recs;
-  const scale = newBudget / baseBudget;
-  return recs.map(r => ({
-    ...r,
-    win_amount: r.win_amount > 0
-      ? Math.max(100, Math.round(r.win_amount * scale / 100) * 100)
-      : 0,
-    place_amount: r.place_amount > 0
-      ? Math.max(100, Math.round(r.place_amount * scale / 100) * 100)
-      : 0,
-  }));
+  // 実際の合計金額から比例スケール
+  const actualTotal = recs.reduce((s, r) => s + r.win_amount + r.place_amount, 0);
+  if (actualTotal === 0) return recs;
+
+  const scale = newBudget / actualTotal;
+
+  return recs.map(r => {
+    const total = r.win_amount + r.place_amount;
+    if (total === 0) return r;
+
+    // 元の単複比率を維持してスケール
+    const winRatio = r.win_amount / total;
+    const scaledTotal = Math.max(200, Math.round(total * scale / 100) * 100);
+    const scaledWin = r.win_amount > 0
+      ? Math.max(100, Math.round(scaledTotal * winRatio / 100) * 100)
+      : 0;
+    const scaledPlace = r.place_amount > 0
+      ? Math.max(100, scaledTotal - scaledWin)
+      : 0;
+
+    return {
+      ...r,
+      win_amount: scaledWin,
+      place_amount: scaledPlace,
+    };
+  });
 }
 
 /**
- * 均等配分: 予算をベット数で均等割り（100円単位）
- * 各賭けスロット（単勝/複勝それぞれ1スロット）に同額配分
+ * 均等配分: 日予算を全ベットに均等割り
+ * 各ベット内の単複比率はbet_engine.pyのクロス配分を維持
  */
 export function equalDistribute(
   recs: ServerBetRecommendation[],
   budget: number,
 ): ServerBetRecommendation[] {
-  let totalSlots = 0;
-  for (const r of recs) {
-    if (r.win_amount > 0) totalSlots++;
-    if (r.place_amount > 0) totalSlots++;
-  }
-  if (totalSlots === 0) return recs;
+  if (recs.length === 0) return recs;
 
-  const perSlot = Math.max(100, Math.floor(budget / totalSlots / 100) * 100);
+  const perBet = Math.max(200, Math.floor(budget / recs.length / 100) * 100);
 
-  return recs.map(r => ({
-    ...r,
-    win_amount: r.win_amount > 0 ? perSlot : 0,
-    place_amount: r.place_amount > 0 ? perSlot : 0,
-  }));
+  return recs.map(r => {
+    const total = r.win_amount + r.place_amount;
+    if (total === 0) return r;
+
+    // 元の単複比率を維持して均等額に配分
+    const winRatio = r.win_amount / total;
+    const scaledWin = r.win_amount > 0
+      ? Math.max(100, Math.round(perBet * winRatio / 100) * 100)
+      : 0;
+    const scaledPlace = r.place_amount > 0
+      ? Math.max(100, perBet - scaledWin)
+      : 0;
+
+    return {
+      ...r,
+      win_amount: scaledWin,
+      place_amount: scaledPlace,
+    };
+  });
 }

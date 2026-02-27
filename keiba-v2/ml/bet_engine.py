@@ -116,6 +116,12 @@ class BetStrategyParams:
     danger_threshold: float = 5.0     # danger score threshold
     danger_gap_boost: int = 2         # gap mode: VB gap boost needed when danger detected
 
+    # --- クロス配分 (strength別の単複配分) ---
+    # strong=単勝重視, normal=複勝重視。0=無効(従来通り単勝のみ)
+    cross_alloc: bool = False           # クロス配分有効化
+    strong_win_pct: int = 70            # strong: 単勝割合(%) → 複勝 = 100 - win_pct
+    normal_win_pct: int = 30            # normal: 単勝割合(%) → 複勝 = 100 - win_pct
+
     # --- 単位 ---
     min_bet: int = 100
     bet_unit: int = 100
@@ -144,6 +150,12 @@ class BetStrategyParams:
 # v5.30b: V%比率バイパスルート追加
 #   V%比率<0.75でも Gap>=7 + EV>=3.0 なら通過（超穴馬救済）
 #   バイパス単体: 58件 Win ROI 460.5%、ベースライン合算で ROI 109.7%→134.9%
+#
+# v5.31: tier相対strength判定 + クロス配分
+#   strong = gap >= tier_gap + 2 (ARd帯別、固定gap>=7から変更)
+#   ARd>=65: gap>=5, ARd>=55: gap>=6, ARd<55: gap>=7 (=現行と同じ)
+#   昇格92件(N→S): 勝率8.7%, 単ROI 184.6% → クロス配分ROI +2pt改善
+#   クロス配分: strong→単7:複3, normal→単3:複7 (購入金額を自動分割)
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
         win_min_gap=5,              # フォールバック（ティアがカバーしない場合）
@@ -152,7 +164,10 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_gap=7,         # バイパス: Gap>=7
         win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
-        place_min_gap=99,           # Place無効化
+        place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
+        cross_alloc=True,           # クロス配分有効
+        strong_win_pct=70,          # strong: 単7:複3
+        normal_win_pct=30,          # normal: 単3:複7
     ),
     'wide': BetStrategyParams(
         win_min_gap=5,              # フォールバック
@@ -161,7 +176,10 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_gap=7,         # バイパス: Gap>=7
         win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
-        place_min_gap=99,           # Place無効化
+        place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
+        cross_alloc=True,           # クロス配分有効
+        strong_win_pct=70,          # strong: 単7:複3
+        normal_win_pct=30,          # normal: 単3:複7
     ),
     'aggressive': BetStrategyParams(
         win_min_gap=5,              # フォールバック
@@ -170,7 +188,10 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_gap=7,         # バイパス: Gap>=7
         win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
-        place_min_gap=99,           # Place無効化
+        place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
+        cross_alloc=True,           # クロス配分有効
+        strong_win_pct=70,          # strong: 単7:複3
+        normal_win_pct=30,          # normal: 単3:複7
     ),
 }
 
@@ -197,6 +218,7 @@ class BetRecommendation:
     danger_score: float = 0.0
     odds: float = 0.0
     place_odds_min: Optional[float] = None
+    ar_deviation: Optional[float] = None  # AR偏差値 (strength判定の根拠表示用)
 
 
 # =====================================================================
@@ -485,14 +507,25 @@ def generate_recommendations(
             if not win_ok and not place_ok:
                 continue
 
-            # bet_type 決定 (Gap基準でstrength判定)
+            # bet_type 決定 (tier相対strength判定)
+            # tier_gap = ARd帯別の通過gap閾値、strong = gap >= tier_gap + 2
+            # ARd>=65: gap>=5, ARd>=55: gap>=6, ARd<55: gap>=7
+            if params.win_ard_gap_tiers and ar_dev is not None:
+                strong_gap = params.win_min_gap + 2  # default fallback
+                for tier_ard, tier_gap in params.win_ard_gap_tiers:
+                    if ar_dev >= tier_ard:
+                        strong_gap = tier_gap + 2
+                        break
+            else:
+                strong_gap = params.win_min_gap + 2
+
             if win_ok and place_ok:
                 bet_type = '単複'
-                strength = 'strong' if (gap >= params.win_min_gap + 2 or
+                strength = 'strong' if (gap >= strong_gap or
                                         gap >= params.place_min_gap + 2) else 'normal'
             elif win_ok:
                 bet_type = '単勝'
-                strength = 'strong' if gap >= params.win_min_gap + 2 else 'normal'
+                strength = 'strong' if gap >= strong_gap else 'normal'
             else:
                 bet_type = '複勝'
                 strength = 'strong' if gap >= params.place_min_gap + 2 else 'normal'
@@ -516,6 +549,7 @@ def generate_recommendations(
                 danger_score=danger_score,
                 odds=odds,
                 place_odds_min=place_odds,
+                ar_deviation=round(ar_dev, 1) if ar_dev is not None else None,
             )
             race_recs.append(rec)
 
@@ -525,6 +559,10 @@ def generate_recommendations(
 
     # 予算スケーリング
     all_recs = apply_budget(all_recs, budget, params)
+
+    # クロス配分: strength別に単複金額を分割
+    if params.cross_alloc:
+        all_recs = apply_cross_allocation(all_recs, params)
 
     return all_recs
 
@@ -610,6 +648,44 @@ def apply_budget(
 def round_to_unit(amount: float, unit: int = 100) -> int:
     """金額を unit 単位に丸める (切り捨て)"""
     return int(amount // unit) * unit
+
+
+def apply_cross_allocation(
+    recs: List[BetRecommendation],
+    params: BetStrategyParams,
+) -> List[BetRecommendation]:
+    """クロス配分: strength別に単複金額を分割。
+
+    VB判定は単勝ベースだが、購入時はstrengthに応じて単複に配分する。
+    strong → 単勝重視 (例: 単7:複3)
+    normal → 複勝重視 (例: 単3:複7)
+    """
+    for r in recs:
+        total = r.win_amount + r.place_amount
+        if total <= 0:
+            continue
+
+        if r.strength == 'strong':
+            win_pct = params.strong_win_pct
+        else:
+            win_pct = params.normal_win_pct
+
+        place_pct = 100 - win_pct
+
+        r.win_amount = max(params.min_bet,
+                           round_to_unit(total * win_pct / 100, params.bet_unit))
+        r.place_amount = max(params.min_bet,
+                             round_to_unit(total * place_pct / 100, params.bet_unit))
+
+        # bet_typeを更新
+        if r.win_amount > 0 and r.place_amount > 0:
+            r.bet_type = '単複'
+        elif r.win_amount > 0:
+            r.bet_type = '単勝'
+        else:
+            r.bet_type = '複勝'
+
+    return recs
 
 
 # =====================================================================
