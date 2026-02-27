@@ -11,6 +11,7 @@ import {
   isTurf, isDirt, getPlaceLimit, getRaceDanger, getStarScore,
 } from './lib/helpers';
 import { BET_CONFIG, rescaleBudget, equalDistribute, type ServerPresetKey, type AllocMode } from './lib/bet-logic';
+import { generateLiveRecommendations } from './lib/bet-engine';
 
 // components
 import { DateNav } from './components/date-nav';
@@ -376,15 +377,26 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   }, [isArchive, currentDate, races, getLiveGap]);
 
   // --- 推奨買い目 ---
-  // サーバー側 bet_engine.py が生成した recommendations JSON を読み込み
+  // ライブオッズがある場合は TypeScript bet-engine で再計算
+  // フォールバック: サーバー側 bet_engine.py の静的 recommendations
+
+  // オッズ取得済みなら常にTS版エンジンで再計算（最新ロジック適用）
+  // 当日: ライブオッズで直前再計算 / アーカイブ: 確定オッズで再計算（max_win=2等の最新ルール適用）
+  const hasLiveOdds = Object.keys(oddsMap).length > 0;
 
   const betRecommendations = useMemo<BetRecommendation[]>(() => {
-    const presetData = data.recommendations?.[preset];
-    if (!presetData) return [];
+    // オッズ取得済み → TS版エンジンで再計算
+    const serverRecs = hasLiveOdds
+      ? generateLiveRecommendations(races, oddsMap, preset, dailyBudget, allocMode)
+      : (() => {
+          const presetData = data.recommendations?.[preset];
+          if (!presetData) return [];
+          return allocMode === 'equal'
+            ? equalDistribute(presetData.bets, dailyBudget)
+            : rescaleBudget(presetData.bets, dailyBudget);
+        })();
 
-    const serverRecs = allocMode === 'equal'
-      ? equalDistribute(presetData.bets, dailyBudget)
-      : rescaleBudget(presetData.bets, dailyBudget);
+    if (serverRecs.length === 0) return [];
 
     // race/entry ルックアップ構築
     const raceMap = new Map<string, PredictionRace>();
@@ -424,7 +436,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
     displayRecs.sort((a, b) => (b.betAmountWin + b.betAmountPlace) - (a.betAmountWin + a.betAmountPlace));
     return displayRecs;
-  }, [data.recommendations, preset, dailyBudget, allocMode, races]);
+  }, [data.recommendations, preset, dailyBudget, allocMode, races, oddsMap, hasLiveOdds]);
 
   // VBエントリ→bet推奨ルックアップ (race_id-umaban → BetRecommendation)
   const betRecMap = useMemo(() => {
@@ -477,11 +489,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     const entries: DangerHorseEntry[] = [];
     for (const race of races) {
       for (const e of race.entries) {
-        // 新条件: odds<=8 & ARd<50 & V%<15%
+        // 危険馬条件: odds<=8 & ARd<53 & V%<15% (v5.33)
         const liveOdds = oddsMap[race.race_id]?.[e.umaban]?.winOdds ?? e.odds;
         const ard = e.ar_deviation ?? 999;
         const predV = e.pred_proba_v ?? 0;
-        if (liveOdds > 0 && liveOdds <= 8.0 && ard < 50 && predV < 0.15) {
+        if (liveOdds > 0 && liveOdds <= 8.0 && ard < 53 && predV < 0.15) {
           const oddsRank = liveRankingMap[race.race_id]?.[e.umaban] ?? e.odds_rank;
           entries.push({ race, entry: e, oddsRank, odds: liveOdds, ard, predV });
         }
@@ -837,6 +849,9 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         bankrollBalance={bankrollBalance}
         budgetLinked={budgetLinked}
         toggleBudgetLink={toggleBudgetLink}
+        isLiveCalc={hasLiveOdds}
+        isArchive={isArchive}
+        oddsTime={oddsTime}
       />
 
       {/* VB候補 */}

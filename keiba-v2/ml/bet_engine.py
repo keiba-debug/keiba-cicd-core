@@ -12,13 +12,14 @@ predict.py / experiment.py の両方から利用する。
   - VB判定の主軸: EV (期待値) = calibrated_pred_proba_wv × odds
   - 足切り: AR偏差値 (レース内相対評価)
   - Gapは参考情報として維持
-  - 1レース1単勝制約（2番手は複勝に降格）
-  - 2プリセット: standard (EV>=1.3) / wide (EV>=1.2)
+  - 1レース最大2単勝（2番手候補の的中率>全体平均のため緩和）
+  - 3プリセット: standard (EV>=1.5) / wide (EVなし) / aggressive (EV>=1.8)
 
 VB判定フロー:
-  Step 1: rank_wv <= 3 (WVモデルのtop3のみ)
-  Step 2: ar_deviation >= threshold (レース内足切り)
+  Step 1: V%比率 >= 0.75 or Gap+EVバイパス (V%ベースのpre-filter)
+  Step 2: ARd段階gap (ARd帯別に異なるgap閾値)
   Step 3: EV_win >= threshold (期待値プラス判定)
+  Step 4: 1レースmax 2単勝 (gap降順で上位2頭)
 """
 
 from __future__ import annotations
@@ -104,6 +105,13 @@ class BetStrategyParams:
     # 空リスト = 従来のフラット閾値 (win_min_gap + win_min_ar_deviation)
     win_ard_gap_tiers: List[Tuple[float, int]] = field(default_factory=list)
 
+    # --- ARd VBルート (能力 vs 市場の直接乖離) ---
+    # Gapフィルターを経ない独立ルート。分類モデル(V%)が低評価でも
+    # 回帰モデル(AR)が高評価 & 市場が過小評価の馬を拾う。
+    # バックテスト: ARd>=65 & odds>=10 → 80件, 勝率11.2%, WinROI 179.9%
+    ard_vb_min_ard: float = 0.0      # ARd下限 (0=無効, 65.0=推奨)
+    ard_vb_min_odds: float = 0.0     # オッズ下限 (0=無効, 10.0=推奨)
+
     # --- Place (EV + Kelly) ---
     place_min_gap: int = 3
     place_min_rating: float = 0.0     # AR絶対閾値 (0=無効)
@@ -114,13 +122,18 @@ class BetStrategyParams:
 
     # --- 共通 ---
     danger_threshold: float = 5.0     # danger score threshold
-    danger_gap_boost: int = 2         # gap mode: VB gap boost needed when danger detected
+    danger_gap_boost: int = 0         # v5.33: gap boost廃止 (ラベルのみ、ROI希薄化防止)
 
     # --- クロス配分 (strength別の単複配分) ---
     # strong=単勝重視, normal=複勝重視。0=無効(従来通り単勝のみ)
     cross_alloc: bool = False           # クロス配分有効化
     strong_win_pct: int = 70            # strong: 単勝割合(%) → 複勝 = 100 - win_pct
     normal_win_pct: int = 30            # normal: 単勝割合(%) → 複勝 = 100 - win_pct
+
+    # --- 1レース複数単勝 ---
+    # 0=制限なし, 1=従来(1レース1単勝), 2=最大2頭(推奨)
+    # バックテスト: max=2がROI最良。2番手候補の的中率>全体平均。
+    max_win_per_race: int = 2
 
     # --- 単位 ---
     min_bet: int = 100
@@ -156,6 +169,19 @@ class BetStrategyParams:
 #   ARd>=65: gap>=5, ARd>=55: gap>=6, ARd<55: gap>=7 (=現行と同じ)
 #   昇格92件(N→S): 勝率8.7%, 単ROI 184.6% → クロス配分ROI +2pt改善
 #   クロス配分: strong→単7:複3, normal→単3:複7 (購入金額を自動分割)
+#
+# v5.32: 1レース複数単勝 (max=2)
+#   従来の1レース1単勝制約を緩和。2番手候補もVBとして有効。
+#   バックテスト: aggressive ROI 249%→406%, wide ROI 124%→138%
+#   2番手候補の的中率: 14.3% (全体5.3%) — 2番手は強い馬が多い
+#   max=2が最適: 3頭目以降は勝ちなしでROI希薄化
+#
+# v5.34: ARd VBルート (能力 vs 市場の直接乖離)
+#   Gap VBが確率ランク(rank_v) vs 市場ランクの乖離を見るのに対し、
+#   ARd VBは能力(ARd) vs 市場オッズの直接乖離を見る独立ルート。
+#   分類モデルが低評価(rank_v低い)でも回帰モデルが高評価(ARd高い)の馬を拾う。
+#   バックテスト: ARd>=65 & odds>=10 → 80件, 勝率11.2%, WinROI 179.9%
+#   現行漏れ馬(ARd>=65, Gap<=2, odds>=10): 23件, 勝率17.4%, WinROI 210%
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
         win_min_gap=5,              # フォールバック（ティアがカバーしない場合）
@@ -164,10 +190,13 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_gap=7,         # バイパス: Gap>=7
         win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
+        ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
+        ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
         place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
         cross_alloc=True,           # クロス配分有効
         strong_win_pct=70,          # strong: 単7:複3
         normal_win_pct=30,          # normal: 単3:複7
+        max_win_per_race=2,         # 1レース最大2単勝
     ),
     'wide': BetStrategyParams(
         win_min_gap=5,              # フォールバック
@@ -176,10 +205,13 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_gap=7,         # バイパス: Gap>=7
         win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
+        ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
+        ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
         place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
         cross_alloc=True,           # クロス配分有効
         strong_win_pct=70,          # strong: 単7:複3
         normal_win_pct=30,          # normal: 単3:複7
+        max_win_per_race=2,         # 1レース最大2単勝
     ),
     'aggressive': BetStrategyParams(
         win_min_gap=5,              # フォールバック
@@ -188,10 +220,13 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_gap=7,         # バイパス: Gap>=7
         win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
+        ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
+        ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
         place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
         cross_alloc=True,           # クロス配分有効
         strong_win_pct=70,          # strong: 単7:複3
         normal_win_pct=30,          # normal: 単3:複7
+        max_win_per_race=2,         # 1レース最大2単勝
     ),
 }
 
@@ -372,12 +407,13 @@ def calc_kelly_fraction(prob: float, odds: float) -> float:
 def detect_danger(
     entries: List[dict],
     max_odds: float = 8.0,
-    max_ard: float = 50.0,
+    max_ard: float = 53.0,
     max_pred_v: float = 0.15,
 ) -> Dict[int, bool]:
     """危険馬検出: odds <= max_odds & ARd < max_ard & V% < max_pred_v
 
-    バックテスト実績: 勝率 8.7%, 複勝率 27.9% (ベースライン 21.0%, 51.4%)
+    v5.33: ARd閾値 50→53 に拡大 (ラベル精度向上)
+    バックテスト実績: 勝率 13.8%, 複勝率 35.3% (ベースライン 21.0%, 51.4%)
 
     Args:
         entries: predict_race() の出力 entries リスト
@@ -433,7 +469,7 @@ def generate_recommendations(
         if not entries:
             continue
 
-        # 危険馬検出 (odds<=8 & ARd<50 & V%<15%)
+        # 危険馬検出 (odds<=8 & ARd<53 & V%<15%) — ラベルのみ、gap boostなし
         danger_map = detect_danger(entries)
 
         # V%比率フィルター用: レース内最大V%を計算
@@ -491,6 +527,17 @@ def generate_recommendations(
                     ar_deviation=ar_dev, win_ev=win_ev,
                 )
 
+            # --- ARd VBルート (能力 vs 市場の直接乖離) ---
+            # Gap VBが不合格でも、ARdが極端に高くオッズが高い馬は独立ルートで通過
+            # V%比率・Gap・EVフィルターを全てバイパスする
+            ard_vb_pass = False
+            if not win_ok and params.ard_vb_min_ard > 0 and params.ard_vb_min_odds > 0:
+                if (ar_dev is not None and ar_dev >= params.ard_vb_min_ard
+                        and odds >= params.ard_vb_min_odds):
+                    win_ok = True
+                    win_units = 1
+                    ard_vb_pass = True
+
             # --- 複勝評価 ---
             # Pre-filter: V%比率 or rank_v top3
             if params.win_v_ratio_min > 0:
@@ -521,11 +568,11 @@ def generate_recommendations(
 
             if win_ok and place_ok:
                 bet_type = '単複'
-                strength = 'strong' if (gap >= strong_gap or
+                strength = 'strong' if (ard_vb_pass or gap >= strong_gap or
                                         gap >= params.place_min_gap + 2) else 'normal'
             elif win_ok:
                 bet_type = '単勝'
-                strength = 'strong' if gap >= strong_gap else 'normal'
+                strength = 'strong' if (ard_vb_pass or gap >= strong_gap) else 'normal'
             else:
                 bet_type = '複勝'
                 strength = 'strong' if gap >= params.place_min_gap + 2 else 'normal'
@@ -553,8 +600,8 @@ def generate_recommendations(
             )
             race_recs.append(rec)
 
-        # 1レース1単勝制約
-        race_recs = apply_single_win_constraint(race_recs)
+        # 1レースN単勝制約 (max_win_per_race: 0=無制限, 2=推奨)
+        race_recs = apply_win_per_race_limit(race_recs, max_win=params.max_win_per_race)
         all_recs.extend(race_recs)
 
     # 予算スケーリング
@@ -567,25 +614,35 @@ def generate_recommendations(
     return all_recs
 
 
-def apply_single_win_constraint(
+def apply_win_per_race_limit(
     recs: List[BetRecommendation],
+    max_win: int = 2,
 ) -> List[BetRecommendation]:
-    """1レース1単勝制約: 2番目以降の単勝を複勝に降格
+    """1レースN単勝制約: N+1番目以降の単勝を複勝に降格
 
-    優先順位: gap (Place-model based) の大きい馬が単勝を取る
+    バックテスト結果:
+      max=1: aggressive ROI 249%, wide ROI 124%
+      max=2: aggressive ROI 406%, wide ROI 138% (最適)
+      制限なし: aggressive ROI 406%, wide ROI 135%
+    2番手候補の的中率は全体平均より高い（14.3% vs 5.3%）
+
+    優先順位: gap (Place-model based) の大きい馬が上位
     """
+    if max_win <= 0:
+        # 0 = 制限なし
+        return recs
+
     # 単勝候補を抽出 (単勝 or 単複)
     win_candidates = [r for r in recs if r.bet_type in ('単勝', '単複')]
 
-    if len(win_candidates) <= 1:
+    if len(win_candidates) <= max_win:
         return recs
 
     # gap 降順ソート (Place model基準)
     win_candidates.sort(key=lambda r: (-r.gap, -r.odds))
 
-    # 1番目はそのまま、2番目以降を降格
-    winner = win_candidates[0]
-    for r in win_candidates[1:]:
+    # 上位max_win頭はそのまま、それ以降を降格
+    for r in win_candidates[max_win:]:
         if r.bet_type == '単勝':
             # 単勝 → 複勝に降格 (kelly_capped > 0 なら)
             if r.kelly_capped > 0:

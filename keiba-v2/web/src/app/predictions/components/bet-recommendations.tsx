@@ -35,6 +35,9 @@ interface BetRecommendationsProps {
   bankrollBalance?: number | null;
   budgetLinked?: boolean;
   toggleBudgetLink?: () => void;
+  isLiveCalc?: boolean;
+  isArchive?: boolean;
+  oddsTime?: string | null;
 }
 
 function PresetButtons({ preset, onPresetChange }: { preset: ServerPresetKey; onPresetChange: (p: ServerPresetKey) => void }) {
@@ -62,6 +65,7 @@ export function BetRecommendations({
   allocMode, onAllocModeChange,
   dbResults, getFinishPos,
   bankrollBalance, budgetLinked, toggleBudgetLink,
+  isLiveCalc, isArchive, oddsTime,
 }: BetRecommendationsProps) {
   const hasResults = dbResults && Object.keys(dbResults).length > 0;
 
@@ -85,6 +89,19 @@ export function BetRecommendations({
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-lg flex items-center gap-2">
             購入プラン ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
+            {isLiveCalc ? (
+              <Badge variant="outline" className={`ml-2 text-[10px] ${isArchive
+                ? 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700'
+                : 'bg-green-50 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700'}`}
+                title={isArchive ? '確定オッズで最新エンジン再計算' : (oddsTime ? `最終取得: ${oddsTime}` : 'ライブオッズで再計算中')}>
+                {isArchive ? '再計算' : 'LIVE'}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="ml-2 text-[10px] text-gray-400 border-gray-300 dark:border-gray-600"
+                title="predict.py実行時点のオッズで計算">
+                静的
+              </Badge>
+            )}
           </CardTitle>
           <div className="flex items-center gap-2">
             <button

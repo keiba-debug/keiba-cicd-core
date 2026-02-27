@@ -46,7 +46,7 @@ export interface DbResultsResponse {
 // raceId → umaban → DbResultEntry
 export type DbResultsMap = Record<string, Record<number, DbResultEntry>>;
 
-// --- 危険な人気馬 (odds<=8 & ARd<50 & V%<15%) ---
+// --- 危険な人気馬 (odds<=8 & ARd<53 & V%<15%) (v5.33) ---
 
 export interface DangerInfo {
   isDanger: boolean;

@@ -226,7 +226,7 @@ export function getKoukakuDetail(entry: PredictionEntry): string {
 
 // --- 危険な人気馬 ---
 
-/** 危険馬検出: odds<=8 & ARd<50 & V%<15% */
+/** 危険馬検出: odds<=8 & ARd<53 & V%<15% (v5.33) */
 export function getRaceDanger(entries: PredictionEntry[]): DangerInfo {
   let dangerHorse: DangerInfo['dangerHorse'] = undefined;
 
@@ -234,7 +234,7 @@ export function getRaceDanger(entries: PredictionEntry[]): DangerInfo {
     const odds = e.odds || 0;
     const ard = e.ar_deviation ?? 999;
     const predV = e.pred_proba_v ?? 0;
-    if (odds > 0 && odds <= 8.0 && ard < 50 && predV < 0.15) {
+    if (odds > 0 && odds <= 8.0 && ard < 53 && predV < 0.15) {
       dangerHorse = {
         umaban: e.umaban,
         horseName: e.horse_name,

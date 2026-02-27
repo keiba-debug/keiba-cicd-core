@@ -23,7 +23,7 @@ from ml.bet_engine import (
     calc_kelly_fraction,
     detect_danger,
     generate_recommendations,
-    apply_single_win_constraint,
+    apply_win_per_race_limit,
     apply_budget,
     round_to_unit,
     recommendations_to_dict,
@@ -80,14 +80,13 @@ class TestEvaluateWin:
         ok, units = evaluate_win(5, None, params)
         assert ok is True
 
-    def test_danger_raises_threshold(self):
-        """danger → min_gap +2 → standard (gap=6) requires gap>=8"""
-        params = PRESETS['standard']  # win_min_gap=6
-        ok, _ = evaluate_win(7, 0.5, params, is_danger=True)
-        assert ok is False  # 6+2=8 > 7
-
-        ok, _ = evaluate_win(8, 0.5, params, is_danger=True)
-        assert ok is True
+    def test_danger_no_boost(self):
+        """v5.33: danger_gap_boost=0 → is_danger has no effect on threshold"""
+        params = PRESETS['standard']
+        # With danger, same gap should still pass (boost=0)
+        ok_normal, _ = evaluate_win(6, 0.5, params, is_danger=False)
+        ok_danger, _ = evaluate_win(6, 0.5, params, is_danger=True)
+        assert ok_normal == ok_danger
 
     def test_units_proportional_to_gap(self):
         """gap が大きいほど units が増える"""
@@ -120,7 +119,6 @@ class TestEvaluatePlace:
     PLACE_PARAMS = BetStrategyParams(
         win_min_gap=5,
         place_min_gap=3,
-        place_max_margin=1.0,
         place_min_ev=1.0,
     )
 
@@ -157,10 +155,11 @@ class TestEvaluatePlace:
         assert ok is True
         assert kelly == pytest.approx(0.02)
 
-    def test_danger_raises_threshold(self):
-        """danger → min_gap +2"""
-        ok, _ = evaluate_place(4, 0.5, 0.5, 3.0, self.PLACE_PARAMS, is_danger=True)
-        assert ok is False  # 3+2=5 > 4
+    def test_danger_no_boost(self):
+        """v5.33: danger_gap_boost=0 → is_danger has no effect on place threshold"""
+        ok_normal, _ = evaluate_place(4, 0.5, 0.5, 3.0, self.PLACE_PARAMS, is_danger=False)
+        ok_danger, _ = evaluate_place(4, 0.5, 0.5, 3.0, self.PLACE_PARAMS, is_danger=True)
+        assert ok_normal == ok_danger
 
     def test_kelly_capped(self):
         """Kelly が kelly_cap を超えない"""
@@ -214,37 +213,57 @@ class TestCalcKellyFraction:
 # =====================================================================
 
 class TestDetectDanger:
-    """危険馬検出テスト"""
+    """危険馬検出テスト (v5.33: odds<=8 & ARd<53 & V%<15%)"""
 
-    def test_no_danger(self):
+    def test_no_danger_high_ard(self):
+        """ARd >= 53 → not danger"""
         entries = [
-            {'umaban': 1, 'comment_memo_trouble_score': 0},
-            {'umaban': 2, 'comment_memo_trouble_score': 3},
+            {'umaban': 1, 'odds': 3.0, 'ar_deviation': 55.0, 'pred_proba_v': 0.10},
         ]
-        d = detect_danger(entries, threshold=5.0)
+        d = detect_danger(entries)
+        assert d == {}
+
+    def test_no_danger_high_odds(self):
+        """odds > 8 → not danger"""
+        entries = [
+            {'umaban': 1, 'odds': 12.0, 'ar_deviation': 45.0, 'pred_proba_v': 0.10},
+        ]
+        d = detect_danger(entries)
         assert d == {}
 
     def test_danger_detected(self):
+        """odds<=8 & ARd<53 & V%<15% → danger"""
         entries = [
-            {'umaban': 1, 'comment_memo_trouble_score': 6},
-            {'umaban': 2, 'comment_memo_trouble_score': 3},
-            {'umaban': 3, 'comment_memo_trouble_score': 8},
+            {'umaban': 1, 'odds': 5.0, 'ar_deviation': 50.0, 'pred_proba_v': 0.09},
+            {'umaban': 2, 'odds': 3.0, 'ar_deviation': 60.0, 'pred_proba_v': 0.20},
+            {'umaban': 3, 'odds': 7.0, 'ar_deviation': 48.0, 'pred_proba_v': 0.12},
         ]
-        d = detect_danger(entries, threshold=5.0)
-        assert d == {1: 6, 3: 8}
+        d = detect_danger(entries)
+        assert d == {1: True, 3: True}
+
+    def test_ard53_boundary(self):
+        """ARd=53.0 is NOT danger (< 53, not <=)"""
+        entries = [
+            {'umaban': 1, 'odds': 5.0, 'ar_deviation': 53.0, 'pred_proba_v': 0.09},
+            {'umaban': 2, 'odds': 5.0, 'ar_deviation': 52.9, 'pred_proba_v': 0.09},
+        ]
+        d = detect_danger(entries)
+        assert 1 not in d
+        assert 2 in d
 
     def test_missing_field(self):
+        """Missing fields → not danger"""
         entries = [{'umaban': 1}]
-        d = detect_danger(entries, threshold=5.0)
+        d = detect_danger(entries)
         assert d == {}
 
 
 # =====================================================================
-# apply_single_win_constraint
+# apply_win_per_race_limit
 # =====================================================================
 
-class TestSingleWinConstraint:
-    """1レース1単勝制約テスト"""
+class TestWinPerRaceLimit:
+    """1レースN単勝制約テスト"""
 
     def _make_rec(self, umaban, bet_type, win_gap, odds=10.0, kelly=0.03):
         return BetRecommendation(
@@ -256,31 +275,56 @@ class TestSingleWinConstraint:
             kelly_capped=kelly,
         )
 
-    def test_single_win_no_change(self):
-        """単勝1件のみ → 変更なし"""
-        recs = [self._make_rec(1, '単勝', 5), self._make_rec(2, '複勝', 3)]
-        result = apply_single_win_constraint(recs)
-        assert len(result) == 2
-        assert result[0].bet_type == '単勝'
-        assert result[1].bet_type == '複勝'
-
-    def test_two_wins_downgrade_second(self):
-        """単勝2件 → 2番手を複勝に降格"""
+    def test_under_limit_no_change(self):
+        """単勝2件, max=2 → 変更なし"""
         recs = [self._make_rec(1, '単勝', 5), self._make_rec(2, '単勝', 3)]
-        result = apply_single_win_constraint(recs)
-        # umaban=1 (gap=5) keeps 単勝, umaban=2 (gap=3) downgraded to 複勝
+        result = apply_win_per_race_limit(recs, max_win=2)
+        wins = [r for r in result if r.bet_type == '単勝']
+        assert len(wins) == 2
+
+    def test_three_wins_keep_top2(self):
+        """単勝3件, max=2 → 3番手を降格"""
+        recs = [
+            self._make_rec(1, '単勝', 7),
+            self._make_rec(2, '単勝', 5),
+            self._make_rec(3, '単勝', 3),
+        ]
+        result = apply_win_per_race_limit(recs, max_win=2)
+        wins = [r for r in result if r.bet_type in ('単勝', '単複')]
+        assert len(wins) == 2
+        # gap 7 and 5 should remain
+        assert {w.umaban for w in wins} == {1, 2}
+
+    def test_max1_downgrades_second(self):
+        """max=1 → 従来の1レース1単勝と同じ動作"""
+        recs = [self._make_rec(1, '単勝', 5), self._make_rec(2, '単勝', 3)]
+        result = apply_win_per_race_limit(recs, max_win=1)
         wins = [r for r in result if r.bet_type == '単勝']
         assert len(wins) == 1
         assert wins[0].umaban == 1
 
+    def test_max0_no_limit(self):
+        """max=0 → 制限なし"""
+        recs = [
+            self._make_rec(1, '単勝', 7),
+            self._make_rec(2, '単勝', 5),
+            self._make_rec(3, '単勝', 3),
+        ]
+        result = apply_win_per_race_limit(recs, max_win=0)
+        wins = [r for r in result if r.bet_type == '単勝']
+        assert len(wins) == 3
+
     def test_tanpuku_downgrade(self):
-        """単複2件 → 2番手を複勝に降格"""
-        recs = [self._make_rec(1, '単複', 6), self._make_rec(2, '単複', 4)]
-        result = apply_single_win_constraint(recs)
-        # umaban=2 should be downgraded from 単複 to 複勝
-        r2 = [r for r in result if r.umaban == 2][0]
-        assert r2.bet_type == '複勝'
-        assert r2.win_amount == 0
+        """単複3件, max=2 → 3番手を複勝に降格"""
+        recs = [
+            self._make_rec(1, '単複', 6),
+            self._make_rec(2, '単複', 4),
+            self._make_rec(3, '単複', 2),
+        ]
+        result = apply_win_per_race_limit(recs, max_win=2)
+        r3 = [r for r in result if r.umaban == 3][0]
+        assert r3.bet_type == '複勝'
+        assert r3.win_amount == 0
 
 
 # =====================================================================
@@ -467,30 +511,44 @@ class TestGenerateRecommendations:
         recs = generate_recommendations([race], PRESETS['standard'])
         assert recs == []
 
-    def test_danger_suppresses_bet(self):
-        """danger 馬は gap 閾値が上がる"""
+    def test_danger_label_no_boost(self):
+        """v5.33: danger馬はラベルのみ、gap boostなし"""
         race = {
             'race_id': 'danger_test',
             'track_type': '芝',
             'entries': [
-                {
-                    'umaban': 1, 'horse_name': 'DangerHorse',
-                    'odds': 10.0, 'vb_gap': 4, 'win_vb_gap': 6,
+                {   # This horse IS a danger horse (odds<=8, ARd<53, V%<15%)
+                    'umaban': 1, 'horse_name': 'DangerPopular',
+                    'odds': 5.0, 'vb_gap': 2, 'win_vb_gap': 3,
+                    'rank_v': 3, 'odds_rank': 2,
+                    'place_odds_min': 1.5,
+                    'pred_proba_v_raw': 0.08,
+                    'pred_proba_v': 0.05,
+                    'ar_deviation': 48.0,
+                    'predicted_margin': 0.2,
+                    'win_ev': 0.5, 'place_ev': 0.8,
+                },
+                {   # Non-danger horse with borderline gap
+                    'umaban': 2, 'horse_name': 'ValueHorse',
+                    'odds': 15.0, 'vb_gap': 5, 'win_vb_gap': 6,
                     'rank_v': 1, 'odds_rank': 5,
-                    'place_odds_min': 2.5,
-                    'pred_proba_v_raw': 0.4,
+                    'place_odds_min': 3.0,
+                    'pred_proba_v_raw': 0.50,
+                    'pred_proba_v': 0.30,
+                    'ar_deviation': 60.0,
                     'predicted_margin': 0.5,
-                    'win_ev': 1.0, 'place_ev': 1.0,
-                    'comment_memo_trouble_score': 7,  # danger
+                    'win_ev': 2.5, 'place_ev': 2.0,
                 },
             ],
         }
-        params = PRESETS['standard']  # win_min_gap=6
+        params = PRESETS['aggressive']
         recs = generate_recommendations([race], params, budget=30000)
 
-        # win_gap=6 < win_min_gap(6)+danger_boost(2)=8 → 単勝不可
-        # place_min_gap=99 → 複勝も不可
-        assert len(recs) == 0
+        # With boost=0, horse 2's gap is NOT inflated by danger presence
+        # Horse 2 should pass/fail on its own merits (gap=5, ARd 60 → min_gap=3)
+        danger_recs = [r for r in recs if r.is_danger]
+        # DangerPopular has very low gap → should not be recommended
+        assert all(r.horse_name != 'DangerPopular' for r in recs if hasattr(r, 'horse_name'))
 
     def test_win_only_no_place_bets(self, sample_race):
         """全プリセットがWin-only: 複勝推奨が出ないことを確認"""
