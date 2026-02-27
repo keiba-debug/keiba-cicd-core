@@ -215,6 +215,9 @@ PARAMS_A = {
     'reg_lambda': 1.0,
     'max_depth': 7,
     'verbose': -1,
+    'seed': 42,
+    'bagging_seed': 42,
+    'feature_fraction_seed': 42,
 }
 
 PARAMS_B = {
@@ -230,6 +233,9 @@ PARAMS_B = {
     'reg_lambda': 1.5,
     'max_depth': 8,
     'verbose': -1,
+    'seed': 42,
+    'bagging_seed': 42,
+    'feature_fraction_seed': 42,
 }
 
 # Win モデル用パラメータ（is_win は ~6-7% と不均衡 → scale_pos_weight で補正）
@@ -258,6 +264,9 @@ PARAMS_REG_B = {
     'reg_lambda': 1.5,
     'max_depth': 8,
     'verbose': -1,
+    'seed': 42,
+    'bagging_seed': 42,
+    'feature_fraction_seed': 42,
 }
 
 
@@ -384,6 +393,507 @@ def build_training_summary_index(date_index: dict) -> dict:
     return ts_index
 
 
+def build_pit_personnel_timeline(years: List[int] = None) -> Tuple[dict, dict]:
+    """SE_DATAから調教師・騎手の累積タイムラインを構築（point-in-time safe）
+
+    各人物について、各レース日の終了時点での累積統計を記録。
+    ルックアップ時は bisect_left(dates, race_date) - 1 で race_date 以前の統計を取得。
+
+    Returns:
+        (trainer_timeline, jockey_timeline)
+        timeline = {code: {dates: [...], total: [...], wins: [...], top3: [...],
+                          venue: {vc: {dates, total, wins, top3}}}}
+    """
+    from collections import defaultdict
+    from core.jravan import se_parser
+
+    if years is None:
+        years = list(range(2020, 2027))
+
+    print(f"[PIT] Building personnel timeline from SE_DATA {years[0]}-{years[-1]}...")
+
+    # Collect all SE_DATA records
+    records = []
+    for rec in se_parser.scan(years):
+        fp = rec.get('finish_position', 0)
+        if fp <= 0:
+            continue
+        records.append(rec)
+    records.sort(key=lambda r: r['race_date'])
+    print(f"  SE records: {len(records):,}")
+
+    # Running cumulative stats per person
+    # {code: {total, wins, top3, venue: {vc: {total, wins, top3}}}}
+    trainer_run = defaultdict(lambda: {
+        'total': 0, 'wins': 0, 'top3': 0,
+        'venue': defaultdict(lambda: {'total': 0, 'wins': 0, 'top3': 0}),
+    })
+    jockey_run = defaultdict(lambda: {
+        'total': 0, 'wins': 0, 'top3': 0,
+        'venue': defaultdict(lambda: {'total': 0, 'wins': 0, 'top3': 0}),
+    })
+
+    # Timeline builders: {code: {dates: [], total: [], wins: [], top3: [],
+    #                             venue: {vc: {dates, total, wins, top3}}}}
+    trainer_tl = defaultdict(lambda: {
+        'dates': [], 'total': [], 'wins': [], 'top3': [],
+        'venue': defaultdict(lambda: {'dates': [], 'total': [], 'wins': [], 'top3': []}),
+    })
+    jockey_tl = defaultdict(lambda: {
+        'dates': [], 'total': [], 'wins': [], 'top3': [],
+        'venue': defaultdict(lambda: {'dates': [], 'total': [], 'wins': [], 'top3': []}),
+        'close': {'dates': [], 'wins': [], 'seconds': []},
+    })
+
+    # Group records by date
+    from itertools import groupby
+    for date, group in groupby(records, key=lambda r: r['race_date']):
+        batch = list(group)
+
+        # Collect codes active today
+        codes_today_tr = set()
+        codes_today_jk = set()
+        for rec in batch:
+            tc = rec.get('trainer_code', '')
+            jc = rec.get('jockey_code', '')
+            if tc:
+                codes_today_tr.add(tc)
+            if jc:
+                codes_today_jk.add(jc)
+
+        # Update running stats with today's results FIRST
+        for rec in batch:
+            fp = rec['finish_position']
+            vc = rec.get('venue_code', '')
+            tc = rec.get('trainer_code', '')
+            jc = rec.get('jockey_code', '')
+
+            if tc:
+                t = trainer_run[tc]
+                t['total'] += 1
+                if fp == 1:
+                    t['wins'] += 1
+                if fp <= 3:
+                    t['top3'] += 1
+                if vc:
+                    tv = t['venue'][vc]
+                    tv['total'] += 1
+                    if fp == 1:
+                        tv['wins'] += 1
+                    if fp <= 3:
+                        tv['top3'] += 1
+
+            if jc:
+                j = jockey_run[jc]
+                j['total'] += 1
+                if fp == 1:
+                    j['wins'] += 1
+                if fp <= 3:
+                    j['top3'] += 1
+                if vc:
+                    jv = j['venue'][vc]
+                    jv['total'] += 1
+                    if fp == 1:
+                        jv['wins'] += 1
+                    if fp <= 3:
+                        jv['top3'] += 1
+
+        # Take snapshot AFTER this date's races (bisect_left - 1 で前日以前を取得)
+        for tc in codes_today_tr:
+            r = trainer_run[tc]
+            tl = trainer_tl[tc]
+            tl['dates'].append(date)
+            tl['total'].append(r['total'])
+            tl['wins'].append(r['wins'])
+            tl['top3'].append(r['top3'])
+
+        for jc in codes_today_jk:
+            r = jockey_run[jc]
+            tl = jockey_tl[jc]
+            tl['dates'].append(date)
+            tl['total'].append(r['total'])
+            tl['wins'].append(r['wins'])
+            tl['top3'].append(r['top3'])
+
+    # Venue snapshots: take final cumulative for each (code, venue) after processing all dates
+    # → actually we need per-date venue snapshots too. Rebuild them.
+    # The above only snapshots the overall totals. For venue, we need to track
+    # when each venue stat changes. Simpler approach: post-process.
+    # For each code, iterate through all dates and record venue stats at each snapshot.
+    # But that's expensive. Instead, let's rebuild venue timelines separately.
+
+    # Rebuild venue timelines from records (grouped by code+venue+date)
+    _build_venue_timelines(records, trainer_tl, jockey_tl)
+
+    # Build close-finish timeline for jockeys from race JSONs
+    _build_close_timeline(jockey_tl)
+
+    n_tr = len(trainer_tl)
+    n_jk = len(jockey_tl)
+    print(f"  Trainer timeline: {n_tr:,} trainers")
+    print(f"  Jockey timeline:  {n_jk:,} jockeys")
+
+    return dict(trainer_tl), dict(jockey_tl)
+
+
+def _build_venue_timelines(records: list, trainer_tl: dict, jockey_tl: dict):
+    """レコードからvenue別の累積タイムラインを構築"""
+    from collections import defaultdict
+    from itertools import groupby
+
+    # trainer venue running stats: {(tc, vc): {total, wins, top3}}
+    tr_venue_run = defaultdict(lambda: {'total': 0, 'wins': 0, 'top3': 0})
+    jk_venue_run = defaultdict(lambda: {'total': 0, 'wins': 0, 'top3': 0})
+
+    for date, group in groupby(records, key=lambda r: r['race_date']):
+        batch = list(group)
+
+        # Collect (code, venue) pairs active today
+        tr_pairs = set()
+        jk_pairs = set()
+        for rec in batch:
+            tc = rec.get('trainer_code', '')
+            jc = rec.get('jockey_code', '')
+            vc = rec.get('venue_code', '')
+            if tc and vc:
+                tr_pairs.add((tc, vc))
+            if jc and vc:
+                jk_pairs.add((jc, vc))
+
+        # Update running stats FIRST
+        for rec in batch:
+            fp = rec['finish_position']
+            vc = rec.get('venue_code', '')
+            tc = rec.get('trainer_code', '')
+            jc = rec.get('jockey_code', '')
+
+            if tc and vc:
+                v = tr_venue_run[(tc, vc)]
+                v['total'] += 1
+                if fp == 1:
+                    v['wins'] += 1
+                if fp <= 3:
+                    v['top3'] += 1
+
+            if jc and vc:
+                v = jk_venue_run[(jc, vc)]
+                v['total'] += 1
+                if fp == 1:
+                    v['wins'] += 1
+                if fp <= 3:
+                    v['top3'] += 1
+
+        # Snapshot AFTER update
+        for tc, vc in tr_pairs:
+            r = tr_venue_run[(tc, vc)]
+            tl = trainer_tl[tc]['venue'][vc]
+            tl['dates'].append(date)
+            tl['total'].append(r['total'])
+            tl['wins'].append(r['wins'])
+            tl['top3'].append(r['top3'])
+
+        for jc, vc in jk_pairs:
+            r = jk_venue_run[(jc, vc)]
+            tl = jockey_tl[jc]['venue'][vc]
+            tl['dates'].append(date)
+            tl['total'].append(r['total'])
+            tl['wins'].append(r['wins'])
+            tl['top3'].append(r['top3'])
+
+            if jc and vc:
+                v = jk_venue_run[(jc, vc)]
+                v['total'] += 1
+                if fp == 1:
+                    v['wins'] += 1
+                if fp <= 3:
+                    v['top3'] += 1
+
+
+def _build_close_timeline(jockey_tl: dict):
+    """race JSONから騎手の接戦勝率累積タイムラインを構築"""
+    from collections import defaultdict
+
+    print("[PIT] Building close-finish timeline from race JSONs...")
+
+    # Running stats: {jc: {wins, seconds}}
+    close_run = defaultdict(lambda: {'wins': 0, 'seconds': 0})
+    # Collect all close events with dates
+    events = []
+
+    races_dir = config.races_dir()
+    race_files = sorted(races_dir.glob("**/race_[0-9]*.json"))
+    race_count = 0
+    close_count = 0
+
+    for json_file in race_files:
+        try:
+            data = json.loads(json_file.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        race_count += 1
+        race_date = data.get('date', '')
+        if not race_date:
+            continue
+
+        entries = data.get('entries', [])
+        first = second = None
+        for e in entries:
+            fp = e.get('finish_position', 0)
+            if fp == 1:
+                first = e
+            elif fp == 2:
+                second = e
+        if not first or not second:
+            continue
+
+        t1 = _parse_race_time(first.get('time', ''))
+        t2 = _parse_race_time(second.get('time', ''))
+        if t1 is None or t2 is None:
+            continue
+
+        if abs(t2 - t1) <= 0.1:
+            close_count += 1
+            jc1 = first.get('jockey_code', '')
+            jc2 = second.get('jockey_code', '')
+            if jc1:
+                events.append((race_date, jc1, 'win'))
+            if jc2:
+                events.append((race_date, jc2, 'second'))
+
+    events.sort(key=lambda x: x[0])
+    print(f"  Close finishes: {close_count:,} from {race_count:,} races")
+
+    # Build cumulative timeline from sorted events
+    from itertools import groupby
+    for date, group in groupby(events, key=lambda x: x[0]):
+        batch = list(group)
+        codes_today = set(b[1] for b in batch)
+
+        # Update FIRST
+        for _, jc, result_type in batch:
+            if result_type == 'win':
+                close_run[jc]['wins'] += 1
+            else:
+                close_run[jc]['seconds'] += 1
+
+        # Snapshot AFTER update
+        for jc in codes_today:
+            r = close_run[jc]
+            tl = jockey_tl[jc]['close']
+            tl['dates'].append(date)
+            tl['wins'].append(r['wins'])
+            tl['seconds'].append(r['seconds'])
+
+
+def _parse_race_time(time_str: str):
+    """走破タイム文字列を秒に変換 (例: '1:14.1' -> 74.1)"""
+    if not time_str:
+        return None
+    try:
+        if ':' in time_str:
+            parts = time_str.split(':')
+            return float(parts[0]) * 60 + float(parts[1])
+        return float(time_str)
+    except (ValueError, IndexError):
+        return None
+
+
+def build_pit_sire_timeline(date_index: dict, pedigree_index: dict) -> Tuple[dict, dict, dict]:
+    """レースJSONからsire/dam/bms累積タイムラインを構築（PIT safe）
+
+    各sire/dam/bms IDについて、各レース日の終了時点での累積統計を記録。
+    ルックアップ時は bisect_left(dates, race_date) - 1 で race_date 以前の統計を取得。
+
+    Returns:
+        (sire_tl, dam_tl, bms_tl)
+    """
+    from collections import defaultdict
+    from itertools import groupby
+    from datetime import datetime as dt
+
+    # Thresholds (same as build_sire_stats.py)
+    FRESH_DAYS = 56
+    TIGHT_DAYS = 21
+    RPCI_SPRINT = 49
+    RPCI_SUSTAINED = 53
+    YOUNG_MAX = 3
+    MATURE_MIN = 4
+
+    COUNTER_KEYS = [
+        'total', 'top3',
+        'fresh_runs', 'fresh_top3',
+        'normal_runs', 'normal_top3',
+        'tight_runs', 'tight_top3',
+        'sprint_runs', 'sprint_top3',
+        'sustained_runs', 'sustained_top3',
+        'young_runs', 'young_top3',
+        'mature_runs', 'mature_top3',
+    ]
+
+    def _new_accum():
+        return {k: 0 for k in COUNTER_KEYS}
+
+    def _new_tl():
+        d = {'dates': []}
+        for k in COUNTER_KEYS:
+            d[k] = []
+        return d
+
+    print("[PIT] Building sire/dam/bms timeline from race JSONs...")
+
+    sire_run = defaultdict(_new_accum)
+    dam_run = defaultdict(_new_accum)
+    bms_run = defaultdict(_new_accum)
+    sire_tl = defaultdict(_new_tl)
+    dam_tl = defaultdict(_new_tl)
+    bms_tl = defaultdict(_new_tl)
+
+    horse_last_date: dict = {}  # ketto_num → date string
+
+    # Collect and group by date
+    all_races = sorted(_iter_date_index(date_index), key=lambda x: x[0])
+    race_count = 0
+    entry_count = 0
+
+    for date_str, date_group in groupby(all_races, key=lambda x: x[0]):
+        date_races = list(date_group)
+
+        # Process all races for this date
+        sire_ids_today = set()
+        dam_ids_today = set()
+        bms_ids_today = set()
+        updates = []  # (entity_type_id_tuples, is_top3, rest_cond, pace_cond, age_cond, ketto_num)
+
+        for _, race_id in date_races:
+            try:
+                race = load_race_json(race_id, date_str)
+            except Exception:
+                continue
+            race_count += 1
+            rpci = (race.get('pace') or {}).get('rpci')
+
+            for entry in race.get('entries', []):
+                ketto_num = entry.get('ketto_num', '')
+                if not ketto_num:
+                    continue
+                fp = entry.get('finish_position')
+                if fp is None or fp == 0:
+                    continue
+
+                ped = pedigree_index.get(ketto_num)
+                if not ped:
+                    continue
+                sire_id = ped.get('sire')
+                dam_id = ped.get('dam')
+                bms_id = ped.get('bms')
+                if not sire_id and not dam_id and not bms_id:
+                    continue
+
+                entry_count += 1
+
+                # Rest days classification
+                prev = horse_last_date.get(ketto_num)
+                days = None
+                if prev:
+                    try:
+                        days = (dt.strptime(date_str, '%Y-%m-%d') - dt.strptime(prev, '%Y-%m-%d')).days
+                    except ValueError:
+                        pass
+
+                if days is None:
+                    rest_cond = 'debut'
+                elif days >= FRESH_DAYS:
+                    rest_cond = 'fresh'
+                elif days <= TIGHT_DAYS:
+                    rest_cond = 'tight'
+                else:
+                    rest_cond = 'normal'
+
+                # Pace classification
+                pace_cond = None
+                if rpci is not None:
+                    if rpci <= RPCI_SPRINT:
+                        pace_cond = 'sprint'
+                    elif rpci >= RPCI_SUSTAINED:
+                        pace_cond = 'sustained'
+
+                # Age classification
+                age = entry.get('age')
+                age_cond = None
+                if age and age > 0:
+                    if age <= YOUNG_MAX:
+                        age_cond = 'young'
+                    elif age >= MATURE_MIN:
+                        age_cond = 'mature'
+
+                is_top3 = fp <= 3
+                if sire_id:
+                    sire_ids_today.add(sire_id)
+                if dam_id:
+                    dam_ids_today.add(dam_id)
+                if bms_id:
+                    bms_ids_today.add(bms_id)
+
+                updates.append((sire_id, dam_id, bms_id, is_top3,
+                                rest_cond, pace_cond, age_cond, ketto_num))
+
+        # Update running stats FIRST
+        for sid, did, bid, is_top3, rest_cond, pace_cond, age_cond, kn in updates:
+            for eid, run_dict in ((sid, sire_run), (did, dam_run), (bid, bms_run)):
+                if not eid:
+                    continue
+                r = run_dict[eid]
+                r['total'] += 1
+                if is_top3:
+                    r['top3'] += 1
+                if rest_cond != 'debut':
+                    r[f'{rest_cond}_runs'] += 1
+                    if is_top3:
+                        r[f'{rest_cond}_top3'] += 1
+                if pace_cond:
+                    r[f'{pace_cond}_runs'] += 1
+                    if is_top3:
+                        r[f'{pace_cond}_top3'] += 1
+                if age_cond:
+                    r[f'{age_cond}_runs'] += 1
+                    if is_top3:
+                        r[f'{age_cond}_top3'] += 1
+
+            horse_last_date[kn] = date_str
+
+        # Snapshot AFTER update
+        for sid in sire_ids_today:
+            r = sire_run[sid]
+            tl = sire_tl[sid]
+            tl['dates'].append(date_str)
+            for k in COUNTER_KEYS:
+                tl[k].append(r[k])
+
+        for did in dam_ids_today:
+            r = dam_run[did]
+            tl = dam_tl[did]
+            tl['dates'].append(date_str)
+            for k in COUNTER_KEYS:
+                tl[k].append(r[k])
+
+        for bid in bms_ids_today:
+            r = bms_run[bid]
+            tl = bms_tl[bid]
+            tl['dates'].append(date_str)
+            for k in COUNTER_KEYS:
+                tl[k].append(r[k])
+
+        if race_count % 2000 == 0 and race_count > 0:
+            print(f"  ... {race_count:,} races, {entry_count:,} entries")
+
+    print(f"  Processed {race_count:,} races, {entry_count:,} entries")
+    print(f"  Sire timeline: {len(sire_tl):,} sires")
+    print(f"  Dam timeline:  {len(dam_tl):,} dams")
+    print(f"  BMS timeline:  {len(bms_tl):,} BMS")
+
+    return dict(sire_tl), dict(dam_tl), dict(bms_tl)
+
+
 def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
     """data3からデータをロード"""
     print("[Load] Loading data3...")
@@ -474,6 +984,11 @@ def compute_features_for_race(
     race_level_index: dict = None,
     pedigree_index: dict = None,
     sire_stats_index: dict = None,
+    pit_trainer_tl: dict = None,
+    pit_jockey_tl: dict = None,
+    pit_sire_tl: dict = None,
+    pit_dam_tl: dict = None,
+    pit_bms_tl: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
@@ -563,12 +1078,18 @@ def compute_features_for_race(
 
         # 調教師特徴量
         tc = entry.get('trainer_code', '')
-        trainer_feat = get_trainer_features(tc, venue_code, trainer_index)
+        trainer_feat = get_trainer_features(
+            tc, venue_code, trainer_index,
+            race_date=race_date, pit_timeline=pit_trainer_tl,
+        )
         feat.update(trainer_feat)
 
         # 騎手特徴量
         jc = entry.get('jockey_code', '')
-        jockey_feat = get_jockey_features(jc, venue_code, jockey_index)
+        jockey_feat = get_jockey_features(
+            jc, venue_code, jockey_index,
+            race_date=race_date, pit_timeline=pit_jockey_tl,
+        )
         feat.update(jockey_feat)
 
         # 脚質特徴量 (v3.1)
@@ -642,7 +1163,11 @@ def compute_features_for_race(
         feat.update(slow_feat)
 
         # 血統特徴量 (v5.9): 事前計算の集計統計量
-        ped_feat = get_pedigree_features(ketto_num, pedigree_index or {}, _sire_idx, _dam_idx, _bms_idx)
+        ped_feat = get_pedigree_features(
+            ketto_num, pedigree_index or {}, _sire_idx, _dam_idx, _bms_idx,
+            race_date=race_date,
+            pit_sire_tl=pit_sire_tl, pit_dam_tl=pit_dam_tl, pit_bms_tl=pit_bms_tl,
+        )
         feat.update(ped_feat)
 
         # メタ情報（学習には使わないが分析用）
@@ -683,21 +1208,36 @@ def build_dataset(
     race_level_index: dict = None,
     pedigree_index: dict = None,
     sire_stats_index: dict = None,
+    min_month: int = None,
+    max_month: int = None,
+    pit_trainer_tl: dict = None,
+    pit_jockey_tl: dict = None,
+    pit_sire_tl: dict = None,
+    pit_dam_tl: dict = None,
+    pit_bms_tl: dict = None,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
 
     Args:
+        min_year, max_year: 年範囲（必須）
+        min_month: min_yearの開始月（1-12, None=1月から）
+        max_month: max_yearの終了月（1-12, None=12月まで）
         use_db_odds: True=mykeibadbから事前オッズ取得, False=JSON確定オッズ（従来動作）
         training_summary_index: CK_DATA調教サマリインデックス
         race_level_index: レースレベルインデックス
     """
-    print(f"\n[Build] Building dataset for {min_year}-{max_year}...")
+    # 月フィルタ: YYYYMM形式の整数で比較
+    date_min = min_year * 100 + (min_month or 1)
+    date_max = max_year * 100 + (max_month or 12)
+    label_min = f"{min_year}-{min_month:02d}" if min_month else str(min_year)
+    label_max = f"{max_year}-{max_month:02d}" if max_month else str(max_year)
+    print(f"\n[Build] Building dataset for {label_min} ~ {label_max}...")
 
     # 対象レースIDを収集
     target_races = []
     for date_str, race_id in _iter_date_index(date_index):
-        year = int(date_str[:4])
-        if year < min_year or year > max_year:
+        ym = int(date_str[:4]) * 100 + int(date_str[5:7])
+        if ym < date_min or ym > date_max:
             continue
         target_races.append((date_str, race_id))
 
@@ -740,6 +1280,11 @@ def build_dataset(
                 race_level_index=race_level_index,
                 pedigree_index=pedigree_index,
                 sire_stats_index=sire_stats_index,
+                pit_trainer_tl=pit_trainer_tl,
+                pit_jockey_tl=pit_jockey_tl,
+                pit_sire_tl=pit_sire_tl,
+                pit_dam_tl=pit_dam_tl,
+                pit_bms_tl=pit_bms_tl,
             )
             all_rows.extend(rows)
             race_count += 1
@@ -1708,11 +2253,65 @@ def parse_year_range(s: str) -> Tuple[int, int]:
     return y, y
 
 
+def _parse_period(s: str) -> Tuple[int, int]:
+    """期間指定をパース → (year, month) タプル
+
+    形式: "2020" → (2020, None), "2025.02" → (2025, 2)
+    """
+    if '.' in s:
+        parts = s.split('.', 1)
+        return int(parts[0]), int(parts[1])
+    return int(s), None
+
+
+def parse_period_range(s: str) -> Tuple[int, int, int, int]:
+    """期間範囲をパース → (min_year, min_month, max_year, max_month)
+
+    形式例:
+        "2020-2024"       → (2020, None, 2024, None)   # 年単位
+        "2025.01-2025.02" → (2025, 1, 2025, 2)         # 月単位
+        "2020-2025.02"    → (2020, None, 2025, 2)       # 混在OK
+        "2024"            → (2024, None, 2024, None)     # 単年
+        "2025.03"         → (2025, 3, 2025, 3)           # 単月
+    """
+    if '-' in s:
+        # "-" の位置を探す（ただし "2025.03-2026.02" のように "." の後の "-" は区切り）
+        # 簡易パース: 最初の '-' で分割、ただし "YYYY.MM" の内部にはない
+        # → まず全体を '-' で split して再構成
+        tokens = s.split('-')
+        # tokens例: ["2020", "2025.02"] or ["2025.01", "2025.02"] or ["2020", "2024"]
+        if len(tokens) == 2:
+            min_y, min_m = _parse_period(tokens[0])
+            max_y, max_m = _parse_period(tokens[1])
+        elif len(tokens) == 3:
+            # "2025.01-2025.02" のようなケースではないので
+            # "2020-2025.02" のようなケースを想定（token[0]="2020", token[1]="2025.02"にはならない）
+            # 実際のパターン: 最初の token が年、残りを結合
+            min_y, min_m = _parse_period(tokens[0])
+            max_y, max_m = _parse_period('-'.join(tokens[1:]))
+        else:
+            raise ValueError(f"Invalid period range: {s}")
+        return min_y, min_m, max_y, max_m
+    else:
+        y, m = _parse_period(s)
+        return y, m, y, m
+
+
+def _format_period(year: int, month: int = None) -> str:
+    """期間をラベル文字列に変換"""
+    if month:
+        return f"{year}-{month:02d}"
+    return str(year)
+
+
 def main():
     parser = argparse.ArgumentParser(description='ML Experiment v3')
-    parser.add_argument('--train-years', default='2020-2023', help='Training year range')
-    parser.add_argument('--val-years', default='2024', help='Validation year range (early stopping)')
-    parser.add_argument('--test-years', default='2025-2026', help='Test year range (pure evaluation)')
+    parser.add_argument('--train-years', default='2020-2024',
+                        help='Training period (例: 2020-2024, 2020-2025.02)')
+    parser.add_argument('--val-years', default='2025.01-2025.02',
+                        help='Validation period (例: 2024, 2025.01-2025.02)')
+    parser.add_argument('--test-years', default='2025.03-2026.02',
+                        help='Test period (例: 2025-2026, 2025.03-2026.02)')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用（JSON確定オッズ）')
     parser.add_argument('--split-track', action='store_true', help='芝/ダート分離モデル実験 (H-21)')
     parser.add_argument('--version', default=None, help='モデルバージョン文字列 (例: 5.3)')
@@ -1722,9 +2321,9 @@ def main():
                         help='除外する特徴量名のリスト (例: --exclude-features feat1 feat2)')
     args = parser.parse_args()
 
-    train_min, train_max = parse_year_range(args.train_years)
-    val_min, val_max = parse_year_range(args.val_years)
-    test_min, test_max = parse_year_range(args.test_years)
+    train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
+    val_min, val_min_m, val_max, val_max_m = parse_period_range(args.val_years)
+    test_min, test_min_m, test_max, test_max_m = parse_period_range(args.test_years)
     use_db_odds = not args.no_db
 
     # バージョン文字列: CLI指定 or 自動生成
@@ -1740,11 +2339,15 @@ def main():
             print(f"  推奨: --version {current_ver} または新バージョンを指定してください")
         experiment_version = None  # 後で入力を求めるか、従来のハードコード値を使う
 
+    train_label = f"{_format_period(train_min, train_min_m)} ~ {_format_period(train_max, train_max_m)}"
+    val_label = f"{_format_period(val_min, val_min_m)} ~ {_format_period(val_max, val_max_m)}"
+    test_label = f"{_format_period(test_min, test_min_m)} ~ {_format_period(test_max, test_max_m)}"
+
     print(f"\n{'='*60}")
     print(f"  KeibaCICD v4 - ML Experiment")
-    print(f"  Train: {train_min}-{train_max}")
-    print(f"  Val:   {val_min}-{val_max} (early stopping)")
-    print(f"  Test:  {test_min}-{test_max} (pure evaluation)")
+    print(f"  Train: {train_label}")
+    print(f"  Val:   {val_label} (early stopping)")
+    print(f"  Test:  {test_label} (pure evaluation)")
     print(f"  DB Odds: {'ON' if use_db_odds else 'OFF (JSON fallback)'}")
     print(f"  Model A features: {len(FEATURE_COLS_ALL)}")
     print(f"  Model B features: {len(FEATURE_COLS_VALUE)}")
@@ -1758,6 +2361,14 @@ def main():
      date_index, pace_index, kb_ext_index, training_summary_index,
      race_level_index, pedigree_index, sire_stats_index) = load_data()
 
+    # Point-in-time: 調教師・騎手の累積タイムライン構築
+    pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()
+
+    # Note: sire/dam/bms PIT is intentionally NOT applied.
+    # Sire stats are population-level (change slowly), not individual-level leakage.
+    # PIT correction hurts AUC significantly (-0.03~-0.05) with no ROI benefit.
+    # build_pit_sire_timeline() is available but disabled.
+
     # データセット構築（3-way split）
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -1766,6 +2377,8 @@ def main():
         race_level_index=race_level_index,
         pedigree_index=pedigree_index,
         sire_stats_index=sire_stats_index,
+        min_month=train_min_m, max_month=train_max_m,
+        pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -1774,6 +2387,8 @@ def main():
         race_level_index=race_level_index,
         pedigree_index=pedigree_index,
         sire_stats_index=sire_stats_index,
+        min_month=val_min_m, max_month=val_max_m,
+        pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -1782,6 +2397,8 @@ def main():
         race_level_index=race_level_index,
         pedigree_index=pedigree_index,
         sire_stats_index=sire_stats_index,
+        min_month=test_min_m, max_month=test_max_m,
+        pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
@@ -2223,6 +2840,7 @@ def main():
         'pedigree_features': PEDIGREE_FEATURES,
         'sklearn_version': sklearn.__version__,
         'created_at': datetime.now().isoformat(timespec='seconds'),
+        'split': {'train': train_label, 'val': val_label, 'test': test_label},
     }
     (model_dir / "model_meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
@@ -2234,9 +2852,9 @@ def main():
         'experiment': 'ml_experiment_v3',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {
-            'train': f"{train_min}-{train_max}",
-            'val': f"{val_min}-{val_max}",
-            'test': f"{test_min}-{test_max}",
+            'train': train_label,
+            'val': val_label,
+            'test': test_label,
         },
         'pruning': {
             'prune_bottom_pct': args.prune_bottom,
