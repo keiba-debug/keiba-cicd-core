@@ -7,18 +7,20 @@ interface SectionNavProps {
   hasBets: boolean;
   hasVB: boolean;
   hasDanger: boolean;
+  hasMultiLeg?: boolean;
 }
 
 const SECTIONS = [
   { id: 'section-summary', label: 'サマリー', always: true },
   { id: 'section-roi', label: '成績', always: false, needsResults: true },
-  { id: 'section-bets', label: '購入プラン', always: false, needsBets: true },
-  { id: 'section-vb', label: 'VB候補', always: false, needsVB: true },
-  { id: 'section-danger', label: '危険馬結果', always: false, needsDanger: true },
+  { id: 'section-bets', label: 'システム投資', always: false, needsBets: true },
+  { id: 'section-multi-leg', label: 'スポット馬券', always: false, needsMultiLeg: true },
+  { id: 'section-vb', label: 'Value Bet', always: false, needsVB: true },
+  { id: 'section-danger', label: 'Danger Alert', always: false, needsDanger: true },
   { id: 'section-races', label: 'レースカード', always: true },
 ] as const;
 
-export function SectionNav({ hasResults, hasBets, hasVB, hasDanger }: SectionNavProps) {
+export function SectionNav({ hasResults, hasBets, hasVB, hasDanger, hasMultiLeg = false }: SectionNavProps) {
   const [activeSection, setActiveSection] = useState('section-summary');
 
   const visibleSections = SECTIONS.filter(s => {
@@ -26,6 +28,7 @@ export function SectionNav({ hasResults, hasBets, hasVB, hasDanger }: SectionNav
     if ('needsResults' in s && s.needsResults) return hasResults;
     if ('needsBets' in s && s.needsBets) return hasBets;
     if ('needsVB' in s && s.needsVB) return hasVB;
+    if ('needsMultiLeg' in s && s.needsMultiLeg) return hasMultiLeg;
     if ('needsDanger' in s && s.needsDanger) return hasDanger;
     return true;
   });
@@ -48,7 +51,7 @@ export function SectionNav({ hasResults, hasBets, hasVB, hasDanger }: SectionNav
     }
 
     return () => observer.disconnect();
-  }, [hasResults, hasBets, hasVB, hasDanger]);
+  }, [hasResults, hasBets, hasVB, hasDanger, hasMultiLeg]);
 
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);

@@ -12,12 +12,13 @@ const PRESET_LABELS: Record<string, string> = {
 };
 
 const MODE_COLORS: Record<string, string> = {
-  passthrough: '#3b82f6',
-  equal_cross: '#8b5cf6',
-  win80: '#f59e0b',
-  cross_strong: '#ef4444',
+  exact: '#6b7280',
   win_only: '#10b981',
-  equal_50: '#6b7280',
+  passthrough: '#3b82f6',
+  equal_win: '#22d3ee',
+  s90_n50: '#f59e0b',
+  s80_n50: '#f97316',
+  equal_50: '#8b5cf6',
 };
 
 function MetricCard({ label, value, sub, color }: {
@@ -55,6 +56,7 @@ function ResultsTable({ results, initialBankroll }: { results: SimulationResult[
             <th className="px-3 py-2 font-medium text-right">ROI</th>
             <th className="px-3 py-2 font-medium text-right">Flat ROI</th>
             <th className="px-3 py-2 font-medium text-right">Max DD</th>
+            <th className="px-3 py-2 font-medium text-right">Calmar</th>
             <th className="px-3 py-2 font-medium text-right">Sharpe</th>
             <th className="px-3 py-2 font-medium text-right">W/L</th>
             <th className="px-3 py-2 font-medium text-right">Max Loss</th>
@@ -87,6 +89,9 @@ function ResultsTable({ results, initialBankroll }: { results: SimulationResult[
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-red-500">
                   {r.max_dd}%
+                </td>
+                <td className={cn('px-3 py-2 text-right tabular-nums font-semibold', (r.calmar ?? 0) >= 3 ? 'text-emerald-600' : (r.calmar ?? 0) >= 1 ? 'text-amber-600' : 'text-red-500')}>
+                  {(r.calmar ?? 0).toFixed(2)}
                 </td>
                 <td className={cn('px-3 py-2 text-right tabular-nums', r.sharpe >= 0 ? 'text-emerald-600' : 'text-red-500')}>
                   {r.sharpe.toFixed(3)}
@@ -128,6 +133,16 @@ export default function SimulationPage() {
     return [...filteredResults].sort((a, b) => b.final_bankroll - a.final_bankroll)[0];
   }, [filteredResults]);
 
+  const periodInfo = useMemo(() => {
+    if (!data?.results[0]?.history) return null;
+    const dates = data.results[0].history
+      .map(h => h.date)
+      .filter((d): d is string => d !== null)
+      .sort();
+    if (!dates.length) return null;
+    return { start: dates[0], end: dates[dates.length - 1], days: dates.length };
+  }, [data]);
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -153,7 +168,7 @@ export default function SimulationPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Bankroll Simulation</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          初期資金 {data.initial_bankroll.toLocaleString()}円 / 複利シミュレーション / {data.results[0]?.history?.filter(h => h.date).length ?? 0} 日間
+          初期資金 {data.initial_bankroll.toLocaleString()}円 / 複利シミュレーション / {periodInfo ? `${periodInfo.start} ~ ${periodInfo.end}（${periodInfo.days}開催日）` : '---'}
         </p>
       </div>
 
@@ -223,13 +238,14 @@ export default function SimulationPage() {
           <MetricCard
             label="Max Drawdown"
             value={`${bestResult.max_dd}%`}
+            sub={`Calmar: ${(bestResult.calmar ?? 0).toFixed(2)}`}
             color="red"
           />
           <MetricCard
-            label="Max Loss Streak"
-            value={`${bestResult.max_loss_streak}d`}
-            sub={`Win: ${bestResult.max_win_streak}d`}
-            color="red"
+            label="Sharpe / Calmar"
+            value={`${bestResult.sharpe.toFixed(3)}`}
+            sub={`Calmar ${(bestResult.calmar ?? 0).toFixed(2)} / Loss ${bestResult.max_loss_streak}d`}
+            color={(bestResult.calmar ?? 0) >= 3 ? 'green' : 'amber'}
           />
           <MetricCard
             label="Win Rate (days)"

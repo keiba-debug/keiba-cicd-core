@@ -150,7 +150,7 @@ export function FilterBar({
           onChange={(e) => setBetOnly(e.target.checked)}
           className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
         />
-        <span className="text-xs text-muted-foreground">購入プランのみ</span>
+        <span className="text-xs text-muted-foreground">投資対象のみ</span>
       </label>
 
       {/* 件数表示 */}
@@ -158,7 +158,7 @@ export function FilterBar({
         {filteredCount !== totalCount
           ? `${filteredCount} / ${totalCount} 件`
           : `${totalCount} 件`}
-        {betOnly && ' (購入プラン)'}
+        {betOnly && ' (システム投資)'}
       </span>
     </div>
   );

@@ -42,7 +42,7 @@ export function VBTable({
       <CardHeader className="pb-2 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950 dark:to-orange-950">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
-            Value Bet 候補 ({filteredVBEntries.length}頭)
+            Value Bet 対象馬 ({filteredVBEntries.length}頭)
           </CardTitle>
           <div className="flex items-center gap-2">
             {markResult && (

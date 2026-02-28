@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { DangerHorseEntry, SortState } from '../lib/types';
 import { getFinishColor, getPlaceLimit, getTrackBadgeClass, getTrackLabel, getRaceLink, getArdColor, SortTh } from '../lib/helpers';
 
@@ -83,36 +83,36 @@ export function DangerResults({ dangerHorses, getFinishPos }: DangerResultsProps
   if (dangerHorses.length === 0) return null;
 
   return (
-    <div id="section-danger" className="scroll-mt-28">
-      <Card>
-        <CardContent className="pt-6 pb-4">
-          {/* ヘッダー */}
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold flex items-center gap-2">
-              危険な人気馬
-              <span className="text-sm font-normal text-muted-foreground">
-                {dangerHorses.length}頭 ({raceCount}R中)
-              </span>
-            </h3>
-            {finished > 0 && (
-              <div className="flex items-center gap-3 text-sm">
-                <span>
-                  的中{' '}
-                  <span className={`font-bold ${accuracy != null && accuracy >= 50 ? 'text-green-600' : 'text-red-500'}`}>
-                    {correct}/{finished}
-                  </span>
+    <Card id="section-danger" className="mb-8 border-orange-200 dark:border-orange-800">
+      <CardHeader className="pb-2 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-950 dark:to-red-950">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            Danger Alert 対象馬
+            <span className="text-sm font-normal text-muted-foreground">
+              {dangerHorses.length}頭 ({raceCount}R中)
+            </span>
+          </CardTitle>
+          {finished > 0 && (
+            <div className="flex items-center gap-3 text-sm">
+              <span>
+                的中{' '}
+                <span className={`font-bold ${accuracy != null && accuracy >= 50 ? 'text-green-600' : 'text-red-500'}`}>
+                  {correct}/{finished}
                 </span>
-                {accuracy != null && (
-                  <span className={`font-bold text-lg ${accuracy >= 50 ? 'text-green-600' : 'text-red-500'}`}>
-                    {accuracy.toFixed(0)}%
-                  </span>
-                )}
-                {pending > 0 && (
-                  <span className="text-muted-foreground text-xs">残{pending}頭</span>
-                )}
-              </div>
-            )}
-          </div>
+              </span>
+              {accuracy != null && (
+                <span className={`font-bold text-lg ${accuracy >= 50 ? 'text-green-600' : 'text-red-500'}`}>
+                  {accuracy.toFixed(0)}%
+                </span>
+              )}
+              {pending > 0 && (
+                <span className="text-muted-foreground text-xs">残{pending}頭</span>
+              )}
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="pt-4 pb-4">
 
           {/* テーブル */}
           <div className="overflow-x-auto">
@@ -195,8 +195,7 @@ export function DangerResults({ dangerHorses, getFinishPos }: DangerResultsProps
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

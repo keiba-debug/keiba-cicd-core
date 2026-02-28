@@ -1,8 +1,10 @@
-"""Bankroll simulation with compounding
+"""Bankroll simulation with compounding (v5.35b)
 
 Initial: 100K, daily budget = bankroll * X%, settle daily.
-Compare allocation strategies: final balance, max DD, Sharpe, max losing streak.
+Compare allocation strategies: final balance, max DD, Sharpe, Calmar, max losing streak.
 Output JSON for web visualization.
+
+v5.35b: 確定オッズでGap/EV再計算（予測時オッズとのズレ修正）
 """
 import json
 import math
@@ -14,18 +16,19 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from ml.bet_engine import PRESETS, generate_recommendations
+from core.odds_db import batch_get_pre_race_odds
 
 
 # ── Config ──────────────────────────────────────────────
 INITIAL_BANKROLL = 100_000
-DAILY_BUDGET_PCT = 0.15
 MIN_DAILY_BUDGET = 2_000
 
 BUDGET_CONFIGS = [
-    {"label": "15%", "pct": 0.15, "min": 2_000},
-    {"label": "10%", "pct": 0.10, "min": 2_000},
+    {"label": "2%",  "pct": 0.02, "min": 2_000},
+    {"label": "3%",  "pct": 0.03, "min": 2_000},
     {"label": "5%",  "pct": 0.05, "min": 2_000},
-    {"label": "20%", "pct": 0.20, "min": 2_000},
+    {"label": "7%",  "pct": 0.07, "min": 2_000},
+    {"label": "10%", "pct": 0.10, "min": 2_000},
 ]
 
 
@@ -43,30 +46,77 @@ def group_by_date(cache_races):
     return dict(sorted(by_date.items()))
 
 
-def cache_to_preds(races):
+def cache_to_preds(races, confirmed_odds_map=None):
+    """backtest_cache → bet_engine入力形式に変換。
+
+    confirmed_odds_map が指定されていれば、確定オッズで以下を再計算:
+      - odds_rank: 確定オッズ昇順ランク
+      - vb_gap:    confirmed_odds_rank - rank_v
+      - win_vb_gap: confirmed_odds_rank - rank_wv
+      - win_ev:    (old_win_ev / old_odds) * confirmed_odds
+      - odds:      確定オッズ値
+    """
     preds = []
     for race in races:
+        race_id = race["race_id"]
+        race_confirmed = confirmed_odds_map.get(race_id, {}) if confirmed_odds_map else {}
+
+        # 確定オッズでランキング再計算
+        odds_for_rank = []
+        for e in race["entries"]:
+            uma = e["umaban"]
+            if uma in race_confirmed:
+                odds_for_rank.append((uma, race_confirmed[uma]["odds"]))
+            else:
+                odds_for_rank.append((uma, e.get("odds", 9999)))
+        odds_for_rank.sort(key=lambda x: x[1])
+        rank_map = {uma: rank + 1 for rank, (uma, _) in enumerate(odds_for_rank)}
+
         entries = []
         for e in race["entries"]:
+            uma = e["umaban"]
+            old_odds = e.get("odds", 0) or 0
+
+            if uma in race_confirmed:
+                new_odds = race_confirmed[uma]["odds"]
+            else:
+                new_odds = old_odds
+
+            new_rank = rank_map.get(uma, 99)
+            rank_v = e.get("rank_v", 99)
+            rank_wv = e.get("rank_wv", 99)
+
+            # Gap再計算
+            new_vb_gap = new_rank - rank_v
+            new_win_vb_gap = new_rank - rank_wv
+
+            # EV再計算: prob = old_ev / old_odds → new_ev = prob * new_odds
+            old_win_ev = e.get("win_ev") or 0
+            if old_odds > 0 and new_odds > 0:
+                win_prob = old_win_ev / old_odds
+                new_win_ev = win_prob * new_odds
+            else:
+                new_win_ev = old_win_ev
+
             entries.append({
-                "umaban": e["umaban"],
+                "umaban": uma,
                 "horse_name": e.get("horse_name", ""),
-                "odds": e.get("odds", 0),
-                "odds_rank": e.get("odds_rank", 99),
-                "vb_gap": e.get("vb_gap", 0),
-                "win_vb_gap": e.get("win_vb_gap", e.get("vb_gap", 0)),
-                "rank_v": e.get("rank_v", 99),
-                "rank_wv": e.get("rank_wv", 99),
+                "odds": new_odds,
+                "odds_rank": new_rank,
+                "vb_gap": new_vb_gap,
+                "win_vb_gap": new_win_vb_gap,
+                "rank_v": rank_v,
+                "rank_wv": rank_wv,
                 "place_odds_min": e.get("place_odds_min"),
                 "pred_proba_v_raw": e.get("pred_proba_v_raw"),
                 "predicted_margin": e.get("predicted_margin"),
-                "win_ev": e.get("win_ev"),
+                "win_ev": new_win_ev,
                 "place_ev": e.get("place_ev"),
                 "comment_memo_trouble_score": e.get("comment_memo_trouble_score", 0),
                 "ar_deviation": e.get("ar_deviation"),
             })
         preds.append({
-            "race_id": race["race_id"],
+            "race_id": race_id,
             "track_type": race.get("track_type", ""),
             "grade": race.get("grade", ""),
             "grade_offset": race.get("grade_offset", 0),
@@ -75,11 +125,21 @@ def cache_to_preds(races):
     return preds
 
 
-def build_lookup(cache_races):
+def build_lookup(cache_races, confirmed_odds_map=None):
+    """(race_id, umaban) → entry のルックアップ。
+
+    confirmed_odds_map があれば確定オッズで entry["odds"] を上書き（払戻計算用）。
+    """
     lookup = {}
     for race in cache_races:
+        race_id = race["race_id"]
+        race_confirmed = confirmed_odds_map.get(race_id, {}) if confirmed_odds_map else {}
         for e in race["entries"]:
-            lookup[(race["race_id"], e["umaban"])] = e
+            uma = e["umaban"]
+            entry = dict(e)  # copy
+            if uma in race_confirmed:
+                entry["odds"] = race_confirmed[uma]["odds"]
+            lookup[(race_id, uma)] = entry
     return lookup
 
 
@@ -88,12 +148,12 @@ def apply_strategy(recs, daily_budget, mode):
     """Apply allocation strategy to bet_engine recommendations.
 
     Modes:
-      passthrough  - scale bet_engine's exact output to daily_budget (tilt + cross ratio preserved)
-      equal_cross  - equal per-bet with bet_engine's cross ratio
-      win80        - tilt + strong=80/20, normal=50/50
-      cross_strong - tilt + strong=80/20, normal=20/80
-      win_only     - tilt + 100% win
-      equal_50     - equal per-bet + 50/50 split
+      passthrough - scale bet_engine's exact output to daily_budget (tilt preserved)
+      win_only    - tilt + 100% win (v5.35 default)
+      equal_win   - equal per-bet + 100% win
+      s90_n50     - tilt + strong=90/10, normal=50/50
+      s80_n50     - tilt + strong=80/20, normal=50/50
+      equal_50    - equal per-bet + 50/50 split
     """
     if not recs:
         return []
@@ -122,23 +182,13 @@ def apply_strategy(recs, daily_budget, mode):
         scale = daily_budget / orig_total_all
         for b in bets:
             scaled = max(200, round(b["orig_total"] * scale / 100) * 100)
-            if b["orig_total"] > 0:
-                win_ratio = b["orig_win"] / b["orig_total"]
-            else:
-                win_ratio = 0.5
-            if win_ratio >= 1.0:
-                b["win_amount"] = scaled
-                b["place_amount"] = 0
-            elif win_ratio <= 0.0:
-                b["win_amount"] = 0
-                b["place_amount"] = scaled
-            else:
-                b["win_amount"] = max(100, round(scaled * win_ratio / 100) * 100)
-                b["place_amount"] = max(100, scaled - b["win_amount"])
+            # v5.35: WinOnly → all to win
+            b["win_amount"] = scaled
+            b["place_amount"] = 0
         return bets
 
     # Determine weights
-    if mode in ("equal_cross", "equal_50"):
+    if mode in ("equal_win", "equal_50"):
         weights = [1.0] * n
     else:
         # tilt: use orig_total as weight (preserves bet_engine's gap-based tilt)
@@ -150,22 +200,18 @@ def apply_strategy(recs, daily_budget, mode):
 
     # Determine win/place ratio
     for b in bets:
-        if mode in ("passthrough", "equal_cross"):
-            # preserve bet_engine cross ratio
-            if b["orig_total"] > 0:
-                b["win_pct"] = b["orig_win"] / b["orig_total"]
-            else:
-                b["win_pct"] = 0.5
-        elif mode == "win80":
-            b["win_pct"] = 0.8 if b["strength"] == "strong" else 0.5
-        elif mode == "cross_strong":
-            b["win_pct"] = 0.8 if b["strength"] == "strong" else 0.2
-        elif mode == "win_only":
+        if mode == "win_only":
             b["win_pct"] = 1.0
+        elif mode == "equal_win":
+            b["win_pct"] = 1.0
+        elif mode == "s90_n50":
+            b["win_pct"] = 0.9 if b["strength"] == "strong" else 0.5
+        elif mode == "s80_n50":
+            b["win_pct"] = 0.8 if b["strength"] == "strong" else 0.5
         elif mode == "equal_50":
             b["win_pct"] = 0.5
         else:
-            b["win_pct"] = 0.5
+            b["win_pct"] = 1.0
 
     # Allocate amounts
     for i, b in enumerate(bets):
@@ -186,7 +232,7 @@ def apply_strategy(recs, daily_budget, mode):
 
 
 def simulate_day(bets, lookup):
-    """Settle one day: returns (total_bet, total_return, n_hits, n_miss)"""
+    """Settle one day: returns (total_bet, total_return, any_hit)"""
     total_bet = 0
     total_return = 0
     any_hit = False
@@ -220,7 +266,8 @@ def simulate_day(bets, lookup):
     return total_bet, round(total_return), any_hit
 
 
-def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_budget):
+def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_budget,
+                    confirmed_odds_map=None):
     """Full compounding simulation over all dates."""
     bankroll = INITIAL_BANKROLL
     peak = bankroll
@@ -236,7 +283,6 @@ def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_bud
     max_loss_streak = 0
     current_win_streak = 0
     max_win_streak = 0
-    daily_loss_streaks = []  # all loss streaks
 
     history = [{"date": None, "bankroll": bankroll}]
 
@@ -250,7 +296,7 @@ def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_bud
             history.append({"date": date, "bankroll": round(bankroll)})
             continue
 
-        preds = cache_to_preds(races)
+        preds = cache_to_preds(races, confirmed_odds_map)
         recs = generate_recommendations(preds, params, budget=daily_budget)
 
         if not recs:
@@ -258,14 +304,9 @@ def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_bud
             continue
 
         if mode == "exact":
-            # Use bet_engine's Kelly-based amounts directly
+            # Use bet_engine's amounts directly (no compounding)
             bets = [{"race_id": r.race_id, "umaban": r.umaban,
                       "win_amount": r.win_amount, "place_amount": r.place_amount}
-                    for r in recs]
-        elif mode == "exact_winonly":
-            # Use bet_engine's amounts but redirect all to win
-            bets = [{"race_id": r.race_id, "umaban": r.umaban,
-                      "win_amount": r.win_amount + r.place_amount, "place_amount": 0}
                     for r in recs]
         else:
             bets = apply_strategy(recs, daily_budget, mode)
@@ -288,15 +329,11 @@ def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_bud
             # Streak
             if daily_pnl >= 0:
                 current_win_streak += 1
-                if current_loss_streak > 0:
-                    daily_loss_streaks.append(current_loss_streak)
                 current_loss_streak = 0
                 if current_win_streak > max_win_streak:
                     max_win_streak = current_win_streak
             else:
                 current_loss_streak += 1
-                if current_win_streak > 0:
-                    pass
                 current_win_streak = 0
                 if current_loss_streak > max_loss_streak:
                     max_loss_streak = current_loss_streak
@@ -309,10 +346,6 @@ def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_bud
             max_dd = dd
 
         history.append({"date": date, "bankroll": round(bankroll)})
-
-    # Final loss streak
-    if current_loss_streak > 0:
-        daily_loss_streaks.append(current_loss_streak)
 
     # Sharpe-like ratio
     if daily_returns:
@@ -331,17 +364,22 @@ def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_bud
     win_days = sum(1 for r in daily_returns if r >= 0)
     lose_days = sum(1 for r in daily_returns if r < 0)
 
+    # Calmar ratio (ROI / MaxDD)
+    roi_pct = (bankroll / INITIAL_BANKROLL - 1) * 100
+    calmar = roi_pct / (max_dd * 100) if max_dd > 0 else 0
+
     return {
         "label": label,
         "mode": mode,
         "budget_pct": budget_pct,
         "final_bankroll": round(bankroll),
-        "roi_pct": round((bankroll / INITIAL_BANKROLL - 1) * 100, 1),
+        "roi_pct": round(roi_pct, 1),
         "total_bet": total_bet,
         "total_return": total_return,
         "flat_roi": round(total_return / total_bet * 100, 1) if total_bet > 0 else 0,
         "max_dd": round(max_dd * 100, 1),
         "sharpe": round(sharpe, 3),
+        "calmar": round(calmar, 2),
         "bet_days": bet_days,
         "total_bets": total_bets,
         "avg_daily_return": round(avg_r * 100, 2),
@@ -354,18 +392,20 @@ def run_simulation(dates_races, lookup, params, mode, label, budget_pct, min_bud
 
 
 STRATEGIES = [
-    ("exact",         "Exact (Kelly fraction)"),
-    ("exact_winonly", "Exact + WinOnly"),
-    ("passthrough",   "Full budget (tilt+cross)"),
-    ("win80",         "Full budget + Win80/50"),
-    ("win_only",      "Full budget + WinOnly"),
-    ("equal_50",      "Full budget + Equal 50/50"),
+    ("exact",         "Exact (fixed amount)"),
+    ("win_only",      "WinOnly + Tilt (default)"),
+    ("passthrough",   "Passthrough + Tilt"),
+    ("equal_win",     "WinOnly + Equal"),
+    ("s90_n50",       "S90/N50 + Tilt"),
+    ("s80_n50",       "S80/N50 + Tilt"),
+    ("equal_50",      "Equal 50/50"),
 ]
 
 
 def main():
     print("=" * 80)
-    print(f"  Bankroll Simulation (Initial: {INITIAL_BANKROLL:,})")
+    print(f"  Bankroll Simulation v5.35b (Initial: {INITIAL_BANKROLL:,})")
+    print("  確定オッズでGap/EV再計算")
     print("=" * 80)
 
     cache = load_cache()
@@ -374,7 +414,14 @@ def main():
     dates_races = group_by_date(cache)
     print(f"  Dates: {len(dates_races)} days ({min(dates_races)}~{max(dates_races)})")
 
-    lookup = build_lookup(cache)
+    # 確定オッズ取得
+    race_codes = [r["race_id"] for r in cache]
+    print(f"  Loading confirmed odds from mykeibadb ({len(race_codes)} races)...")
+    confirmed_odds_map = batch_get_pre_race_odds(race_codes)
+    hit = sum(1 for rc in race_codes if rc in confirmed_odds_map)
+    print(f"  Confirmed odds: {hit}/{len(race_codes)} races ({hit/len(race_codes)*100:.0f}%)")
+
+    lookup = build_lookup(cache, confirmed_odds_map)
 
     all_results = []
 
@@ -392,17 +439,19 @@ def main():
                     dates_races, lookup, params, mode,
                     f"{label}",
                     bcfg["pct"], bcfg["min"],
+                    confirmed_odds_map=confirmed_odds_map,
                 )
                 r["preset"] = preset_name
                 r["budget_label"] = bcfg["label"]
                 results.append(r)
 
             # Display
-            print(f"\n  {'Strategy':<28} {'Final':>9} {'ROI':>7} {'FlatROI':>8} {'MaxDD':>6} {'Sharpe':>7} {'W/L':>7} {'MaxLS':>5} {'MaxWS':>5}")
-            print(f"  {'-'*28} {'-'*9} {'-'*7} {'-'*8} {'-'*6} {'-'*7} {'-'*7} {'-'*5} {'-'*5}")
+            print(f"\n  {'Strategy':<24} {'Final':>9} {'ROI':>7} {'FlatROI':>8} {'MaxDD':>6} {'Calmar':>7} {'Sharpe':>7} {'W/L':>7} {'MaxLS':>5}")
+            print(f"  {'-'*24} {'-'*9} {'-'*7} {'-'*8} {'-'*6} {'-'*7} {'-'*7} {'-'*7} {'-'*5}")
             for r in results:
                 marker = " ***" if r["final_bankroll"] > INITIAL_BANKROLL else ""
-                print(f"  {r['label']:<28} {r['final_bankroll']:>8,} {r['roi_pct']:>+6.1f}% {r['flat_roi']:>7.1f}% {r['max_dd']:>5.1f}% {r['sharpe']:>7.3f} {r['win_days']:>3}/{r['lose_days']:<3} {r['max_loss_streak']:>5} {r['max_win_streak']:>5}{marker}")
+                wl = f"{r['win_days']}/{r['lose_days']}"
+                print(f"  {r['label']:<24} {r['final_bankroll']:>8,} {r['roi_pct']:>+6.1f}% {r['flat_roi']:>7.1f}% {r['max_dd']:>5.1f}% {r['calmar']:>6.2f} {r['sharpe']:>7.3f} {wl:>7} {r['max_loss_streak']:>5}{marker}")
 
             all_results.extend(results)
 
@@ -426,6 +475,7 @@ def main():
             "flat_roi": r["flat_roi"],
             "max_dd": r["max_dd"],
             "sharpe": r["sharpe"],
+            "calmar": r["calmar"],
             "bet_days": r["bet_days"],
             "total_bets": r["total_bets"],
             "win_days": r["win_days"],

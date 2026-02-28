@@ -28,7 +28,7 @@ export function SummaryCards({ totalRaces, totalEntries, totalVB, betCount, betT
       <Card className="border-amber-200 dark:border-amber-800">
         <CardContent className="pt-4 pb-3 text-center">
           <div className="text-3xl font-bold text-amber-600">{totalVB}</div>
-          <div className="text-xs text-muted-foreground">VB候補</div>
+          <div className="text-xs text-muted-foreground">VB対象馬</div>
         </CardContent>
       </Card>
       <Card className="border-indigo-200 dark:border-indigo-800">
@@ -36,7 +36,7 @@ export function SummaryCards({ totalRaces, totalEntries, totalVB, betCount, betT
           <div className={`text-3xl font-bold ${hasBets ? 'text-indigo-600' : 'text-muted-foreground'}`}>
             {hasBets ? betCount : '-'}
           </div>
-          <div className="text-xs text-muted-foreground">購入プラン</div>
+          <div className="text-xs text-muted-foreground">システム投資</div>
           {hasBets && betTotalAmount > 0 && (
             <div className="text-[10px] text-muted-foreground mt-0.5">
               &yen;{betTotalAmount.toLocaleString()}

@@ -70,7 +70,7 @@ export function RoiSummary({ all, betRec, betExcl }: RoiSummaryProps) {
     <Card id="section-roi" className="mb-6 border-blue-200 dark:border-blue-800">
       <CardContent className="py-4">
         <div className="flex items-center gap-2 mb-3">
-          <span className="font-bold text-sm">VB成績サマリー</span>
+          <span className="font-bold text-sm">Value Bet 成績サマリー</span>
           <Badge variant="outline" className="text-xs">結果反映済</Badge>
         </div>
         <div className="grid grid-cols-6 gap-2 text-center text-[10px] text-muted-foreground border-b pb-1 mb-1">
@@ -82,7 +82,7 @@ export function RoiSummary({ all, betRec, betExcl }: RoiSummaryProps) {
           <div>複勝ROI</div>
         </div>
         <ROIRow label="全体" s={all} />
-        <ROIRow label="購入プラン" s={betRec} badgeClass="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" />
+        <ROIRow label="システム投資" s={betRec} badgeClass="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" />
         <ROIRow label="非推奨" s={betExcl} badgeClass="bg-gray-100 text-gray-600 dark:bg-gray-800/40 dark:text-gray-400" />
       </CardContent>
     </Card>

@@ -40,6 +40,15 @@ interface BetEngineParams {
   betUnit: number;
 }
 
+// VB Floor: 購入プラン⊆VB候補 を保証する最低条件
+// Python bet_engine.py の VB_FLOOR_* と手動同期
+const VB_FLOOR = {
+  minWinEv: 1.0,
+  minArd: 50.0,
+  ardVbMinArd: 65.0,
+  ardVbMinOdds: 10.0,
+} as const;
+
 // --- プリセット (Python PRESETS と完全一致) ---
 
 const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
@@ -57,9 +66,9 @@ const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
     kellyFraction: 0.25,
     kellyCap: 0.10,
     dangerGapBoost: 0, // v5.33: gap boost廃止
-    crossAlloc: true,
-    strongWinPct: 70,
-    normalWinPct: 30,
+    crossAlloc: false, // v5.35: WinOnly (bankroll sim最適)
+    strongWinPct: 100,
+    normalWinPct: 100,
     maxWinPerRace: 2,
     minBet: 100,
     betUnit: 100,
@@ -78,9 +87,9 @@ const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
     kellyFraction: 0.25,
     kellyCap: 0.10,
     dangerGapBoost: 0,
-    crossAlloc: true,
-    strongWinPct: 70,
-    normalWinPct: 30,
+    crossAlloc: false, // v5.35: WinOnly (bankroll sim最適)
+    strongWinPct: 100,
+    normalWinPct: 100,
     maxWinPerRace: 2,
     minBet: 100,
     betUnit: 100,
@@ -99,9 +108,9 @@ const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
     kellyFraction: 0.25,
     kellyCap: 0.10,
     dangerGapBoost: 0,
-    crossAlloc: true,
-    strongWinPct: 70,
-    normalWinPct: 30,
+    crossAlloc: false, // v5.35: WinOnly (bankroll sim最適)
+    strongWinPct: 100,
+    normalWinPct: 100,
     maxWinPerRace: 2,
     minBet: 100,
     betUnit: 100,
@@ -300,6 +309,13 @@ export function generateLiveRecommendations(
       const isDanger = !!dangerMap[e.umaban];
       const dangerScore = isDanger ? 1.0 : 0.0;
 
+      // === VB Floor Gate: 購入プラン⊆VB候補 ===
+      const vbEvOk = (e.winEv ?? 0) >= VB_FLOOR.minWinEv;
+      const vbArdOk = (e.arDeviation ?? 0) >= VB_FLOOR.minArd;
+      const vbArdRoute = (e.arDeviation ?? 0) >= VB_FLOOR.ardVbMinArd
+                         && e.liveOdds >= VB_FLOOR.ardVbMinOdds;
+      if (!(vbEvOk && vbArdOk) && !vbArdRoute) continue;
+
       // --- 単勝 pre-filter: V%比率 ---
       let winPrefilterPass: boolean;
       if (params.winVRatioMin > 0) {
@@ -464,9 +480,10 @@ function buildLiveEntries(
     const gap = liveRank - e.rank_v;
     const winGap = liveRank - (e.rank_wv ?? e.rank_v);
 
-    // EV再計算
-    const winEv = (e.pred_proba_wv != null && liveWinOdds > 0)
-      ? e.pred_proba_wv * liveWinOdds
+    // EV再計算 — calibrated確率を使用（Python IsotonicRegressionと一致）
+    const winProb = e.pred_proba_wv_cal ?? e.pred_proba_wv;
+    const winEv = (winProb != null && liveWinOdds > 0)
+      ? winProb * liveWinOdds
       : e.win_ev ?? null;
     const placeEv = (e.pred_proba_v_raw != null && livePlaceMin != null && livePlaceMin > 0)
       ? e.pred_proba_v_raw * livePlaceMin

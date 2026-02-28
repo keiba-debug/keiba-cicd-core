@@ -171,9 +171,10 @@ export function getPlaceOddsMin(odds: OddsMap, raceId: string, umaban: number): 
   return entry?.placeOddsMin ?? null;
 }
 
-export function calcWinEv(entry: { pred_proba_wv?: number; pred_proba_v: number }, winOdds: number | null): number | null {
+export function calcWinEv(entry: { pred_proba_wv_cal?: number; pred_proba_wv?: number; pred_proba_v: number }, winOdds: number | null): number | null {
   if (!winOdds || winOdds <= 0) return null;
-  const prob = entry.pred_proba_wv ?? entry.pred_proba_v;
+  // Use calibrated probability (IsotonicRegression) for EV calculation — matches Python's logic
+  const prob = entry.pred_proba_wv_cal ?? entry.pred_proba_wv ?? entry.pred_proba_v;
   return prob * winOdds;
 }
 

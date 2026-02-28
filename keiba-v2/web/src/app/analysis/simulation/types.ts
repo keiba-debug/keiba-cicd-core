@@ -13,6 +13,7 @@ export interface SimulationResult {
   flat_roi: number;
   max_dd: number;
   sharpe: number;
+  calmar: number;
   bet_days: number;
   total_bets: number;
   win_days: number;

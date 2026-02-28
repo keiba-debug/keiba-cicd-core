@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, SortState, DbResultsMap } from '../lib/types';
-import { BET_CONFIG, PRESET_OPTIONS, type ServerPresetKey, type AllocMode } from '../lib/bet-logic';
+import { BET_CONFIG, PRESET_OPTIONS, BUDGET_PCT_OPTIONS, type ServerPresetKey, type AllocMode } from '../lib/bet-logic';
 import { getWinOdds, calcHeadRatio, getGapColor, getEvColor, getRecBadgeClass, getRaceLink, SortTh, getArColor, getArdColor } from '../lib/helpers';
 
 interface BetRecommendationsProps {
@@ -38,6 +38,8 @@ interface BetRecommendationsProps {
   isLiveCalc?: boolean;
   isArchive?: boolean;
   oddsTime?: string | null;
+  dailyLimitPct?: number;
+  onDailyLimitPctChange?: (pct: number) => void;
 }
 
 function PresetButtons({ preset, onPresetChange }: { preset: ServerPresetKey; onPresetChange: (p: ServerPresetKey) => void }) {
@@ -66,6 +68,7 @@ export function BetRecommendations({
   dbResults, getFinishPos,
   bankrollBalance, budgetLinked, toggleBudgetLink,
   isLiveCalc, isArchive, oddsTime,
+  dailyLimitPct, onDailyLimitPctChange,
 }: BetRecommendationsProps) {
   const hasResults = dbResults && Object.keys(dbResults).length > 0;
 
@@ -88,7 +91,7 @@ export function BetRecommendations({
       <CardHeader className="pb-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-lg flex items-center gap-2">
-            購入プラン ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
+            システム投資（単勝） ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
             {isLiveCalc ? (
               <Badge variant="outline" className={`ml-2 text-[10px] ${isArchive
                 ? 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700'
@@ -132,12 +135,30 @@ export function BetRecommendations({
                     : 'bg-gray-50 text-gray-400 border-gray-300 dark:bg-gray-800 dark:text-gray-500 dark:border-gray-600'
                 }`}
                 title={budgetLinked
-                  ? `資金連動ON: 現在資金 ¥${bankrollBalance.toLocaleString()} × 日次上限% = ¥${dailyBudget.toLocaleString()}`
+                  ? `資金連動ON: 現在資金 ¥${bankrollBalance.toLocaleString()} × ${dailyLimitPct ?? 5}% = ¥${dailyBudget.toLocaleString()}`
                   : `資金連動OFF: クリックで現在資金ベースに切替`
                 }
               >
                 {budgetLinked ? `連動 ¥${(bankrollBalance / 10000).toFixed(1)}万` : '連動OFF'}
               </button>
+            )}
+            {onDailyLimitPctChange && (
+              <div className="flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
+                {BUDGET_PCT_OPTIONS.map(opt => (
+                  <button
+                    key={opt.pct}
+                    onClick={() => onDailyLimitPctChange(opt.pct)}
+                    className={`px-1.5 py-0.5 text-[10px] transition-colors ${
+                      dailyLimitPct === opt.pct
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    }`}
+                    title={opt.description}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             )}
             <div className="flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
               <button
@@ -158,7 +179,7 @@ export function BetRecommendations({
               onClick={syncBetMarks}
               disabled={betSyncing}
               className="px-3 py-1 text-xs font-medium rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-indigo-300 dark:border-indigo-700 disabled:opacity-50"
-              title="購入プランをFF CSV出力（TARGETの買い目取り込みメニューで読込）"
+              title="システム投資をFF CSV出力（TARGETの買い目取り込みメニューで読込）"
             >
               {betSyncing ? '出力中...' : 'FF CSV出力'}
             </button>
@@ -192,7 +213,7 @@ export function BetRecommendations({
           {betSummary.dangerRaces > 0 && (
             <div className="bg-orange-50 dark:bg-orange-900/20 rounded p-2 border border-orange-200 dark:border-orange-800">
               <div className="text-lg font-bold text-orange-600">{betSummary.dangerRaces}R</div>
-              <div className="text-[10px] text-muted-foreground">危険人気馬</div>
+              <div className="text-[10px] text-muted-foreground">Danger Alert</div>
             </div>
           )}
         </div>
@@ -215,7 +236,7 @@ export function BetRecommendations({
                 <SortTh sortKey="odds" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
                 <SortTh sortKey="placeEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="複勝EV">複EV</SortTh>
                 <SortTh sortKey="head" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border" title="頭向き度">頭%</SortTh>
-                <SortTh sortKey="danger" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-orange-50 dark:bg-orange-900/20" title="危険な人気馬">危険馬</SortTh>
+                <SortTh sortKey="danger" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-orange-50 dark:bg-orange-900/20" title="Danger Alert 対象馬">DA</SortTh>
                 {hasResults && (
                   <>
                     <SortTh sortKey="finish" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-gray-100 dark:bg-gray-800" title="確定着順">着順</SortTh>
@@ -381,8 +402,19 @@ export function BetRecommendations({
           );
         })()}
 
-        <div className="mt-3 text-[10px] text-muted-foreground">
-          購入プランエンジン / {allocMode === 'equal' ? '均等配分' : '傾斜配分'} / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
+        <div className="mt-3 space-y-1 text-[10px] text-muted-foreground">
+          <div>
+            システム投資エンジン / {allocMode === 'equal' ? '均等配分' : '傾斜配分'} / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
+          </div>
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded px-2 py-1.5 leading-relaxed">
+            <span className="font-medium">配分ルール:</span>{' '}
+            {allocMode === 'equal'
+              ? '全VB馬に均等配分 → 分散効果でリスク調整リターン最大化（Calmar 7.14, Sharpe 0.151）'
+              : 'Gap比例の傾斜配分 → 乖離が大きい馬ほど厚めに配分（Calmar 5.09, Sharpe 0.137）'
+            }{' '}
+            / 全額単勝（バンクロールSim検証: 単勝100% {'>'} 単複混合, ROI +345%）
+            / 推奨日予算: バンクロールの5%（MaxDD 62-69%, 127日で4.5倍）
+          </div>
         </div>
       </CardContent>
     </Card>

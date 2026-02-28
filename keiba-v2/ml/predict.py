@@ -42,6 +42,8 @@ from ml.bet_engine import (
     PRESETS, generate_recommendations,
     recommendations_to_dict, recommendations_summary,
     load_grade_offsets, get_grade_key,
+    VB_FLOOR_MIN_WIN_EV, VB_FLOOR_MIN_ARD,
+    VB_FLOOR_ARD_VB_MIN_ARD, VB_FLOOR_ARD_VB_MIN_ODDS,
 )
 
 # === Value Bet閾値 ===
@@ -727,6 +729,8 @@ def predict_race(
             # Win predictions (is_win)
             'pred_proba_w': round(float(pred_w[i]), 4) if has_win_model else None,
             'pred_proba_wv': round(float(pred_wv[i]), 4) if has_win_model else None,
+            'pred_proba_wv_cal': round(float(pred_wv_for_ev[i]), 6)
+                if has_win_model and pred_wv_for_ev is not None else None,
             'rank_w': int(rw) if rw is not None else None,
             'rank_wv': int(rwv) if rwv is not None else None,
             'win_vb_gap': win_gap,
@@ -787,11 +791,15 @@ def predict_race(
         for e in result_entries:
             e['ar_deviation'] = 50.0  # AR情報不足時は全員50
 
-    # VBフラグ更新: EV >= 1.0 かつ AR偏差値 >= 50（レース平均以上）
+    # VBフラグ更新: VB Floor条件（購入プラン⊆VB候補 を保証）
+    # 条件A: EV >= 1.0 AND ARd >= 50（期待値＋能力）
+    # 条件B: ARd >= 65 AND odds >= 10（ARd VBルート: 能力 vs 市場乖離）
     for e in result_entries:
-        ev_ok = (e.get('win_ev') or 0) >= 1.0
-        ard_ok = (e.get('ar_deviation') or 0) >= 50.0
-        e['is_value_bet'] = bool(ev_ok and ard_ok)
+        ev_ok = (e.get('win_ev') or 0) >= VB_FLOOR_MIN_WIN_EV
+        ard_ok = (e.get('ar_deviation') or 0) >= VB_FLOOR_MIN_ARD
+        ard_vb_ok = ((e.get('ar_deviation') or 0) >= VB_FLOOR_ARD_VB_MIN_ARD
+                     and (e.get('odds') or 0) >= VB_FLOOR_ARD_VB_MIN_ODDS)
+        e['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok)
 
     return {
         'race_id': race['race_id'],
@@ -1022,6 +1030,30 @@ def main():
               f"Win={s['win_bets']}, Place={s['place_bets']}, "
               f"Amount={s['total_amount']:,}")
 
+    # === マルチレグ推奨生成 ===
+    print(f"\n[MultiLeg] Generating multi-leg recommendations...")
+    try:
+        from ml.simulate_multi_leg import generate_recommendations as gen_multi_leg
+        multi_leg_recs = gen_multi_leg(all_predictions)
+        multi_leg_output = []
+        for r in multi_leg_recs:
+            multi_leg_output.append({
+                'race_id': r.race_id,
+                'venue': r.venue,
+                'race_number': r.race_num,
+                'strategy': r.strategy,
+                'ticket_type': r.ticket_type,
+                'horses': list(r.horses),
+                'horse_names': list(r.horse_names),
+                'cost': r.cost,
+                'note': r.note,
+            })
+        print(f"  {len(multi_leg_output)} tickets across "
+              f"{len(set(r.race_id for r in multi_leg_recs))} races")
+    except Exception as e:
+        print(f"  [Warning] multi-leg generation failed: {e}")
+        multi_leg_output = []
+
     # 結果保存
     actual_model_version = model_version if model_version else meta.get('version', '?')
     output = {
@@ -1037,6 +1069,7 @@ def main():
         'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
         'races': all_predictions,
         'recommendations': all_recommendations,
+        'multi_leg_recommendations': multi_leg_output,
         'summary': {
             'total_races': len(all_predictions),
             'total_entries': sum(len(p['entries']) for p in all_predictions),

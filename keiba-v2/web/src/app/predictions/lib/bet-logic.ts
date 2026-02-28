@@ -20,6 +20,14 @@ export const PRESET_OPTIONS: { key: ServerPresetKey; label: string; description:
 /** 配分モード */
 export type AllocMode = 'kelly' | 'equal';
 
+/** 日次予算率オプション */
+export const BUDGET_PCT_OPTIONS = [
+  { pct: 2, label: '2%', description: 'MaxDD ~30% 安全重視' },
+  { pct: 3, label: '3%', description: 'MaxDD ~43% バランス型' },
+  { pct: 5, label: '5%', description: 'MaxDD ~62% 標準（デフォルト）' },
+  { pct: 7, label: '7%', description: 'MaxDD ~75% 攻め' },
+] as const;
+
 /**
  * 傾斜配分: 日予算全額を各ベットの元金額比率で按分
  *

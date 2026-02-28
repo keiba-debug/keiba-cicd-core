@@ -3,13 +3,13 @@
  *
  * POST: クライアントで算出した推奨買い目をTARGET買い目取り込みCSVに一括書込み
  * Body: {
- *   bets: Array<{ raceId: string, umaban: number, betType: number, amount: number }>
+ *   bets: Array<{ raceId: string, umaban: number, umaban2?: number, umaban3?: number, betType: number, amount: number }>
  * }
  *
- * betType: 0=単勝, 1=複勝
+ * betType: 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複
  * amount: 金額（円）
  *
- * 出力先: C:\TFJV\MY_DATA\FFyyyymmdd.CSV
+ * 出力先: C:\TFJV\TXT\FFyyyymmdd_HHmmss.CSV
  * TARGET側で「買い目取り込み」メニューから読み込む
  */
 
@@ -17,10 +17,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writePdBets } from '@/lib/data/target-pd-writer';
 import type { PdRaceEntry } from '@/lib/data/target-pd-writer';
 
+/** 有効な券種コード */
+const VALID_BET_TYPES = new Set([0, 1, 3, 4, 5, 6]);
+/** 2頭必要な券種 */
+const TWO_HORSE_TYPES = new Set([3, 4, 5]); // 馬連, ワイド, 馬単
+/** 3頭必要な券種 */
+const THREE_HORSE_TYPES = new Set([6]); // 三連複
+
 interface BetInput {
   raceId: string;
   umaban: number;
-  betType: number;  // 0=単勝, 1=複勝
+  umaban2?: number; // 馬連/ワイド/馬単/三連複
+  umaban3?: number; // 三連複
+  betType: number;  // 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複
   amount: number;   // 円
 }
 
@@ -37,6 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     // バリデーション
+    const validUmaban = (u: number | undefined) => u != null && u >= 1 && u <= 18;
     for (const bet of bets) {
       if (!bet.raceId || bet.raceId.length !== 16) {
         return NextResponse.json(
@@ -44,15 +54,27 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      if (bet.umaban < 1 || bet.umaban > 18) {
+      if (!validUmaban(bet.umaban)) {
         return NextResponse.json(
           { error: `無効な馬番: ${bet.umaban}` },
           { status: 400 }
         );
       }
-      if (bet.betType !== 0 && bet.betType !== 1) {
+      if (!VALID_BET_TYPES.has(bet.betType)) {
         return NextResponse.json(
-          { error: `無効な券種: ${bet.betType}（0=単勝, 1=複勝のみ対応）` },
+          { error: `無効な券種: ${bet.betType}（0,1,3,4,5,6対応）` },
+          { status: 400 }
+        );
+      }
+      if (TWO_HORSE_TYPES.has(bet.betType) && !validUmaban(bet.umaban2)) {
+        return NextResponse.json(
+          { error: `券種${bet.betType}には2頭必要です` },
+          { status: 400 }
+        );
+      }
+      if (THREE_HORSE_TYPES.has(bet.betType) && (!validUmaban(bet.umaban2) || !validUmaban(bet.umaban3))) {
+        return NextResponse.json(
+          { error: `券種${bet.betType}には3頭必要です` },
           { status: 400 }
         );
       }
@@ -66,8 +88,6 @@ export async function POST(request: NextRequest) {
 
     // レース単位にグループ化
     const raceMap = new Map<string, PdRaceEntry>();
-    let winBets = 0;
-    let placeBets = 0;
     let totalAmount = 0;
 
     for (const bet of bets) {
@@ -77,10 +97,10 @@ export async function POST(request: NextRequest) {
       raceMap.get(bet.raceId)!.bets.push({
         betType: bet.betType,
         umaban: bet.umaban,
+        umaban2: bet.umaban2,
+        umaban3: bet.umaban3,
         amount: bet.amount,
       });
-      if (bet.betType === 0) winBets++;
-      else placeBets++;
       totalAmount += bet.amount;
     }
 
@@ -93,11 +113,8 @@ export async function POST(request: NextRequest) {
       success: true,
       summary: {
         totalBets: bets.length,
-        winBets,
-        placeBets,
         totalAmount,
         racesWritten: result.written,
-        racesSkipped: result.skipped,
         filePath: result.filePath,
       },
     });

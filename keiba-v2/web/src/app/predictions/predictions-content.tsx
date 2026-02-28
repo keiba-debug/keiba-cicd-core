@@ -10,7 +10,7 @@ import {
   getWinOdds, getPlaceOddsMin, calcWinEv, calcPlaceEv, calcHeadRatio,
   isTurf, isDirt, getPlaceLimit, getRaceDanger, getStarScore,
 } from './lib/helpers';
-import { BET_CONFIG, rescaleBudget, equalDistribute, type ServerPresetKey, type AllocMode } from './lib/bet-logic';
+import { BET_CONFIG, BUDGET_PCT_OPTIONS, rescaleBudget, equalDistribute, type ServerPresetKey, type AllocMode } from './lib/bet-logic';
 import { generateLiveRecommendations } from './lib/bet-engine';
 
 // components
@@ -23,6 +23,7 @@ import { BetRecommendations } from './components/bet-recommendations';
 import { VBTable } from './components/vb-table';
 import { RaceCard } from './components/race-card';
 import { DangerResults } from './components/danger-results';
+import { MultiLegRecommendations } from './components/multi-leg-recommendations';
 
 // --- メインコンポーネント ---
 
@@ -62,11 +63,20 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [bankrollBalance, setBankrollBalance] = useState<number | null>(null);
   const [bankrollBudget, setBankrollBudget] = useState<number | null>(null); // 計算済み日次予算
   const [budgetLinked, setBudgetLinked] = useState<boolean>(true); // bankroll連動モード
+  const [dailyLimitPct, setDailyLimitPct] = useState<number>(5); // 日次予算率(%)
+
+  // bankroll予算を計算するヘルパー
+  const computeBudget = useCallback((balance: number, pct: number) => {
+    return Math.max(1000, Math.floor(balance * pct / 100 / 1000) * 1000);
+  }, []);
 
   // bankroll API から現在資金と設定を取得
   useEffect(() => {
     const savedLinked = localStorage.getItem('keiba_budget_linked');
     if (savedLinked !== null) setBudgetLinked(savedLinked === 'true');
+
+    const savedPct = localStorage.getItem('keiba_daily_limit_pct');
+    if (savedPct !== null) setDailyLimitPct(Number(savedPct));
 
     Promise.all([
       fetch('/api/bankroll/fund').then(r => r.ok ? r.json() : null).catch(() => null),
@@ -74,8 +84,9 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     ]).then(([fund, config]) => {
       if (fund?.current_balance != null) {
         setBankrollBalance(fund.current_balance);
-        const pct = config?.settings?.daily_limit_percent ?? 5.0;
-        const computed = Math.max(1000, Math.floor(fund.current_balance * pct / 100 / 1000) * 1000);
+        const pct = savedPct !== null ? Number(savedPct) : (config?.settings?.daily_limit_percent ?? 5.0);
+        setDailyLimitPct(pct);
+        const computed = computeBudget(fund.current_balance, pct);
         setBankrollBudget(computed);
 
         // 連動モードならbankroll予算を適用
@@ -89,6 +100,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       const saved = localStorage.getItem('keiba_daily_budget');
       if (saved) setDailyBudget(Number(saved));
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateBudget = useCallback((value: number) => {
@@ -106,10 +118,34 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     const next = !budgetLinked;
     setBudgetLinked(next);
     localStorage.setItem('keiba_budget_linked', String(next));
-    if (next && bankrollBudget !== null) {
-      setDailyBudget(bankrollBudget);
+    if (next && bankrollBalance !== null) {
+      const computed = computeBudget(bankrollBalance, dailyLimitPct);
+      setBankrollBudget(computed);
+      setDailyBudget(computed);
     }
-  }, [budgetLinked, bankrollBudget]);
+  }, [budgetLinked, bankrollBalance, dailyLimitPct, computeBudget]);
+
+  // 予算率変更
+  const updateDailyLimitPct = useCallback((pct: number) => {
+    setDailyLimitPct(pct);
+    localStorage.setItem('keiba_daily_limit_pct', String(pct));
+
+    // bankroll連動なら即座に予算再計算
+    if (bankrollBalance !== null) {
+      const computed = computeBudget(bankrollBalance, pct);
+      setBankrollBudget(computed);
+      if (budgetLinked) {
+        setDailyBudget(computed);
+      }
+    }
+
+    // config.json にも永続化 (fire-and-forget)
+    fetch('/api/bankroll/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ daily_limit_percent: pct }),
+    }).catch(() => {/* ignore */});
+  }, [bankrollBalance, budgetLinked, computeBudget]);
 
   // 推奨買い目 プリセット選択（デフォルト: standard）
   const [preset, setPreset] = useState<ServerPresetKey>('standard');
@@ -817,6 +853,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         hasBets={betRecommendations.length > 0}
         hasVB={filteredVBEntries.length > 0}
         hasDanger={filteredDangerHorses.length > 0}
+        hasMultiLeg={(data.multi_leg_recommendations?.length ?? 0) > 0}
       />
 
       {/* ROIサマリー */}
@@ -849,10 +886,24 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         bankrollBalance={bankrollBalance}
         budgetLinked={budgetLinked}
         toggleBudgetLink={toggleBudgetLink}
+        dailyLimitPct={dailyLimitPct}
+        onDailyLimitPctChange={updateDailyLimitPct}
         isLiveCalc={hasLiveOdds}
         isArchive={isArchive}
         oddsTime={oddsTime}
       />
+
+      {/* マルチレグ推奨（馬単・ワイド） */}
+      {data.multi_leg_recommendations && data.multi_leg_recommendations.length > 0 && (
+        <MultiLegRecommendations
+          recommendations={data.multi_leg_recommendations}
+          results={results}
+          races={races}
+          venueFilter={venueFilter}
+          trackFilter={trackFilter}
+          raceNumFilter={raceNumFilter}
+        />
+      )}
 
       {/* VB候補 */}
       <VBTable

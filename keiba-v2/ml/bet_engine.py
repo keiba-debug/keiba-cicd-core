@@ -41,6 +41,14 @@ RATING_BASE = 74.2
 # absolute_R = relative_R + offset
 AGE_SEPARATED_GRADES = {'G1', 'G2', 'G3', 'OP', 'Listed'}
 
+# VB Floor: 購入プラン⊆VB候補 を保証する最低条件
+# predict.py の is_value_bet 判定と同一基準。
+# bet-engine.ts の VB_FLOOR 定数と手動同期が必要。
+VB_FLOOR_MIN_WIN_EV = 1.0       # 単勝EV下限
+VB_FLOOR_MIN_ARD = 50.0          # AR偏差値下限
+VB_FLOOR_ARD_VB_MIN_ARD = 65.0   # ARd VBルート: ARd下限
+VB_FLOOR_ARD_VB_MIN_ODDS = 10.0  # ARd VBルート: オッズ下限
+
 
 def load_grade_offsets(path: str = None) -> Dict[str, float]:
     """rating_standards.jsonからグレードオフセットマップを読み込み
@@ -125,10 +133,11 @@ class BetStrategyParams:
     danger_gap_boost: int = 0         # v5.33: gap boost廃止 (ラベルのみ、ROI希薄化防止)
 
     # --- クロス配分 (strength別の単複配分) ---
-    # strong=単勝重視, normal=複勝重視。0=無効(従来通り単勝のみ)
-    cross_alloc: bool = False           # クロス配分有効化
-    strong_win_pct: int = 70            # strong: 単勝割合(%) → 複勝 = 100 - win_pct
-    normal_win_pct: int = 30            # normal: 単勝割合(%) → 複勝 = 100 - win_pct
+    # v5.35: バンクロールSim検証でWinOnly(100/100)が最適と判明
+    # Calmar比 WinOnly=5.38 vs S70/N30=1.56 (aggressive, 5%予算)
+    cross_alloc: bool = False           # WinOnly: 全額単勝
+    strong_win_pct: int = 100           # strong: 全額単勝
+    normal_win_pct: int = 100           # normal: 全額単勝
 
     # --- 1レース複数単勝 ---
     # 0=制限なし, 1=従来(1レース1単勝), 2=最大2頭(推奨)
@@ -193,9 +202,9 @@ PRESETS: Dict[str, BetStrategyParams] = {
         ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
         ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
         place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
-        cross_alloc=True,           # クロス配分有効
-        strong_win_pct=70,          # strong: 単7:複3
-        normal_win_pct=30,          # normal: 単3:複7
+        cross_alloc=False,          # WinOnly: バンクロールSim検証で単勝100%が最適
+        strong_win_pct=100,         # strong: 全額単勝
+        normal_win_pct=100,         # normal: 全額単勝
         max_win_per_race=2,         # 1レース最大2単勝
     ),
     'wide': BetStrategyParams(
@@ -208,9 +217,9 @@ PRESETS: Dict[str, BetStrategyParams] = {
         ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
         ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
         place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
-        cross_alloc=True,           # クロス配分有効
-        strong_win_pct=70,          # strong: 単7:複3
-        normal_win_pct=30,          # normal: 単3:複7
+        cross_alloc=False,          # WinOnly: バンクロールSim検証で単勝100%が最適
+        strong_win_pct=100,         # strong: 全額単勝
+        normal_win_pct=100,         # normal: 全額単勝
         max_win_per_race=2,         # 1レース最大2単勝
     ),
     'aggressive': BetStrategyParams(
@@ -223,9 +232,9 @@ PRESETS: Dict[str, BetStrategyParams] = {
         ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
         ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
         place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
-        cross_alloc=True,           # クロス配分有効
-        strong_win_pct=70,          # strong: 単7:複3
-        normal_win_pct=30,          # normal: 単3:複7
+        cross_alloc=False,          # WinOnly: バンクロールSim検証で単勝100%が最適
+        strong_win_pct=100,         # strong: 全額単勝
+        normal_win_pct=100,         # normal: 全額単勝
         max_win_per_race=2,         # 1レース最大2単勝
     ),
 }
@@ -499,6 +508,14 @@ def generate_recommendations(
 
             is_danger = umaban in danger_map
             danger_score = 1.0 if is_danger else 0.0
+
+            # === VB Floor Gate: 購入プラン⊆VB候補 ===
+            vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV
+            vb_ard_ok = (ar_dev or 0) >= VB_FLOOR_MIN_ARD
+            vb_ard_route = ((ar_dev or 0) >= VB_FLOOR_ARD_VB_MIN_ARD
+                            and odds >= VB_FLOOR_ARD_VB_MIN_ODDS)
+            if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route:
+                continue
 
             # --- 単勝評価 ---
             # Pre-filter: V%比率 or rank_v

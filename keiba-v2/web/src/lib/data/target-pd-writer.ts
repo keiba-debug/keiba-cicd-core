@@ -34,14 +34,20 @@ const FF_CSV_DIR = path.join(JV_DATA_ROOT, 'TXT');
 
 /** 券種コード */
 export const BET_TYPE_CODE = {
-  tansho: 0,   // 単勝
-  fukusho: 1,  // 複勝
+  tansho: 0,      // 単勝
+  fukusho: 1,     // 複勝
+  umaren: 3,      // 馬連
+  wide: 4,        // ワイド
+  umatan: 5,      // 馬単
+  sanrenpuku: 6,  // 三連複
 } as const;
 
 /** 1件の買い目 */
 export interface PdBet {
-  betType: number;  // 0=単勝, 1=複勝
-  umaban: number;   // 馬番
+  betType: number;  // 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複
+  umaban: number;   // 馬番（目１）
+  umaban2?: number; // 馬番（目２）— 馬連/ワイド/馬単/三連複
+  umaban3?: number; // 馬番（目３）— 三連複
   amount: number;   // 金額（円）
 }
 
@@ -75,18 +81,18 @@ function getFfFilePath(dateStr: string): string {
  */
 function buildFfRow(raceId: string, bet: PdBet): string {
   const fields = [
-    raceId,                  // [0] レースID
-    '0',                     // [1] 返還フラグ (0=有効)
-    String(bet.betType),     // [2] 券種
-    String(bet.umaban),      // [3] 目１ (馬番)
-    '0',                     // [4] 目２
-    '0',                     // [5] 目３
-    String(bet.amount),      // [6] 購入金額（円単位）
-    '0',                     // [7] オッズ（未確定）
-    '0',                     // [8] 的中時配当（未確定）
-    '',                      // [9] エリア（省略）
-    '',                      // [10] マーク（省略）
-    '',                      // [11] 一括購入目用（省略）
+    raceId,                              // [0] レースID
+    '0',                                 // [1] 返還フラグ (0=有効)
+    String(bet.betType),                 // [2] 券種
+    String(bet.umaban),                  // [3] 目１ (馬番)
+    String(bet.umaban2 || 0),            // [4] 目２
+    String(bet.umaban3 || 0),            // [5] 目３
+    String(bet.amount),                  // [6] 購入金額（円単位）
+    '0',                                 // [7] オッズ（未確定）
+    '0',                                 // [8] 的中時配当（未確定）
+    '',                                  // [9] エリア（省略）
+    '',                                  // [10] マーク（省略）
+    '',                                  // [11] 一括購入目用（省略）
   ];
   return fields.join(',');
 }
