@@ -218,7 +218,7 @@ export default function AdminPage() {
     const raceToRaw = dateMode === 'single' && raceToInput ? Number(raceToInput) : undefined;
     const raceFrom = raceFromRaw && raceToRaw && raceFromRaw > raceToRaw ? raceToRaw : raceFromRaw;
     const raceTo = raceFromRaw && raceToRaw && raceFromRaw > raceToRaw ? raceFromRaw : raceToRaw;
-    const shouldApplyRaceFilter = ['paddok', 'seiseki', 'batch_after_race'].includes(action);
+    const shouldApplyRaceFilter = ['paddok', 'seiseki', 'batch_morning', 'batch_after_race'].includes(action);
     const raceInfo = shouldApplyRaceFilter && (raceFrom || raceTo)
       ? `, ${raceFrom ?? 1}R〜${raceTo ?? 12}R`
       : '';
@@ -340,12 +340,31 @@ export default function AdminPage() {
   const isRunning = status === 'running';
 
   // カテゴリ別にアクションを分類
-  const primaryBatchActions = ACTIONS.filter((a) =>
-    ['batch_prepare', 'batch_after_race'].includes(a.id)
+
+  // UIラベル上書き（commands.tsのidはAPIルーティングと連動するため変更しない）
+  const labelOverrides: Record<string, { label: string; description: string }> = {
+    batch_prepare: { label: '基本情報登録', description: '日程→出馬表・調教→レースJSON構築（前日夜実行）' },
+    batch_morning: { label: '直前情報登録', description: 'パドック情報を取得（レース直前に実行）' },
+    batch_after_race: { label: '成績情報登録', description: 'レース結果（着順・タイム）を取得' },
+    v4_pipeline: { label: 'データ前処理', description: 'レースJSON構築→調教補強（スクレイプなし・データ再処理用）' },
+    v4_predict: { label: 'ML予測', description: 'MLモデルで予測を再生成（最新オッズ反映）' },
+    vb_refresh: { label: 'VB/買い目抽出', description: '最新オッズでValueBet判定・買い目を再生成' },
+  };
+
+  // データ準備セクション
+  const dataPrepActions = ACTIONS.filter((a) =>
+    ['batch_prepare', 'batch_morning', 'batch_after_race'].includes(a.id)
   );
-  const secondaryBatchActions = ACTIONS.filter((a) =>
-    ['v4_pipeline', 'sunpyo_update'].includes(a.id)
+  const dataPrepSecondary = ACTIONS.filter((a) =>
+    ['sunpyo_update'].includes(a.id)
   );
+
+  // AI分析セクション（順序を明示的に制御: 前処理→予測→買い目）
+  const aiAnalysisOrder: ActionType[] = ['v4_pipeline', 'v4_predict', 'vb_refresh'];
+  const aiAnalysisActions = aiAnalysisOrder
+    .map((id) => ACTIONS.find((a) => a.id === id))
+    .filter((a): a is NonNullable<typeof a> => a != null);
+
   const scrapeActions = ACTIONS.filter((a) => a.category === 'fetch');
   const stepActions = ACTIONS.filter((a) =>
     ['v4_build_race', 'v4_predict'].includes(a.id)
@@ -355,7 +374,10 @@ export default function AdminPage() {
   );
   const analysisActions = ACTIONS.filter((a) => a.category === 'analysis');
   // データリフレッシュが必要なアクション
-  const dataRefreshActions: ActionType[] = ['batch_prepare', 'batch_after_race', 'v4_pipeline', 'v4_build_race'];
+  const dataRefreshActions: ActionType[] = [
+    'batch_prepare', 'batch_morning', 'batch_after_race',
+    'v4_pipeline', 'v4_predict', 'vb_refresh',
+  ];
 
   return (
     <div className="container py-6 max-w-4xl">
@@ -476,37 +498,42 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-      {/* 一括実行 */}
+      {/* データ準備 */}
       <Card className="mb-6 border-2 border-indigo-200 dark:border-indigo-800 shadow-lg">
         <CardHeader className="pb-3 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
           <CardTitle className="text-xl flex items-center gap-2">
-            <span className="text-2xl">🚀</span>
-            <span>一括実行</span>
-            <span className="ml-auto text-xs font-normal text-muted-foreground">1クリックで全自動</span>
+            <span className="text-2xl">📋</span>
+            <span>データ準備</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">スクレイプ→JSON構築</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-6 space-y-4">
           {/* メインワークフロー */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {primaryBatchActions.map((action) => (
-              <ActionButton
-                key={action.id}
-                icon={action.icon}
-                label={action.label}
-                description={action.description}
-                onClick={() => executeAction(action.id)}
-                disabled={isRunning}
-                loading={isRunning && currentAction === action.label}
-                variant="batch"
-              />
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {dataPrepActions.map((action) => {
+              const override = labelOverrides[action.id];
+              const label = override?.label || action.label;
+              const description = override?.description || action.description;
+              return (
+                <ActionButton
+                  key={action.id}
+                  icon={action.icon}
+                  label={label}
+                  description={description}
+                  onClick={() => executeAction(action.id)}
+                  disabled={isRunning}
+                  loading={isRunning && currentAction === action.label}
+                  variant="batch"
+                />
+              );
+            })}
           </div>
 
           <Separator />
 
           {/* 補助アクション */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {secondaryBatchActions.map((action) => (
+          <div className="grid grid-cols-1 gap-3">
+            {dataPrepSecondary.map((action) => (
               <ActionButton
                 key={action.id}
                 icon={action.icon}
@@ -517,6 +544,38 @@ export default function AdminPage() {
                 loading={isRunning && currentAction === action.label}
               />
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* AI分析 */}
+      <Card className="mb-6 border-2 border-emerald-200 dark:border-emerald-800 shadow-lg">
+        <CardHeader className="pb-3 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950 dark:to-teal-950">
+          <CardTitle className="text-xl flex items-center gap-2">
+            <span className="text-2xl">🤖</span>
+            <span>AI分析</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">前処理→予測→買い目</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {aiAnalysisActions.map((action) => {
+              const override = labelOverrides[action.id];
+              const label = override?.label || action.label;
+              const description = override?.description || action.description;
+              return (
+                <ActionButton
+                  key={action.id}
+                  icon={action.icon}
+                  label={label}
+                  description={description}
+                  onClick={() => executeAction(action.id)}
+                  disabled={isRunning}
+                  loading={isRunning && currentAction === action.label}
+                  variant="batch"
+                />
+              );
+            })}
           </div>
         </CardContent>
       </Card>

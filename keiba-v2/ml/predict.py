@@ -12,6 +12,7 @@ Usage:
     python -m ml.predict [--date 2026-02-08] [--race-id 2026020806010101]
     python -m ml.predict --latest   # 最新の開催日
     python -m ml.predict --no-db    # DBオッズ未使用
+    python -m ml.predict --predict-only  # ML予測のみ（VB/買い目スキップ）
 """
 
 import argparse
@@ -28,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from ml.features.base_features import extract_base_features
+from ml.features.baba_features import load_baba_index, get_baba_features
 from ml.features.past_features import compute_past_features
 from ml.features.trainer_features import get_trainer_features, build_trainer_index
 from ml.features.jockey_features import get_jockey_features, build_jockey_index
@@ -471,8 +473,13 @@ def load_master_data():
         bms_count = len(sire_stats_index.get('bms', {}))
         print(f"  Sire stats: {sire_count:,} sires, {dam_count:,} dams, {bms_count:,} BMS")
 
+    # Baba index (v5.41): cushion + moisture
+    baba_index = load_baba_index()
+    print(f"  Baba index: {len(baba_index):,} races")
+
     return (history_cache, trainer_index, jockey_index, pace_index,
-            kb_ext_index, race_level_index, pedigree_index, sire_stats_index)
+            kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
+            baba_index)
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -607,6 +614,7 @@ def predict_race(
     race_level_index: Optional[dict] = None,
     pedigree_index: Optional[dict] = None,
     sire_stats_index: Optional[dict] = None,
+    baba_index: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -800,6 +808,10 @@ def predict_race(
         # 血統特徴量 (v5.8): 事前計算の集計統計量
         ped_feat = get_pedigree_features(ketto_num, pedigree_index or {}, _sire_idx, _dam_idx, _bms_idx)
         feat.update(ped_feat)
+
+        # 馬場特徴量 (v5.41)
+        baba_feat = get_baba_features(race_id, track_type, baba_index or {})
+        feat.update(baba_feat)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = np.nan  # placeholder — real oddsがあればランク化される
@@ -1095,6 +1107,8 @@ def main():
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
     parser.add_argument('--model-version', help='モデルバージョン指定 (例: 5.0, 3.5)')
     parser.add_argument('--list-versions', action='store_true', help='利用可能なモデルバージョン一覧')
+    parser.add_argument('--predict-only', action='store_true',
+                        help='ML予測のみ（VB判定・買い目生成をスキップ）')
     args = parser.parse_args()
 
     # バージョン一覧表示
@@ -1134,7 +1148,8 @@ def main():
     # マスタデータロード
     print("[Load] Loading master data...")
     (history_cache, trainer_index, jockey_index, pace_index,
-     kb_ext_index, race_level_index, pedigree_index, sire_stats_index) = load_master_data()
+     kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
+     baba_index) = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
@@ -1262,6 +1277,7 @@ def main():
             race_level_index=race_level_index,
             pedigree_index=pedigree_index,
             sire_stats_index=sire_stats_index,
+            baba_index=baba_index,
         )
         all_predictions.append(pred)
 
@@ -1317,57 +1333,60 @@ def main():
         print(f"[Obstacle] {len(obstacle_predictions)} obstacle races predicted")
 
     # === 買い目推奨生成 (bet_engine) ===
-    print(f"\n[BetEngine] Generating recommendations...")
     all_recommendations = {}
-    for preset_name, preset_params in PRESETS.items():
-        recs = generate_recommendations(all_predictions, preset_params, budget=30000)
-        all_recommendations[preset_name] = {
-            'params': {
-                'win_min_ev': preset_params.win_min_ev,
-                'win_min_gap': preset_params.win_min_gap,
-                'win_min_rating': preset_params.win_min_rating,
-                'win_min_ar_deviation': preset_params.win_min_ar_deviation,
-                'win_max_rank': preset_params.win_max_rank,
-                'win_v_ratio_min': preset_params.win_v_ratio_min,
-                'win_v_bypass_gap': preset_params.win_v_bypass_gap,
-                'win_v_bypass_ev': preset_params.win_v_bypass_ev,
-                'place_min_gap': preset_params.place_min_gap,
-                'place_min_rating': preset_params.place_min_rating,
-                'place_min_ar_deviation': preset_params.place_min_ar_deviation,
-                'place_min_ev': preset_params.place_min_ev,
-                'kelly_fraction': preset_params.kelly_fraction,
-            },
-            'bets': recommendations_to_dict(recs),
-            'summary': recommendations_summary(recs),
-        }
-        s = recommendations_summary(recs)
-        print(f"  {preset_name}: {s['total_bets']} bets, "
-              f"Win={s['win_bets']}, Place={s['place_bets']}, "
-              f"Amount={s['total_amount']:,}")
+    multi_leg_output = []
 
-    # === マルチレグ推奨生成 ===
-    print(f"\n[MultiLeg] Generating multi-leg recommendations...")
-    try:
-        from ml.simulate_multi_leg import generate_recommendations as gen_multi_leg
-        multi_leg_recs = gen_multi_leg(all_predictions)
-        multi_leg_output = []
-        for r in multi_leg_recs:
-            multi_leg_output.append({
-                'race_id': r.race_id,
-                'venue': r.venue,
-                'race_number': r.race_num,
-                'strategy': r.strategy,
-                'ticket_type': r.ticket_type,
-                'horses': list(r.horses),
-                'horse_names': list(r.horse_names),
-                'cost': r.cost,
-                'note': r.note,
-            })
-        print(f"  {len(multi_leg_output)} tickets across "
-              f"{len(set(r.race_id for r in multi_leg_recs))} races")
-    except Exception as e:
-        print(f"  [Warning] multi-leg generation failed: {e}")
-        multi_leg_output = []
+    if args.predict_only:
+        print(f"\n[PredictOnly] Skipping bet_engine & multi-leg (--predict-only)")
+    else:
+        print(f"\n[BetEngine] Generating recommendations...")
+        for preset_name, preset_params in PRESETS.items():
+            recs = generate_recommendations(all_predictions, preset_params, budget=30000)
+            all_recommendations[preset_name] = {
+                'params': {
+                    'win_min_ev': preset_params.win_min_ev,
+                    'win_min_gap': preset_params.win_min_gap,
+                    'win_min_rating': preset_params.win_min_rating,
+                    'win_min_ar_deviation': preset_params.win_min_ar_deviation,
+                    'win_max_rank': preset_params.win_max_rank,
+                    'win_v_ratio_min': preset_params.win_v_ratio_min,
+                    'win_v_bypass_gap': preset_params.win_v_bypass_gap,
+                    'win_v_bypass_ev': preset_params.win_v_bypass_ev,
+                    'place_min_gap': preset_params.place_min_gap,
+                    'place_min_rating': preset_params.place_min_rating,
+                    'place_min_ar_deviation': preset_params.place_min_ar_deviation,
+                    'place_min_ev': preset_params.place_min_ev,
+                    'kelly_fraction': preset_params.kelly_fraction,
+                },
+                'bets': recommendations_to_dict(recs),
+                'summary': recommendations_summary(recs),
+            }
+            s = recommendations_summary(recs)
+            print(f"  {preset_name}: {s['total_bets']} bets, "
+                  f"Win={s['win_bets']}, Place={s['place_bets']}, "
+                  f"Amount={s['total_amount']:,}")
+
+        # === マルチレグ推奨生成 ===
+        print(f"\n[MultiLeg] Generating multi-leg recommendations...")
+        try:
+            from ml.simulate_multi_leg import generate_recommendations as gen_multi_leg
+            multi_leg_recs = gen_multi_leg(all_predictions)
+            for r in multi_leg_recs:
+                multi_leg_output.append({
+                    'race_id': r.race_id,
+                    'venue': r.venue,
+                    'race_number': r.race_num,
+                    'strategy': r.strategy,
+                    'ticket_type': r.ticket_type,
+                    'horses': list(r.horses),
+                    'horse_names': list(r.horse_names),
+                    'cost': r.cost,
+                    'note': r.note,
+                })
+            print(f"  {len(multi_leg_output)} tickets across "
+                  f"{len(set(r.race_id for r in multi_leg_recs))} races")
+        except Exception as e:
+            print(f"  [Warning] multi-leg generation failed: {e}")
 
     # 結果保存
     actual_model_version = model_version if model_version else meta.get('version', '?')
@@ -1382,6 +1401,7 @@ def main():
         'model_has_win': model_w is not None,
         'model_has_obstacle': has_obstacle_model,
         'odds_source': 'mykeibadb' if db_odds_index else 'json',
+        'predict_only': bool(args.predict_only),
         'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
         'races': all_predictions,
         'recommendations': all_recommendations,

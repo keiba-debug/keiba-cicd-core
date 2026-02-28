@@ -41,6 +41,8 @@ BASE_FEATURES = [
     'wakuban', 'distance', 'track_type', 'track_condition', 'entry_count',
     # v4.0
     'month', 'nichi',
+    # v5.40: 馬場分析特徴量
+    'place_code', 'first_corner_dist',
 ]
 
 # 過去走特徴量
@@ -168,6 +170,12 @@ PEDIGREE_FEATURES = [
     'dam_maturity_index',                                   # H6: 成長曲線(dam)
 ]
 
+# 馬場特徴量 (v5.41): クッション値 + 含水率
+BABA_FEATURES = [
+    'cushion_value',    # 芝クッション値 (9.5=硬い高速, 7.0=柔らかい重馬場級)
+    'moisture_rate',    # 走路面の含水率 (turf→turf moisture, dirt→dirt moisture)
+]
+
 # 市場系特徴量（Model Bでは除外）
 MARKET_FEATURES = {
     'odds', 'popularity', 'odds_rank', 'popularity_trend',
@@ -195,7 +203,8 @@ FEATURE_COLS_ALL = (
     PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
     PACE_FEATURES + TRAINING_FEATURES + KB_MARK_FEATURES + SPEED_FEATURES +
-    COMMENT_FEATURES + SLOW_START_FEATURES + PEDIGREE_FEATURES
+    COMMENT_FEATURES + SLOW_START_FEATURES + PEDIGREE_FEATURES +
+    BABA_FEATURES
 )
 
 # Value特徴量（Model B = 市場系除外）
@@ -989,6 +998,7 @@ def compute_features_for_race(
     pit_sire_tl: dict = None,
     pit_dam_tl: dict = None,
     pit_bms_tl: dict = None,
+    baba_index: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
@@ -1011,6 +1021,7 @@ def compute_features_for_race(
     from ml.features.comment_features import compute_comment_features
     from ml.features.slow_start_features import compute_slow_start_features
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
+    from ml.features.baba_features import get_baba_features
 
     # Sire/Dam/BMS index (build once per race call)
     _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
@@ -1170,6 +1181,10 @@ def compute_features_for_race(
         )
         feat.update(ped_feat)
 
+        # 馬場特徴量 (v5.41)
+        baba_feat = get_baba_features(race_id, track_type, baba_index or {})
+        feat.update(baba_feat)
+
         # メタ情報（学習には使わないが分析用）
         feat['race_id'] = race_id
         feat['date'] = race_date
@@ -1215,6 +1230,7 @@ def build_dataset(
     pit_sire_tl: dict = None,
     pit_dam_tl: dict = None,
     pit_bms_tl: dict = None,
+    baba_index: dict = None,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
 
@@ -1290,6 +1306,7 @@ def build_dataset(
                 pit_sire_tl=pit_sire_tl,
                 pit_dam_tl=pit_dam_tl,
                 pit_bms_tl=pit_bms_tl,
+                baba_index=baba_index,
             )
             all_rows.extend(rows)
             race_count += 1
@@ -2372,6 +2389,11 @@ def main():
     # Point-in-time: 調教師・騎手の累積タイムライン構築
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()
 
+    # 馬場データ (v5.41)
+    from ml.features.baba_features import load_baba_index
+    baba_index = load_baba_index()
+    print(f"[Load] Baba index: {len(baba_index):,} races")
+
     # Note: sire/dam/bms PIT is intentionally NOT applied.
     # Sire stats are population-level (change slowly), not individual-level leakage.
     # PIT correction hurts AUC significantly (-0.03~-0.05) with no ROI benefit.
@@ -2387,6 +2409,7 @@ def main():
         sire_stats_index=sire_stats_index,
         min_month=train_min_m, max_month=train_max_m,
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
+        baba_index=baba_index,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2397,6 +2420,7 @@ def main():
         sire_stats_index=sire_stats_index,
         min_month=val_min_m, max_month=val_max_m,
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
+        baba_index=baba_index,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2407,6 +2431,7 @@ def main():
         sire_stats_index=sire_stats_index,
         min_month=test_min_m, max_month=test_max_m,
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
+        baba_index=baba_index,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "

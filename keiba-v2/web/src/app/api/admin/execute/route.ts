@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import { ActionType, getCommandArgs, getCommandArgsRange, getAction, type CommandOptions } from '@/lib/admin/commands';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
+import { clearRaceDateIndex, buildRaceDateIndex } from '@/lib/data/race-date-index';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -118,7 +119,7 @@ export async function POST(request: NextRequest) {
             cmds.push(['-m', 'builders.build_race_master']);
           }
           cmds.push(dateArg ? ['-m', 'keibabook.cyokyo_enricher', '--date', dateArg] : ['-m', 'keibabook.cyokyo_enricher']);
-          cmds.push(dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']);
+          // v5.41: predict は batch_morning に移動（馬場データ取得後に実行）
           return cmds;
         };
 
@@ -145,29 +146,31 @@ export async function POST(request: NextRequest) {
               ...buildV4AfterScrapeCommands(dateArg, true),
             ];
           }
-        } else if (action === 'batch_after_race') {
-          // レース後更新: paddok → seiseki → build_race_master のみ（SE_DATAでrace_*.jsonを成績付きで上書き）→ cyokyo_enrich → predict
-          // 成績（着・タイム・上り）は race_*.json の entries にのみ格納。build_race_from_keibabook は実行しない（出馬表で上書きすると成績が消える）
-          const afterRaceV4 = (d: string): string[][] => [
-            ['-m', 'builders.build_race_master', '--date', d],
-            ['-m', 'keibabook.cyokyo_enricher', '--date', d],
-            ['-m', 'ml.predict', '--date', d],
-          ];
+        } else if (action === 'batch_morning') {
+          // 直前情報登録: パドック情報のみ取得
           if (isRangeAction && startDate && endDate) {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'paddok'],
-              ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
             ];
-            for (const d of expandDateRange(startDate, endDate)) {
-              commands.push(...afterRaceV4(d));
-            }
           } else {
             const dateArg = date || '';
+            const cmd = ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'paddok'];
+            if (raceFrom) cmd.push('--from-race', String(raceFrom));
+            if (raceTo) cmd.push('--to-race', String(raceTo));
+            commands = [cmd];
+          }
+        } else if (action === 'batch_after_race') {
+          // 成績情報登録: 成績情報のみ取得
+          if (isRangeAction && startDate && endDate) {
             commands = [
-              ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'paddok'],
-              ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'seiseki'],
-              ...afterRaceV4(dateArg),
+              ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
             ];
+          } else {
+            const dateArg = date || '';
+            const cmd = ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'seiseki'];
+            if (raceFrom) cmd.push('--from-race', String(raceFrom));
+            if (raceTo) cmd.push('--to-race', String(raceTo));
+            commands = [cmd];
           }
         } else if (action === 'sunpyo_update') {
           // 寸評更新: seiseki再取得（寸評・インタビュー・次走メモ）→ kb_ext更新
@@ -224,6 +227,16 @@ export async function POST(request: NextRequest) {
             const dateArg = date || '';
             commands = buildV4PipelineCommands(dateArg, true);
           }
+        } else if (action === 'vb_refresh') {
+          // VBリフレッシュ: 最新オッズでVB/買い目を再計算
+          if (isRangeAction && startDate && endDate) {
+            for (const d of expandDateRange(startDate, endDate)) {
+              commands.push(['-m', 'ml.vb_refresh', '--date', d]);
+            }
+          } else {
+            const dateArg = date || '';
+            commands = [['-m', 'ml.vb_refresh', '--date', dateArg]];
+          }
         } else {
           commands = isRangeAction && startDate && endDate
             ? getCommandArgsRange(action, startDate, endDate, options)
@@ -261,6 +274,31 @@ export async function POST(request: NextRequest) {
                 });
               }
             );
+          }
+
+          // レースJSON構築を含むアクションはインデックスを自動再構築
+          const indexRebuildActions: ActionType[] = ['batch_prepare', 'v4_build_race', 'v4_pipeline'];
+          if (indexRebuildActions.includes(action)) {
+            sendEvent('log', {
+              message: '📋 レース日付インデックスを再構築中...',
+              level: 'info',
+              timestamp: new Date().toISOString(),
+            });
+            try {
+              clearRaceDateIndex();
+              await buildRaceDateIndex();
+              sendEvent('log', {
+                message: '✅ インデックス再構築完了',
+                level: 'info',
+                timestamp: new Date().toISOString(),
+              });
+            } catch (e) {
+              sendEvent('log', {
+                message: `⚠️ インデックス再構築エラー: ${e}`,
+                level: 'warning',
+                timestamp: new Date().toISOString(),
+              });
+            }
           }
 
           const duration = Date.now() - startTime;

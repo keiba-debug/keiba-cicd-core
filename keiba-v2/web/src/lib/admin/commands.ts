@@ -10,6 +10,7 @@ export type ActionType =
   | 'seiseki'
   | 'babakeikou'
   | 'batch_prepare'
+  | 'batch_morning'
   | 'batch_after_race'
   | 'sunpyo_update'
   | 'calc_race_type_standards'   // レース特性基準値算出
@@ -22,7 +23,8 @@ export type ActionType =
   | 'rebuild_slow_start'         // 出遅れ分析再集計
   | 'v4_build_race'              // JRA-VAN → data3/races/
   | 'v4_predict'                 // ML予測 → data3/ml/predictions_live.json
-  | 'v4_pipeline';               // 上記を連結実行
+  | 'v4_pipeline'                // 上記を連結実行
+  | 'vb_refresh';                // VB/買い目再計算（最新オッズ）
 
 export interface ActionConfig {
   id: ActionType;
@@ -81,8 +83,15 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'batch_prepare',
     label: 'レース前準備',
-    description: '日程→出馬表・調教→レースJSON構築→ML予測（新規開催の初回実行）',
+    description: '日程→出馬表・調教→レースJSON構築（予測なし・前日夜実行）',
     icon: '🌅',
+    category: 'batch',
+  },
+  {
+    id: 'batch_morning',
+    label: '当日朝予測',
+    description: '馬場情報取得→ML予測（VB判定なし・当日朝）',
+    icon: '☀️',
     category: 'batch',
   },
   {
@@ -189,6 +198,13 @@ export const ACTIONS: ActionConfig[] = [
     icon: '♻️',
     category: 'batch',
   },
+  {
+    id: 'vb_refresh',
+    label: 'VB/買い目抽出',
+    description: '最新オッズでValueBet判定・買い目を再生成',
+    icon: '💰',
+    category: 'generate',
+  },
 ];
 
 /**
@@ -255,6 +271,7 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
       ];
 
     case 'batch_prepare':
+    case 'batch_morning':
     case 'batch_after_race':
     case 'sunpyo_update':
       // Note: execute/route.ts で特別に処理される
@@ -271,6 +288,7 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
     case 'v4_build_race':
     case 'v4_predict':
     case 'v4_pipeline':
+    case 'vb_refresh':
       // Note: execute/route.ts で特別に処理される
       return [];
 
@@ -321,6 +339,7 @@ export function getCommandArgsRange(
       ];
 
     case 'batch_prepare':
+    case 'batch_morning':
     case 'batch_after_race':
     case 'sunpyo_update':
       // Note: execute/route.ts で特別に処理される
@@ -335,6 +354,7 @@ export function getCommandArgsRange(
     case 'v4_build_race':
     case 'v4_predict':
     case 'v4_pipeline':
+    case 'vb_refresh':
       // Note: execute/route.ts で特別に処理される
       return [];
 
