@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { MetricCard } from '../utils';
-import type { MlExperimentResultV2, MlModelResult, RegressionModelResult, HitAnalysisV2, ArdThresholdEntry } from '../types';
+import type { MlExperimentResultV2, MlModelResult, RegressionModelResult, HitAnalysisV2, ArdThresholdEntry, ObstacleModelMeta } from '../types';
 
 function EceBadge({ ece }: { ece: number }) {
   if (ece < 0.03) {
@@ -143,6 +143,67 @@ function Top3DistributionBar({ v2 }: { v2: HitAnalysisV2 }) {
   );
 }
 
+function ObstacleModelCard({ meta }: { meta: ObstacleModelMeta }) {
+  const m = meta.metrics;
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-purple-200 p-4 dark:border-purple-800">
+        <h3 className="mb-3 text-sm font-semibold text-purple-700 dark:text-purple-400">
+          障害モデル
+          <span className="ml-2 text-xs font-normal text-gray-400">3着内予測 / 75特徴量 / {meta.version}</span>
+        </h3>
+        <div className="grid grid-cols-3 gap-2">
+          <MetricCard label="AUC" value={m.auc.toFixed(4)} highlight color="blue" />
+          <MetricCard label="Brier (cal)" value={m.brier_calibrated.toFixed(4)} />
+          <MetricCard label="ECE (cal)" value={m.ece_calibrated.toFixed(4)} />
+        </div>
+        <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-gray-500">
+          <div>Iter: <span className="font-medium text-gray-700 dark:text-gray-300">{m.best_iteration}</span></div>
+          <div>Accuracy: <span className="font-medium text-gray-700 dark:text-gray-300">{(m.accuracy * 100).toFixed(1)}%</span></div>
+          <div>Features: <span className="font-medium text-gray-700 dark:text-gray-300">{meta.feature_count}</span></div>
+          <div>AUC(val): <span className="font-medium text-gray-700 dark:text-gray-300">{m.auc_val.toFixed(4)}</span></div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Top1Card label="障害 Top1" v2={meta.hit_analysis} color="text-purple-600 dark:text-purple-400" />
+        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+          <h4 className="mb-2 text-xs font-semibold text-purple-600 dark:text-purple-400">ROI</h4>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded bg-gray-50 p-2.5 text-center dark:bg-gray-800/50">
+              <div className="text-[10px] text-gray-500">単勝ROI</div>
+              <div className={cn('mt-0.5 text-lg font-bold tabular-nums', meta.roi_analysis.top1_win_roi >= 100 ? 'text-green-600' : 'text-red-500')}>
+                {meta.roi_analysis.top1_win_roi.toFixed(1)}%
+              </div>
+              <div className="text-[10px] text-gray-400">{meta.roi_analysis.top1_bets}R</div>
+            </div>
+            <div className="rounded bg-gray-50 p-2.5 text-center dark:bg-gray-800/50">
+              <div className="text-[10px] text-gray-500">複勝ROI</div>
+              <div className={cn('mt-0.5 text-lg font-bold tabular-nums', meta.roi_analysis.top1_place_roi >= 100 ? 'text-green-600' : 'text-red-500')}>
+                {meta.roi_analysis.top1_place_roi.toFixed(1)}%
+              </div>
+              <div className="text-[10px] text-gray-400">{meta.roi_analysis.top1_bets}R</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+        <div className="mb-1 text-xs font-medium text-purple-600 dark:text-purple-400">Top3 的中分布</div>
+        <Top3DistributionBar v2={meta.hit_analysis} />
+      </div>
+
+      <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+        <div className="grid grid-cols-3 gap-2 text-xs text-gray-500">
+          <div>Train: <span className="font-medium text-gray-700 dark:text-gray-300">{meta.train_period} ({meta.train_races}R / {meta.train_entries.toLocaleString()}頭)</span></div>
+          <div>Val: <span className="font-medium text-gray-700 dark:text-gray-300">{meta.val_period} ({meta.val_races}R / {meta.val_entries.toLocaleString()}頭)</span></div>
+          <div>Test: <span className="font-medium text-gray-700 dark:text-gray-300">{meta.test_period} ({meta.test_races}R / {meta.test_entries.toLocaleString()}頭)</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ArdAnalysisTable({ entries }: { entries: ArdThresholdEntry[] }) {
   return (
     <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
@@ -180,7 +241,7 @@ function ArdAnalysisTable({ entries }: { entries: ArdThresholdEntry[] }) {
   );
 }
 
-export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
+export default function OverviewTab({ data, obstacleModel }: { data: MlExperimentResultV2; obstacleModel?: ObstacleModelMeta | null }) {
   const ha = Array.isArray(data.hit_analysis) ? null : data.hit_analysis;
   const hitAccuracy = ha?.accuracy ?? (Array.isArray(data.hit_analysis) ? data.hit_analysis : []);
   const hitValue = ha?.value ?? [];
@@ -215,6 +276,14 @@ export default function OverviewTab({ data }: { data: MlExperimentResultV2 }) {
         <div>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">能力予測モデル (着差)</h2>
           <RegressionCard model={data.models.regression_value!} />
+        </div>
+      )}
+
+      {/* Obstacle Model */}
+      {obstacleModel && (
+        <div>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-purple-600 dark:text-purple-400">障害モデル (3着内)</h2>
+          <ObstacleModelCard meta={obstacleModel} />
         </div>
       )}
 

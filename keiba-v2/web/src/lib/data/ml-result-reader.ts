@@ -230,3 +230,24 @@ export async function getMlExperimentResult(version?: string | null): Promise<Ml
   }
   return null;
 }
+
+// --- 障害モデルメタデータ ---
+
+const OBSTACLE_META_PATH = path.join(DATA3_ROOT, 'ml', 'model_obstacle_meta.json');
+
+let cachedObstacleMeta: Record<string, unknown> | null = null;
+let obstacleCacheTimestamp = 0;
+
+export async function getObstacleModelMeta(): Promise<Record<string, unknown> | null> {
+  if (cachedObstacleMeta && Date.now() - obstacleCacheTimestamp < CACHE_TTL) {
+    return cachedObstacleMeta;
+  }
+  try {
+    const content = await fs.readFile(OBSTACLE_META_PATH, 'utf-8');
+    cachedObstacleMeta = JSON.parse(content);
+    obstacleCacheTimestamp = Date.now();
+    return cachedObstacleMeta;
+  } catch {
+    return null;
+  }
+}

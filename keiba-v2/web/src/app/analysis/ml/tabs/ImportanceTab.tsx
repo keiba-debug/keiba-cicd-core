@@ -3,29 +3,33 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { FEATURE_LABELS, FEATURE_CATEGORIES, getFeatureCategory } from '../utils';
-import type { MlExperimentResultV2 } from '../types';
+import type { MlExperimentResultV2, ObstacleModelMeta } from '../types';
 
-type ModelKey = 'accuracy' | 'value' | 'win_accuracy' | 'win_value';
+type ModelKey = 'accuracy' | 'value' | 'win_accuracy' | 'win_value' | 'obstacle';
 
 const MODEL_OPTIONS: { key: ModelKey; label: string; shortLabel: string; color: string; activeColor: string }[] = [
   { key: 'accuracy', label: '好走 市場', shortLabel: 'A', color: 'blue', activeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
   { key: 'value', label: '好走 独自', shortLabel: 'V', color: 'emerald', activeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { key: 'win_accuracy', label: '勝利 市場', shortLabel: 'W', color: 'green', activeColor: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
   { key: 'win_value', label: '勝利 独自', shortLabel: 'WV', color: 'teal', activeColor: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' },
+  { key: 'obstacle', label: '障害', shortLabel: '障', color: 'purple', activeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
 ];
 
-export default function ImportanceTab({ data }: { data: MlExperimentResultV2 }) {
+export default function ImportanceTab({ data, obstacleModel }: { data: MlExperimentResultV2; obstacleModel?: ObstacleModelMeta | null }) {
   const [showModel, setShowModel] = useState<ModelKey>('value');
 
-  const modelData = data.models[showModel as keyof typeof data.models];
-  const fi = modelData?.feature_importance ?? [];
+  const modelData = showModel === 'obstacle' ? null : data.models[showModel as keyof typeof data.models];
+  const fi = showModel === 'obstacle'
+    ? (obstacleModel?.feature_importance ?? [])
+    : (modelData?.feature_importance ?? []);
   const maxImportance = fi[0]?.importance ?? 1;
 
-  const barColors = {
+  const barColors: Record<string, { top: string; high: string; base: string }> = {
     accuracy: { top: 'bg-blue-500', high: 'bg-blue-400', base: 'bg-blue-300 dark:bg-blue-600' },
     value: { top: 'bg-emerald-500', high: 'bg-emerald-400', base: 'bg-emerald-300 dark:bg-emerald-600' },
     win_accuracy: { top: 'bg-green-500', high: 'bg-green-400', base: 'bg-green-300 dark:bg-green-600' },
     win_value: { top: 'bg-teal-500', high: 'bg-teal-400', base: 'bg-teal-300 dark:bg-teal-600' },
+    obstacle: { top: 'bg-purple-500', high: 'bg-purple-400', base: 'bg-purple-300 dark:bg-purple-600' },
   };
   const currentBar = barColors[showModel];
 
@@ -33,7 +37,7 @@ export default function ImportanceTab({ data }: { data: MlExperimentResultV2 }) 
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {MODEL_OPTIONS.map((opt) => {
-          const modelExists = !!data.models[opt.key as keyof typeof data.models];
+          const modelExists = opt.key === 'obstacle' ? !!obstacleModel : !!data.models[opt.key as keyof typeof data.models];
           return (
             <button key={opt.key} onClick={() => modelExists && setShowModel(opt.key)}
               disabled={!modelExists}

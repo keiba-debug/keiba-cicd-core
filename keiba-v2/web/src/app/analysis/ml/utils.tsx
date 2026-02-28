@@ -110,7 +110,9 @@ export function normalizeResult(raw: any): MlExperimentResultV2 {
     race_predictions: d.race_predictions ?? [],
     value_bet_picks: d.value_bet_picks,
     gap_margin_grid: d.gap_margin_grid,
+    gap_ard_grid: d.gap_ard_grid,
     bet_engine_presets: d.bet_engine_presets,
+    obstacle_model: d.obstacle_model,
   } as MlExperimentResultV2;
 }
 

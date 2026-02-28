@@ -51,6 +51,7 @@ export default function MlAnalysisPage() {
         {data.models.win_accuracy && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">勝利 市場</span> — 全{data.models.win_accuracy.features.length}特徴量で<strong>1着</strong>を予測（オッズ・人気含む）</div>}
         {data.models.win_value && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">勝利 独自</span> — 市場系除外{data.models.win_value.features.length}特徴量で<strong>1着</strong>を予測（独自能力評価）</div>}
         {data.models.regression_value && <div><span className="font-semibold text-amber-700 dark:text-amber-400">AR (Aura Rating)</span> — 能力予測モデル。勝ち馬とのタイム差を予測（市場系除外）</div>}
+        {data.obstacle_model && <div><span className="font-semibold text-purple-700 dark:text-purple-400">障害モデル</span> — 障害レース専用モデル。{data.obstacle_model.feature_count}特徴量で<strong>3着内</strong>を予測（AUC {data.obstacle_model.metrics.auc.toFixed(3)}）</div>}
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">VR</span> — 好走 独自モデルによるレース内の順位（1=最も能力が高い）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - VR。大きいほど市場が過小評価している馬（VB判定の主軸）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">EV</span> — 期待値 = calibrated P(win) × 単勝オッズ。1.0超えで期待値プラス（Gapの補助フィルター）</div>
@@ -76,7 +77,7 @@ export default function MlAnalysisPage() {
         ))}
       </div>
 
-      {activeTab === 'overview' && <OverviewTab data={data} />}
+      {activeTab === 'overview' && <OverviewTab data={data} obstacleModel={data.obstacle_model} />}
       {activeTab === 'value' && <ValueTab data={data} />}
       {activeTab === 'picks' && (
         data.value_bet_picks && data.value_bet_picks.length > 0
@@ -84,7 +85,7 @@ export default function MlAnalysisPage() {
           : <div className="py-8 text-center text-gray-400">value_bet_picksがありません（v3ではバックテスト結果に含まれません）</div>
       )}
       {activeTab === 'roi' && <RoiTab data={data} />}
-      {activeTab === 'importance' && <ImportanceTab data={data} />}
+      {activeTab === 'importance' && <ImportanceTab data={data} obstacleModel={data.obstacle_model} />}
       {activeTab === 'predictions' && (
         data.race_predictions.length > 0
           ? <PredictionsTab predictions={data.race_predictions} />
