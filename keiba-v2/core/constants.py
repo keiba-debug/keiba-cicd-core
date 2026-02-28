@@ -23,13 +23,14 @@ TOZAI_CODES = {"1": "美浦", "2": "栗東"}
 BABA_CODES = {"1": "良", "2": "稍重", "3": "重", "4": "不良"}
 
 # トラックコード（先頭1桁）
-TRACK_TYPES = {"1": "turf", "2": "dirt"}
+TRACK_TYPES = {"1": "turf", "2": "dirt", "5": "obstacle"}
 
 # グレードコード（SR_DATA GradeCD @614 / RACE_SHOSAI GRADE_CODE 共通）
-# D/F/G/H = 障害レース（自動フィルタで除外）
 GRADE_CODES = {
     "A": "G1", "B": "G2", "C": "G3",
     "L": "Listed", "E": "OP",
+    # 障害レースグレード
+    "D": "障害G1", "F": "障害G2", "G": "障害G3", "H": "障害OP",
 }
 
 # 競走条件コード（JRA-VAN コード2007 KYOSO_JOKEN_CODE_SAIJAKUNEN）

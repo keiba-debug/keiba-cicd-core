@@ -121,10 +121,13 @@ def extract_venue_name(kaisai_key: str) -> str:
 def extract_track_info(race_info: dict) -> tuple:
     """race_infoのcourseフィールドからトラック種別と距離を抽出。芝内/芝外は芝として扱う。"""
     course = race_info.get("course", "")
-    # 芝内2000m, 芝外・1800m, 芝1800m, ダ1200 等
-    m = re.match(r"(芝(?:内|外)?|ダ|ダート)[・\s]*(\d+)", course)
+    # 芝内2000m, 芝外・1800m, 芝1800m, ダ1200, 障3200 等
+    m = re.match(r"(芝(?:内|外)?|ダ|ダート|障(?:害)?)[・\s]*(\d+)", course)
     if m:
-        track = "芝" if "芝" in m.group(1) else "ダ"
+        track_str = m.group(1)
+        if "障" in track_str:
+            return "obstacle", int(m.group(2))
+        track = "芝" if "芝" in track_str else "ダ"
         return track, int(m.group(2))
     return "", 0
 
@@ -389,6 +392,10 @@ def main():
                 trainer_name_to_code=trainer_name_to_code,
                 jockey_name_to_code=jockey_name_to_code,
             )
+
+            # 障害レース検出: race_nameまたはtrack_typeから判定
+            if "障害" in race_name and race_json["track_type"] != "obstacle":
+                race_json["track_type"] = "obstacle"
 
             # ID解決状況
             resolved = sum(1 for e in race_json["entries"] if e["ketto_num"])

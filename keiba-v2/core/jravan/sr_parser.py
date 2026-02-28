@@ -246,7 +246,8 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
     # Baba
     siba_baba_cd = _decode(record, 888, 1)
     dirt_baba_cd = _decode(record, 889, 1)
-    baba_cd = siba_baba_cd if track_type == 'turf' else dirt_baba_cd
+    # 障害レースは芝面ベース
+    baba_cd = siba_baba_cd if track_type in ('turf', 'obstacle') else dirt_baba_cd
     baba_name = BABA_CODES.get(baba_cd, '不明')
 
     # Pace times
@@ -255,17 +256,24 @@ def parse_record(data: bytes, offset: int = 0) -> Optional[SrRecord]:
     last_3f = _parse_pace_time(_decode(record, 975, 3))
     last_4f = _parse_pace_time(_decode(record, 978, 3))
 
-    if first_3f is None or last_3f is None:
-        return None
-    # 短距離(1000-1400m)はfirst_3f<30秒があり得る（例: 1300mダートで29.8秒）
-    if first_3f < 25 or first_3f > 50 or last_3f < 25 or last_3f > 50:
-        return None
+    if track_type == 'obstacle':
+        # 障害レースはペースデータが無い場合がある → Noneを許容
+        if first_3f is not None and (first_3f < 25 or first_3f > 50):
+            first_3f = None
+        if last_3f is not None and (last_3f < 25 or last_3f > 50):
+            last_3f = None
+    else:
+        if first_3f is None or last_3f is None:
+            return None
+        # 短距離(1000-1400m)はfirst_3f<30秒があり得る（例: 1300mダートで29.8秒）
+        if first_3f < 25 or first_3f > 50 or last_3f < 25 or last_3f > 50:
+            return None
     if first_4f is not None and (first_4f < 35 or first_4f > 70):
         first_4f = None
     if last_4f is not None and (last_4f < 35 or last_4f > 70):
         last_4f = None
 
-    rpci = _calculate_rpci(first_3f, last_3f)
+    rpci = _calculate_rpci(first_3f, last_3f) if first_3f is not None and last_3f is not None else None
 
     # LapTimes (@890-964, 25×3バイト, SST形式)
     lap_times: List[float] = []

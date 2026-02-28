@@ -157,33 +157,45 @@ def create_race_master(
 
     if sr is not None:
         # SR_DATAあり: フルデータで構築
-        # v2分類: 多基準統合判定
-        course_avg_rpci = _get_course_rpci_avg(sr.venue_name, sr.track_type, sr.distance)
-        v2_result = classify_race_v2(
-            rpci=sr.rpci,
-            l3=sr.last_3f,
-            l4=sr.last_4f,
-            s3=sr.first_3f,
-            s4=sr.first_4f,
-            distance=sr.distance,
-            track_type=sr.track_type,
-            track_condition=sr.baba_name,
-            lap_times=sr.lap_times,
-            course_avg_rpci=course_avg_rpci,
-        )
+        if sr.track_type == 'obstacle':
+            # 障害レース: ペース分類はスキップ（classify_race_v2は平地専用）
+            pace = RacePace(
+                s3=sr.first_3f,
+                s4=sr.first_4f,
+                l3=sr.last_3f,
+                l4=sr.last_4f,
+                rpci=sr.rpci,
+                race_trend=sr.classify_trend() if sr.rpci is not None else None,
+                lap_times=sr.lap_times,
+            )
+        else:
+            # 平地: v2分類（多基準統合判定）
+            course_avg_rpci = _get_course_rpci_avg(sr.venue_name, sr.track_type, sr.distance)
+            v2_result = classify_race_v2(
+                rpci=sr.rpci,
+                l3=sr.last_3f,
+                l4=sr.last_4f,
+                s3=sr.first_3f,
+                s4=sr.first_4f,
+                distance=sr.distance,
+                track_type=sr.track_type,
+                track_condition=sr.baba_name,
+                lap_times=sr.lap_times,
+                course_avg_rpci=course_avg_rpci,
+            )
 
-        pace = RacePace(
-            s3=sr.first_3f,
-            s4=sr.first_4f,
-            l3=sr.last_3f,
-            l4=sr.last_4f,
-            rpci=sr.rpci,
-            race_trend=sr.classify_trend(),
-            lap_times=sr.lap_times,
-            lap33=v2_result.get('lap33'),
-            race_trend_v2=v2_result.get('trend_v2'),
-            trend_detail=v2_result.get('trend_detail'),
-        )
+            pace = RacePace(
+                s3=sr.first_3f,
+                s4=sr.first_4f,
+                l3=sr.last_3f,
+                l4=sr.last_4f,
+                rpci=sr.rpci,
+                race_trend=sr.classify_trend(),
+                lap_times=sr.lap_times,
+                lap33=v2_result.get('lap33'),
+                race_trend_v2=v2_result.get('trend_v2'),
+                trend_detail=v2_result.get('trend_detail'),
+            )
         # 牝馬限定: race_nameキーワード + 全出走馬が牝馬なら補完
         is_female_only = sr.is_female_only
         if not is_female_only and entries:
@@ -271,6 +283,7 @@ def main():
     parser.add_argument('--years', default=None, help='Year range (e.g. 2020-2026)')
     parser.add_argument('--date', default=None, help='Single date (YYYY-MM-DD) for incremental build')
     parser.add_argument('--dry-run', action='store_true', help='Count only, do not write files')
+    parser.add_argument('--obstacle-only', action='store_true', help='Build only obstacle races')
     args = parser.parse_args()
 
     if args.date and args.years:
@@ -308,17 +321,28 @@ def main():
         allow_no_sr = False
 
     # SR + SE を結合してレースJSON生成
-    print(f"\n[Build] Merging SE + SR data...")
+    obstacle_only = getattr(args, 'obstacle_only', False)
+    if obstacle_only:
+        print(f"\n[Build] Merging SE + SR data (obstacle only)...")
+    else:
+        print(f"\n[Build] Merging SE + SR data...")
     created = 0
     created_no_sr = 0
+    created_obstacle = 0
     skipped_no_sr = 0
     skipped_no_entries = 0
+    skipped_obstacle_filter = 0
     errors = 0
 
     for race_id, entries_raw in se_groups.items():
         sr = sr_index.get(race_id)
         if sr is None and not allow_no_sr:
             skipped_no_sr += 1
+            continue
+
+        # --obstacle-only: 障害レースのみ生成
+        if obstacle_only and sr is not None and sr.track_type != 'obstacle':
+            skipped_obstacle_filter += 1
             continue
 
         if len(entries_raw) == 0:
@@ -331,6 +355,8 @@ def main():
             created += 1
             if sr is None:
                 created_no_sr += 1
+            if sr is not None and sr.track_type == 'obstacle':
+                created_obstacle += 1
         except Exception as e:
             errors += 1
             if errors <= 5:
@@ -342,10 +368,14 @@ def main():
     print(f"  Results")
     print(f"{'='*60}")
     print(f"  Created:          {created:,} race JSONs")
+    if created_obstacle:
+        print(f"    (obstacle):     {created_obstacle:,}")
     if created_no_sr:
         print(f"    (pre-race):     {created_no_sr:,}")
     if skipped_no_sr:
         print(f"  Skipped (no SR):  {skipped_no_sr:,}")
+    if skipped_obstacle_filter:
+        print(f"  Skipped (flat):   {skipped_obstacle_filter:,}")
     print(f"  Skipped (empty):  {skipped_no_entries:,}")
     print(f"  Errors:           {errors:,}")
     print(f"  Elapsed:          {elapsed:.1f}s")

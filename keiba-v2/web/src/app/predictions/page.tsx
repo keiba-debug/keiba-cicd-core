@@ -50,6 +50,8 @@ export default async function PredictionsPage({
   // Enrich missing track_type/distance from DB (RACE_SHOSAI)
   data = await enrichPredictionsFromDb(data);
 
+  // 障害レースは障害モデルで予測済み → フィルタ不要（紫バッジで表示）
+
   const results = getResultsByDate(data.date);
 
   return (

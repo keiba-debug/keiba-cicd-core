@@ -8,7 +8,7 @@ import type { PredictionRace, RaceResultsMap } from '@/lib/data/predictions-read
 import type { OddsMap, DbResultsMap, SortState } from '../lib/types';
 import {
   getWinOdds, calcWinEv, getGapColor, getGapBg, getEvColor, getMarkColor,
-  getTrackBadgeClass, getFinishColor, getPlaceLimit,
+  getTrackBadgeClass, getTrackLabel, getFinishColor, getPlaceLimit,
   getRaceLink, getCommentColor, getCommentTooltip, getArColor, getArdColor, getGradeBadgeClass, SortTh,
 } from '../lib/helpers';
 
@@ -103,7 +103,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
               {race.race_number}R
             </Link>
             <Badge className={`text-[10px] ${getTrackBadgeClass(race.track_type)}`}>
-              {race.track_type}{race.distance}m
+              {getTrackLabel(race.track_type)}{race.distance}m
             </Badge>
             {race.grade && (
               <Badge variant="outline" className={`text-[10px] ${getGradeBadgeClass(race.grade)}`}>

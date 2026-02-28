@@ -101,6 +101,11 @@ def _extract_race_info(soup: BeautifulSoup) -> dict:
             info["track"] = "芝" if "芝" in m.group(1) else "ダ"
             info["distance"] = int(m.group(2))
 
+    # 障害レース判定: titleやrace_conditionに"障害"が含まれる場合
+    title_text = info.get("title", "") + info.get("race_condition", "")
+    if "障害" in title_text:
+        info["track"] = "obstacle"
+
     return info
 
 

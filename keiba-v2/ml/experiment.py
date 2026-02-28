@@ -1268,9 +1268,14 @@ def build_dataset(
     race_count = 0
     error_count = 0
 
+    obstacle_count = 0
     for date_str, race_id in target_races:
         try:
             race = load_race_json(race_id, date_str)
+            # 障害レースを除外（平地モデル専用）
+            if '障害' in race.get('race_name', '') or race.get('track_type') == 'obstacle':
+                obstacle_count += 1
+                continue
             rows = compute_features_for_race(
                 race, history_cache, trainer_index, jockey_index,
                 pace_index, kb_ext_index,
@@ -1307,7 +1312,10 @@ def build_dataset(
     if 'odds' in df.columns:
         df['odds_rank'] = df.groupby('race_id')['odds'].rank(method='min')
 
-    print(f"[Build] {race_count:,} races, {len(df):,} entries, {error_count} errors")
+    msg = f"[Build] {race_count:,} races, {len(df):,} entries, {error_count} errors"
+    if obstacle_count > 0:
+        msg += f", {obstacle_count} obstacle races excluded"
+    print(msg)
     return df
 
 

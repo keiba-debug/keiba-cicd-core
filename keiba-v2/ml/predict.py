@@ -140,6 +140,234 @@ def load_model_and_meta(model_version: Optional[str] = None):
     return model_a, model_b, model_w, model_wv, meta, calibrators, model_reg_b
 
 
+def load_obstacle_model():
+    """障害レース用モデルをロード（存在しない場合はNone）
+
+    Returns:
+        (model, meta, calibrator) or (None, None, None)
+    """
+    import lightgbm as lgb
+
+    ml_dir = config.ml_dir()
+    model_path = ml_dir / "model_obstacle.txt"
+    meta_path = ml_dir / "model_obstacle_meta.json"
+
+    if not model_path.exists() or not meta_path.exists():
+        return None, None, None
+
+    model = lgb.Booster(model_file=str(model_path))
+    with open(meta_path, encoding='utf-8') as f:
+        meta = json.load(f)
+
+    calibrator = None
+    cal_path = ml_dir / "calibrator_obstacle.pkl"
+    if cal_path.exists():
+        import pickle
+        with open(cal_path, 'rb') as f:
+            calibrator = pickle.load(f)
+
+    ver = meta.get('version', '?')
+    feat_count = meta.get('feature_count', '?')
+    print(f"[Model] Obstacle model loaded: v{ver}, {feat_count} features")
+    return model, meta, calibrator
+
+
+def predict_obstacle_race(
+    race: dict,
+    model_obstacle,
+    obstacle_meta: dict,
+    obstacle_calibrator,
+    history_cache: dict,
+    trainer_index: dict,
+    jockey_index: dict,
+    pace_index: dict,
+    db_odds: Optional[Dict[int, dict]] = None,
+    kb_ext_index: Optional[dict] = None,
+    race_level_index: Optional[dict] = None,
+    pedigree_index: Optional[dict] = None,
+    sire_stats_index: Optional[dict] = None,
+) -> dict:
+    """障害レースの予測を実行（簡易版: モデル1本、VB/bet_engine不要）"""
+    from ml.features.pedigree_features import get_pedigree_features, build_sire_index
+
+    features = obstacle_meta.get('features', [])
+    _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
+
+    race_date = race['date']
+    race_id = race['race_id']
+    venue_code = race['venue_code']
+    venue_name = race.get('venue_name', '')
+    track_type = race.get('track_type', 'obstacle')
+    distance = race.get('distance', 0)
+    entry_count = race.get('num_runners', 0)
+    current_grade = race.get('grade', '')
+    current_is_handicap = race.get('is_handicap', False)
+    current_is_female_only = race.get('is_female_only', False)
+    current_month = int(race_date.split('-')[1]) if len(race_date.split('-')) >= 2 else 0
+
+    kb_ext = (kb_ext_index or {}).get(race_id)
+    kb_entries = kb_ext.get('entries', {}) if kb_ext else {}
+
+    predictions = []
+    feature_rows = []
+
+    for entry in race.get('entries', []):
+        umaban = entry.get('umaban', 0)
+        ketto_num = entry.get('ketto_num', '')
+
+        feat = extract_base_features(entry, race)
+
+        if db_odds and umaban in db_odds:
+            feat['odds'] = db_odds[umaban]['odds']
+            ninki = db_odds[umaban].get('ninki')
+            if ninki is not None:
+                feat['popularity'] = ninki
+
+        past = compute_past_features(
+            ketto_num=ketto_num, race_date=race_date,
+            venue_code=venue_code, track_type=track_type,
+            distance=distance, entry_count=entry_count,
+            history_cache=history_cache, race_level_index=race_level_index,
+        )
+        feat.update(past)
+
+        tc = entry.get('trainer_code', '')
+        feat.update(get_trainer_features(tc, venue_code, trainer_index))
+
+        jc = entry.get('jockey_code', '')
+        feat.update(get_jockey_features(jc, venue_code, jockey_index))
+
+        rs_feat = compute_running_style_features(
+            ketto_num=ketto_num, race_date=race_date,
+            entry_count=entry_count, history_cache=history_cache,
+        )
+        feat.update(rs_feat)
+
+        rot_feat = compute_rotation_features(
+            ketto_num=ketto_num, race_date=race_date,
+            futan=entry.get('futan', 0.0), horse_weight=entry.get('horse_weight', 0),
+            popularity=entry.get('popularity', 0), jockey_code=entry.get('jockey_code', ''),
+            history_cache=history_cache, current_grade=current_grade,
+            current_venue=venue_name, current_distance=distance,
+            current_track_type=track_type, current_month=current_month,
+            current_is_handicap=current_is_handicap,
+            current_is_female_only=current_is_female_only,
+        )
+        feat.update(rot_feat)
+
+        speed_feat = compute_speed_features(umaban=str(umaban), kb_ext=kb_ext)
+        feat.update(speed_feat)
+
+        ped_feat = get_pedigree_features(
+            ketto_num, pedigree_index or {}, _sire_idx, _dam_idx, _bms_idx,
+        )
+        feat.update(ped_feat)
+
+        kb_e = kb_entries.get(str(umaban))
+
+        predictions.append({
+            'umaban': umaban,
+            'ketto_num': ketto_num,
+            'horse_name': entry.get('horse_name', ''),
+            'odds': feat.get('odds', 0),
+            'popularity': feat.get('popularity', 0),
+            'features': feat,
+            'kb_mark': kb_e.get('honshi_mark', '') if kb_e else '',
+        })
+
+    if not predictions:
+        return {
+            'race_id': race_id, 'date': race_date,
+            'venue_name': venue_name, 'race_number': race.get('race_number', 0),
+            'distance': distance, 'track_type': 'obstacle',
+            'num_runners': 0, 'grade': current_grade,
+            'age_class': '', 'is_handicap': current_is_handicap,
+            'is_female_only': current_is_female_only, 'entries': [],
+        }
+
+    # 特徴量行列を構築
+    def _to_float(val):
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            return np.nan
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return np.nan
+
+    for p in predictions:
+        row = [_to_float(p['features'].get(f, np.nan)) for f in features]
+        feature_rows.append(row)
+
+    arr = np.array(feature_rows, dtype=np.float64)
+    pred_raw = model_obstacle.predict(arr)
+
+    # キャリブレーション
+    pred_cal = pred_raw
+    if obstacle_calibrator is not None:
+        pred_cal = obstacle_calibrator.predict(pred_raw)
+
+    # レース内正規化
+    sum_pred = pred_raw.sum()
+    pred_norm = pred_raw / sum_pred if sum_pred > 0 else pred_raw
+
+    # ランク計算
+    rank_dict = {i: r for r, i in enumerate(np.argsort(-pred_norm), 1)}
+
+    result_entries = []
+    for i, p in enumerate(predictions):
+        rank = rank_dict[i]
+        result_entries.append({
+            'umaban': p['umaban'],
+            'horse_name': p['horse_name'],
+            'odds': p['odds'],
+            'popularity': p['popularity'],
+            'pred_proba_a': round(float(pred_norm[i]), 4),
+            'pred_proba_v': round(float(pred_norm[i]), 4),
+            'pred_proba_v_raw': round(float(pred_raw[i]), 6),
+            'rank_a': int(rank),
+            'rank_v': int(rank),
+            'odds_rank': 0,
+            'vb_gap': 0,
+            'pred_proba_w': None, 'pred_proba_wv': None,
+            'pred_proba_wv_cal': None,
+            'rank_w': None, 'rank_wv': None,
+            'win_vb_gap': 0,
+            'place_odds_min': None, 'place_odds_max': None,
+            'win_ev': None, 'place_ev': None,
+            'predicted_margin': None, 'ar_deviation': None,
+            'is_value_bet': False,
+            'kb_mark': p['kb_mark'],
+            'kb_mark_point': 0, 'kb_training_arrow': '',
+            'kb_rating': None, 'kb_comment': '',
+            'kb_ai_index': None,
+            'koukaku_rote_count': 0,
+            'is_koukaku_venue': 0, 'is_koukaku_female': 0,
+            'is_koukaku_season': 0, 'is_koukaku_distance': 0,
+            'is_koukaku_turf_to_dirt': 0, 'is_koukaku_handicap': 0,
+            'comment_stable_condition': 0, 'comment_stable_confidence': 0,
+            'comment_stable_mark': 0, 'comment_memo_condition': 0,
+            'comment_memo_trouble_score': 0,
+            'comment_has_stable': 0, 'comment_has_interview': 0,
+        })
+
+    result_entries.sort(key=lambda x: -x['pred_proba_v'])
+
+    return {
+        'race_id': race_id,
+        'date': race_date,
+        'venue_name': venue_name,
+        'race_number': race.get('race_number', 0),
+        'distance': distance,
+        'track_type': 'obstacle',
+        'num_runners': entry_count,
+        'grade': current_grade,
+        'age_class': '',
+        'is_handicap': current_is_handicap,
+        'is_female_only': current_is_female_only,
+        'entries': result_entries,
+    }
+
+
 def list_model_versions() -> list:
     """利用可能なモデルバージョン一覧を返す（新しい順）
 
@@ -417,6 +645,21 @@ def predict_race(
     if not track_type or distance == 0 or not current_grade:
         _db_race = _fetch_race_shosai_from_db(race_id)
         if _db_race:
+            # DB補完で障害レースと判明した場合はフラグ付きで返す（main()で障害モデルにリダイレクト）
+            if _db_race.get('track_type') == 'obstacle':
+                race['track_type'] = 'obstacle'
+                race['distance'] = _db_race.get('distance', 0)
+                race['race_name'] = _db_race.get('race_name', '')
+                return {
+                    'race_id': race['race_id'], 'date': race_date,
+                    'venue_name': venue_name, 'race_number': race.get('race_number', 0),
+                    'distance': _db_race.get('distance', 0), 'track_type': 'obstacle',
+                    'num_runners': len(race.get('entries', [])),
+                    'race_name': _db_race.get('race_name', ''),
+                    'grade': '', 'age_class': '', 'is_handicap': False,
+                    'is_female_only': False, 'entries': [],
+                    '_needs_obstacle_model': True,
+                }
             if not track_type:
                 track_type = _db_race.get('track_type', '')
             if distance == 0:
@@ -884,6 +1127,10 @@ def main():
     print("[Load] Loading models...")
     model_a, model_b, model_w, model_wv, meta, calibrators, model_reg_b = load_model_and_meta(model_version)
 
+    # 障害モデルロード
+    model_obstacle, obstacle_meta, obstacle_calibrator = load_obstacle_model()
+    has_obstacle_model = model_obstacle is not None
+
     # マスタデータロード
     print("[Load] Loading master data...")
     (history_cache, trainer_index, jockey_index, pace_index,
@@ -963,11 +1210,41 @@ def main():
     if grade_offsets:
         print(f"[Grade] Method A: {len(grade_offsets)} grade offsets loaded")
 
-    # 予測実行
+    # Pre-pass: track_type不明のレースをDB補完で障害判定
+    # keibabook-sourcedの古いJSONはtrack_type/race_nameが空のことがある
+    for race in races:
+        if not race.get('track_type') and not race.get('race_name'):
+            db_race = _fetch_race_shosai_from_db(race['race_id'])
+            if db_race:
+                if db_race.get('track_type') == 'obstacle':
+                    race['track_type'] = 'obstacle'
+                if not race.get('race_name') and db_race.get('race_name'):
+                    race['race_name'] = db_race['race_name']
+                if race.get('distance', 0) == 0 and db_race.get('distance', 0) > 0:
+                    race['distance'] = db_race['distance']
+
+    # 障害レースを分離（障害モデルがあれば予測、なければ除外）
+    obstacle_races = []
+    flat_races = []
+    for race in races:
+        race_name = race.get('race_name', '')
+        track_type = race.get('track_type', '')
+        if '障害' in race_name or track_type == 'obstacle':
+            obstacle_races.append(race)
+        else:
+            flat_races.append(race)
+    if obstacle_races:
+        if has_obstacle_model:
+            print(f"[Obstacle] {len(obstacle_races)} obstacle races → obstacle model")
+        else:
+            print(f"[Filter] {len(obstacle_races)} obstacle races excluded (no model)")
+            obstacle_races = []
+
+    # 予測実行（平地）
     all_predictions = []
     vb_count = 0
 
-    for race in races:
+    for race in flat_races:
         kb_ext = load_keibabook_ext(race['race_id'], race['date'])
         pred = predict_race(
             race, kb_ext,
@@ -1000,6 +1277,44 @@ def main():
         top1_gap = top1['vb_gap'] if top1 else 0
         vb_marker = ' [VB]' if top1 and top1['is_value_bet'] else ''
         print(f"  {venue}{rn}R: Top1={top1_name} (gap={top1_gap}){vb_marker}")
+
+    # === DB補完で障害と判明したレースをリダイレクト ===
+    if has_obstacle_model:
+        redirected_races = []
+        for pred in all_predictions:
+            if pred.get('_needs_obstacle_model'):
+                race_id = pred['race_id']
+                original_race = next((r for r in flat_races if r['race_id'] == race_id), None)
+                if original_race:
+                    redirected_races.append(original_race)
+        if redirected_races:
+            all_predictions = [p for p in all_predictions if not p.get('_needs_obstacle_model')]
+            obstacle_races.extend(redirected_races)
+            print(f"[Obstacle] {len(redirected_races)} races redirected from flat → obstacle model")
+
+    # === 障害レース予測 ===
+    obstacle_predictions = []
+    if obstacle_races and has_obstacle_model:
+        for race in obstacle_races:
+            pred = predict_obstacle_race(
+                race, model_obstacle, obstacle_meta, obstacle_calibrator,
+                history_cache, trainer_index, jockey_index, pace_index,
+                db_odds=db_odds_index.get(race['race_id']),
+                kb_ext_index=kb_ext_index,
+                race_level_index=race_level_index,
+                pedigree_index=pedigree_index,
+                sire_stats_index=sire_stats_index,
+            )
+            obstacle_predictions.append(pred)
+            all_predictions.append(pred)
+
+            venue = pred.get('venue_name', '?')
+            rn = pred.get('race_number', '?')
+            top1 = pred['entries'][0] if pred['entries'] else None
+            top1_name = top1['horse_name'] if top1 else '?'
+            print(f"  {venue}{rn}R: Top1={top1_name} [障害]")
+
+        print(f"[Obstacle] {len(obstacle_predictions)} obstacle races predicted")
 
     # === 買い目推奨生成 (bet_engine) ===
     print(f"\n[BetEngine] Generating recommendations...")
@@ -1065,6 +1380,7 @@ def main():
         'model_features_all': len(meta.get('features_all', [])),
         'model_features_value': len(meta.get('features_value', [])),
         'model_has_win': model_w is not None,
+        'model_has_obstacle': has_obstacle_model,
         'odds_source': 'mykeibadb' if db_odds_index else 'json',
         'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
         'races': all_predictions,
@@ -1072,6 +1388,7 @@ def main():
         'multi_leg_recommendations': multi_leg_output,
         'summary': {
             'total_races': len(all_predictions),
+            'obstacle_races': len(obstacle_predictions) if obstacle_races else 0,
             'total_entries': sum(len(p['entries']) for p in all_predictions),
             'value_bets': vb_count,
             'ev_positive_win': sum(
