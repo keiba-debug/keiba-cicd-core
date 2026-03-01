@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-ML Experiment: LightGBMデュアルモデル学習・評価パイプライン
+ML Experiment: LightGBM 3モデル(P/W/AR)学習・評価パイプライン
 
 モデルバージョンは model_meta.json の version フィールドで管理。
 旧バージョンは versions/ に自動アーカイブされる。
 
-特徴量構成:
-  Model A (全特徴量): 基本 + 過去走 + trainer + jockey + 脚質 + ローテ + ペース + 調教 + スピード指数 + KB印 + 市場系
-  Model B (Value):     Model Aから市場系特徴量を除外
+3モデル体制 (市場系特徴量除外):
+  Place (P):  is_top3分類 → 好走確率 (model_p.txt)
+  Win   (W):  is_win分類  → 勝利確率 (model_w.txt)
+  Aura  (AR): 着差回帰    → 能力予測 (model_ar.txt)
 
 Usage:
     python -m ml.experiment [--train-years 2020-2024] [--test-years 2025-2026]
@@ -60,6 +61,14 @@ PAST_FEATURES = [
     'distance_fitness_smoothed', 'career_stage',
     # v5.6: 前走レースレベル
     'prev_race_level_vs_class', 'avg_race_level_last3', 'prev_race_level_rank',
+    # v5.45: Phase P — prev→current 直接比較
+    'prev_finish', 'prev_last3f', 'distance_change',
+    'track_type_change', 'condition_change', 'prev_odds',
+    'condition_top3_rate', 'condition_top3_rate_smoothed',
+    'heavy_track_top3_rate',
+    'exact_distance_top3_rate', 'exact_distance_top3_rate_smoothed',
+    'surface_switch_top3_rate', 'distance_direction_top3_rate',
+    'field_size_category_top3_rate',
 ]
 
 # 調教師特徴量（100%マッチ）
@@ -177,14 +186,12 @@ BABA_FEATURES = [
 ]
 
 # 市場系特徴量（Model Bでは除外）
+# ※独自分析系（CK調教・レース分類）は v5.42 でVALUEに復帰
+#   CK調教ラップ = 馬のコンディション客観データ（独自分析の軸）
+#   レース分類 = 降格ローテ等の競走力学（独自分析の軸）
 MARKET_FEATURES = {
     'odds', 'popularity', 'odds_rank', 'popularity_trend',
     'kb_mark_point', 'kb_aggregate_mark_point',  # v4.0: 印は市場と相関
-    # v4.1: CK_DATA調教は市場に織り込み済み → Model Bから除外
-    'ck_laprank_score', 'ck_laprank_class', 'ck_laprank_accel',
-    'ck_time_rank', 'ck_final_laprank_score', 'ck_final_time4f', 'ck_final_lap1',
-    # v5.1: クラス・会場差は出馬表で自明 → MARKET
-    'prev_grade_level', 'grade_level_diff', 'venue_rank_diff',
     # v5.3: ヘッダーマークは honshi_mark と相関 → MARKET
     'comment_stable_mark',
     # v5.4: ベイズ平滑化レートは生rate+オッズと相関 → MARKET
@@ -192,12 +199,15 @@ MARKET_FEATURES = {
     'win_rate_smoothed', 'top3_rate_smoothed',
     'venue_top3_rate_smoothed', 'track_type_top3_rate_smoothed',
     'distance_fitness_smoothed',
+    # v5.45: Phase P — 平滑化条件適性率 + 前走オッズ
+    'condition_top3_rate_smoothed', 'exact_distance_top3_rate_smoothed',
+    'prev_odds',
 }
 
 # 派生特徴量
 DERIVED_FEATURES = ['odds_rank']
 
-# 全特徴量（Model A）
+# 全特徴量（Market含む、FEATURE_COLS_VALUE導出用）
 FEATURE_COLS_ALL = (
     BASE_FEATURES + ['odds', 'popularity'] + DERIVED_FEATURES +
     PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
@@ -207,29 +217,11 @@ FEATURE_COLS_ALL = (
     BABA_FEATURES
 )
 
-# Value特徴量（Model B = 市場系除外）
+# 共通特徴量（市場系除外 — 全モデル共通）
 FEATURE_COLS_VALUE = [f for f in FEATURE_COLS_ALL if f not in MARKET_FEATURES]
 
-# ハイパーパラメータ（Model A/B別）
-PARAMS_A = {
-    'objective': 'binary',
-    'metric': 'auc',
-    'num_leaves': 63,
-    'learning_rate': 0.03,
-    'feature_fraction': 0.8,
-    'bagging_fraction': 0.8,
-    'bagging_freq': 5,
-    'min_child_samples': 30,
-    'reg_alpha': 0.1,
-    'reg_lambda': 1.0,
-    'max_depth': 7,
-    'verbose': -1,
-    'seed': 42,
-    'bagging_seed': 42,
-    'feature_fraction_seed': 42,
-}
-
-PARAMS_B = {
+# ハイパーパラメータ — Place (P) / Win (W) / Aura (AR)
+PARAMS_P = {
     'objective': 'binary',
     'metric': 'auc',
     'num_leaves': 127,
@@ -249,17 +241,12 @@ PARAMS_B = {
 
 # Win モデル用パラメータ（is_win は ~6-7% と不均衡 → scale_pos_weight で補正）
 PARAMS_W = {
-    **PARAMS_A,
-    'scale_pos_weight': 5.0,
-}
-
-PARAMS_WV = {
-    **PARAMS_B,
+    **PARAMS_P,
     'scale_pos_weight': 5.0,
 }
 
 # 回帰モデル用パラメータ (着差回帰: Huber loss)
-PARAMS_REG_B = {
+PARAMS_AR = {
     'objective': 'huber',
     'alpha': 2.0,  # Huber delta
     'metric': 'mae',
@@ -1034,6 +1021,7 @@ def compute_features_for_race(
     distance = race.get('distance', 0)
     entry_count = race.get('num_runners', 0)
     current_grade = race.get('grade', '')
+    track_condition_str = race.get('track_condition', '')  # v5.45: 文字列版
     current_age_class = race.get('age_class', '')
     if not current_age_class:
         ages = [e.get('age', 0) for e in race.get('entries', []) if e.get('age', 0) > 0]
@@ -1084,6 +1072,7 @@ def compute_features_for_race(
             entry_count=entry_count,
             history_cache=history_cache,
             race_level_index=race_level_index,
+            track_condition=track_condition_str,
         )
         feat.update(past)
 
@@ -1640,7 +1629,7 @@ def calc_roi_analysis(df: pd.DataFrame, pred_col: str, ascending: bool = False) 
     }
 
 
-def calc_value_bet_analysis(df: pd.DataFrame, rank_col: str = 'pred_rank_v') -> List[dict]:
+def calc_value_bet_analysis(df: pd.DataFrame, rank_col: str = 'pred_rank_p') -> List[dict]:
     """Value Bet分析: モデル順位とオッズ順位の乖離を利用"""
     if rank_col not in df.columns or 'odds_rank' not in df.columns:
         return []
@@ -1694,7 +1683,7 @@ def calc_value_bet_analysis(df: pd.DataFrame, rank_col: str = 'pred_rank_v') -> 
 
 def calc_vb_bootstrap_ci(
     df: pd.DataFrame,
-    rank_col: str = 'pred_rank_v',
+    rank_col: str = 'pred_rank_p',
     n_bootstrap: int = 1000,
     ci_level: float = 0.95,
 ) -> List[dict]:
@@ -1805,7 +1794,7 @@ def calc_ev_gap_comparison(
 
     win_ev = calibrated_win_prob × win_odds (既にdf_testに計算済み)
     """
-    required = ['pred_rank_v', 'odds_rank', 'win_ev', 'pred_margin_b', 'odds', 'is_win']
+    required = ['pred_rank_p', 'odds_rank', 'win_ev', 'pred_margin_ar', 'odds', 'is_win']
     if not all(c in df.columns for c in required):
         return {}
 
@@ -1864,8 +1853,8 @@ def calc_ev_gap_comparison(
         }
 
     # VB候補: Place model top3
-    vb_base = df[(df['pred_rank_v'] <= 3) & (df['odds'] > 0)].copy()
-    vb_base['gap'] = (vb_base['odds_rank'] - vb_base['pred_rank_v']).clip(lower=0).astype(int)
+    vb_base = df[(df['pred_rank_p'] <= 3) & (df['odds'] > 0)].copy()
+    vb_base['gap'] = (vb_base['odds_rank'] - vb_base['pred_rank_p']).clip(lower=0).astype(int)
 
     results = {'conditions': [], 'ev_grid': []}
 
@@ -1875,7 +1864,7 @@ def calc_ev_gap_comparison(
     margin_levels = [0.8, 1.2]
 
     for margin in margin_levels:
-        margin_mask = vb_base['pred_margin_b'] <= margin
+        margin_mask = vb_base['pred_margin_ar'] <= margin
 
         for ev_th in ev_thresholds:
             ev_mask = vb_base['win_ev'] >= ev_th
@@ -1931,17 +1920,17 @@ def calc_ev_gap_comparison(
 
 def collect_value_bet_picks(df: pd.DataFrame, min_gap: int = 3) -> List[dict]:
     """テスト期間のValue Bet候補を個別レコードとして収集"""
-    if 'pred_rank_v' not in df.columns or 'odds_rank' not in df.columns:
+    if 'pred_rank_p' not in df.columns or 'odds_rank' not in df.columns:
         return []
 
     picks = []
     for race_id, group in df.groupby('race_id'):
         candidates = group[
-            (group['pred_rank_v'] <= 3) &
-            (group['odds_rank'] >= group['pred_rank_v'] + min_gap)
+            (group['pred_rank_p'] <= 3) &
+            (group['odds_rank'] >= group['pred_rank_p'] + min_gap)
         ]
         for _, row in candidates.iterrows():
-            gap = int(row['odds_rank'] - row['pred_rank_v'])
+            gap = int(row['odds_rank'] - row['pred_rank_p'])
             picks.append({
                 'race_id': str(row['race_id']),
                 'date': str(row['date']),
@@ -1949,13 +1938,12 @@ def collect_value_bet_picks(df: pd.DataFrame, min_gap: int = 3) -> List[dict]:
                 'grade': str(row.get('grade', '')),
                 'horse_number': int(row.get('umaban', 0)),
                 'horse_name': str(row.get('horse_name', '')),
-                'value_rank': int(row['pred_rank_v']),
+                'place_rank': int(row['pred_rank_p']),
                 'odds_rank': int(row['odds_rank']),
                 'gap': gap,
                 'odds': round(float(row['odds']), 1) if row['odds'] > 0 else None,
-                'pred_proba_accuracy': round(float(row['pred_proba_a']), 4),
-                'pred_proba_value': round(float(row['pred_proba_v']), 4),
-                'predicted_margin': round(float(row['pred_margin_b']), 3) if pd.notna(row.get('pred_margin_b')) else None,
+                'pred_proba_place': round(float(row['pred_proba_p']), 4),
+                'predicted_margin': round(float(row['pred_margin_ar']), 3) if pd.notna(row.get('pred_margin_ar')) else None,
                 'win_ev': round(float(row['win_ev']), 3) if 'win_ev' in row.index and pd.notna(row.get('win_ev')) else None,
                 'actual_position': int(row['finish_position']),
                 'is_top3': int(row['is_top3']),
@@ -1968,21 +1956,21 @@ def collect_value_bet_picks(df: pd.DataFrame, min_gap: int = 3) -> List[dict]:
 def calc_gap_margin_grid(df: pd.DataFrame) -> List[dict]:
     """gap × margin クロス集計 (ML Report ヒートマップ用)
 
-    VB候補 (pred_rank_v <= 3) に対して、gap閾値とmargin閾値の
+    VB候補 (pred_rank_p <= 3) に対して、gap閾値とmargin閾値の
     組み合わせごとの件数・単勝ROI・複勝ROIを計算する。
     """
-    if 'pred_rank_v' not in df.columns or 'pred_margin_b' not in df.columns:
+    if 'pred_rank_p' not in df.columns or 'pred_margin_ar' not in df.columns:
         return []
 
     grid = []
     for min_gap in [3, 4, 5, 6]:
         for max_margin in [0.6, 0.8, 1.0, 1.2, 1.5, None]:
             mask = (
-                (df['pred_rank_v'] <= 3) &
-                (df['odds_rank'] >= df['pred_rank_v'] + min_gap)
+                (df['pred_rank_p'] <= 3) &
+                (df['odds_rank'] >= df['pred_rank_p'] + min_gap)
             )
             if max_margin is not None:
-                mask = mask & (df['pred_margin_b'] <= max_margin)
+                mask = mask & (df['pred_margin_ar'] <= max_margin)
             subset = df[mask]
             if len(subset) == 0:
                 continue
@@ -2010,18 +1998,18 @@ def calc_gap_margin_grid(df: pd.DataFrame) -> List[dict]:
 def calc_gap_ard_grid(df: pd.DataFrame) -> List[dict]:
     """gap × ARd クロス集計 (ML Report ヒートマップ用)
 
-    VB候補 (pred_rank_v <= 3) に対して、gap閾値とARd閾値の
+    VB候補 (pred_rank_p <= 3) に対して、gap閾値とARd閾値の
     組み合わせごとの件数・単勝ROI・複勝ROIを計算する。
     """
-    if 'pred_rank_v' not in df.columns or 'ar_deviation' not in df.columns:
+    if 'pred_rank_p' not in df.columns or 'ar_deviation' not in df.columns:
         return []
 
     grid = []
     for min_gap in [3, 4, 5, 6]:
         for min_ard in [None, 45, 50, 55, 60, 65]:
             mask = (
-                (df['pred_rank_v'] <= 3) &
-                (df['odds_rank'] >= df['pred_rank_v'] + min_gap)
+                (df['pred_rank_p'] <= 3) &
+                (df['odds_rank'] >= df['pred_rank_p'] + min_gap)
             )
             if min_ard is not None:
                 mask = mask & (df['ar_deviation'] >= min_ard)
@@ -2055,21 +2043,20 @@ def collect_race_predictions(df: pd.DataFrame) -> List[dict]:
     """テスト期間のレース別予測データを収集"""
     races = []
     for race_id, group in df.groupby('race_id'):
-        group_sorted = group.sort_values('pred_proba_a', ascending=False)
+        group_sorted = group.sort_values('pred_proba_p', ascending=False)
         row0 = group_sorted.iloc[0]
         horses = []
         for _, row in group_sorted.iterrows():
             horses.append({
                 'horse_number': int(row.get('umaban', 0)),
                 'horse_name': str(row.get('horse_name', '')),
-                'pred_proba_accuracy': round(float(row['pred_proba_a']), 4),
-                'pred_proba_value': round(float(row['pred_proba_v']), 4),
-                'pred_top3': int(row['pred_rank_a'] <= 3),
+                'pred_proba_place': round(float(row['pred_proba_p']), 4),
+                'pred_top3': int(row['pred_rank_p'] <= 3),
                 'actual_position': int(row['finish_position']),
                 'actual_top3': int(row['is_top3']),
                 'odds_rank': int(row['odds_rank']) if row.get('odds_rank', 0) > 0 else None,
                 'odds': round(float(row['odds']), 1) if row.get('odds', 0) > 0 else None,
-                'value_rank': int(row['pred_rank_v']),
+                'place_rank': int(row['pred_rank_p']),
             })
         races.append({
             'race_id': str(race_id),
@@ -2089,7 +2076,7 @@ def train_regression_model(
     df_test: pd.DataFrame,
     feature_cols: List[str],
     params: dict,
-    model_name: str = 'Reg_B',
+    model_name: str = 'Aura',
 ) -> Tuple:
     """着差回帰モデル (LGBMRegressor) を学習
 
@@ -2155,12 +2142,9 @@ def run_track_split_experiment(
     df_train: pd.DataFrame,
     df_val: pd.DataFrame,
     df_test: pd.DataFrame,
-    feature_cols_all: List[str],
     feature_cols_value: List[str],
-    params_a: dict,
-    params_b: dict,
-    unified_pred_a: np.ndarray,
-    unified_pred_b: np.ndarray,
+    params_p: dict,
+    unified_pred_p: np.ndarray,
 ):
     """芝/ダート分離モデル実験 (H-21)
 
@@ -2174,9 +2158,8 @@ def run_track_split_experiment(
     print(f"{'='*60}")
 
     # track_type を除外（分離後は定数）
-    split_features_all = [f for f in feature_cols_all if f != 'track_type']
-    split_features_value = [f for f in feature_cols_value if f != 'track_type']
-    print(f"  Features (excl track_type): A={len(split_features_all)}, B={len(split_features_value)}")
+    split_features = [f for f in feature_cols_value if f != 'track_type']
+    print(f"  Features (excl track_type): {len(split_features)}")
 
     # track_type: 0=turf, 1=dirt（base_features.pyのtrack_map）
     results = {}
@@ -2191,59 +2174,43 @@ def run_track_split_experiment(
             print(f"  SKIP: insufficient test data")
             continue
 
-        # Model A (split)
-        model_a_s, metrics_a_s, _, pred_a_s, _ = train_model(
-            tr, vl, ts, split_features_all, params_a, 'is_top3', f'A_{track_label}'
-        )
-
-        # Model B (split)
-        model_b_s, metrics_b_s, _, pred_b_s, _ = train_model(
-            tr, vl, ts, split_features_value, params_b, 'is_top3', f'B_{track_label}'
+        # Place model (split)
+        model_p_s, metrics_p_s, _, pred_p_s, _, _ = train_model(
+            tr, vl, ts, split_features, params_p, 'is_top3', f'P_{track_label}'
         )
 
         # 統一モデルの同じサブセットでの性能
         test_mask = df_test['track_type'] == track_val
-        unified_a_sub = unified_pred_a[test_mask.values]
-        unified_b_sub = unified_pred_b[test_mask.values]
+        unified_p_sub = unified_pred_p[test_mask.values]
         y_test_sub = ts['is_top3']
 
-        unified_auc_a = roc_auc_score(y_test_sub, unified_a_sub)
-        unified_auc_b = roc_auc_score(y_test_sub, unified_b_sub)
+        unified_auc_p = roc_auc_score(y_test_sub, unified_p_sub)
 
         # VB分析（分離モデル）
         ts_copy = ts.copy()
-        ts_copy['pred_proba_a'] = pred_a_s
-        ts_copy['pred_proba_v'] = pred_b_s
-        ts_copy['pred_rank_a'] = ts_copy.groupby('race_id')['pred_proba_a'].rank(ascending=False, method='min')
-        ts_copy['pred_rank_v'] = ts_copy.groupby('race_id')['pred_proba_v'].rank(ascending=False, method='min')
-        vb_split = calc_value_bet_analysis(ts_copy)
+        ts_copy['pred_proba_p'] = pred_p_s
+        ts_copy['pred_rank_p'] = ts_copy.groupby('race_id')['pred_proba_p'].rank(ascending=False, method='min')
+        vb_split = calc_value_bet_analysis(ts_copy, rank_col='pred_rank_p')
 
         # 統一モデルのVB分析（同サブセット）
         ts_unified = ts.copy()
-        ts_unified['pred_proba_a'] = unified_a_sub
-        ts_unified['pred_proba_v'] = unified_b_sub
-        ts_unified['pred_rank_a'] = ts_unified.groupby('race_id')['pred_proba_a'].rank(ascending=False, method='min')
-        ts_unified['pred_rank_v'] = ts_unified.groupby('race_id')['pred_proba_v'].rank(ascending=False, method='min')
-        vb_unified = calc_value_bet_analysis(ts_unified)
+        ts_unified['pred_proba_p'] = unified_p_sub
+        ts_unified['pred_rank_p'] = ts_unified.groupby('race_id')['pred_proba_p'].rank(ascending=False, method='min')
+        vb_unified = calc_value_bet_analysis(ts_unified, rank_col='pred_rank_p')
 
         # ROI分析
-        roi_split_a = calc_roi_analysis(ts_copy, 'pred_proba_a')
-        roi_split_b = calc_roi_analysis(ts_copy, 'pred_proba_v')
-        roi_unified_a = calc_roi_analysis(ts_unified, 'pred_proba_a')
-        roi_unified_b = calc_roi_analysis(ts_unified, 'pred_proba_v')
+        roi_split_p = calc_roi_analysis(ts_copy, 'pred_proba_p')
+        roi_unified_p = calc_roi_analysis(ts_unified, 'pred_proba_p')
 
         # 比較表示
         print(f"\n  === {track_label.upper()} 比較 ===")
         print(f"  {'Model':<15} {'統一AUC':>10} {'分離AUC':>10} {'差分':>10}")
-        print(f"  {'A (Accuracy)':<15} {unified_auc_a:>10.4f} {metrics_a_s['auc']:>10.4f} {metrics_a_s['auc']-unified_auc_a:>+10.4f}")
-        print(f"  {'B (Value)':<15} {unified_auc_b:>10.4f} {metrics_b_s['auc']:>10.4f} {metrics_b_s['auc']-unified_auc_b:>+10.4f}")
+        print(f"  {'Place (P)':<15} {unified_auc_p:>10.4f} {metrics_p_s['auc']:>10.4f} {metrics_p_s['auc']-unified_auc_p:>+10.4f}")
 
         print(f"\n  ROI (Top1):")
         print(f"  {'Model':<15} {'統一Win':>10} {'分離Win':>10} {'統一Place':>12} {'分離Place':>12}")
-        print(f"  {'A':<15} {roi_unified_a['top1_win_roi']:>9.1f}% {roi_split_a['top1_win_roi']:>9.1f}% "
-              f"{roi_unified_a['top1_place_roi']:>11.1f}% {roi_split_a['top1_place_roi']:>11.1f}%")
-        print(f"  {'B':<15} {roi_unified_b['top1_win_roi']:>9.1f}% {roi_split_b['top1_win_roi']:>9.1f}% "
-              f"{roi_unified_b['top1_place_roi']:>11.1f}% {roi_split_b['top1_place_roi']:>11.1f}%")
+        print(f"  {'P':<15} {roi_unified_p['top1_win_roi']:>9.1f}% {roi_split_p['top1_win_roi']:>9.1f}% "
+              f"{roi_unified_p['top1_place_roi']:>11.1f}% {roi_split_p['top1_place_roi']:>11.1f}%")
 
         print(f"\n  VB Place ROI:")
         print(f"  {'Gap':<10} {'統一':>10} {'分離':>10} {'差分':>10}")
@@ -2253,16 +2220,12 @@ def run_track_split_experiment(
             print(f"  >={vu['min_gap']:<8} {vu['place_roi']:>9.1f}% {vs['place_roi']:>9.1f}% {diff:>+9.1f}%{marker}")
 
         results[track_label] = {
-            'split_metrics_a': metrics_a_s,
-            'split_metrics_b': metrics_b_s,
-            'unified_auc_a': round(unified_auc_a, 4),
-            'unified_auc_b': round(unified_auc_b, 4),
+            'split_metrics_p': metrics_p_s,
+            'unified_auc_p': round(unified_auc_p, 4),
             'split_vb': vb_split,
             'unified_vb': vb_unified,
-            'split_roi_a': roi_split_a,
-            'split_roi_b': roi_split_b,
-            'unified_roi_a': roi_unified_a,
-            'unified_roi_b': roi_unified_b,
+            'split_roi_p': roi_split_p,
+            'unified_roi_p': roi_unified_p,
             'test_races': int(ts['race_id'].nunique()),
             'test_entries': len(ts),
         }
@@ -2329,6 +2292,19 @@ def _format_period(year: int, month: int = None) -> str:
     return str(year)
 
 
+def _suggest_next_version(current_ver: str) -> str:
+    """現バージョンから次のマイナーバージョンを提案"""
+    try:
+        parts = current_ver.split('.')
+        if len(parts) >= 2:
+            major = parts[0]
+            minor = int(parts[1]) + 1
+            return f"{major}.{minor}"
+    except (ValueError, IndexError):
+        pass
+    return f"{current_ver}.1"
+
+
 def main():
     parser = argparse.ArgumentParser(description='ML Experiment v3')
     parser.add_argument('--train-years', default='2020-2024',
@@ -2352,17 +2328,40 @@ def main():
     use_db_odds = not args.no_db
 
     # バージョン文字列: CLI指定 or 自動生成
+    # 特徴量変更検出: 現在のコードの特徴量リストと保存済みモデルを比較
+    current_meta_path = config.ml_dir() / "model_meta.json"
+    saved_features = set()
+    current_ver = '?'
+    if current_meta_path.exists():
+        current_meta = json.loads(current_meta_path.read_text(encoding='utf-8'))
+        current_ver = current_meta.get('version', '?')
+        saved_features = set(current_meta.get('features_value', []) + current_meta.get('market_features', []))
+
+    code_features = set(FEATURE_COLS_ALL)
+    features_changed = saved_features and code_features != saved_features
+    if features_changed:
+        added = code_features - saved_features
+        removed = saved_features - code_features
+        print(f"\n  {'!'*60}")
+        print(f"  特徴量変更を検出（現行 v{current_ver} からの差分）:")
+        if added:
+            print(f"    追加 (+{len(added)}): {', '.join(sorted(added))}")
+        if removed:
+            print(f"    削除 (-{len(removed)}): {', '.join(sorted(removed))}")
+        print(f"  {'!'*60}")
+
     if args.version:
         experiment_version = args.version
+        if features_changed and args.version == current_ver:
+            print(f"\n  WARNING: 特徴量が変更されていますが同じバージョン v{current_ver} が指定されました。")
+            print(f"  新バージョンの指定を推奨します。続行します...")
     else:
-        # デフォルト: model_meta.json の現バージョンから自動インクリメント案内
-        current_meta_path = config.ml_dir() / "model_meta.json"
-        if current_meta_path.exists():
-            current_meta = json.loads(current_meta_path.read_text(encoding='utf-8'))
-            current_ver = current_meta.get('version', '?')
-            print(f"\n  WARNING: --version 未指定。現在のバージョンは v{current_ver}")
-            print(f"  推奨: --version {current_ver} または新バージョンを指定してください")
-        experiment_version = None  # 後で入力を求めるか、従来のハードコード値を使う
+        if features_changed:
+            print(f"\n  ERROR: 特徴量が変更されています。新バージョンを --version で指定してください。")
+            print(f"  例: --version {_suggest_next_version(current_ver)}")
+            sys.exit(1)
+        else:
+            experiment_version = None  # 特徴量変更なし → 後で既存バージョンを再利用
 
     train_label = f"{_format_period(train_min, train_min_m)} ~ {_format_period(train_max, train_max_m)}"
     val_label = f"{_format_period(val_min, val_min_m)} ~ {_format_period(val_max, val_max_m)}"
@@ -2442,22 +2441,17 @@ def main():
           f"{df_test['race_id'].nunique():,} races")
 
     # === Feature Pruning ===
-    feature_cols_all = list(FEATURE_COLS_ALL)
     feature_cols_value = list(FEATURE_COLS_VALUE)
     pruned_features = []
 
     if args.exclude_features:
         exclude_set = set(args.exclude_features)
-        before_all = len(feature_cols_all)
         before_val = len(feature_cols_value)
-        feature_cols_all = [f for f in feature_cols_all if f not in exclude_set]
         feature_cols_value = [f for f in feature_cols_value if f not in exclude_set]
         pruned_features = sorted(exclude_set)
-        removed_all = before_all - len(feature_cols_all)
         removed_val = before_val - len(feature_cols_value)
         print(f"\n[Exclude] Removing {len(exclude_set)} specified features")
-        print(f"  Model A: {before_all} → {len(feature_cols_all)} (-{removed_all})")
-        print(f"  Model B: {before_val} → {len(feature_cols_value)} (-{removed_val})")
+        print(f"  Features: {before_val} → {len(feature_cols_value)} (-{removed_val})")
         print(f"  Excluded: {sorted(exclude_set)}")
 
     if args.prune_bottom > 0:
@@ -2465,134 +2459,103 @@ def main():
         prev_result_path = config.ml_dir() / "ml_experiment_v3_result.json"
         if prev_result_path.exists():
             prev_result = json.loads(prev_result_path.read_text(encoding='utf-8'))
-            # Model B (value) のimportanceを基準にする（VB戦略の核）
-            imp_b = prev_result.get('models', {}).get('value', {}).get('feature_importance', [])
-            imp_a = prev_result.get('models', {}).get('accuracy', {}).get('feature_importance', [])
-            if imp_b:
-                # Model B importance下位N%を除外
-                n_prune_b = max(1, len(imp_b) * args.prune_bottom // 100)
-                prune_b = set(item['feature'] for item in imp_b[-n_prune_b:])
-                # Model A importance下位N%も除外
-                n_prune_a = max(1, len(imp_a) * args.prune_bottom // 100) if imp_a else 0
-                prune_a = set(item['feature'] for item in imp_a[-n_prune_a:]) if imp_a else set()
+            # Place (P) モデルのimportanceを基準にする（VB戦略の核）
+            imp_p = prev_result.get('models', {}).get('place', {}).get('feature_importance', [])
+            if imp_p:
+                n_prune = max(1, len(imp_p) * args.prune_bottom // 100)
+                prune_set = set(item['feature'] for item in imp_p[-n_prune:])
 
-                feature_cols_value = [f for f in feature_cols_value if f not in prune_b]
-                feature_cols_all = [f for f in feature_cols_all if f not in prune_a]
-                pruned_features = sorted(prune_b | prune_a)
+                feature_cols_value = [f for f in feature_cols_value if f not in prune_set]
+                pruned_features = sorted(prune_set)
 
                 print(f"\n[Pruning] Removing bottom {args.prune_bottom}% features")
-                print(f"  Model A: {len(FEATURE_COLS_ALL)} → {len(feature_cols_all)} "
-                      f"(-{len(FEATURE_COLS_ALL) - len(feature_cols_all)} features)")
-                print(f"  Model B: {len(FEATURE_COLS_VALUE)} → {len(feature_cols_value)} "
+                print(f"  Features: {len(FEATURE_COLS_VALUE)} → {len(feature_cols_value)} "
                       f"(-{len(FEATURE_COLS_VALUE) - len(feature_cols_value)} features)")
-                print(f"  Pruned (B): {sorted(prune_b)}")
-                if prune_a - prune_b:
-                    print(f"  Pruned (A only): {sorted(prune_a - prune_b)}")
+                print(f"  Pruned: {sorted(prune_set)}")
         else:
             print(f"\n[Pruning] WARNING: No previous result found at {prev_result_path}")
             print(f"  Run experiment without --prune-bottom first to generate importance data")
 
-    # === Place モデル (is_top3) ===
-    # Model A: 全特徴量
-    model_a, metrics_a, importance_a, pred_a, cal_a, pred_a_raw = train_model(
-        df_train, df_val, df_test, feature_cols_all, PARAMS_A, 'is_top3', 'Model_A'
+    # === Place モデル P (is_top3) ===
+    model_p, metrics_p, importance_p, pred_p, cal_p, pred_p_raw = train_model(
+        df_train, df_val, df_test, feature_cols_value, PARAMS_P, 'is_top3', 'Place'
     )
 
-    # Model B: Value特徴量（市場系除外）
-    model_b, metrics_b, importance_b, pred_b, cal_b, pred_b_raw = train_model(
-        df_train, df_val, df_test, feature_cols_value, PARAMS_B, 'is_top3', 'Model_B'
-    )
-
-    # === Win モデル (is_win) ===
-    # Model W: 全特徴量
+    # === Win モデル W (is_win) ===
     model_w, metrics_w, importance_w, pred_w, cal_w, pred_w_raw = train_model(
-        df_train, df_val, df_test, feature_cols_all, PARAMS_W, 'is_win', 'Model_W'
+        df_train, df_val, df_test, feature_cols_value, PARAMS_W, 'is_win', 'Win'
     )
 
-    # Model WV: Value特徴量（市場系除外）
-    model_wv, metrics_wv, importance_wv, pred_wv, cal_wv, pred_wv_raw = train_model(
-        df_train, df_val, df_test, feature_cols_value, PARAMS_WV, 'is_win', 'Model_WV'
-    )
-
-    # === 回帰モデル (着差予測) ===
+    # === Aura モデル AR (着差回帰) ===
     from ml.features.margin_target import add_margin_target_to_df
     print("\n[Margin] Computing target_margin...")
     for label, df in [('train', df_train), ('val', df_val), ('test', df_test)]:
         add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
 
-    model_reg_b, metrics_reg_b, importance_reg_b, pred_reg_b = train_regression_model(
-        df_train, df_val, df_test, feature_cols_value, PARAMS_REG_B, 'Reg_B'
+    model_ar, metrics_ar, importance_ar, pred_ar = train_regression_model(
+        df_train, df_val, df_test, feature_cols_value, PARAMS_AR, 'Aura'
     )
 
     # 予測結果をDataFrameに追加
-    df_test['pred_proba_a'] = pred_a
-    df_test['pred_proba_v'] = pred_b
-    df_test['pred_rank_a'] = df_test.groupby('race_id')['pred_proba_a'].rank(
-        ascending=False, method='min'
-    )
-    df_test['pred_rank_v'] = df_test.groupby('race_id')['pred_proba_v'].rank(
+    df_test['pred_proba_p'] = pred_p
+    df_test['pred_rank_p'] = df_test.groupby('race_id')['pred_proba_p'].rank(
         ascending=False, method='min'
     )
     # Win モデル
     df_test['pred_proba_w'] = pred_w
-    df_test['pred_proba_wv'] = pred_wv
     df_test['pred_rank_w'] = df_test.groupby('race_id')['pred_proba_w'].rank(
         ascending=False, method='min'
     )
-    df_test['pred_rank_wv'] = df_test.groupby('race_id')['pred_proba_wv'].rank(
-        ascending=False, method='min'
-    )
-    # 回帰モデル
-    df_test['pred_margin_b'] = pred_reg_b
+    # Aura (回帰) モデル
+    df_test['pred_margin_ar'] = pred_ar
 
     # EV (calibrated) — EV分析・bet_engine両方で使用
-    # NOTE: pred_wv/pred_b は train_model() 内で既にIsotonic calibration済み
-    # 以前ここで二重にcalibrationをかけていた（3倍過小予測の原因）
-    pred_wv_cal = pred_wv  # already calibrated by train_model()
-    pred_b_cal = pred_b    # already calibrated by train_model()
-    df_test['win_ev'] = pred_wv_cal * df_test['odds']
+    # NOTE: pred_w/pred_p は train_model() 内で既にIsotonic calibration済み
+    pred_w_cal = pred_w  # already calibrated by train_model()
+    pred_p_cal = pred_p  # already calibrated by train_model()
+    df_test['win_ev'] = pred_w_cal * df_test['odds']
 
     # --- キャリブレーション診断: 確率帯別の予測vs実際 ---
-    print("\n[Calibration] WV model (win) -probability bin analysis (calibrated):")
+    print("\n[Calibration] Win model (W) - probability bin analysis (calibrated):")
     print(f"  {'Bin':>12} {'Pred':>8} {'Actual':>8} {'Ratio':>7} {'N':>7}")
     print(f"  {'-'*48}")
     y_test_win = df_test['is_win'].values
     bin_edges_diag = [0, 0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50, 1.0]
     for i in range(len(bin_edges_diag) - 1):
         lo, hi = bin_edges_diag[i], bin_edges_diag[i + 1]
-        mask = (pred_wv_cal >= lo) & (pred_wv_cal < hi)
+        mask = (pred_w_cal >= lo) & (pred_w_cal < hi)
         if mask.sum() == 0:
             continue
-        pred_mean = pred_wv_cal[mask].mean()
+        pred_mean = pred_w_cal[mask].mean()
         actual_mean = y_test_win[mask].mean()
         ratio = actual_mean / pred_mean if pred_mean > 0 else float('inf')
         print(f"  {lo:.0%}-{hi:.0%}  {pred_mean:>8.4f} {actual_mean:>8.4f} {ratio:>6.2f}x {mask.sum():>7,}")
 
-    print(f"\n[Calibration] B model (place/top3) -probability bin analysis (calibrated):")
+    print(f"\n[Calibration] Place model (P) - probability bin analysis (calibrated):")
     print(f"  {'Bin':>12} {'Pred':>8} {'Actual':>8} {'Ratio':>7} {'N':>7}")
     print(f"  {'-'*48}")
     y_test_top3 = df_test['is_top3'].values
     bin_edges_place = [0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.70, 1.0]
     for i in range(len(bin_edges_place) - 1):
         lo, hi = bin_edges_place[i], bin_edges_place[i + 1]
-        mask = (pred_b_cal >= lo) & (pred_b_cal < hi)
+        mask = (pred_p_cal >= lo) & (pred_p_cal < hi)
         if mask.sum() == 0:
             continue
-        pred_mean = pred_b_cal[mask].mean()
+        pred_mean = pred_p_cal[mask].mean()
         actual_mean = y_test_top3[mask].mean()
         ratio = actual_mean / pred_mean if pred_mean > 0 else float('inf')
         print(f"  {lo:.0%}-{hi:.0%}  {pred_mean:>8.4f} {actual_mean:>8.4f} {ratio:>6.2f}x {mask.sum():>7,}")
 
     # Raw vs Calibrated comparison
-    print(f"\n[Calibration] Raw vs Calibrated summary (WV model):")
-    print(f"  Raw    mean={pred_wv_raw.mean():.6f}, min={pred_wv_raw.min():.6f}, max={pred_wv_raw.max():.6f}")
-    print(f"  Cal    mean={pred_wv_cal.mean():.6f}, min={pred_wv_cal.min():.6f}, max={pred_wv_cal.max():.6f}")
+    print(f"\n[Calibration] Raw vs Calibrated summary (Win model):")
+    print(f"  Raw    mean={pred_w_raw.mean():.6f}, min={pred_w_raw.min():.6f}, max={pred_w_raw.max():.6f}")
+    print(f"  Cal    mean={pred_w_cal.mean():.6f}, min={pred_w_cal.min():.6f}, max={pred_w_cal.max():.6f}")
     print(f"  Actual win_rate={y_test_win.mean():.6f}")
 
     # --- AR偏差値 (ARd) を df_test に計算 ---
     # predict.py / bet_engine.py と同じロジック: RATING変換後にARdを算出
     from ml.bet_engine import RATING_BASE, RATING_SCALE
-    df_test['_ar_rating'] = RATING_BASE - df_test['pred_margin_b'] * RATING_SCALE
+    df_test['_ar_rating'] = RATING_BASE - df_test['pred_margin_ar'] * RATING_SCALE
     ar_groups = df_test.groupby('race_id')['_ar_rating']
     ar_mean = ar_groups.transform('mean')
     ar_std = ar_groups.transform('std').clip(lower=3.0)  # floor=3.0はレーティングスケール
@@ -2601,36 +2564,33 @@ def main():
 
     # 分析
     print("\n[Analysis] Hit rate analysis (v2)...")
-    hit_a = calc_hit_analysis(df_test, 'pred_proba_a')
-    hit_b = calc_hit_analysis(df_test, 'pred_proba_v')
-    hit_v2_accuracy = calc_hit_analysis_v2(df_test, 'pred_proba_a')
-    hit_v2_value = calc_hit_analysis_v2(df_test, 'pred_proba_v')
-    hit_v2_regression = calc_hit_analysis_v2(df_test, 'pred_margin_b', ascending=True)
+    hit_p = calc_hit_analysis(df_test, 'pred_proba_p')
+    hit_v2_place = calc_hit_analysis_v2(df_test, 'pred_proba_p')
+    hit_v2_win = calc_hit_analysis_v2(df_test, 'pred_proba_w')
+    hit_v2_aura = calc_hit_analysis_v2(df_test, 'pred_margin_ar', ascending=True)
     ard_analysis = calc_ard_threshold_analysis(df_test)
-    print(f"  Top1 好走率: A={hit_v2_accuracy['top1_place_rate']:.1%} V={hit_v2_value['top1_place_rate']:.1%} AR={hit_v2_regression['top1_place_rate']:.1%}")
-    print(f"  Top1 勝率:   A={hit_v2_accuracy['top1_win_rate']:.1%} V={hit_v2_value['top1_win_rate']:.1%} AR={hit_v2_regression['top1_win_rate']:.1%}")
+    print(f"  Top1 好走率: P={hit_v2_place['top1_place_rate']:.1%} W={hit_v2_win['top1_place_rate']:.1%} AR={hit_v2_aura['top1_place_rate']:.1%}")
+    print(f"  Top1 勝率:   P={hit_v2_place['top1_win_rate']:.1%} W={hit_v2_win['top1_win_rate']:.1%} AR={hit_v2_aura['top1_win_rate']:.1%}")
     print(f"  ARd閾値別:")
     for a in ard_analysis:
         print(f"    ARd>={a['threshold']}: {a['total']}頭 勝率{a['win_rate']:.1%} 好走率{a['place_rate']:.1%}")
 
-    roi_a = calc_roi_analysis(df_test, 'pred_proba_a')
-    roi_b = calc_roi_analysis(df_test, 'pred_proba_v')
+    roi_p = calc_roi_analysis(df_test, 'pred_proba_p')
     roi_w = calc_roi_analysis(df_test, 'pred_proba_w')
-    roi_wv = calc_roi_analysis(df_test, 'pred_proba_wv')
-    roi_reg = calc_roi_analysis(df_test, 'pred_margin_b', ascending=True)
+    roi_ar = calc_roi_analysis(df_test, 'pred_margin_ar', ascending=True)
 
     print("\n[Analysis] Value Bet analysis (Place model)...")
-    vb_analysis = calc_value_bet_analysis(df_test, rank_col='pred_rank_v')
+    vb_analysis = calc_value_bet_analysis(df_test, rank_col='pred_rank_p')
     vb_picks = collect_value_bet_picks(df_test, min_gap=VALUE_BET_MIN_GAP)
     print(f"  Value Bet picks: {len(vb_picks)} entries (gap >= {VALUE_BET_MIN_GAP})")
 
     print("\n[Analysis] Value Bet analysis (Win model)...")
-    vb_win_analysis = calc_value_bet_analysis(df_test, rank_col='pred_rank_wv')
+    vb_win_analysis = calc_value_bet_analysis(df_test, rank_col='pred_rank_w')
     print(f"  Win VB analysis done")
 
     print("\n[Analysis] Bootstrap ROI confidence intervals...")
-    vb_bootstrap_place = calc_vb_bootstrap_ci(df_test, rank_col='pred_rank_v')
-    vb_bootstrap_win = calc_vb_bootstrap_ci(df_test, rank_col='pred_rank_wv')
+    vb_bootstrap_place = calc_vb_bootstrap_ci(df_test, rank_col='pred_rank_p')
+    vb_bootstrap_win = calc_vb_bootstrap_ci(df_test, rank_col='pred_rank_w')
     for bs in vb_bootstrap_place:
         g = bs['min_gap']
         print(f"  Place gap>={g}: ROI {bs['place_roi']:>6.1f}% "
@@ -2670,14 +2630,14 @@ def main():
         from dataclasses import asdict as _asdict
 
         # df_test にbet_engine用の追加列を計算
-        # pred_b_raw: LightGBM生出力（Kelly計算用。sum≈3.0でP(top3)として正しい）
-        df_test['pred_proba_v_raw'] = pred_b_raw
-        df_test['vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_v']).clip(lower=0).astype(int)
-        df_test['win_vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_wv']).clip(lower=0).astype(int)
+        # pred_p_raw: LightGBM生出力（Kelly計算用。sum≈3.0でP(top3)として正しい）
+        df_test['pred_proba_p_raw'] = pred_p_raw
+        df_test['vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_p']).clip(lower=0).astype(int)
+        df_test['win_vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_w']).clip(lower=0).astype(int)
 
         # place_ev (win_evは既に計算済み)
         place_odds_col = df_test['place_odds_low'].fillna(df_test['odds'] / 3.5)
-        df_test['place_ev'] = pred_b_cal * place_odds_col
+        df_test['place_ev'] = pred_p_cal * place_odds_col
 
         # grade offsets for Method A (AR absolute rating)
         from ml.bet_engine import load_grade_offsets as _load_grade_offsets
@@ -2755,35 +2715,25 @@ def main():
     print(f"\n{'='*60}")
     print(f"  Results")
     print(f"{'='*60}")
-    print(f"\n  --- Place Models (target=is_top3) ---")
-    print(f"  Model A (Accuracy): AUC={metrics_a['auc']}, Brier={metrics_a['brier_score']}, "
-          f"ECE={metrics_a['ece']}, Iter={metrics_a['best_iteration']}")
-    print(f"  Model B (Value):    AUC={metrics_b['auc']}, Brier={metrics_b['brier_score']}, "
-          f"ECE={metrics_b['ece']}, Iter={metrics_b['best_iteration']}")
+    print(f"\n  --- Place Model P (target=is_top3) ---")
+    print(f"  Place (P):  AUC={metrics_p['auc']}, Brier={metrics_p['brier_score']}, "
+          f"ECE={metrics_p['ece']}, Iter={metrics_p['best_iteration']}")
 
-    print(f"\n  --- Win Models (target=is_win) ---")
-    print(f"  Model W (Accuracy): AUC={metrics_w['auc']}, Brier={metrics_w['brier_score']}, "
+    print(f"\n  --- Win Model W (target=is_win) ---")
+    print(f"  Win   (W):  AUC={metrics_w['auc']}, Brier={metrics_w['brier_score']}, "
           f"ECE={metrics_w['ece']}, Iter={metrics_w['best_iteration']}")
-    print(f"  Model WV (Value):   AUC={metrics_wv['auc']}, Brier={metrics_wv['brier_score']}, "
-          f"ECE={metrics_wv['ece']}, Iter={metrics_wv['best_iteration']}")
 
-    print(f"\n  --- Regression Model (target=margin) ---")
-    print(f"  Reg B (Value):      MAE={metrics_reg_b['mae']}, Corr={metrics_reg_b['correlation']}, "
-          f"Iter={metrics_reg_b['best_iteration']}")
+    print(f"\n  --- Aura Model AR (target=margin) ---")
+    print(f"  Aura  (AR): MAE={metrics_ar['mae']}, Corr={metrics_ar['correlation']}, "
+          f"Iter={metrics_ar['best_iteration']}")
 
-    print(f"\n  Hit Analysis (Model A - Place):")
-    for h in hit_a:
+    print(f"\n  Hit Analysis (Place P):")
+    for h in hit_p:
         print(f"    Top{h['top_n']}: {h['hit_rate']:.1%} ({h['hits']}/{h['total']})")
 
-    print(f"\n  Hit Analysis (Model B - Place Value):")
-    for h in hit_b:
-        print(f"    Top{h['top_n']}: {h['hit_rate']:.1%} ({h['hits']}/{h['total']})")
-
-    print(f"\n  ROI (Model A): Win={roi_a['top1_win_roi']:.1f}%, Place={roi_a['top1_place_roi']:.1f}%")
-    print(f"  ROI (Model B): Win={roi_b['top1_win_roi']:.1f}%, Place={roi_b['top1_place_roi']:.1f}%")
-    print(f"  ROI (Model W): Win={roi_w['top1_win_roi']:.1f}%, Place={roi_w['top1_place_roi']:.1f}%")
-    print(f"  ROI (Model WV):Win={roi_wv['top1_win_roi']:.1f}%, Place={roi_wv['top1_place_roi']:.1f}%")
-    print(f"  ROI (AR Reg):  Win={roi_reg['top1_win_roi']:.1f}%, Place={roi_reg['top1_place_roi']:.1f}%")
+    print(f"\n  ROI (Place P): Win={roi_p['top1_win_roi']:.1f}%, Place={roi_p['top1_place_roi']:.1f}%")
+    print(f"  ROI (Win W):   Win={roi_w['top1_win_roi']:.1f}%, Place={roi_w['top1_place_roi']:.1f}%")
+    print(f"  ROI (Aura AR): Win={roi_ar['top1_win_roi']:.1f}%, Place={roi_ar['top1_place_roi']:.1f}%")
 
     print(f"\n  Value Bet Analysis (Place):")
     for vb in vb_analysis:
@@ -2797,14 +2747,14 @@ def main():
         print(f"    gap>={vb['min_gap']}: {vb['bet_count']:,} bets, "
               f"win_hit={vb['win_hits']}, win_ROI={vb['win_roi']:.1f}%{marker}")
 
-    print(f"\n  Feature Importance (Model A Top 10):")
-    sorted_imp_a = sorted(importance_a.items(), key=lambda x: x[1], reverse=True)[:10]
-    for fname, imp in sorted_imp_a:
+    print(f"\n  Feature Importance (Place P Top 10):")
+    sorted_imp_p = sorted(importance_p.items(), key=lambda x: x[1], reverse=True)[:10]
+    for fname, imp in sorted_imp_p:
         print(f"    {fname:>25}: {imp:,.0f}")
 
-    print(f"\n  Feature Importance (Model B Top 10):")
-    sorted_imp_b = sorted(importance_b.items(), key=lambda x: x[1], reverse=True)[:10]
-    for fname, imp in sorted_imp_b:
+    print(f"\n  Feature Importance (Win W Top 10):")
+    sorted_imp_w = sorted(importance_w.items(), key=lambda x: x[1], reverse=True)[:10]
+    for fname, imp in sorted_imp_w:
         print(f"    {fname:>25}: {imp:,.0f}")
 
     # H-21: 芝/ダート分離モデル実験
@@ -2812,9 +2762,9 @@ def main():
     if args.split_track:
         track_split_results = run_track_split_experiment(
             df_train, df_val, df_test,
-            feature_cols_all, feature_cols_value,
-            PARAMS_A, PARAMS_B,
-            pred_a, pred_b,
+            feature_cols_value,
+            PARAMS_P,
+            pred_p,
         )
 
     # バージョン未指定の場合はmodel_meta.jsonから読む
@@ -2839,22 +2789,19 @@ def main():
         archive_before_save(
             base_dir=model_dir,
             version=old_ver,
-            files=["model_a.txt", "model_b.txt", "model_w.txt", "model_wv.txt",
-                   "model_reg_b.txt",
+            files=["model_p.txt", "model_w.txt", "model_ar.txt",
                    "model_meta.json", "ml_experiment_v3_result.json",
                    "calibrators.pkl"],
             metadata={"created_at": old_meta.get("created_at", "")},
         )
 
-    model_a.save_model(str(model_dir / "model_a.txt"))
-    model_b.save_model(str(model_dir / "model_b.txt"))
+    model_p.save_model(str(model_dir / "model_p.txt"))
     model_w.save_model(str(model_dir / "model_w.txt"))
-    model_wv.save_model(str(model_dir / "model_wv.txt"))
-    model_reg_b.save_model(str(model_dir / "model_reg_b.txt"))
+    model_ar.save_model(str(model_dir / "model_ar.txt"))
 
     # IsotonicRegressionキャリブレーター保存
     import pickle
-    calibrators = {'cal_a': cal_a, 'cal_b': cal_b, 'cal_w': cal_w, 'cal_wv': cal_wv}
+    calibrators = {'cal_p': cal_p, 'cal_w': cal_w}
     with open(model_dir / "calibrators.pkl", 'wb') as f:
         pickle.dump(calibrators, f)
     print(f"  Calibrators saved: {list(calibrators.keys())}")
@@ -2862,7 +2809,6 @@ def main():
     import sklearn
     meta = {
         'version': experiment_version,
-        'features_all': feature_cols_all,
         'features_value': feature_cols_value,
         'market_features': list(MARKET_FEATURES),
         'targets': {'place': 'is_top3', 'win': 'is_win', 'margin': 'target_margin'},
@@ -2894,71 +2840,48 @@ def main():
             'pruned_features': pruned_features,
         } if pruned_features else None,
         'models': {
-            'accuracy': {
-                'target': 'is_top3',
-                'features': feature_cols_all,
-                'feature_count': len(feature_cols_all),
-                'metrics': metrics_a,
-                'feature_importance': [
-                    {'feature': f, 'importance': int(i)}
-                    for f, i in sorted(importance_a.items(), key=lambda x: -x[1])
-                ],
-            },
-            'value': {
+            'place': {
                 'target': 'is_top3',
                 'features': feature_cols_value,
                 'feature_count': len(feature_cols_value),
-                'metrics': metrics_b,
+                'metrics': metrics_p,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
-                    for f, i in sorted(importance_b.items(), key=lambda x: -x[1])
+                    for f, i in sorted(importance_p.items(), key=lambda x: -x[1])
                 ],
             },
-            'win_accuracy': {
+            'win': {
                 'target': 'is_win',
-                'features': feature_cols_all,
-                'feature_count': len(feature_cols_all),
+                'features': feature_cols_value,
+                'feature_count': len(feature_cols_value),
                 'metrics': metrics_w,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
                     for f, i in sorted(importance_w.items(), key=lambda x: -x[1])
                 ],
             },
-            'win_value': {
-                'target': 'is_win',
-                'features': feature_cols_value,
-                'feature_count': len(feature_cols_value),
-                'metrics': metrics_wv,
-                'feature_importance': [
-                    {'feature': f, 'importance': int(i)}
-                    for f, i in sorted(importance_wv.items(), key=lambda x: -x[1])
-                ],
-            },
-            'regression_value': {
+            'aura': {
                 'target': 'target_margin',
                 'features': feature_cols_value,
                 'feature_count': len(feature_cols_value),
-                'metrics': metrics_reg_b,
+                'metrics': metrics_ar,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
-                    for f, i in sorted(importance_reg_b.items(), key=lambda x: -x[1])[:20]
+                    for f, i in sorted(importance_ar.items(), key=lambda x: -x[1])
                 ],
             },
         },
         'hit_analysis': {
-            'accuracy': hit_a,
-            'value': hit_b,
-            'accuracy_v2': hit_v2_accuracy,
-            'value_v2': hit_v2_value,
-            'regression_v2': hit_v2_regression,
+            'place': hit_p,
+            'place_v2': hit_v2_place,
+            'win_v2': hit_v2_win,
+            'aura_v2': hit_v2_aura,
             'ard_analysis': ard_analysis,
         },
         'roi_analysis': {
-            'accuracy': roi_a,
-            'value': roi_b,
-            'win_accuracy': roi_w,
-            'win_value': roi_wv,
-            'regression': roi_reg,
+            'place': roi_p,
+            'win': roi_w,
+            'aura': roi_ar,
         },
         'value_bets': {
             'by_rank_gap': vb_analysis,

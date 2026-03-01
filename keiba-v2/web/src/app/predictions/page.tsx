@@ -1,4 +1,4 @@
-import { getPredictionsLive, getPredictionsByDate, getAvailablePredictionDates, getResultsByDate, enrichPredictionsFromDb } from '@/lib/data/predictions-reader';
+import { getPredictionsByDate, getAvailablePredictionDates, getResultsByDate, enrichPredictionsFromDb } from '@/lib/data/predictions-reader';
 import { PredictionsContent } from './predictions-content';
 import Link from 'next/link';
 
@@ -13,10 +13,10 @@ export default async function PredictionsPage({
   const params = await searchParams;
   const dates = getAvailablePredictionDates();
   const targetDate = params.date || null;
-  // デフォルト: 最新アーカイブ日付を使用（predictions_live.jsonは最後に実行した日付で上書きされるため）
+  // デフォルト: 最新アーカイブ日付を使用
   let data = targetDate
     ? getPredictionsByDate(targetDate)
-    : (dates.length > 0 ? getPredictionsByDate(dates[0]) : null) ?? getPredictionsLive();
+    : (dates.length > 0 ? getPredictionsByDate(dates[0]) : null);
 
   if (!data) {
     return (
@@ -25,7 +25,7 @@ export default async function PredictionsPage({
         <p>
           {targetDate
             ? `${targetDate} の予測アーカイブが見つかりません。`
-            : 'predictions_live.json が見つかりません。管理画面から予測を実行してください。'}
+            : '予測データが見つかりません。predict.py を実行してください。'}
         </p>
         {dates.length > 0 && (
           <div className="mt-6">

@@ -171,16 +171,16 @@ export function getPlaceOddsMin(odds: OddsMap, raceId: string, umaban: number): 
   return entry?.placeOddsMin ?? null;
 }
 
-export function calcWinEv(entry: { pred_proba_wv_cal?: number; pred_proba_wv?: number; pred_proba_v: number }, winOdds: number | null): number | null {
+export function calcWinEv(entry: { pred_proba_w_cal?: number; pred_proba_w?: number; pred_proba_p: number }, winOdds: number | null): number | null {
   if (!winOdds || winOdds <= 0) return null;
   // Use calibrated probability (IsotonicRegression) for EV calculation — matches Python's logic
-  const prob = entry.pred_proba_wv_cal ?? entry.pred_proba_wv ?? entry.pred_proba_v;
+  const prob = entry.pred_proba_w_cal ?? entry.pred_proba_w ?? entry.pred_proba_p;
   return prob * winOdds;
 }
 
-export function calcPlaceEv(probV: number, placeOddsMin: number | undefined | null): number | null {
+export function calcPlaceEv(probP: number, placeOddsMin: number | undefined | null): number | null {
   if (!placeOddsMin || placeOddsMin <= 0) return null;
-  return probV * placeOddsMin;
+  return probP * placeOddsMin;
 }
 
 /**
@@ -201,9 +201,9 @@ export function calcCorrectedPlaceEv(gap: number, placeOddsMin: number | undefin
   return empiricalPlaceRate * placeOddsMin;
 }
 
-export function calcHeadRatio(probWV: number | undefined, probV: number): number | null {
-  if (!probWV || probV <= 0) return null;
-  return probWV / probV;
+export function calcHeadRatio(probW: number | undefined, probP: number): number | null {
+  if (!probW || probP <= 0) return null;
+  return probW / probP;
 }
 
 export function getPlaceLimit(numRunners: number): number {
@@ -227,15 +227,15 @@ export function getKoukakuDetail(entry: PredictionEntry): string {
 
 // --- 危険な人気馬 ---
 
-/** 危険馬検出: odds<=8 & ARd<53 & V%<15% (v5.33) */
+/** 危険馬検出: odds<=8 & ARd<53 & P%<15% (v5.33) */
 export function getRaceDanger(entries: PredictionEntry[]): DangerInfo {
   let dangerHorse: DangerInfo['dangerHorse'] = undefined;
 
   for (const e of entries) {
     const odds = e.odds || 0;
     const ard = e.ar_deviation ?? 999;
-    const predV = e.pred_proba_v ?? 0;
-    if (odds > 0 && odds <= 8.0 && ard < 53 && predV < 0.15) {
+    const predP = e.pred_proba_p ?? 0;
+    if (odds > 0 && odds <= 8.0 && ard < 53 && predP < 0.15) {
       dangerHorse = {
         umaban: e.umaban,
         horseName: e.horse_name,
@@ -292,7 +292,7 @@ export function getDayColor(dateStr: string): string {
 
 // --- ソート ---
 
-export const ASC_KEYS = new Set(['umaban', 'race', 'race_number', 'rank_a', 'rank_v', 'odds_rank', 'odds', 'finish', 'verdict']);
+export const ASC_KEYS = new Set(['umaban', 'race', 'race_number', 'rank_p', 'odds_rank', 'odds', 'finish', 'verdict']);
 
 export function SortTh({ children, sortKey, sort, setSort, className = '', title }: {
   children: React.ReactNode;

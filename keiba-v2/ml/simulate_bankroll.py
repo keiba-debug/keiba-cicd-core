@@ -8,7 +8,9 @@ v5.35b: 確定オッズでGap/EV再計算（予測時オッズとのズレ修正
 """
 import json
 import math
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 
@@ -51,8 +53,8 @@ def cache_to_preds(races, confirmed_odds_map=None):
 
     confirmed_odds_map が指定されていれば、確定オッズで以下を再計算:
       - odds_rank: 確定オッズ昇順ランク
-      - vb_gap:    confirmed_odds_rank - rank_v
-      - win_vb_gap: confirmed_odds_rank - rank_wv
+      - vb_gap:    confirmed_odds_rank - rank_p
+      - win_vb_gap: confirmed_odds_rank - rank_w
       - win_ev:    (old_win_ev / old_odds) * confirmed_odds
       - odds:      確定オッズ値
     """
@@ -83,12 +85,12 @@ def cache_to_preds(races, confirmed_odds_map=None):
                 new_odds = old_odds
 
             new_rank = rank_map.get(uma, 99)
-            rank_v = e.get("rank_v", 99)
-            rank_wv = e.get("rank_wv", 99)
+            rank_p = e.get("rank_p", 99)
+            rank_w = e.get("rank_w", 99)
 
             # Gap再計算
-            new_vb_gap = new_rank - rank_v
-            new_win_vb_gap = new_rank - rank_wv
+            new_vb_gap = new_rank - rank_p
+            new_win_vb_gap = new_rank - rank_w
 
             # EV再計算: prob = old_ev / old_odds → new_ev = prob * new_odds
             old_win_ev = e.get("win_ev") or 0
@@ -105,10 +107,10 @@ def cache_to_preds(races, confirmed_odds_map=None):
                 "odds_rank": new_rank,
                 "vb_gap": new_vb_gap,
                 "win_vb_gap": new_win_vb_gap,
-                "rank_v": rank_v,
-                "rank_wv": rank_wv,
+                "rank_p": rank_p,
+                "rank_w": rank_w,
                 "place_odds_min": e.get("place_odds_min"),
-                "pred_proba_v_raw": e.get("pred_proba_v_raw"),
+                "pred_proba_p_raw": e.get("pred_proba_p_raw"),
                 "predicted_margin": e.get("predicted_margin"),
                 "win_ev": new_win_ev,
                 "place_ev": e.get("place_ev"),
@@ -455,8 +457,20 @@ def main():
 
             all_results.extend(results)
 
+    # モデルバージョン取得
+    meta_path = Path("C:/KEIBA-CICD/data3/ml/model_meta.json")
+    model_version = "unknown"
+    if meta_path.exists():
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        model_version = meta.get("version", "unknown")
+
+    created_at = datetime.now().isoformat(timespec="seconds")
+
     # Save JSON for web visualization
     output = {
+        "model_version": model_version,
+        "created_at": created_at,
         "initial_bankroll": INITIAL_BANKROLL,
         "budget_configs": [{"label": b["label"], "pct": b["pct"]} for b in BUDGET_CONFIGS],
         "strategies": [{"mode": m, "label": l} for m, l in STRATEGIES],
@@ -489,6 +503,14 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
     print(f"\n  Saved: {out_path} ({out_path.stat().st_size:,} bytes)")
+    print(f"  Model Version: v{model_version}")
+
+    # バージョン別アーカイブ
+    archive_dir = Path(f"C:/KEIBA-CICD/data3/ml/versions/v{model_version}")
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = archive_dir / "bankroll_simulation.json"
+    shutil.copy2(out_path, archive_path)
+    print(f"  Archive: {archive_path}")
 
 
 if __name__ == "__main__":

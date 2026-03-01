@@ -21,7 +21,6 @@ from core import config
 from ml.experiment import (
     load_data,
     build_dataset,
-    FEATURE_COLS_ALL,
     FEATURE_COLS_VALUE,
 )
 from ml.features.margin_target import add_margin_target_to_df
@@ -40,58 +39,46 @@ def load_v55_models():
     model_dir = config.ml_dir() / "versions" / "v5.5"
     print(f"[Model] Loading v5.5 from {model_dir}")
 
-    model_a = lgb.Booster(model_file=str(model_dir / "model_a.txt"))
-    model_b = lgb.Booster(model_file=str(model_dir / "model_b.txt"))
+    model_p = lgb.Booster(model_file=str(model_dir / "model_p.txt"))
     model_w = lgb.Booster(model_file=str(model_dir / "model_w.txt"))
-    model_wv = lgb.Booster(model_file=str(model_dir / "model_wv.txt"))
-    model_reg_b = lgb.Booster(model_file=str(model_dir / "model_reg_b.txt"))
+    model_ar = lgb.Booster(model_file=str(model_dir / "model_ar.txt"))
 
     with open(model_dir / "calibrators.pkl", 'rb') as f:
         calibrators = pickle.load(f)
 
-    print(f"  Models: A, B, W, WV, Reg_B loaded")
+    print(f"  Models: P, W, Reg_AR loaded")
     print(f"  Calibrators: {list(calibrators.keys())}")
-    return model_a, model_b, model_w, model_wv, model_reg_b, calibrators
+    return model_p, model_w, model_ar, calibrators
 
 
-def predict_on_df(df, model_a, model_b, model_w, model_wv, model_reg_b, calibrators):
+def predict_on_df(df, model_p, model_w, model_ar, calibrators):
     """DataFrameにモデル予測を追加"""
     # 分類モデル予測
-    pred_a = model_a.predict(df[FEATURE_COLS_ALL])
-    pred_b = model_b.predict(df[FEATURE_COLS_VALUE])
-    pred_w = model_w.predict(df[FEATURE_COLS_ALL])
-    pred_wv = model_wv.predict(df[FEATURE_COLS_VALUE])
-    pred_reg = model_reg_b.predict(df[FEATURE_COLS_VALUE])
+    pred_p = model_p.predict(df[FEATURE_COLS_VALUE])
+    pred_w = model_w.predict(df[FEATURE_COLS_VALUE])
+    pred_reg = model_ar.predict(df[FEATURE_COLS_VALUE])
 
     # calibrated
-    cal_a = calibrators.get('cal_a')
-    cal_b = calibrators.get('cal_b')
+    cal_p = calibrators.get('cal_p')
     cal_w = calibrators.get('cal_w')
-    cal_wv = calibrators.get('cal_wv')
 
-    pred_a_cal = cal_a.predict(pred_a) if cal_a else pred_a
-    pred_b_cal = cal_b.predict(pred_b) if cal_b else pred_b
+    pred_p_cal = cal_p.predict(pred_p) if cal_p else pred_p
     pred_w_cal = cal_w.predict(pred_w) if cal_w else pred_w
-    pred_wv_cal = cal_wv.predict(pred_wv) if cal_wv else pred_wv
 
-    df['pred_proba_a'] = pred_a_cal
-    df['pred_proba_v'] = pred_b_cal
+    df['pred_proba_p'] = pred_p_cal
     df['pred_proba_w'] = pred_w_cal
-    df['pred_proba_wv'] = pred_wv_cal
-    df['pred_margin_b'] = -pred_reg  # ability_score: 高い=強い
+    df['pred_margin_ar'] = -pred_reg  # ability_score: 高い=強い
 
     # ランク
-    df['pred_rank_a'] = df.groupby('race_id')['pred_proba_a'].rank(ascending=False, method='min')
-    df['pred_rank_v'] = df.groupby('race_id')['pred_proba_v'].rank(ascending=False, method='min')
+    df['pred_rank_p'] = df.groupby('race_id')['pred_proba_p'].rank(ascending=False, method='min')
     df['pred_rank_w'] = df.groupby('race_id')['pred_proba_w'].rank(ascending=False, method='min')
-    df['pred_rank_wv'] = df.groupby('race_id')['pred_proba_wv'].rank(ascending=False, method='min')
 
-    # VB gap (win_gap = odds_rank - pred_rank_wv)
-    df['win_gap'] = (df['odds_rank'] - df['pred_rank_wv']).clip(lower=0).astype(int)
-    df['gap'] = (df['odds_rank'] - df['pred_rank_v']).clip(lower=0).astype(int)
+    # VB gap (win_gap = odds_rank - pred_rank_w)
+    df['win_gap'] = (df['odds_rank'] - df['pred_rank_w']).clip(lower=0).astype(int)
+    df['gap'] = (df['odds_rank'] - df['pred_rank_p']).clip(lower=0).astype(int)
 
     # EV
-    df['win_ev'] = pred_wv_cal * df['odds']
+    df['win_ev'] = pred_w_cal * df['odds']
 
     # ability_score (= -pred_margin, 高い=強い)
     df['margin'] = -pred_reg  # NOTE: 変数名'margin'は互換性のため維持（意味は反転）
@@ -165,9 +152,9 @@ def bootstrap_roi_ci(bets_df, n_bootstrap=2000, ci_level=0.95):
 
 
 def filter_win_only(df, min_gap=5, min_ability=-1.2):
-    """win_only条件でフィルタ: win_gap >= min_gap, ability >= min_ability, pred_rank_wv <= 3"""
+    """win_only条件でフィルタ: win_gap >= min_gap, ability >= min_ability, pred_rank_w <= 3"""
     mask = (
-        (df['pred_rank_wv'] <= 3) &
+        (df['pred_rank_w'] <= 3) &
         (df['win_gap'] >= min_gap) &
         (df['margin'] >= min_ability) &
         (df['odds'] > 0)
@@ -178,7 +165,7 @@ def filter_win_only(df, min_gap=5, min_ability=-1.2):
 def filter_selective(df, min_gap=6, min_ev=1.2, min_ability=-0.8):
     """selective条件: win_gap >= min_gap, win_ev >= min_ev, ability >= min_ability"""
     mask = (
-        (df['pred_rank_wv'] <= 3) &
+        (df['pred_rank_w'] <= 3) &
         (df['win_gap'] >= min_gap) &
         (df['win_ev'] >= min_ev) &
         (df['margin'] >= min_ability) &
@@ -224,8 +211,8 @@ def main():
 
     # --- モデル読み込み & 予測 ---
     print("\n[3] Loading v5.5 models and predicting...")
-    model_a, model_b, model_w, model_wv, model_reg_b, calibrators = load_v55_models()
-    df = predict_on_df(df, model_a, model_b, model_w, model_wv, model_reg_b, calibrators)
+    model_p, model_w, model_ar, calibrators = load_v55_models()
+    df = predict_on_df(df, model_p, model_w, model_ar, calibrators)
 
     # === Step 1: 月別ROI推移 ===
     print("\n" + "=" * 60)

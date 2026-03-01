@@ -63,8 +63,7 @@ def enrich_bets(bets, predictions):
         key = (b["venue"], b["race_number"], b["umaban"])
         e = predictions.get(key, {})
         b["gap"] = e.get("vb_gap", 0) or 0
-        b["rank_v"] = e.get("rank_v", 0) or 0
-        b["rank_a"] = e.get("rank_a", 0) or 0
+        b["rank_p"] = e.get("rank_p", 0) or e.get("rank_v", 0) or 0
         b["popularity"] = e.get("popularity", 0) or 0
         b["finish"] = e.get("finish_position", 99) or 99
         b["horse_name"] = e.get("horse_name") or "?"

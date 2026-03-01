@@ -98,6 +98,7 @@ def build_horse_history(years: List[int]) -> Dict[str, List[Dict]]:
             'num_runners': sr.num_runners,
             'distance': sr.distance,
             'track_type': sr.track_type,
+            'track_condition': sr.baba_name,  # v5.45: 良/稍重/重/不良
             'grade': sr.grade,
             'is_handicap': sr.is_handicap,
             'is_female_only': sr.is_female_only,

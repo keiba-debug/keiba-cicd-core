@@ -68,10 +68,10 @@ class RaceEntry:
     odds_rank: int
     is_win: bool
     finish_position: int
-    rank_v: int
-    rank_wv: int
+    rank_p: int
+    rank_w: int
     ar_deviation: float
-    pred_proba_v_raw: float
+    pred_proba_p_raw: float
     vb_gap: float
     win_vb_gap: float
     win_ev: float
@@ -237,10 +237,10 @@ def load_backtest_predictions() -> dict:
                 odds_rank=int(e.get('odds_rank', 0) or 0),
                 is_win=bool(e.get('is_win', False)),
                 finish_position=int(e.get('finish_position', 0) or 0),
-                rank_v=int(e.get('rank_v', 0) or 0),
-                rank_wv=int(e.get('rank_wv', 0) or 0),
+                rank_p=int(e.get('rank_p', 0) or 0),
+                rank_w=int(e.get('rank_w', 0) or 0),
                 ar_deviation=float(e.get('ar_deviation', 0) or 0),
-                pred_proba_v_raw=float(e.get('pred_proba_v_raw', 0) or 0),
+                pred_proba_p_raw=float(e.get('pred_proba_p_raw', 0) or 0),
                 vb_gap=float(e.get('vb_gap', 0) or 0),
                 win_vb_gap=float(e.get('win_vb_gap', 0) or 0),
                 win_ev=float(e.get('win_ev', 0) or 0),
@@ -418,7 +418,7 @@ def classify_race_type(pred: RacePrediction) -> str:
     # 危険人気馬チェック（odds<=8 & ARd<50 & V%<15%）
     has_danger = False
     for e in pred.entries:
-        if e.odds <= 8 and e.ar_deviation < 50 and e.pred_proba_v_raw < 0.15:
+        if e.odds <= 8 and e.ar_deviation < 50 and e.pred_proba_p_raw < 0.15:
             has_danger = True
             break
 
@@ -455,9 +455,9 @@ def calc_target_score(race_types: list) -> int:
 # Step 3: カバレッジ戦略
 # ============================================================
 
-def strategy_top_n(pred: RacePrediction, n: int, use_rank_v: bool = False) -> list:
-    """rank_wv or rank_v 上位N頭を選択。"""
-    rank_key = 'rank_v' if use_rank_v else 'rank_wv'
+def strategy_top_n(pred: RacePrediction, n: int, use_rank_p: bool = False) -> list:
+    """rank_w or rank_p 上位N頭を選択。"""
+    rank_key = 'rank_p' if use_rank_p else 'rank_w'
     return sorted(
         [e for e in pred.entries if getattr(e, rank_key, 0) > 0],
         key=lambda e: getattr(e, rank_key)
@@ -465,11 +465,11 @@ def strategy_top_n(pred: RacePrediction, n: int, use_rank_v: bool = False) -> li
 
 
 def strategy_best_union(pred: RacePrediction, n: int) -> list:
-    """rank_v と rank_wv の上位N頭の和集合。カバレッジ最大化。"""
+    """rank_p と rank_w の上位N頭の和集合。カバレッジ最大化。"""
     top_v = {e.umaban for e in sorted(
-        [e for e in pred.entries if e.rank_v > 0], key=lambda e: e.rank_v)[:n]}
+        [e for e in pred.entries if e.rank_p > 0], key=lambda e: e.rank_p)[:n]}
     top_wv = {e.umaban for e in sorted(
-        [e for e in pred.entries if e.rank_wv > 0], key=lambda e: e.rank_wv)[:n]}
+        [e for e in pred.entries if e.rank_w > 0], key=lambda e: e.rank_w)[:n]}
     union = top_v | top_wv
     return [e for e in pred.entries if e.umaban in union]
 
@@ -481,14 +481,14 @@ def strategy_ard_threshold(pred: RacePrediction, threshold: float) -> list:
 
 
 def strategy_danger_exclude_top_n(pred: RacePrediction, n: int) -> list:
-    """危険人気馬を除外した上でrank_wv上位N頭。"""
+    """危険人気馬を除外した上でrank_w上位N頭。"""
     safe = [
         e for e in pred.entries
-        if not (e.odds <= 8 and e.ar_deviation < 50 and e.pred_proba_v_raw < 0.15)
+        if not (e.odds <= 8 and e.ar_deviation < 50 and e.pred_proba_p_raw < 0.15)
     ]
     if not safe:
         safe = pred.entries
-    return sorted(safe, key=lambda e: e.rank_wv)[:n]
+    return sorted(safe, key=lambda e: e.rank_w)[:n]
 
 
 def strategy_type_adaptive(pred: RacePrediction, race_type: str) -> list:
@@ -500,7 +500,7 @@ def strategy_type_adaptive(pred: RacePrediction, race_type: str) -> list:
     if has_danger:
         pool = [
             e for e in pred.entries
-            if not (e.odds <= 8 and e.ar_deviation < 50 and e.pred_proba_v_raw < 0.15)
+            if not (e.odds <= 8 and e.ar_deviation < 50 and e.pred_proba_p_raw < 0.15)
         ]
         if not pool:
             pool = pred.entries
@@ -512,12 +512,12 @@ def strategy_type_adaptive(pred: RacePrediction, race_type: str) -> list:
         return [max(pool, key=lambda e: e.ar_deviation)]
     elif base == 'B':
         # Top2
-        return sorted(pool, key=lambda e: e.rank_wv)[:2]
+        return sorted(pool, key=lambda e: e.rank_w)[:2]
     else:
         # ARd>=50 or Top4
         selected = [e for e in pool if e.ar_deviation >= 50]
         if len(selected) < 2:
-            selected = sorted(pool, key=lambda e: e.rank_wv)[:4]
+            selected = sorted(pool, key=lambda e: e.rank_w)[:4]
         return selected
 
 
@@ -536,7 +536,7 @@ def strategy_budget(pred: RacePrediction, race_type: str, budget_tier: str) -> l
     if has_danger:
         pool = [
             e for e in pred.entries
-            if not (e.odds <= 8 and e.ar_deviation < 50 and e.pred_proba_v_raw < 0.15)
+            if not (e.odds <= 8 and e.ar_deviation < 50 and e.pred_proba_p_raw < 0.15)
         ]
         if not pool:
             pool = pred.entries
@@ -547,11 +547,11 @@ def strategy_budget(pred: RacePrediction, race_type: str, budget_tier: str) -> l
         if base == 'A':
             return [max(pool, key=lambda e: e.ar_deviation)]
         elif base == 'B':
-            return sorted(pool, key=lambda e: e.rank_v)[:2]
+            return sorted(pool, key=lambda e: e.rank_p)[:2]
         else:
-            # 混戦: rank_v ∪ rank_wv Top2の和集合（最大4頭）
-            top_v = set(e.umaban for e in sorted(pool, key=lambda e: e.rank_v)[:2])
-            top_wv = set(e.umaban for e in sorted(pool, key=lambda e: e.rank_wv)[:2])
+            # 混戦: rank_p ∪ rank_w Top2の和集合（最大4頭）
+            top_v = set(e.umaban for e in sorted(pool, key=lambda e: e.rank_p)[:2])
+            top_wv = set(e.umaban for e in sorted(pool, key=lambda e: e.rank_w)[:2])
             union = top_v | top_wv
             return [e for e in pool if e.umaban in union]
 
@@ -559,40 +559,40 @@ def strategy_budget(pred: RacePrediction, race_type: str, budget_tier: str) -> l
         if base == 'A':
             return [max(pool, key=lambda e: e.ar_deviation)]
         elif base == 'B':
-            return sorted(pool, key=lambda e: e.rank_v)[:2]
+            return sorted(pool, key=lambda e: e.rank_p)[:2]
         else:
-            # 混戦: ARd>=50全買い（最低rank_v Top3）
+            # 混戦: ARd>=50全買い（最低rank_p Top3）
             selected = [e for e in pool if e.ar_deviation >= 50]
             if len(selected) < 3:
-                selected = sorted(pool, key=lambda e: e.rank_v)[:3]
+                selected = sorted(pool, key=lambda e: e.rank_p)[:3]
             return selected
 
     else:  # wide
         if base == 'A':
             return [max(pool, key=lambda e: e.ar_deviation)]
         elif base == 'B':
-            return sorted(pool, key=lambda e: e.rank_v)[:3]
+            return sorted(pool, key=lambda e: e.rank_p)[:3]
         else:
             # 混戦: ARd>=45全買い
             selected = [e for e in pool if e.ar_deviation >= 45]
             if len(selected) < 3:
-                selected = sorted(pool, key=lambda e: e.rank_v)[:5]
+                selected = sorted(pool, key=lambda e: e.rank_p)[:5]
             return selected
 
 
 # 全戦略の定義
 STRATEGIES = {
-    # rank_wv（勝利独自）ベース
-    'wv_top1': lambda pred, rt: strategy_top_n(pred, 1),
-    'wv_top2': lambda pred, rt: strategy_top_n(pred, 2),
-    'wv_top3': lambda pred, rt: strategy_top_n(pred, 3),
-    'wv_top5': lambda pred, rt: strategy_top_n(pred, 5),
-    # rank_v（好走独自）ベース
-    'v_top1': lambda pred, rt: strategy_top_n(pred, 1, use_rank_v=True),
-    'v_top2': lambda pred, rt: strategy_top_n(pred, 2, use_rank_v=True),
-    'v_top3': lambda pred, rt: strategy_top_n(pred, 3, use_rank_v=True),
-    'v_top5': lambda pred, rt: strategy_top_n(pred, 5, use_rank_v=True),
-    # 和集合（rank_v ∪ rank_wv で最大カバレッジ）
+    # rank_w（勝利独自）ベース
+    'w_top1': lambda pred, rt: strategy_top_n(pred, 1),
+    'w_top2': lambda pred, rt: strategy_top_n(pred, 2),
+    'w_top3': lambda pred, rt: strategy_top_n(pred, 3),
+    'w_top5': lambda pred, rt: strategy_top_n(pred, 5),
+    # rank_p（好走独自）ベース
+    'p_top1': lambda pred, rt: strategy_top_n(pred, 1, use_rank_p=True),
+    'p_top2': lambda pred, rt: strategy_top_n(pred, 2, use_rank_p=True),
+    'p_top3': lambda pred, rt: strategy_top_n(pred, 3, use_rank_p=True),
+    'p_top5': lambda pred, rt: strategy_top_n(pred, 5, use_rank_p=True),
+    # 和集合（rank_p ∪ rank_w で最大カバレッジ）
     'union_top2': lambda pred, rt: strategy_best_union(pred, 2),
     'union_top3': lambda pred, rt: strategy_best_union(pred, 3),
     # ARd閾値
@@ -983,11 +983,11 @@ def build_aggregation_tables(
             gs = grade_stats[grade]
             gs['total'] += 1
             w = rd['winner']
-            if w.rank_v <= 1:
+            if w.rank_p <= 1:
                 gs['v_top1'] += 1
-            if w.rank_v <= 3:
+            if w.rank_p <= 3:
                 gs['v_top3'] += 1
-            if w.rank_v <= 5:
+            if w.rank_p <= 5:
                 gs['v_top5'] += 1
             if w.odds_rank <= 1:
                 gs['pop_top1'] += 1
@@ -1010,11 +1010,11 @@ def build_aggregation_tables(
             bs = baba_stats[baba]
             bs['total'] += 1
             w = rd['winner']
-            if w.rank_v <= 1:
+            if w.rank_p <= 1:
                 bs['v_top1'] += 1
-            if w.rank_v <= 3:
+            if w.rank_p <= 3:
                 bs['v_top3'] += 1
-            if w.rank_v <= 5:
+            if w.rank_p <= 5:
                 bs['v_top5'] += 1
             if w.odds_rank <= 1:
                 bs['pop_top1'] += 1
@@ -1037,7 +1037,7 @@ def build_aggregation_tables(
             js['rides'] += 1
             if e.is_win:
                 js['wins'] += 1
-            if e.rank_v == 1:
+            if e.rank_p == 1:
                 js['v_top1_rides'] += 1
                 if e.is_win:
                     js['v_top1_match'] += 1
@@ -1137,7 +1137,7 @@ def print_aggregation_tables(tables: dict):
     # 集計⑥: グレード別精度
     if 'grade_accuracy' in tables:
         print('\n' + '=' * 70)
-        print('  集計⑥: グレード別 予測精度 (rank_v vs 人気順)')
+        print('  集計⑥: グレード別 予測精度 (rank_p vs 人気順)')
         print('=' * 70)
         print(f'  {"グレード":10s} {"レース数":>7s} {"v_Top1":>7s} {"v_Top3":>7s} {"v_Top5":>7s} '
               f'{"人気Top1":>8s} {"人気Top3":>8s}')
@@ -1153,7 +1153,7 @@ def print_aggregation_tables(tables: dict):
     # 集計⑦: 馬場状態別精度
     if 'track_condition_accuracy' in tables:
         print('\n' + '=' * 70)
-        print('  集計⑦: 馬場状態別 予測精度 (rank_v vs 人気順)')
+        print('  集計⑦: 馬場状態別 予測精度 (rank_p vs 人気順)')
         print('=' * 70)
         print(f'  {"馬場":10s} {"レース数":>7s} {"v_Top1":>7s} {"v_Top3":>7s} {"v_Top5":>7s} '
               f'{"人気Top1":>8s} {"人気Top3":>8s}')
@@ -1217,22 +1217,22 @@ def analyze_winner_ranks(weeks: list, pred_index: dict):
     print('=' * 70)
 
     print(f'\n  {"日付":10s} {"R1":>12s} {"R2":>12s} {"R3":>12s} {"R4":>12s} '
-          f'{"R5":>12s} {"最小点数(v)":>12s} {"最小点数(wv)":>14s}')
+          f'{"R5":>12s} {"最小点数(p)":>12s} {"最小点数(w)":>14s}')
     print('  ' + '-' * 98)
 
-    all_min_v = []
-    all_min_wv = []
-    rank_v_dist = defaultdict(int)
-    rank_wv_dist = defaultdict(int)
+    all_min_p = []
+    all_min_w = []
+    rank_p_dist = defaultdict(int)
+    rank_w_dist = defaultdict(int)
 
     for week in weeks:
-        ranks_v = []
-        ranks_wv = []
+        ranks_p = []
+        ranks_w = []
         for race in week.races:
             pred = pred_index.get(race.race_id)
             if not pred:
-                ranks_v.append(999)
-                ranks_wv.append(999)
+                ranks_p.append(999)
+                ranks_w.append(999)
                 continue
             winner = None
             for e in pred.entries:
@@ -1240,60 +1240,60 @@ def analyze_winner_ranks(weeks: list, pred_index: dict):
                     winner = e
                     break
             if winner:
-                rv = winner.rank_v if winner.rank_v > 0 else len(pred.entries)
-                rwv = winner.rank_wv if winner.rank_wv > 0 else len(pred.entries)
-                ranks_v.append(rv)
-                ranks_wv.append(rwv)
-                rank_v_dist[rv] += 1
-                rank_wv_dist[rwv] += 1
+                rp = winner.rank_p if winner.rank_p > 0 else len(pred.entries)
+                rw = winner.rank_w if winner.rank_w > 0 else len(pred.entries)
+                ranks_p.append(rp)
+                ranks_w.append(rw)
+                rank_p_dist[rp] += 1
+                rank_w_dist[rw] += 1
             else:
-                ranks_v.append(999)
-                ranks_wv.append(999)
+                ranks_p.append(999)
+                ranks_w.append(999)
 
         # 理論的最小点数 = 各レースの勝ち馬ランクの積
-        min_tickets_v = 1
-        min_tickets_wv = 1
-        for rv, rwv in zip(ranks_v, ranks_wv):
-            min_tickets_v *= rv
-            min_tickets_wv *= rwv
+        min_tickets_p = 1
+        min_tickets_w = 1
+        for rp, rw in zip(ranks_p, ranks_w):
+            min_tickets_p *= rp
+            min_tickets_w *= rw
 
-        all_min_v.append(min_tickets_v)
-        all_min_wv.append(min_tickets_wv)
+        all_min_p.append(min_tickets_p)
+        all_min_w.append(min_tickets_w)
 
         r_strs = []
-        for rv, rwv in zip(ranks_v, ranks_wv):
-            r_strs.append(f'v{rv}/wv{rwv}')
+        for rp, rw in zip(ranks_p, ranks_w):
+            r_strs.append(f'p{rp}/w{rw}')
 
         print(f'  {week.date:10s} {r_strs[0]:>12s} {r_strs[1]:>12s} {r_strs[2]:>12s} '
-              f'{r_strs[3]:>12s} {r_strs[4]:>12s} {min_tickets_v:>12,d} {min_tickets_wv:>14,d}')
+              f'{r_strs[3]:>12s} {r_strs[4]:>12s} {min_tickets_p:>12,d} {min_tickets_w:>14,d}')
 
     print()
-    print(f'  理論的最小点数(rank_v):  '
-          f'平均={np.mean(all_min_v):,.0f}  中央値={np.median(all_min_v):,.0f}  '
-          f'最小={min(all_min_v):,d}  最大={max(all_min_v):,d}')
-    print(f'  理論的最小点数(rank_wv): '
-          f'平均={np.mean(all_min_wv):,.0f}  中央値={np.median(all_min_wv):,.0f}  '
-          f'最小={min(all_min_wv):,d}  最大={max(all_min_wv):,d}')
+    print(f'  理論的最小点数(rank_p):  '
+          f'平均={np.mean(all_min_p):,.0f}  中央値={np.median(all_min_p):,.0f}  '
+          f'最小={min(all_min_p):,d}  最大={max(all_min_p):,d}')
+    print(f'  理論的最小点数(rank_w): '
+          f'平均={np.mean(all_min_w):,.0f}  中央値={np.median(all_min_w):,.0f}  '
+          f'最小={min(all_min_w):,d}  最大={max(all_min_w):,d}')
 
     # 最小点数の分布
-    for label, values in [('rank_v', all_min_v), ('rank_wv', all_min_wv)]:
+    for label, values in [('rank_p', all_min_p), ('rank_w', all_min_w)]:
         print(f'\n  {label}ベース最小点数の分布:')
         for threshold in [10, 50, 100, 243, 500, 1000, 3000, 10000]:
             count = sum(1 for v in values if v <= threshold)
             print(f'    <= {threshold:>6,d}点: {count}/{len(values)}週 ({count/len(values)*100:.1f}%)')
 
     # 勝ち馬のランク分布
-    print(f'\n  勝ち馬のrank_v分布:')
-    for rank in sorted(rank_v_dist.keys()):
-        cnt = rank_v_dist[rank]
-        total = sum(rank_v_dist.values())
-        print(f'    rank_v={rank:2d}: {cnt:3d}回 ({cnt/total*100:.1f}%)')
+    print(f'\n  勝ち馬のrank_p分布:')
+    for rank in sorted(rank_p_dist.keys()):
+        cnt = rank_p_dist[rank]
+        total = sum(rank_p_dist.values())
+        print(f'    rank_p={rank:2d}: {cnt:3d}回 ({cnt/total*100:.1f}%)')
 
-    print(f'\n  勝ち馬のrank_wv分布:')
-    for rank in sorted(rank_wv_dist.keys()):
-        cnt = rank_wv_dist[rank]
-        total = sum(rank_wv_dist.values())
-        print(f'    rank_wv={rank:2d}: {cnt:3d}回 ({cnt/total*100:.1f}%)')
+    print(f'\n  勝ち馬のrank_w分布:')
+    for rank in sorted(rank_w_dist.keys()):
+        cnt = rank_w_dist[rank]
+        total = sum(rank_w_dist.values())
+        print(f'    rank_w={rank:2d}: {cnt:3d}回 ({cnt/total*100:.1f}%)')
 
 
 # ============================================================

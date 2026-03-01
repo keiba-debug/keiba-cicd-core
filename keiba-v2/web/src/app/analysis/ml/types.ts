@@ -97,8 +97,8 @@ export interface ValueBetGapEntry {
 export interface HorsePredictionV2 {
   horse_number: number;
   horse_name: string;
-  pred_proba_accuracy: number;
-  pred_proba_value: number;
+  pred_proba_p: number;
+  pred_proba_value?: number;   // legacy alias for pred_proba_p
   pred_top3: number;
   actual_position: number;
   actual_top3: number;
@@ -127,8 +127,8 @@ export interface ValueBetPick {
   odds_rank: number;
   gap: number;
   odds: number | null;
-  pred_proba_accuracy: number;
-  pred_proba_value: number;
+  pred_proba_p: number;
+  pred_proba_value?: number;   // legacy alias for pred_proba_p
   predicted_margin?: number | null;
   win_ev?: number | null;
   actual_position: number;
@@ -196,30 +196,42 @@ export interface MlExperimentResultV2 {
   description?: string;
   split: { train: string; val?: string; test: string };
   models: {
-    accuracy: MlModelResult;
-    value: MlModelResult;
+    place: MlModelResult;
+    win?: MlModelResult;
+    aura?: RegressionModelResult;
+    // Legacy keys (pre-v5.45 JSON compatibility)
+    accuracy?: MlModelResult;
+    value?: MlModelResult;
     win_accuracy?: MlModelResult;
     win_value?: MlModelResult;
     regression_value?: RegressionModelResult;
   };
   hit_analysis: HitAnalysisEntry[] | {
-    accuracy: HitAnalysisEntry[];
-    value: HitAnalysisEntry[];
+    place: HitAnalysisEntry[];
+    place_v2?: HitAnalysisV2;
+    aura_v2?: HitAnalysisV2;
+    ard_analysis?: ArdThresholdEntry[];
+    // Legacy keys
+    accuracy?: HitAnalysisEntry[];
+    value?: HitAnalysisEntry[];
     accuracy_v2?: HitAnalysisV2;
     value_v2?: HitAnalysisV2;
     regression_v2?: HitAnalysisV2;
-    ard_analysis?: ArdThresholdEntry[];
   };
   roi_analysis: {
-    accuracy_model: RoiAnalysis;
-    value_model: RoiAnalysis;
-    win_accuracy_model?: RoiAnalysis;
-    win_value_model?: RoiAnalysis;
-    regression_model?: RoiAnalysis;
+    place_model: RoiAnalysis;
+    win_model?: RoiAnalysis;
+    aura_model?: RoiAnalysis;
     value_bets: {
       by_rank_gap: ValueBetGapEntry[];
       win_by_rank_gap?: ValueBetGapEntry[];
     };
+    // Legacy keys
+    accuracy_model?: RoiAnalysis;
+    value_model?: RoiAnalysis;
+    win_accuracy_model?: RoiAnalysis;
+    win_value_model?: RoiAnalysis;
+    regression_model?: RoiAnalysis;
   };
   race_predictions: RacePredictionV2[];
   value_bet_picks?: ValueBetPick[];

@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ml.experiment import (
     load_data, build_dataset, load_race_json,
     FEATURE_COLS_ALL, FEATURE_COLS_VALUE, MARKET_FEATURES,
-    PARAMS_A, PARAMS_B,
+    PARAMS_P,
     calc_brier_score, calc_ece, calibrate_isotonic,
     calc_hit_analysis, calc_roi_analysis, calc_value_bet_analysis,
     VALUE_BET_MIN_GAP,
@@ -244,11 +244,11 @@ def calc_regression_roi(df: pd.DataFrame, pred_col: str) -> dict:
 
 def calc_regression_vb_analysis(
     df: pd.DataFrame,
-    reg_rank_col: str = 'reg_rank_v',
+    reg_rank_col: str = 'reg_rank_ar',
 ) -> List[dict]:
     """回帰モデルのValue Bet分析
 
-    reg_rank_v (Value回帰モデル) × odds_rank の乖離
+    reg_rank_ar (Value回帰モデル) × odds_rank の乖離
     """
     from ml.experiment import _get_place_odds
 
@@ -431,14 +431,14 @@ def main():
         PARAMS_REG_ALL, 'Reg_A',
     )
 
-    # Reg B: Value特徴量
+    # Reg AR: Value特徴量
     model_rb, metrics_rb, imp_rb, pred_rb = train_regression_model(
         df_train, df_val, df_test, FEATURE_COLS_VALUE,
-        PARAMS_REG_VALUE, 'Reg_B',
+        PARAMS_REG_VALUE, 'Reg_AR',
     )
 
     df_test['pred_margin_a'] = pred_ra
-    df_test['pred_margin_b'] = pred_rb
+    df_test['pred_margin_ar'] = pred_rb
 
     # ===================================================================
     # Part 2: 既存二値分類モデルの学習 (比較用)
@@ -447,35 +447,35 @@ def main():
     print(f"  Part 2: 既存二値分類モデル (比較ベースライン)")
     print(f"{'='*60}")
 
-    from ml.experiment import train_model, PARAMS_W, PARAMS_WV
+    from ml.experiment import train_model, PARAMS_W
 
     # Place models
     _, metrics_ca, _, pred_ca, _ = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Cls_A'
+        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_P, 'is_top3', 'Place_All'
     )
     _, metrics_cb, _, pred_cb, _ = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Cls_B'
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_P, 'is_top3', 'Place'
     )
 
     # Win models
     _, metrics_cw, _, pred_cw, _ = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_W, 'is_win', 'Cls_W'
+        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_W, 'is_win', 'Win_All'
     )
     _, metrics_cwv, _, pred_cwv, _ = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_WV, 'is_win', 'Cls_WV'
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_W, 'is_win', 'Win'
     )
 
-    df_test['pred_proba_a'] = pred_ca
-    df_test['pred_proba_v'] = pred_cb
-    df_test['pred_proba_w'] = pred_cw
-    df_test['pred_proba_wv'] = pred_cwv
+    df_test['pred_proba_p_all'] = pred_ca
+    df_test['pred_proba_p'] = pred_cb
+    df_test['pred_proba_w_all'] = pred_cw
+    df_test['pred_proba_w'] = pred_cwv
 
-    df_test['pred_rank_a'] = df_test.groupby('race_id')['pred_proba_a'].rank(ascending=False, method='min')
-    df_test['pred_rank_v'] = df_test.groupby('race_id')['pred_proba_v'].rank(ascending=False, method='min')
+    df_test['pred_rank_p_all'] = df_test.groupby('race_id')['pred_proba_p_all'].rank(ascending=False, method='min')
+    df_test['pred_rank_p'] = df_test.groupby('race_id')['pred_proba_p'].rank(ascending=False, method='min')
 
     # 回帰ランク
     df_test['reg_rank_a'] = df_test.groupby('race_id')['pred_margin_a'].rank(ascending=True, method='min')
-    df_test['reg_rank_v'] = df_test.groupby('race_id')['pred_margin_b'].rank(ascending=True, method='min')
+    df_test['reg_rank_ar'] = df_test.groupby('race_id')['pred_margin_ar'].rank(ascending=True, method='min')
 
     # ===================================================================
     # Part 3: IsotonicRegression で確率導出
@@ -494,7 +494,7 @@ def main():
     pred_ra_val = model_ra.predict(df_val[FEATURE_COLS_ALL])
     pred_rb_val = model_rb.predict(df_val[FEATURE_COLS_VALUE])
     df_val_tmp['pred_margin_a'] = pred_ra_val
-    df_val_tmp['pred_margin_b'] = pred_rb_val
+    df_val_tmp['pred_margin_ar'] = pred_rb_val
 
     df_combined = pd.concat([df_val_tmp, df_test_tmp], ignore_index=True)
 
@@ -502,9 +502,9 @@ def main():
     proba_ra_top3, _ = derive_probabilities(df_combined, 'pred_margin_a', 'is_top3', 'Reg_A')
     proba_ra_win, _ = derive_probabilities(df_combined, 'pred_margin_a', 'is_win', 'Reg_A')
 
-    # Reg B → P(top3), P(win)
-    proba_rb_top3, _ = derive_probabilities(df_combined, 'pred_margin_b', 'is_top3', 'Reg_B')
-    proba_rb_win, _ = derive_probabilities(df_combined, 'pred_margin_b', 'is_win', 'Reg_B')
+    # Reg AR → P(top3), P(win)
+    proba_rb_top3, _ = derive_probabilities(df_combined, 'pred_margin_ar', 'is_top3', 'Reg_AR')
+    proba_rb_win, _ = derive_probabilities(df_combined, 'pred_margin_ar', 'is_win', 'Reg_AR')
 
     # df_test に確率を付加（combined の test 部分のみ）
     test_idx = df_combined['_split'] == 'test'
@@ -523,52 +523,52 @@ def main():
     # --- NDCG ---
     print(f"\n  --- NDCG Comparison ---")
     # 分類は確率が高い順 → -pred_proba でNDCG計算
-    df_test['neg_pred_a'] = -df_test['pred_proba_a']
-    df_test['neg_pred_v'] = -df_test['pred_proba_v']
+    df_test['neg_pred_p_all'] = -df_test['pred_proba_p_all']
+    df_test['neg_pred_p'] = -df_test['pred_proba_p']
 
-    ndcg_cls_a = compute_ndcg(df_test, 'neg_pred_a')
-    ndcg_cls_b = compute_ndcg(df_test, 'neg_pred_v')
+    ndcg_cls_a = compute_ndcg(df_test, 'neg_pred_p_all')
+    ndcg_cls_b = compute_ndcg(df_test, 'neg_pred_p')
     ndcg_reg_a = compute_ndcg(df_test, 'pred_margin_a')
-    ndcg_reg_b = compute_ndcg(df_test, 'pred_margin_b')
+    ndcg_reg_b = compute_ndcg(df_test, 'pred_margin_ar')
 
     print(f"  {'Model':<15} {'NDCG@1':>8} {'NDCG@3':>8} {'NDCG@5':>8}")
     print(f"  {'-'*43}")
-    for label, ndcg in [('Cls A (All)', ndcg_cls_a), ('Cls B (Value)', ndcg_cls_b),
-                         ('Reg A (All)', ndcg_reg_a), ('Reg B (Value)', ndcg_reg_b)]:
+    for label, ndcg in [('Place All', ndcg_cls_a), ('Place Value', ndcg_cls_b),
+                         ('Reg A (All)', ndcg_reg_a), ('Reg AR (Value)', ndcg_reg_b)]:
         print(f"  {label:<15} {ndcg['ndcg@1']:>8.4f} {ndcg['ndcg@3']:>8.4f} {ndcg['ndcg@5']:>8.4f}")
 
     # --- Hit Analysis ---
     print(f"\n  --- Hit Rate Comparison ---")
-    hit_cls_a = calc_hit_analysis(df_test, 'pred_proba_a')
-    hit_cls_b = calc_hit_analysis(df_test, 'pred_proba_v')
+    hit_cls_a = calc_hit_analysis(df_test, 'pred_proba_p_all')
+    hit_cls_b = calc_hit_analysis(df_test, 'pred_proba_p')
     hit_reg_a = calc_regression_hit_analysis(df_test, 'pred_margin_a')
-    hit_reg_b = calc_regression_hit_analysis(df_test, 'pred_margin_b')
+    hit_reg_b = calc_regression_hit_analysis(df_test, 'pred_margin_ar')
 
     print(f"  {'Model':<15} {'Top1 Win':>10} {'Top2 Top3':>10} {'Top3 Top3':>10}")
     print(f"  {'-'*47}")
-    for label, hits in [('Cls A', hit_cls_a), ('Cls B', hit_cls_b),
-                         ('Reg A', hit_reg_a), ('Reg B', hit_reg_b)]:
+    for label, hits in [('Place All', hit_cls_a), ('Place', hit_cls_b),
+                         ('Reg A', hit_reg_a), ('Reg AR', hit_reg_b)]:
         print(f"  {label:<15} {hits[0]['hit_rate']:>9.1%} {hits[1]['hit_rate']:>9.1%} {hits[2]['hit_rate']:>9.1%}")
 
     # --- ROI ---
     print(f"\n  --- ROI Comparison (Top1) ---")
-    roi_cls_a = calc_roi_analysis(df_test, 'pred_proba_a')
-    roi_cls_b = calc_roi_analysis(df_test, 'pred_proba_v')
+    roi_cls_a = calc_roi_analysis(df_test, 'pred_proba_p_all')
+    roi_cls_b = calc_roi_analysis(df_test, 'pred_proba_p')
     roi_reg_a = calc_regression_roi(df_test, 'pred_margin_a')
-    roi_reg_b = calc_regression_roi(df_test, 'pred_margin_b')
+    roi_reg_b = calc_regression_roi(df_test, 'pred_margin_ar')
 
     print(f"  {'Model':<15} {'Win ROI':>10} {'Place ROI':>12}")
     print(f"  {'-'*39}")
-    for label, roi in [('Cls A', roi_cls_a), ('Cls B', roi_cls_b),
-                         ('Reg A', roi_reg_a), ('Reg B', roi_reg_b)]:
+    for label, roi in [('Place All', roi_cls_a), ('Place', roi_cls_b),
+                         ('Reg A', roi_reg_a), ('Reg AR', roi_reg_b)]:
         print(f"  {label:<15} {roi['top1_win_roi']:>9.1f}% {roi['top1_place_roi']:>11.1f}%")
 
     # --- Value Bet (Place) ---
     print(f"\n  --- Value Bet Analysis (Place) ---")
-    vb_cls = calc_value_bet_analysis(df_test, rank_col='pred_rank_v')
-    vb_reg = calc_regression_vb_analysis(df_test, reg_rank_col='reg_rank_v')
+    vb_cls = calc_value_bet_analysis(df_test, rank_col='pred_rank_p')
+    vb_reg = calc_regression_vb_analysis(df_test, reg_rank_col='reg_rank_ar')
 
-    print(f"  {'Gap':<6} {'Cls_B Bets':>10} {'Cls_B ROI':>10} {'Reg_B Bets':>10} {'Reg_B ROI':>10} {'差分':>8}")
+    print(f"  {'Gap':<6} {'Place Bets':>10} {'Place ROI':>10} {'Reg_AR Bets':>10} {'Reg_AR ROI':>10} {'差分':>8}")
     print(f"  {'-'*56}")
     for vc, vr in zip(vb_cls, vb_reg):
         diff = vr['place_roi'] - vc['place_roi']
@@ -587,14 +587,14 @@ def main():
     print(f"  {'-'*56}")
 
     comparisons = [
-        ('Cls A (direct)', 'is_top3', pred_ca, y_top3),
+        ('Place All (direct)', 'is_top3', pred_ca, y_top3),
         ('Reg A→iso', 'is_top3', proba_ra_top3, y_top3),
-        ('Cls B (direct)', 'is_top3', pred_cb, y_top3),
-        ('Reg B→iso', 'is_top3', proba_rb_top3, y_top3),
-        ('Cls W (direct)', 'is_win', pred_cw, y_win),
+        ('Place (direct)', 'is_top3', pred_cb, y_top3),
+        ('Reg AR→iso', 'is_top3', proba_rb_top3, y_top3),
+        ('Win All (direct)', 'is_win', pred_cw, y_win),
         ('Reg A→iso', 'is_win', proba_ra_win, y_win),
-        ('Cls WV (direct)', 'is_win', pred_cwv, y_win),
-        ('Reg B→iso', 'is_win', proba_rb_win, y_win),
+        ('Win (direct)', 'is_win', pred_cwv, y_win),
+        ('Reg AR→iso', 'is_win', proba_rb_win, y_win),
     ]
 
     for label, target, pred, y_true in comparisons:
@@ -609,7 +609,7 @@ def main():
     for fname, imp in sorted_imp:
         print(f"    {fname:>30}: {imp:,.0f}")
 
-    print(f"\n  Feature Importance (Reg B Top 10):")
+    print(f"\n  Feature Importance (Reg AR Top 10):")
     sorted_imp = sorted(imp_rb.items(), key=lambda x: x[1], reverse=True)[:10]
     for fname, imp in sorted_imp:
         print(f"    {fname:>30}: {imp:,.0f}")
@@ -631,35 +631,35 @@ def main():
         },
         'regression': {
             'reg_a': metrics_ra,
-            'reg_b': metrics_rb,
+            'reg_ar': metrics_rb,
         },
         'classification_baseline': {
-            'cls_a': metrics_ca,
-            'cls_b': metrics_cb,
-            'cls_w': metrics_cw,
-            'cls_wv': metrics_cwv,
+            'place_all': metrics_ca,
+            'place': metrics_cb,
+            'win_all': metrics_cw,
+            'win': metrics_cwv,
         },
         'ndcg': {
-            'cls_a': ndcg_cls_a,
-            'cls_b': ndcg_cls_b,
+            'place_all': ndcg_cls_a,
+            'place': ndcg_cls_b,
             'reg_a': ndcg_reg_a,
-            'reg_b': ndcg_reg_b,
+            'reg_ar': ndcg_reg_b,
         },
         'roi': {
-            'cls_a': roi_cls_a,
-            'cls_b': roi_cls_b,
+            'place_all': roi_cls_a,
+            'place': roi_cls_b,
             'reg_a': roi_reg_a,
-            'reg_b': roi_reg_b,
+            'reg_ar': roi_reg_b,
         },
         'value_bet_place': {
-            'cls_b': vb_cls,
-            'reg_b': vb_reg,
+            'place': vb_cls,
+            'reg_ar': vb_reg,
         },
         'feature_importance_reg_a': [
             {'feature': f, 'importance': int(i)}
             for f, i in sorted(imp_ra.items(), key=lambda x: -x[1])[:20]
         ],
-        'feature_importance_reg_b': [
+        'feature_importance_reg_ar': [
             {'feature': f, 'importance': int(i)}
             for f, i in sorted(imp_rb.items(), key=lambda x: -x[1])[:20]
         ],

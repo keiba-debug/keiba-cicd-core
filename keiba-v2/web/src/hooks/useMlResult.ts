@@ -11,8 +11,9 @@ export function useMlResult(version?: string | null) {
     async (u: string) => {
       const raw = await fetcher(u);
       const v = (raw.version ?? '').replace(/^v/, '');
-      if (!v.startsWith('2.') && !v.startsWith('3.') && !v.startsWith('4.') && !v.startsWith('5.')) {
-        throw new Error(`対応バージョン: 2.x〜5.x (got: ${raw.version})`);
+      const major = parseInt(v.split('.')[0], 10);
+      if (isNaN(major) || major < 2) {
+        throw new Error(`対応バージョン: 2.x以上 (got: ${raw.version})`);
       }
       return normalizeResult(raw);
     },

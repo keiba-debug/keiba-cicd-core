@@ -24,7 +24,7 @@ if sys.platform == 'win32':
 from ml.experiment import (
     load_data, build_dataset, load_race_json,
     FEATURE_COLS_ALL, FEATURE_COLS_VALUE,
-    PARAMS_A, PARAMS_B, PARAMS_W, PARAMS_WV,
+    PARAMS_P, PARAMS_W,
     train_model, calc_ece, calc_brier_score,
     _get_place_odds,
 )
@@ -94,41 +94,41 @@ def main():
     # === 4モデル学習 (calibrated) ===
     print('\n[Train] Training 4 classification models...')
 
-    # Model A (Place, All features)
+    # Model P_All (Place, All features)
     _, metrics_a, _, pred_a_cal, cal_a = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_A, 'is_top3', 'Model_A'
+        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_P, 'is_top3', 'Model_P_All'
     )
-    # Model B/V (Place, Value features)
+    # Model P (Place, Value features)
     _, metrics_v, _, pred_v_cal, cal_v = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Model_V'
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_P, 'is_top3', 'Model_P'
     )
-    # Model W (Win, All features)
+    # Model W_All (Win, All features)
     _, metrics_w, _, pred_w_cal, cal_w = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_W, 'is_win', 'Model_W'
+        df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_W, 'is_win', 'Model_W_All'
     )
-    # Model WV (Win, Value features)
-    _, metrics_wv, _, pred_wv_cal, cal_wv = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_WV, 'is_win', 'Model_WV'
+    # Model W (Win, Value features)
+    _, metrics_wv, _, pred_w_v_cal, cal_w = train_model(
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_W, 'is_win', 'Model_W'
     )
 
     df_test['pred_a_cal'] = pred_a_cal
     df_test['pred_v_cal'] = pred_v_cal
     df_test['pred_w_cal'] = pred_w_cal
-    df_test['pred_wv_cal'] = pred_wv_cal
+    df_test['pred_w_v_cal'] = pred_w_v_cal
 
     # Classification ranks
-    df_test['pred_rank_v'] = df_test.groupby('race_id')['pred_v_cal'].rank(
+    df_test['pred_rank_p'] = df_test.groupby('race_id')['pred_v_cal'].rank(
         ascending=False, method='min'
     )
-    df_test['pred_rank_a'] = df_test.groupby('race_id')['pred_a_cal'].rank(
+    df_test['pred_rank_p_all'] = df_test.groupby('race_id')['pred_a_cal'].rank(
         ascending=False, method='min'
     )
 
     # VB gap (classification)
-    df_test['vb_gap'] = df_test['odds_rank'] - df_test['pred_rank_v']
+    df_test['vb_gap'] = df_test['odds_rank'] - df_test['pred_rank_p']
 
-    # === Reg B (Value) ===
-    print('\n[Train] Training Reg_B...')
+    # === Reg AR (Value) ===
+    print('\n[Train] Training Reg_AR...')
     mask_tr = df_train['target_margin'].notna()
     mask_vl = df_val['target_margin'].notna()
     X_tr = df_train.loc[mask_tr, FEATURE_COLS_VALUE]
@@ -138,13 +138,13 @@ def main():
 
     train_data = lgb.Dataset(X_tr, label=y_tr)
     valid_data = lgb.Dataset(X_vl, label=y_vl, reference=train_data)
-    model_rb = lgb.train(
+    model_ar = lgb.train(
         PARAMS_REG_VALUE, train_data, num_boost_round=1500,
         valid_sets=[valid_data],
         callbacks=[lgb.early_stopping(stopping_rounds=50), lgb.log_evaluation(period=500)],
     )
-    df_test['pred_margin_b'] = model_rb.predict(df_test[FEATURE_COLS_VALUE])
-    df_test['reg_rank_v'] = df_test.groupby('race_id')['pred_margin_b'].rank(
+    df_test['pred_margin_ar'] = model_ar.predict(df_test[FEATURE_COLS_VALUE])
+    df_test['reg_rank_ar'] = df_test.groupby('race_id')['pred_margin_ar'].rank(
         ascending=True, method='min'
     )
 
@@ -158,10 +158,10 @@ def main():
     from sklearn.calibration import calibration_curve
 
     models_for_cal = [
-        ('Model_WV (win)',  df_test['is_win'].values,  pred_wv_cal, 'EV単勝用'),
-        ('Model_V (top3)',  df_test['is_top3'].values, pred_v_cal,  'EV複勝用'),
-        ('Model_W (win)',   df_test['is_win'].values,  pred_w_cal,  '参考'),
-        ('Model_A (top3)',  df_test['is_top3'].values, pred_a_cal,  '参考'),
+        ('Model_W (win)',   df_test['is_win'].values,  pred_w_v_cal, 'EV単勝用'),
+        ('Model_P (top3)',  df_test['is_top3'].values, pred_v_cal,  'EV複勝用'),
+        ('Model_W_All (win)', df_test['is_win'].values, pred_w_cal,  '参考'),
+        ('Model_P_All (top3)', df_test['is_top3'].values, pred_a_cal, '参考'),
     ]
 
     print(f'\n  {"Model":<20} {"ECE":>8} {"MaxCE":>8} {"Brier":>8} {"判定":>8}')
@@ -201,17 +201,17 @@ def main():
     print(f'  検証2: EV帯別 実ROI')
     print(f'{"="*70}')
 
-    # VB候補: gap >= 3 & pred_rank_v <= 3
+    # VB候補: gap >= 3 & pred_rank_p <= 3
     vb = df_test[
-        (df_test['pred_rank_v'] <= 3) &
+        (df_test['pred_rank_p'] <= 3) &
         (df_test['vb_gap'] >= 3)
     ].copy()
 
     # EV計算
-    vb['win_ev'] = vb['pred_wv_cal'] * vb['odds']
+    vb['win_ev'] = vb['pred_w_v_cal'] * vb['odds']
     vb['place_ev'] = vb['pred_v_cal'] * vb['place_odds_min']
 
-    print(f'\n  VB候補: {len(vb)} bets (gap>=3, rank_v<=3)')
+    print(f'\n  VB候補: {len(vb)} bets (gap>=3, rank_p<=3)')
     print(f'  Win EV:   mean={vb["win_ev"].mean():.3f}, median={vb["win_ev"].median():.3f}')
     print(f'  Place EV: mean={vb["place_ev"].mean():.3f}, median={vb["place_ev"].median():.3f}')
 
@@ -321,7 +321,7 @@ def main():
     print(f'{"="*70}')
 
     # 全テストに対してEV計算
-    df_test['win_ev'] = df_test['pred_wv_cal'] * df_test['odds']
+    df_test['win_ev'] = df_test['pred_w_v_cal'] * df_test['odds']
     df_test['place_ev'] = df_test['pred_v_cal'] * df_test['place_odds_min']
 
     results = []
@@ -330,12 +330,12 @@ def main():
             for min_ev in [0.0, 0.8, 0.9, 1.0, 1.1, 1.2]:
                 # Base filter: classification VB
                 base_mask = (
-                    (df_test['pred_rank_v'] <= 3) &
+                    (df_test['pred_rank_p'] <= 3) &
                     (df_test['vb_gap'] >= min_gap)
                 )
                 # Margin filter
                 if max_margin < 99:
-                    base_mask = base_mask & (df_test['pred_margin_b'] <= max_margin)
+                    base_mask = base_mask & (df_test['pred_margin_ar'] <= max_margin)
 
                 subset = df_test[base_mask]
 

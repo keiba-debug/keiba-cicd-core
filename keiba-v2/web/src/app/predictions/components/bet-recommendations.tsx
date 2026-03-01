@@ -228,7 +228,9 @@ export function BetRecommendations({
                 <SortTh sortKey="umaban" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border">馬番</SortTh>
                 <th className="px-2 py-2 text-left border">馬名</th>
                 <SortTh sortKey="strength" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-yellow-50/50 dark:bg-yellow-900/10" title="強度: Strong=単勝重視配分, Normal=複勝重視配分">強度</SortTh>
-                <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-amber-50 dark:bg-amber-900/20 font-bold" title="Gap（主軸） = 人気順位 - VR。VB判定の主フィルター">Gap</SortTh>
+                <SortTh sortKey="gap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-amber-50 dark:bg-amber-900/20 font-bold" title="Gap = 人気順位 - VR。Rank差ベース">Gap</SortTh>
+                <SortTh sortKey="devGap" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-purple-50 dark:bg-purple-900/20 font-bold" title="偏差値Gap = z-score(モデル評価) - z-score(市場評価)">dG</SortTh>
+                <SortTh sortKey="vbScore" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-indigo-50 dark:bg-indigo-900/20 font-bold" title="VBスコア = dev_gap + rank_gap + EV + ARdの複合スコア (0-10)">VBs</SortTh>
                 <SortTh sortKey="winEv" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-amber-50/50 dark:bg-amber-900/10" title="単勝EV = calibrated P(win) × 単勝オッズ">EV</SortTh>
                 <SortTh sortKey="margin" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-teal-50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
                 <SortTh sortKey="ar_dev" sort={betSort} setSort={setBetSort} className="px-2 py-2 text-center border bg-teal-50/50 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
@@ -249,7 +251,7 @@ export function BetRecommendations({
             <tbody>
               {sortedBetRecommendations.map((r) => {
                 const winOdds = getWinOdds(oddsMap, r.race.race_id, r.entry.umaban, r.entry.odds);
-                const headRatio = calcHeadRatio(r.entry.pred_proba_wv, r.entry.pred_proba_v);
+                const headRatio = calcHeadRatio(r.entry.pred_proba_w, r.entry.pred_proba_p);
                 return (
                   <tr
                     key={`${r.race.race_id}-${r.entry.umaban}`}
@@ -275,10 +277,24 @@ export function BetRecommendations({
                       {r.strength === 'strong' ? 'S' : 'N'}
                     </td>
                     {(() => { const lg = getLiveGap(r.race.race_id, r.entry); return (
-                    <td className={`px-2 py-1.5 border text-center font-mono font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getGapColor(lg)}`} title="Gap（主軸）">
+                    <td className={`px-2 py-1.5 border text-center font-mono font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getGapColor(lg)}`} title="Gap (rank差)">
                       +{lg}
                     </td>
                     ); })()}
+                    <td className={`px-2 py-1.5 border text-center font-mono font-bold text-xs bg-purple-50/30 dark:bg-purple-900/10 ${
+                      r.devGap >= 1.5 ? 'text-purple-700 dark:text-purple-300' :
+                      r.devGap >= 1.0 ? 'text-purple-600 dark:text-purple-400' :
+                      r.devGap >= 0.5 ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'
+                    }`} title="偏差値Gap (z-score差)">
+                      {r.devGap >= 0 ? '+' : ''}{r.devGap.toFixed(2)}
+                    </td>
+                    <td className={`px-2 py-1.5 border text-center font-mono font-bold text-xs bg-indigo-50/30 dark:bg-indigo-900/10 ${
+                      r.vbScore >= 7 ? 'text-indigo-700 dark:text-indigo-300' :
+                      r.vbScore >= 5.5 ? 'text-indigo-600 dark:text-indigo-400' :
+                      r.vbScore >= 4 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'
+                    }`} title={`VBスコア: dG=${r.devGap.toFixed(1)} + Gap=${r.gap} + EV=${(r.winEv ?? 0).toFixed(1)} + ARd=${r.entry.ar_deviation?.toFixed(0) ?? '-'}`}>
+                      {r.vbScore.toFixed(1)}
+                    </td>
                     <td className={`px-2 py-1.5 border text-center font-mono text-xs bg-amber-50/20 dark:bg-amber-900/5 ${getEvColor(r.winEv ?? null)}`}>
                       {r.winEv ? r.winEv.toFixed(2) : '-'}
                     </td>

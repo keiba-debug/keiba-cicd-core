@@ -3,12 +3,12 @@
 """
 VBリフレッシュ: 実行時オッズでValueBet/買い目を再計算
 
-predictions_live.json のML予測結果を維持しつつ、
+races/YYYY/MM/DD/predictions.json のML予測結果を維持しつつ、
 最新のmykeibadbオッズでVB gap/EV/is_value_bet/買い目を再計算する。
 
 Usage:
-    python -m ml.vb_refresh [--date 2026-02-28]
-    python -m ml.vb_refresh --latest
+    python -m ml.vb_refresh --date 2026-02-28
+    python -m ml.vb_refresh --today
 """
 
 import argparse
@@ -30,21 +30,15 @@ from ml.bet_engine import (
 )
 
 
-def load_predictions(date: Optional[str] = None) -> dict:
-    """predictions_live.json を読み込み"""
-    pred_path = config.ml_dir() / "predictions_live.json"
+def load_predictions(date: str) -> dict:
+    """日別アーカイブ races/YYYY/MM/DD/predictions.json を読み込み"""
+    date_parts = date.split('-')
+    pred_path = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2] / "predictions.json"
     if not pred_path.exists():
-        raise FileNotFoundError(f"predictions_live.json not found: {pred_path}")
+        raise FileNotFoundError(f"predictions.json not found: {pred_path}")
 
     with open(pred_path, encoding='utf-8') as f:
         data = json.load(f)
-
-    # 日付チェック
-    if date and data.get('date') != date:
-        raise ValueError(
-            f"predictions_live.json の日付({data.get('date')})が "
-            f"指定日({date})と一致しません"
-        )
 
     return data
 
@@ -91,29 +85,29 @@ def refresh_race_vb(race: dict, db_odds: Dict[int, dict],
     vb_count = 0
     for entry in entries:
         odds_rank = entry.get('odds_rank', 0)
-        rank_v = entry.get('rank_v', 0)
-        rank_wv = entry.get('rank_wv')
+        rank_p = entry.get('rank_p', 0)
+        rank_w = entry.get('rank_w')
 
         # VB gap
-        entry['vb_gap'] = int(odds_rank - rank_v) if odds_rank > 0 else 0
+        entry['vb_gap'] = int(odds_rank - rank_p) if odds_rank > 0 else 0
 
         # Win VB gap
         entry['win_vb_gap'] = (
-            int(odds_rank - rank_wv) if rank_wv and odds_rank > 0 else 0
+            int(odds_rank - rank_w) if rank_w and odds_rank > 0 else 0
         )
 
         # EV再計算
-        pred_wv_cal = entry.get('pred_proba_wv_cal')
+        pred_w_cal = entry.get('pred_proba_w_cal')
         odds = entry.get('odds', 0)
-        if pred_wv_cal and odds > 0:
-            entry['win_ev'] = round(pred_wv_cal * odds, 4)
+        if pred_w_cal and odds > 0:
+            entry['win_ev'] = round(pred_w_cal * odds, 4)
         else:
             entry['win_ev'] = None
 
-        pred_v_raw = entry.get('pred_proba_v_raw')
+        pred_p_raw = entry.get('pred_proba_p_raw')
         place_low = entry.get('place_odds_min')
-        if pred_v_raw and place_low and place_low > 0:
-            entry['place_ev'] = round(pred_v_raw * place_low, 4)
+        if pred_p_raw and place_low and place_low > 0:
+            entry['place_ev'] = round(pred_p_raw * place_low, 4)
         else:
             entry['place_ev'] = None
 
@@ -134,8 +128,13 @@ def refresh_race_vb(race: dict, db_odds: Dict[int, dict],
 def main():
     parser = argparse.ArgumentParser(description='VB Refresh - 最新オッズでVB/買い目再計算')
     parser.add_argument('--date', help='対象日 (YYYY-MM-DD)')
-    parser.add_argument('--latest', action='store_true', help='predictions_live.jsonの日付をそのまま使用')
+    parser.add_argument('--today', action='store_true', help='今日の日付を使用')
     args = parser.parse_args()
+
+    if args.today:
+        args.date = datetime.now().strftime('%Y-%m-%d')
+    if not args.date:
+        parser.error('--date YYYY-MM-DD or --today is required')
 
     t0 = time.time()
 
@@ -145,12 +144,11 @@ def main():
 
     # predictions読み込み
     date = args.date
-    predictions_data = load_predictions(date if not args.latest else None)
-    date = predictions_data['date']
+    predictions_data = load_predictions(date)
 
     races = predictions_data.get('races', [])
     if not races:
-        print(f"No races in predictions_live.json")
+        print(f"No races in predictions.json for {date}")
         return
 
     print(f"[Load] {len(races)} races for {date}")
@@ -261,19 +259,12 @@ def main():
         if (e.get('place_ev') or 0) > 1.0
     )
 
-    # 保存
+    # 保存（日別アーカイブのみ）
     out_json = json.dumps(predictions_data, ensure_ascii=False, indent=2)
 
-    out_path = config.ml_dir() / "predictions_live.json"
-    out_path.write_text(out_json, encoding='utf-8')
-
-    # 日別アーカイブ更新
     date_parts = date.split('-')
-    archive_dir = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2]
-    if archive_dir.exists():
-        archive_path = archive_dir / "predictions.json"
-        archive_path.write_text(out_json, encoding='utf-8')
-        print(f"\n[Archive] {archive_path}")
+    out_path = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2] / "predictions.json"
+    out_path.write_text(out_json, encoding='utf-8')
 
     elapsed = time.time() - t0
 

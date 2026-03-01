@@ -45,9 +45,12 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
   const getLiveOddsRank = (umaban: number, fallback: number) =>
     liveRanking?.[umaban] ?? fallback;
 
-  /** リアルタイムGap = 人気順 - V順 */
-  const getLiveGap = (entry: typeof race.entries[0]) =>
-    getLiveOddsRank(entry.umaban, entry.odds_rank) - entry.rank_v;
+  /** リアルタイムGap = 人気順 - P順 */
+  const getLiveGap = (entry: typeof race.entries[0]): number => {
+    const oddsRank = getLiveOddsRank(entry.umaban, entry.odds_rank);
+    if (oddsRank == null || entry.rank_p == null) return entry.vb_gap ?? 0;
+    return oddsRank - entry.rank_p;
+  };
 
   const sortedEntries = useMemo(() => {
     const arr = [...race.entries];
@@ -56,8 +59,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
     arr.sort((a, b) => {
       let va: number, vb: number;
       switch (key) {
-        case 'rank_a': va = a.rank_a; vb = b.rank_a; break;
-        case 'rank_v': va = a.rank_v; vb = b.rank_v; break;
+        case 'rank_p': va = a.rank_p; vb = b.rank_p; break;
         case 'odds_rank': va = getLiveOddsRank(a.umaban, a.odds_rank) || 999; vb = getLiveOddsRank(b.umaban, b.odds_rank) || 999; break;
         case 'odds': {
           va = getWinOdds(oddsMap, race.race_id, a.umaban, a.odds) ?? 9999;
@@ -72,9 +74,8 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
           vb = calcWinEv(b, getWinOdds(oddsMap, race.race_id, b.umaban, b.odds)) ?? -1;
           break;
         }
-        case 'prob_a': va = a.pred_proba_a; vb = b.pred_proba_a; break;
-        case 'prob_v': va = a.pred_proba_v; vb = b.pred_proba_v; break;
-        case 'prob_wv': va = a.pred_proba_wv ?? -1; vb = b.pred_proba_wv ?? -1; break;
+        case 'prob_p': va = a.pred_proba_p; vb = b.pred_proba_p; break;
+        case 'prob_w': va = a.pred_proba_w ?? -1; vb = b.pred_proba_w ?? -1; break;
         case 'rating': va = a.kb_rating || 0; vb = b.kb_rating || 0; break;
         case 'finish': {
           const pa = dbRaceResult?.[a.umaban]?.finishPosition ?? jsonRaceResult?.[a.umaban]?.finish_position ?? 0;
@@ -137,17 +138,15 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                 <th className="px-2 py-1.5 text-left border-b min-w-[100px]">馬名</th>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック本紙予想の印">本紙</th>
                 <th className="px-2 py-1.5 text-center border-b w-8" title="TARGET 馬印1（自分の印）">My</th>
-                <SortTh sortKey="rank_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走 市場モデルの順位">A順</SortTh>
-                <SortTh sortKey="rank_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走 独自モデルの順位">V順</SortTh>
+                <SortTh sortKey="rank_p" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12" title="好走モデル(P)の順位">P順</SortTh>
                 <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-10" title="オッズ順人気">人</SortTh>
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-amber-50/50 dark:bg-amber-900/20 font-bold" title="Gap（主軸） = 人気順位 - VR。VB判定の主フィルター">Gap</SortTh>
                 <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝EV = calibrated P(win) × 単勝オッズ">EV</SortTh>
                 <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
                 <SortTh sortKey="ar_dev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-teal-50/30 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
-                <SortTh sortKey="prob_a" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 市場モデルの3着内確率（%）">A%</SortTh>
-                <SortTh sortKey="prob_v" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走 独自モデルの3着内確率（%）">V%</SortTh>
-                <SortTh sortKey="prob_wv" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利 独自モデルの勝率予測（%）">WV%</SortTh>
+                <SortTh sortKey="prob_p" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走モデル(P)の3着内確率（%）">P%</SortTh>
+                <SortTh sortKey="prob_w" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利モデル(W)の勝率予測（%）">W%</SortTh>
                 <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="BR (Book Rating) — 競馬ブックレイティング">BR</SortTh>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="競馬ブック調教評価">調</th>
                 <th className="px-2 py-1.5 text-center border-b w-10" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
@@ -159,7 +158,6 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
             <tbody>
               {sortedEntries.map((entry) => {
                 const isVB = entry.is_value_bet;
-                const isTopA = entry.rank_a <= 3;
                 const winOdds = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds);
                 const ev = calcWinEv(entry, winOdds);
                 const dbEntry = dbRaceResult?.[entry.umaban];
@@ -171,8 +169,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                     className={`border-b transition-colors ${
                       hasResults && finishPos === 1 ? 'bg-amber-50/60 dark:bg-amber-900/15' :
                       hasResults && finishPos > 0 && finishPos <= 3 ? 'bg-green-50/30 dark:bg-green-900/5' :
-                      isVB ? getGapBg(getLiveGap(entry)) :
-                      isTopA ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''
+                      isVB ? getGapBg(getLiveGap(entry)) : ''
                     } hover:bg-blue-50/50 dark:hover:bg-blue-900/10`}
                   >
                     <td className="px-2 py-1 text-center font-mono text-xs">{entry.umaban}</td>
@@ -191,11 +188,8 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                         </td>
                       );
                     })()}
-                    <td className={`px-2 py-1 text-center font-mono text-xs ${entry.rank_a <= 3 ? 'font-bold text-blue-600' : ''}`}>
-                      {entry.rank_a}
-                    </td>
-                    <td className={`px-2 py-1 text-center font-mono text-xs ${entry.rank_v <= 3 ? 'font-bold text-purple-600' : ''}`}>
-                      {entry.rank_v}
+                    <td className={`px-2 py-1 text-center font-mono text-xs ${entry.rank_p <= 3 ? 'font-bold text-purple-600' : ''}`}>
+                      {entry.rank_p}
                     </td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{getLiveOddsRank(entry.umaban, entry.odds_rank) || '-'}</td>
                     <td className="px-2 py-1 text-center font-mono text-xs font-bold">
@@ -205,7 +199,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                       const liveGap = getLiveGap(entry);
                       return (
                         <td className={`px-2 py-1 text-center font-mono text-xs font-bold bg-amber-50/30 dark:bg-amber-900/10 ${getGapColor(liveGap)}`} title="Gap（主軸）">
-                          {liveGap > 0 ? `+${liveGap}` : liveGap === 0 ? '0' : liveGap}
+                          {Number.isNaN(liveGap) ? '-' : liveGap > 0 ? `+${liveGap}` : liveGap === 0 ? '0' : liveGap}
                         </td>
                       );
                     })()}
@@ -218,10 +212,9 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/20 dark:bg-teal-900/5 ${getArdColor(entry.ar_deviation)}`} title="AR偏差値">
                       {entry.ar_deviation != null ? entry.ar_deviation.toFixed(0) : '-'}
                     </td>
-                    <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_a * 100).toFixed(1)}</td>
-                    <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_v * 100).toFixed(1)}</td>
-                    <td className={`px-2 py-1 text-center font-mono text-xs bg-emerald-50/30 dark:bg-emerald-900/10 ${entry.rank_wv != null && entry.rank_wv <= 3 ? 'font-bold text-emerald-600' : ''}`}>
-                      {entry.pred_proba_wv != null ? (entry.pred_proba_wv * 100).toFixed(1) : '-'}
+                    <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_p * 100).toFixed(1)}</td>
+                    <td className={`px-2 py-1 text-center font-mono text-xs bg-emerald-50/30 dark:bg-emerald-900/10 ${entry.rank_w != null && entry.rank_w <= 3 ? 'font-bold text-emerald-600' : ''}`}>
+                      {entry.pred_proba_w != null ? (entry.pred_proba_w * 100).toFixed(1) : '-'}
                     </td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{entry.kb_rating > 0 ? entry.kb_rating.toFixed(1) : '-'}</td>
                     <td className="px-2 py-1 text-center text-xs">{entry.kb_training_arrow}</td>

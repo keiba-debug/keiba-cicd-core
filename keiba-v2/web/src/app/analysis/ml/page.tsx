@@ -46,17 +46,15 @@ export default function MlAnalysisPage() {
       </div>
 
       <div className="mb-5 grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-400">
-        <div><span className="font-semibold text-blue-700 dark:text-blue-400">好走 市場</span> — 全{data.models.accuracy.features.length}特徴量で<strong>3着内</strong>を予測（オッズ・人気含む）</div>
-        <div><span className="font-semibold text-blue-700 dark:text-blue-400">好走 独自</span> — 市場系除外{data.models.value.features.length}特徴量で<strong>3着内</strong>を予測（独自能力評価）</div>
-        {data.models.win_accuracy && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">勝利 市場</span> — 全{data.models.win_accuracy.features.length}特徴量で<strong>1着</strong>を予測（オッズ・人気含む）</div>}
-        {data.models.win_value && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">勝利 独自</span> — 市場系除外{data.models.win_value.features.length}特徴量で<strong>1着</strong>を予測（独自能力評価）</div>}
-        {data.models.regression_value && <div><span className="font-semibold text-amber-700 dark:text-amber-400">AR (Aura Rating)</span> — 能力予測モデル。勝ち馬とのタイム差を予測（市場系除外）</div>}
+        <div><span className="font-semibold text-blue-700 dark:text-blue-400">好走(P)</span> — 市場系除外{(data.models.place ?? data.models.value)!.features.length}特徴量で<strong>3着内</strong>を予測（独自能力評価）</div>
+        {(data.models.win ?? data.models.win_value) && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">勝利(W)</span> — 市場系除外{(data.models.win ?? data.models.win_value)!.features.length}特徴量で<strong>1着</strong>を予測（独自能力評価）</div>}
+        {(data.models.aura ?? data.models.regression_value) && <div><span className="font-semibold text-amber-700 dark:text-amber-400">能力(AR)</span> — 能力予測モデル。勝ち馬とのタイム差を予測（市場系除外）</div>}
         {data.obstacle_model && <div><span className="font-semibold text-purple-700 dark:text-purple-400">障害モデル</span> — 障害レース専用モデル。{data.obstacle_model.feature_count}特徴量で<strong>3着内</strong>を予測（AUC {data.obstacle_model.metrics.auc.toFixed(3)}）</div>}
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">VR</span> — 好走 独自モデルによるレース内の順位（1=最も能力が高い）</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - VR。大きいほど市場が過小評価している馬（VB判定の主軸）</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">PR</span> — 好走(P)モデルによるレース内の順位（1=最も好走確率が高い）</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - PR。大きいほど市場が過小評価している馬（VB判定の主軸）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">EV</span> — 期待値 = calibrated P(win) × 単勝オッズ。1.0超えで期待値プラス（Gapの補助フィルター）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">ARd</span> — AR偏差値。レース内z-score正規化（平均50）。能力の相対位置を示す</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — VR≤3 × Gap≥5 × AR偏差値≥50。3プリセット: Standard(EV≥1.5), Wide(EVなし), Aggressive(EV≥1.8)</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — PR≤3 × Gap≥5 × AR偏差値≥50。3プリセット: Standard(EV≥1.5), Wide(EVなし), Aggressive(EV≥1.8)</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">AUC</span> — モデルの判別力（0.5=ランダム、1.0=完全予測）。0.82超えで実用水準</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">Brier</span> — 確率予測の精度（0=完璧、低いほど良い）。予測確率と実結果の二乗誤差</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">ECE</span> — Expected Calibration Error。予測確率の信頼度（0=完璧）。<strong>{'<'}0.03</strong>=Kelly適格、<strong>{'<'}0.05</strong>=要注意、<strong>{'≥'}0.05</strong>=Kelly不適</div>

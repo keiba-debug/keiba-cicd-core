@@ -213,12 +213,12 @@ class TestCalcKellyFraction:
 # =====================================================================
 
 class TestDetectDanger:
-    """危険馬検出テスト (v5.33: odds<=8 & ARd<53 & V%<15%)"""
+    """危険馬検出テスト (v5.33: odds<=8 & ARd<53 & P%<15%)"""
 
     def test_no_danger_high_ard(self):
         """ARd >= 53 → not danger"""
         entries = [
-            {'umaban': 1, 'odds': 3.0, 'ar_deviation': 55.0, 'pred_proba_v': 0.10},
+            {'umaban': 1, 'odds': 3.0, 'ar_deviation': 55.0, 'pred_proba_p': 0.10},
         ]
         d = detect_danger(entries)
         assert d == {}
@@ -226,7 +226,7 @@ class TestDetectDanger:
     def test_no_danger_high_odds(self):
         """odds > 8 → not danger"""
         entries = [
-            {'umaban': 1, 'odds': 12.0, 'ar_deviation': 45.0, 'pred_proba_v': 0.10},
+            {'umaban': 1, 'odds': 12.0, 'ar_deviation': 45.0, 'pred_proba_p': 0.10},
         ]
         d = detect_danger(entries)
         assert d == {}
@@ -234,9 +234,9 @@ class TestDetectDanger:
     def test_danger_detected(self):
         """odds<=8 & ARd<53 & V%<15% → danger"""
         entries = [
-            {'umaban': 1, 'odds': 5.0, 'ar_deviation': 50.0, 'pred_proba_v': 0.09},
-            {'umaban': 2, 'odds': 3.0, 'ar_deviation': 60.0, 'pred_proba_v': 0.20},
-            {'umaban': 3, 'odds': 7.0, 'ar_deviation': 48.0, 'pred_proba_v': 0.12},
+            {'umaban': 1, 'odds': 5.0, 'ar_deviation': 50.0, 'pred_proba_p': 0.09},
+            {'umaban': 2, 'odds': 3.0, 'ar_deviation': 60.0, 'pred_proba_p': 0.20},
+            {'umaban': 3, 'odds': 7.0, 'ar_deviation': 48.0, 'pred_proba_p': 0.12},
         ]
         d = detect_danger(entries)
         assert d == {1: True, 3: True}
@@ -244,8 +244,8 @@ class TestDetectDanger:
     def test_ard53_boundary(self):
         """ARd=53.0 is NOT danger (< 53, not <=)"""
         entries = [
-            {'umaban': 1, 'odds': 5.0, 'ar_deviation': 53.0, 'pred_proba_v': 0.09},
-            {'umaban': 2, 'odds': 5.0, 'ar_deviation': 52.9, 'pred_proba_v': 0.09},
+            {'umaban': 1, 'odds': 5.0, 'ar_deviation': 53.0, 'pred_proba_p': 0.09},
+            {'umaban': 2, 'odds': 5.0, 'ar_deviation': 52.9, 'pred_proba_p': 0.09},
         ]
         d = detect_danger(entries)
         assert 1 not in d
@@ -403,9 +403,9 @@ class TestGenerateRecommendations:
                 {
                     'umaban': 1, 'horse_name': 'Horse1',
                     'odds': 15.0, 'vb_gap': 6, 'win_vb_gap': 7,
-                    'rank_v': 1, 'odds_rank': 7,
+                    'rank_p': 1, 'odds_rank': 7,
                     'place_odds_min': 3.5,
-                    'pred_proba_v_raw': 0.45,
+                    'pred_proba_p_raw': 0.45,
                     'predicted_margin': 0.3,
                     'win_ev': 1.5, 'place_ev': 1.6,
                     'comment_memo_trouble_score': 0,
@@ -413,9 +413,9 @@ class TestGenerateRecommendations:
                 {
                     'umaban': 3, 'horse_name': 'Horse3',
                     'odds': 8.0, 'vb_gap': 4, 'win_vb_gap': 6,
-                    'rank_v': 2, 'odds_rank': 6,
+                    'rank_p': 2, 'odds_rank': 6,
                     'place_odds_min': 2.5,
-                    'pred_proba_v_raw': 0.40,
+                    'pred_proba_p_raw': 0.40,
                     'predicted_margin': 0.7,
                     'win_ev': 1.1, 'place_ev': 1.0,
                     'comment_memo_trouble_score': 0,
@@ -423,9 +423,9 @@ class TestGenerateRecommendations:
                 {
                     'umaban': 5, 'horse_name': 'Horse5',
                     'odds': 3.0, 'vb_gap': 0, 'win_vb_gap': 0,
-                    'rank_v': 3, 'odds_rank': 3,
+                    'rank_p': 3, 'odds_rank': 3,
                     'place_odds_min': 1.5,
-                    'pred_proba_v_raw': 0.35,
+                    'pred_proba_p_raw': 0.35,
                     'predicted_margin': 1.5,
                     'win_ev': 0.5, 'place_ev': 0.5,
                     'comment_memo_trouble_score': 0,
@@ -433,9 +433,9 @@ class TestGenerateRecommendations:
                 {
                     'umaban': 7, 'horse_name': 'Horse7',
                     'odds': 50.0, 'vb_gap': 1, 'win_vb_gap': 1,
-                    'rank_v': 5, 'odds_rank': 6,
+                    'rank_p': 5, 'odds_rank': 6,
                     'place_odds_min': 8.0,
-                    'pred_proba_v_raw': 0.10,
+                    'pred_proba_p_raw': 0.10,
                     'predicted_margin': 3.0,
                     'win_ev': 0.2, 'place_ev': 0.8,
                     'comment_memo_trouble_score': 0,
@@ -480,9 +480,9 @@ class TestGenerateRecommendations:
                 {
                     'umaban': 1, 'horse_name': 'A',
                     'odds': 20.0, 'vb_gap': 6, 'win_vb_gap': 8,
-                    'rank_v': 1, 'odds_rank': 7,
+                    'rank_p': 1, 'odds_rank': 7,
                     'place_odds_min': 4.0,
-                    'pred_proba_v_raw': 0.5,
+                    'pred_proba_p_raw': 0.5,
                     'predicted_margin': 0.3,
                     'win_ev': 2.0, 'place_ev': 2.0,
                     'comment_memo_trouble_score': 0,
@@ -490,9 +490,9 @@ class TestGenerateRecommendations:
                 {
                     'umaban': 2, 'horse_name': 'B',
                     'odds': 15.0, 'vb_gap': 5, 'win_vb_gap': 7,
-                    'rank_v': 2, 'odds_rank': 7,
+                    'rank_p': 2, 'odds_rank': 7,
                     'place_odds_min': 3.5,
-                    'pred_proba_v_raw': 0.45,
+                    'pred_proba_p_raw': 0.45,
                     'predicted_margin': 0.5,
                     'win_ev': 1.5, 'place_ev': 1.6,
                     'comment_memo_trouble_score': 0,
@@ -520,10 +520,10 @@ class TestGenerateRecommendations:
                 {   # This horse IS a danger horse (odds<=8, ARd<53, V%<15%)
                     'umaban': 1, 'horse_name': 'DangerPopular',
                     'odds': 5.0, 'vb_gap': 2, 'win_vb_gap': 3,
-                    'rank_v': 3, 'odds_rank': 2,
+                    'rank_p': 3, 'odds_rank': 2,
                     'place_odds_min': 1.5,
-                    'pred_proba_v_raw': 0.08,
-                    'pred_proba_v': 0.05,
+                    'pred_proba_p_raw': 0.08,
+                    'pred_proba_p': 0.05,
                     'ar_deviation': 48.0,
                     'predicted_margin': 0.2,
                     'win_ev': 0.5, 'place_ev': 0.8,
@@ -531,10 +531,10 @@ class TestGenerateRecommendations:
                 {   # Non-danger horse with borderline gap
                     'umaban': 2, 'horse_name': 'ValueHorse',
                     'odds': 15.0, 'vb_gap': 5, 'win_vb_gap': 6,
-                    'rank_v': 1, 'odds_rank': 5,
+                    'rank_p': 1, 'odds_rank': 5,
                     'place_odds_min': 3.0,
-                    'pred_proba_v_raw': 0.50,
-                    'pred_proba_v': 0.30,
+                    'pred_proba_p_raw': 0.50,
+                    'pred_proba_p': 0.30,
                     'ar_deviation': 60.0,
                     'predicted_margin': 0.5,
                     'win_ev': 2.5, 'place_ev': 2.0,

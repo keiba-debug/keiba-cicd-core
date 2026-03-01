@@ -82,6 +82,8 @@ export interface BetRecommendation {
   betAmountWin: number;
   betAmountPlace: number;
   gap: number;
+  devGap: number;
+  vbScore: number;
   winGap: number;
   predictedMargin: number;
   isDanger: boolean;

@@ -25,7 +25,7 @@ if sys.platform == 'win32':
 from ml.experiment import (
     load_data, build_dataset, load_race_json,
     FEATURE_COLS_ALL, FEATURE_COLS_VALUE,
-    PARAMS_A, PARAMS_B, PARAMS_W, PARAMS_WV, PARAMS_REG_B,
+    PARAMS_P, PARAMS_W, PARAMS_AR,
     train_model, train_regression_model, _get_place_odds,
 )
 from ml.features.margin_target import add_margin_target_to_df
@@ -33,7 +33,7 @@ from ml.bet_engine import (
     PRESETS, BetStrategyParams,
     generate_recommendations, recommendations_summary,
     df_to_race_predictions, calc_bet_engine_roi,
-    load_grade_offsets,
+    load_grade_offsets, compute_vb_score,
 )
 
 
@@ -45,7 +45,8 @@ def main():
     # === データロード ===
     print('\n[Load] Loading data...')
     (history_cache, trainer_index, jockey_index,
-     date_index, pace_index, kb_ext_index, training_summary_index) = load_data()
+     date_index, pace_index, kb_ext_index, training_summary_index,
+     race_level_index, pedigree_index, sire_stats_index) = load_data()
 
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -67,11 +68,11 @@ def main():
 
     # === モデル学習 ===
     print('\n[Train] Training classification models...')
-    _, _, _, pred_b, cal_b = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Cls_B'
+    _, _, _, pred_p, cal_p, pred_p_raw = train_model(
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_P, 'is_top3', 'Place'
     )
-    _, _, _, pred_wv, cal_wv = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_WV, 'is_win', 'Cls_WV'
+    _, _, _, pred_w, cal_w, pred_w_raw = train_model(
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_W, 'is_win', 'Win'
     )
 
     # === 回帰モデル (着差予測) ===
@@ -79,41 +80,41 @@ def main():
     for label, df in [('train', df_train), ('val', df_val), ('test', df_test)]:
         add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
 
-    _, _, _, pred_reg_b = train_regression_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_REG_B, 'Reg_B'
+    _, _, _, pred_ar = train_regression_model(
+        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_AR, 'Aura'
     )
-    df_test['pred_margin_b'] = pred_reg_b
+    df_test['pred_margin_ar'] = pred_ar
 
     # 予測結果をDataFrameに追加
-    df_test['pred_proba_v'] = pred_b
-    df_test['pred_rank_v'] = df_test.groupby('race_id')['pred_proba_v'].rank(
+    df_test['pred_proba_p'] = pred_p
+    df_test['pred_rank_p'] = df_test.groupby('race_id')['pred_proba_p'].rank(
         ascending=False, method='min'
     )
-    df_test['pred_proba_wv'] = pred_wv
-    df_test['pred_rank_wv'] = df_test.groupby('race_id')['pred_proba_wv'].rank(
+    df_test['pred_proba_w'] = pred_w
+    df_test['pred_rank_w'] = df_test.groupby('race_id')['pred_proba_w'].rank(
         ascending=False, method='min'
     )
 
     # raw確率（Kelly用）
-    df_test['pred_proba_v_raw'] = pred_b
+    df_test['pred_proba_p_raw'] = pred_p
 
     # VB gap
-    df_test['vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_v']).clip(lower=0).astype(int)
-    df_test['win_vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_wv']).clip(lower=0).astype(int)
+    df_test['vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_p']).clip(lower=0).astype(int)
+    df_test['win_vb_gap'] = (df_test['odds_rank'] - df_test['pred_rank_w']).clip(lower=0).astype(int)
 
     # EV (calibrated)
-    if cal_b is not None:
-        pred_b_cal = cal_b.predict(pred_b)
+    if cal_p is not None:
+        pred_p_cal = cal_p.predict(pred_p)
     else:
-        pred_b_cal = pred_b
-    if cal_wv is not None:
-        pred_wv_cal = cal_wv.predict(pred_wv)
+        pred_p_cal = pred_p
+    if cal_w is not None:
+        pred_w_cal = cal_w.predict(pred_w)
     else:
-        pred_wv_cal = pred_wv
+        pred_w_cal = pred_w
 
-    df_test['win_ev'] = pred_wv_cal * df_test['odds']
+    df_test['win_ev'] = pred_w_cal * df_test['odds']
     place_odds_col = df_test['place_odds_low'].fillna(df_test['odds'] / 3.5)
-    df_test['place_ev'] = pred_b_cal * place_odds_col
+    df_test['place_ev'] = pred_p_cal * place_odds_col
 
     # === bet_engine バックテスト ===
     print('\n[BetEngine] Converting to race predictions format...')
@@ -351,14 +352,93 @@ def main():
               f' {roi["win_hits"]:>5} {hit_rate:>7.1f}%'
               f' {pnl:>+8,}')
 
-    # === WVモデル キャリブレーション診断 ===
+    # === Composite VB Score Sweep ===
     print(f'\n{"=" * 70}')
-    print(f'  WVモデル キャリブレーション診断 (pred_proba_wv vs 実勝率)')
+    print(f'  Composite VB Score Sweep')
+    print(f'{"=" * 70}')
+    print(f'  {"score":>6} {"min_ev":>7} {"Bets":>5} {"WinBet":>9} '
+          f'{"WinRet":>9} {"WinROI":>7} {"Hits":>5} {"HitRate":>8} '
+          f'{"P&L":>8} {"Strong":>7}')
+    print(f'  {"-" * 85}')
+
+    for min_score in [3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0]:
+        for min_ev in [0.0, 1.0, 1.5]:
+            params = BetStrategyParams(
+                win_min_vb_score=min_score,
+                win_min_ev=min_ev,
+                win_v_ratio_min=0.75,
+                win_v_bypass_gap=7,
+                win_v_bypass_ev=3.0,
+                ard_vb_min_ard=65.0,
+                ard_vb_min_odds=10.0,
+                place_min_gap=99,
+                max_win_per_race=2,
+            )
+            recs = generate_recommendations(race_preds, params, budget=30000)
+            if not recs:
+                continue
+            roi = calc_bet_engine_roi(recs, race_preds)
+            hit_rate = roi['win_hits'] / roi['num_bets'] * 100 if roi['num_bets'] > 0 else 0
+            pnl = roi['win_return'] - roi['win_bet']
+            strong_count = sum(1 for r in recs if r.strength == 'strong')
+            ev_label = f'{min_ev:.1f}' if min_ev > 0 else 'none'
+            marker = ' ***' if roi['win_roi'] >= 100 else ''
+            print(f'  {min_score:>6.1f} {ev_label:>7} {roi["num_bets"]:>5} '
+                  f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
+                  f' {roi["win_hits"]:>5} {hit_rate:>7.1f}%'
+                  f' {pnl:>+8,} {strong_count:>5}S')
+
+    # === Score分布の確認 ===
+    print(f'\n{"=" * 70}')
+    print(f'  VB Score Distribution (全テストデータ)')
     print(f'{"=" * 70}')
 
-    # df_test の pred_proba_wv (calibrated) と実勝率を比較
+    all_scores = []
+    for race in race_preds:
+        for e in race['entries']:
+            s = compute_vb_score(
+                e.get('dev_gap', 0) or 0,
+                e.get('vb_gap', 0) or 0,
+                e.get('win_ev'),
+                e.get('ar_deviation'),
+            )
+            all_scores.append({
+                'score': s,
+                'is_win': e.get('is_win', 0),
+                'odds': e.get('odds', 0),
+            })
+
+    import pandas as pd
+    score_df = pd.DataFrame(all_scores)
+    score_bins = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10]
+    score_df['bin'] = pd.cut(score_df['score'], bins=score_bins, right=False)
+
+    print(f'  {"score_range":>12} {"N":>6} {"wins":>5} {"win%":>7} {"avg_odds":>9} '
+          f'{"ROI%":>7}')
+    print(f'  {"-" * 55}')
+
+    for bin_label, group in score_df.groupby('bin', observed=False):
+        n = len(group)
+        if n == 0:
+            continue
+        wins = int(group['is_win'].sum())
+        win_rate = wins / n * 100
+        avg_odds = group['odds'].mean()
+        total_bet = n * 100
+        total_return = int((group['is_win'] * group['odds'] * 100).sum())
+        roi_pct = total_return / total_bet * 100 if total_bet > 0 else 0
+        marker = ' ***' if roi_pct >= 100 else ''
+        print(f'  {str(bin_label):>12} {n:>6} {wins:>5} {win_rate:>6.2f}% {avg_odds:>9.1f} '
+              f'{roi_pct:>6.1f}%{marker}')
+
+    # === Winモデル キャリブレーション診断 ===
+    print(f'\n{"=" * 70}')
+    print(f'  Winモデル キャリブレーション診断 (pred_proba_w vs 実勝率)')
+    print(f'{"=" * 70}')
+
+    # df_test の pred_proba_w (calibrated) と実勝率を比較
     cal_df = df_test[['race_id', 'is_win', 'odds']].copy()
-    cal_df['pred_win_prob'] = pred_wv_cal
+    cal_df['pred_win_prob'] = pred_w_cal
     cal_df['win_ev'] = cal_df['pred_win_prob'] * cal_df['odds']
 
     # 確率帯別の実勝率
@@ -386,10 +466,10 @@ def main():
               f'{avg_odds:>9.1f} {avg_ev:>7.2f} {roi_pct:>6.1f}%')
 
     # EV帯別の実ROI
-    print(f'\n  --- EV帯別 実ROI (rank_wv <= 3 のみ) ---')
+    print(f'\n  --- EV帯別 実ROI (rank_w <= 3 のみ) ---')
     ev_df = cal_df.copy()
-    ev_df['rank_wv'] = df_test.groupby('race_id')['pred_proba_wv'].rank(ascending=False, method='min')
-    ev_df = ev_df[ev_df['rank_wv'] <= 3]
+    ev_df['rank_w'] = df_test.groupby('race_id')['pred_proba_w'].rank(ascending=False, method='min')
+    ev_df = ev_df[ev_df['rank_w'] <= 3]
 
     ev_bins = [0, 0.5, 0.8, 1.0, 1.2, 1.3, 1.5, 2.0, 3.0, 100]
     ev_df['ev_bin'] = pd.cut(ev_df['win_ev'], bins=ev_bins)
@@ -413,6 +493,114 @@ def main():
         marker = ' ***' if roi_pct >= 100 else ''
         print(f'  {str(bin_label):>16} {n:>6} {wins:>5} {win_rate:>6.2f}% {avg_odds:>9.1f} '
               f'{avg_ev:>7.2f} {roi_pct:>6.1f}%{marker} {pnl:>+8,}')
+
+    # === P Model 廃止実験: W-only vs P+W 比較 ===
+    print(f'\n{"=" * 70}')
+    print(f'  P Model 廃止実験: W-only vs P+W (Composite VB Score)')
+    print(f'{"=" * 70}')
+    print(f'  現状: gap=rank_p, dev_gap=P_raw, P%ratio=P_raw')
+    print(f'  実験: gap=rank_w, dev_gap=W_raw, W%ratio=W_raw')
+
+    # df_testのコピーで P→W に全置換
+    df_test_w = df_test.copy()
+    df_test_w['pred_proba_p_raw'] = pred_w        # P raw → W raw
+    df_test_w['pred_rank_p'] = df_test_w['pred_rank_w']  # rank_p → rank_w
+    df_test_w['vb_gap'] = df_test_w['win_vb_gap']         # gap → W gap
+
+    race_preds_w = df_to_race_predictions(df_test_w, grade_offsets=grade_offsets)
+    print(f'  W-only: {len(race_preds_w)} races')
+
+    # ヘッダー
+    print(f'\n  {"Preset":>14} {"Mode":>8} {"Bets":>5} {"TotalBet":>10} '
+          f'{"TotalRet":>10} {"ROI":>7} {"Hits":>5} {"HitRate":>8} '
+          f'{"P&L":>8} {"Strong":>7}')
+    print(f'  {"-" * 100}')
+
+    for preset_name, preset_params in PRESETS.items():
+        for mode, preds in [('P+W', race_preds), ('W-only', race_preds_w)]:
+            recs = generate_recommendations(preds, preset_params, budget=30000)
+            roi = calc_bet_engine_roi(recs, preds)
+            if roi['num_bets'] == 0:
+                print(f'  {preset_name:>14} {mode:>8} {"---":>5}')
+                continue
+            hit_rate = roi['win_hits'] / roi['num_bets'] * 100
+            pnl = roi['total_return'] - roi['total_bet']
+            strong_count = sum(1 for r in recs if r.strength == 'strong')
+            marker = ' ***' if roi['total_roi'] >= 100 else ''
+            print(f'  {preset_name:>14} {mode:>8} {roi["num_bets"]:>5} '
+                  f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
+                  f' {roi["win_hits"]:>5} {hit_rate:>7.1f}%'
+                  f' {pnl:>+8,} {strong_count:>5}S')
+
+    # Composite Score Sweep (W-only)
+    print(f'\n  --- W-only Composite Score Sweep ---')
+    print(f'  {"score":>6} {"min_ev":>7} {"Bets":>5} {"WinBet":>9} '
+          f'{"WinRet":>9} {"WinROI":>7} {"Hits":>5} {"HitRate":>8} '
+          f'{"P&L":>8}')
+    print(f'  {"-" * 75}')
+
+    for min_score in [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0]:
+        for min_ev in [0.0, 1.0]:
+            params = BetStrategyParams(
+                win_min_vb_score=min_score,
+                win_min_ev=min_ev,
+                win_v_ratio_min=0.75,
+                win_v_bypass_gap=7,
+                win_v_bypass_ev=3.0,
+                ard_vb_min_ard=65.0,
+                ard_vb_min_odds=10.0,
+                place_min_gap=99,
+                max_win_per_race=2,
+            )
+            recs = generate_recommendations(race_preds_w, params, budget=30000)
+            if not recs:
+                continue
+            roi = calc_bet_engine_roi(recs, race_preds_w)
+            hit_rate = roi['win_hits'] / roi['num_bets'] * 100 if roi['num_bets'] > 0 else 0
+            pnl = roi['win_return'] - roi['win_bet']
+            ev_label = f'{min_ev:.1f}' if min_ev > 0 else 'none'
+            marker = ' ***' if roi['win_roi'] >= 100 else ''
+            print(f'  {min_score:>6.1f} {ev_label:>7} {roi["num_bets"]:>5} '
+                  f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
+                  f' {roi["win_hits"]:>5} {hit_rate:>7.1f}%'
+                  f' {pnl:>+8,}')
+
+    # VBで選ばれる馬の重複率
+    print(f'\n  --- P+W vs W-only: 選定馬の重複率 ---')
+    for preset_name, preset_params in PRESETS.items():
+        recs_p = generate_recommendations(race_preds, preset_params, budget=30000)
+        recs_w = generate_recommendations(race_preds_w, preset_params, budget=30000)
+        set_p = {(r.race_id, r.umaban) for r in recs_p}
+        set_w = {(r.race_id, r.umaban) for r in recs_w}
+        overlap = set_p & set_w
+        only_p = set_p - set_w
+        only_w = set_w - set_p
+        print(f'  {preset_name:>14}: P+W={len(set_p)}, W-only={len(set_w)}, '
+              f'overlap={len(overlap)}, P独自={len(only_p)}, W独自={len(only_w)}')
+
+        # P独自の勝ち馬（Pがなくなると失う）
+        p_only_wins = []
+        for race_id, umaban in only_p:
+            for race in race_preds:
+                if race['race_id'] == race_id:
+                    for e in race['entries']:
+                        if e['umaban'] == umaban and e.get('is_win', 0) == 1:
+                            p_only_wins.append(f'{race_id}:馬番{umaban}({e.get("horse_name","")})')
+                    break
+        if p_only_wins:
+            print(f'    ↑ P独自の勝ち馬: {len(p_only_wins)}頭 — {", ".join(p_only_wins[:5])}')
+
+        # W独自の勝ち馬（W-onlyで新たに拾える）
+        w_only_wins = []
+        for race_id, umaban in only_w:
+            for race in race_preds_w:
+                if race['race_id'] == race_id:
+                    for e in race['entries']:
+                        if e['umaban'] == umaban and e.get('is_win', 0) == 1:
+                            w_only_wins.append(f'{race_id}:馬番{umaban}({e.get("horse_name","")})')
+                    break
+        if w_only_wins:
+            print(f'    ↑ W独自の勝ち馬: {len(w_only_wins)}頭 — {", ".join(w_only_wins[:5])}')
 
     print('\nDone.')
 

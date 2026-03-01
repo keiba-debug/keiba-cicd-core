@@ -53,6 +53,31 @@ export interface CourseInfo {
     highSpeedTrack?: string;
     wetTrack?: string;
   };
+  // 馬場分析データ（analyze_baba_report.py由来）
+  babaAnalysis?: {
+    firstCornerDistM?: number;       // 1角までの距離（メートル）
+    firstCornerClass?: '超短(~250m)' | '短(250-350m)' | '中(350-450m)' | '長(450m~)';
+    sampleSize: number;              // 分析対象サンプル数
+    innerTop3Pct: number;            // 内枠(1-3)のtop3率
+    outerTop3Pct: number;            // 外枠(6-8)のtop3率
+    innerAdvantage: number;          // 内有利度（pt）
+    frontRunnerTop3Pct: number;      // 逃先のtop3率
+    sashiTop3Pct?: number;           // 差しのtop3率
+    styleAdvantage: number;          // 差し有利度（pt、負=前有利）
+    // 馬場状態別バイアス
+    conditionBias?: {
+      label: string;                 // 例: "乾燥", "標準", "湿潤" or "硬", "標準", "柔"
+      sampleSize: number;
+      innerAdvantage: number;
+      styleAdvantage?: number;
+    }[];
+    // 開催進行バイアス（会場レベル）
+    kaisaiProgression?: {
+      phase: string;                 // 序盤/前半/中盤/後半
+      sampleSize: number;
+      styleAdvantage: number;        // 差し有利度
+    }[];
+  };
 }
 
 // 高低断面図コンポーネント
@@ -259,36 +284,167 @@ function SurfaceIcon({ surface }: { surface: '芝' | 'ダート' | '障害' }) {
   );
 }
 
+// 内有利度ゲージ
+function InnerAdvantageGauge({ value, label }: { value: number; label: string }) {
+  // -10 ~ +10 のスケールでゲージ表示
+  const clampedValue = Math.max(-10, Math.min(10, value));
+  const pct = ((clampedValue + 10) / 20) * 100;
+  const isInner = value > 0;
+  const color = isInner
+    ? value >= 5 ? 'text-blue-700' : 'text-blue-500'
+    : value <= -5 ? 'text-orange-700' : 'text-orange-500';
+  const bgColor = isInner
+    ? value >= 5 ? 'bg-blue-500' : 'bg-blue-400'
+    : value <= -5 ? 'bg-orange-500' : 'bg-orange-400';
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500 w-14 shrink-0">{label}</span>
+      <div className="flex-1 relative">
+        <div className="h-3 bg-gray-200 rounded-full relative overflow-hidden">
+          {/* center line */}
+          <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gray-400 z-10" />
+          {/* filled bar */}
+          {isInner ? (
+            <div className={`absolute top-0 bottom-0 ${bgColor} rounded-r-full`}
+                 style={{ left: '50%', width: `${(pct - 50)}%` }} />
+          ) : (
+            <div className={`absolute top-0 bottom-0 ${bgColor} rounded-l-full`}
+                 style={{ right: '50%', width: `${(50 - pct)}%` }} />
+          )}
+        </div>
+        <div className="flex justify-between text-[9px] text-gray-400 mt-0.5">
+          <span>外有利</span>
+          <span>内有利</span>
+        </div>
+      </div>
+      <span className={`font-bold text-sm w-16 text-right ${color}`}>
+        {value > 0 ? '+' : ''}{value.toFixed(1)}pt
+      </span>
+    </div>
+  );
+}
+
+// 馬場分析セクション
+function BabaAnalysisSection({ baba }: { baba: NonNullable<CourseInfo['babaAnalysis']> }) {
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-gray-500 mb-1">📊 馬場バイアス分析 (n={baba.sampleSize.toLocaleString()})</div>
+
+      {/* 内外・脚質ゲージ */}
+      <div className="space-y-2">
+        <InnerAdvantageGauge value={baba.innerAdvantage} label="内外" />
+        <InnerAdvantageGauge value={baba.styleAdvantage} label="脚質" />
+      </div>
+
+      {/* 数値サマリ */}
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="bg-gray-50 rounded-lg p-2">
+          <div className="text-gray-500">内枠(1-3) top3</div>
+          <div className="font-bold text-sm">{baba.innerTop3Pct.toFixed(1)}%</div>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-2">
+          <div className="text-gray-500">外枠(6-8) top3</div>
+          <div className="font-bold text-sm">{baba.outerTop3Pct.toFixed(1)}%</div>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-2">
+          <div className="text-gray-500">逃先 top3</div>
+          <div className="font-bold text-sm">{baba.frontRunnerTop3Pct.toFixed(1)}%</div>
+        </div>
+        {baba.firstCornerDistM && (
+          <div className="bg-gray-50 rounded-lg p-2">
+            <div className="text-gray-500">1角距離</div>
+            <div className="font-bold text-sm">{baba.firstCornerDistM}m
+              <span className="text-[10px] text-gray-400 ml-1">{baba.firstCornerClass}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 馬場状態別バイアス */}
+      {baba.conditionBias && baba.conditionBias.length > 0 && (
+        <div>
+          <div className="text-xs text-gray-500 mb-1">馬場状態別</div>
+          <div className="space-y-1">
+            {baba.conditionBias.map((cb, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className="w-20 text-gray-600 shrink-0">{cb.label}</span>
+                <span className="text-gray-400">n={cb.sampleSize}</span>
+                <span className={`font-mono font-medium ${cb.innerAdvantage > 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                  内{cb.innerAdvantage > 0 ? '+' : ''}{cb.innerAdvantage.toFixed(1)}pt
+                </span>
+                {cb.styleAdvantage !== undefined && (
+                  <span className="text-gray-500 font-mono">
+                    脚{cb.styleAdvantage > 0 ? '+' : ''}{cb.styleAdvantage.toFixed(1)}pt
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // メインのコースカードコンポーネント
 export function CourseCard({ course, compact = false }: { course: CourseInfo; compact?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(!compact);
 
+  const baba = course.babaAnalysis;
+  const headerBg = course.surface === 'ダート'
+    ? 'from-amber-50 to-orange-50'
+    : 'from-green-50 to-emerald-50';
+
   return (
     <div className="bg-white rounded-xl border shadow-sm overflow-hidden hover:shadow-md transition-shadow">
       {/* ヘッダー */}
-      <div 
-        className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 cursor-pointer"
+      <div
+        className={`p-4 bg-gradient-to-r ${headerBg} cursor-pointer`}
         onClick={() => compact && setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center gap-3">
           <SurfaceIcon surface={course.surface} />
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h3 className="font-bold text-lg">
-              {course.trackName}競馬場 {course.surface}{course.distanceMeters}m
+              {course.trackName} {course.surface}{course.distanceMeters}m
               {course.courseVariant && course.courseVariant !== 'なし' && (
-                <span className="text-gray-500 text-sm ml-1">（{course.courseVariant}）</span>
+                <span className="text-gray-500 text-sm ml-1">({course.courseVariant})</span>
               )}
             </h3>
-            <div className="flex items-center gap-3 text-sm text-gray-600 mt-0.5">
-              <span>🔄 {course.turn}回り</span>
+            <div className="flex items-center gap-3 text-sm text-gray-600 mt-0.5 flex-wrap">
+              <span>{course.turn}回り</span>
               {course.courseGeometry && (
                 <>
-                  <span>📏 直線{course.courseGeometry.straightLengthM}m</span>
-                  <span>⛰️ 高低差{course.courseGeometry.elevationDiffM}m</span>
+                  <span>直線{course.courseGeometry.straightLengthM}m</span>
+                  <span>高低差{course.courseGeometry.elevationDiffM}m</span>
                 </>
+              )}
+              {baba?.firstCornerDistM && (
+                <span>1角{baba.firstCornerDistM}m</span>
               )}
             </div>
           </div>
+          {/* ヘッダーのミニバイアス表示 */}
+          {baba && (
+            <div className="flex flex-col items-end gap-0.5 shrink-0">
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                baba.innerAdvantage >= 3 ? 'bg-blue-100 text-blue-700'
+                : baba.innerAdvantage <= -3 ? 'bg-orange-100 text-orange-700'
+                : 'bg-gray-100 text-gray-600'
+              }`}>
+                {baba.innerAdvantage >= 3 ? '内有利' : baba.innerAdvantage <= -3 ? '外有利' : 'フラット'}
+                {baba.innerAdvantage !== 0 && ` ${baba.innerAdvantage > 0 ? '+' : ''}${baba.innerAdvantage.toFixed(1)}`}
+              </span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                baba.styleAdvantage >= -10 ? 'bg-green-100 text-green-700'
+                : baba.styleAdvantage <= -20 ? 'bg-red-100 text-red-700'
+                : 'bg-yellow-100 text-yellow-700'
+              }`}>
+                {baba.styleAdvantage >= -10 ? '差し有効' : baba.styleAdvantage <= -20 ? '先行圧倒' : '先行有利'}
+              </span>
+            </div>
+          )}
           {compact && (
             <span className="text-gray-400 text-lg">
               {isExpanded ? '▲' : '▼'}
@@ -300,11 +456,17 @@ export function CourseCard({ course, compact = false }: { course: CourseInfo; co
       {/* 展開コンテンツ */}
       {isExpanded && (
         <div className="p-4 space-y-4">
-          {/* バイアスバッジ */}
+          {/* 馬場分析（新） */}
+          {baba && <BabaAnalysisSection baba={baba} />}
+
+          {/* バイアスバッジ（既存・手動定義データ用） */}
           {course.bias && (
             <div>
-              <div className="text-xs text-gray-500 mb-1.5">📊 コース傾向</div>
+              <div className="text-xs text-gray-500 mb-1.5">📋 コース傾向メモ</div>
               <BiasBadges bias={course.bias} />
+              {course.bias.groundConditionNotes && (
+                <div className="text-xs text-gray-500 mt-1">{course.bias.groundConditionNotes}</div>
+              )}
             </div>
           )}
 
@@ -341,7 +503,7 @@ export function CourseCard({ course, compact = false }: { course: CourseInfo; co
                 <span className="font-medium">{course.straightDirection.runDirection}</span>
               </div>
               <div className="text-xs text-gray-600 mt-1">
-                向かい風: {course.straightDirection.headwindDirection} / 
+                向かい風: {course.straightDirection.headwindDirection} /
                 追い風: {course.straightDirection.tailwindDirection}
               </div>
             </div>

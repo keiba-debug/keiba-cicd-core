@@ -67,7 +67,7 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
                 <span className="flex-1">
                   <span className="text-xs text-gray-400">Top1: </span>
                   <span className="font-medium">{top1?.horse_name ?? '-'}</span>
-                  <span className="ml-1 text-xs text-gray-500">({(top1?.pred_proba_accuracy * 100).toFixed(0)}%)</span>
+                  <span className="ml-1 text-xs text-gray-500">({(top1?.pred_proba_p * 100).toFixed(0)}%)</span>
                   {top1?.odds != null && (
                     <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">{top1.odds.toFixed(1)}倍</span>
                   )}
@@ -92,8 +92,7 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
                       <tr className="text-gray-400">
                         <th className="w-8 text-right">馬番</th>
                         <th className="px-2 text-left">馬名</th>
-                        <th className="w-14 text-right" title="好走 市場モデルの3着内確率">市場%</th>
-                        <th className="w-14 text-right" title="好走 独自モデルの3着内確率">独自%</th>
+                        <th className="w-14 text-right" title="好走(P)モデルの3着内確率">P%</th>
                         <th className="w-8 text-center">VR</th>
                         <th className="w-10 text-center">着順</th>
                         <th className="w-10 text-center">人気</th>
@@ -120,8 +119,7 @@ export default function PredictionsTab({ predictions }: { predictions: RacePredi
                               {h.horse_name}
                               {isValue && <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">V</span>}
                             </td>
-                            <td className="text-right tabular-nums">{(h.pred_proba_accuracy * 100).toFixed(1)}</td>
-                            <td className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">{(h.pred_proba_value * 100).toFixed(1)}</td>
+                            <td className="text-right tabular-nums text-blue-600 dark:text-blue-400">{((h.pred_proba_p ?? h.pred_proba_value ?? 0) * 100).toFixed(1)}</td>
                             <td className="text-center tabular-nums text-gray-500">{h.value_rank}</td>
                             <td className="text-center tabular-nums font-medium">
                               <span className={cn(

@@ -3,7 +3,7 @@
 """
 リアルタイム予測スクリプト (v3.4モデル)
 
-JRA-VANレースJSON + keibabook拡張JSON + mykeibadb事前オッズ → predictions_live.json
+JRA-VANレースJSON + keibabook拡張JSON + mykeibadb事前オッズ → races/YYYY/MM/DD/predictions.json
 
 v3.4: mykeibadb連携 - レース前最新オッズを自動取得
       DB接続不可時はJSONオッズにフォールバック
@@ -46,6 +46,7 @@ from ml.bet_engine import (
     load_grade_offsets, get_grade_key,
     VB_FLOOR_MIN_WIN_EV, VB_FLOOR_MIN_ARD,
     VB_FLOOR_ARD_VB_MIN_ARD, VB_FLOOR_ARD_VB_MIN_ODDS,
+    VB_FLOOR_MIN_DEV_GAP, VB_FLOOR_DEV_MIN_ARD,
 )
 
 # === Value Bet閾値 ===
@@ -80,14 +81,13 @@ def load_model_and_meta(model_version: Optional[str] = None):
         load_dir = ml_dir
         print(f"[Model] Loading latest (live) model")
 
-    model_a_path = load_dir / "model_a.txt"
-    model_b_path = load_dir / "model_b.txt"
+    model_p_path = load_dir / "model_p.txt"
     model_w_path = load_dir / "model_w.txt"
-    model_wv_path = load_dir / "model_wv.txt"
+    model_ar_path = load_dir / "model_ar.txt"
     meta_path = load_dir / "model_meta.json"
 
-    # Place モデル (A/B) は必須
-    missing = [p for p in [model_a_path, model_b_path, meta_path] if not p.exists()]
+    # Place モデル (P) は必須
+    missing = [p for p in [model_p_path, meta_path] if not p.exists()]
     if missing:
         names = ", ".join(p.name for p in missing)
         raise FileNotFoundError(
@@ -95,18 +95,16 @@ def load_model_and_meta(model_version: Optional[str] = None):
             "先に python -m ml.experiment を実行してください"
         )
 
-    model_a = lgb.Booster(model_file=str(model_a_path))
-    model_b = lgb.Booster(model_file=str(model_b_path))
+    model_p = lgb.Booster(model_file=str(model_p_path))
+    print(f"[Model] Place model loaded: model_p.txt")
 
-    # Win モデル (W/WV) はオプション（後方互換）
+    # Win モデル (W)
     model_w = None
-    model_wv = None
-    if model_w_path.exists() and model_wv_path.exists():
+    if model_w_path.exists():
         model_w = lgb.Booster(model_file=str(model_w_path))
-        model_wv = lgb.Booster(model_file=str(model_wv_path))
-        print(f"[Model] Win models loaded: model_w.txt, model_wv.txt")
+        print(f"[Model] Win model loaded: model_w.txt")
     else:
-        print(f"[Model] Win models not found - running without win predictions")
+        print(f"[Model] Win model not found - running without win predictions")
 
     # IsotonicRegressionキャリブレーター（オプション）
     # EV計算にはcalibrated確率を使用、ランキングはraw正規化（順序不変のため）
@@ -125,21 +123,19 @@ def load_model_and_meta(model_version: Optional[str] = None):
     if meta.get('has_calibrators') and calibrators is None:
         print("[WARN] model_meta says calibrators exist but calibrators.pkl not found — using raw probabilities for EV")
 
-    # 回帰モデル (着差予測, オプション)
-    model_reg_b = None
-    reg_path = load_dir / "model_reg_b.txt"
-    if reg_path.exists():
-        model_reg_b = lgb.Booster(model_file=str(reg_path))
-        print(f"[Model] Regression model loaded: model_reg_b.txt")
+    # Aura モデル (着差回帰, オプション)
+    model_ar = None
+    if model_ar_path.exists():
+        model_ar = lgb.Booster(model_file=str(model_ar_path))
+        print(f"[Model] Aura model loaded: model_ar.txt")
     else:
-        print(f"[Model] Regression model not found - running without margin predictions")
+        print(f"[Model] Aura model not found - running without margin predictions")
 
     ver_label = meta.get('version', '?')
-    feat_a = len(meta.get('features_all', []))
     feat_v = len(meta.get('features_value', []))
-    print(f"[Model] Version: {ver_label}, Features: A={feat_a}, V={feat_v}")
+    print(f"[Model] Version: {ver_label}, Features: {feat_v}")
 
-    return model_a, model_b, model_w, model_wv, meta, calibrators, model_reg_b
+    return model_p, model_w, meta, calibrators, model_ar
 
 
 def load_obstacle_model():
@@ -230,6 +226,7 @@ def predict_obstacle_race(
             venue_code=venue_code, track_type=track_type,
             distance=distance, entry_count=entry_count,
             history_cache=history_cache, race_level_index=race_level_index,
+            track_condition=race.get('track_condition', ''),
         )
         feat.update(past)
 
@@ -323,16 +320,14 @@ def predict_obstacle_race(
             'horse_name': p['horse_name'],
             'odds': p['odds'],
             'popularity': p['popularity'],
-            'pred_proba_a': round(float(pred_norm[i]), 4),
-            'pred_proba_v': round(float(pred_norm[i]), 4),
-            'pred_proba_v_raw': round(float(pred_raw[i]), 6),
-            'rank_a': int(rank),
-            'rank_v': int(rank),
+            'pred_proba_p': round(float(pred_norm[i]), 4),
+            'pred_proba_p_raw': round(float(pred_raw[i]), 6),
+            'rank_p': int(rank),
             'odds_rank': 0,
             'vb_gap': 0,
-            'pred_proba_w': None, 'pred_proba_wv': None,
-            'pred_proba_wv_cal': None,
-            'rank_w': None, 'rank_wv': None,
+            'pred_proba_w': None,
+            'pred_proba_w_cal': None,
+            'rank_w': None,
             'win_vb_gap': 0,
             'place_odds_min': None, 'place_odds_max': None,
             'win_ev': None, 'place_ev': None,
@@ -352,7 +347,7 @@ def predict_obstacle_race(
             'comment_has_stable': 0, 'comment_has_interview': 0,
         })
 
-    result_entries.sort(key=lambda x: -x['pred_proba_v'])
+    result_entries.sort(key=lambda x: -x['pred_proba_p'])
 
     return {
         'race_id': race_id,
@@ -397,7 +392,6 @@ def list_model_versions() -> list:
         if meta_path.exists():
             with open(meta_path, encoding='utf-8') as f:
                 meta = json.load(f)
-            info['feature_count_all'] = len(meta.get('features_all', []))
             info['feature_count_value'] = len(meta.get('features_value', []))
             info['created_at'] = meta.get('created_at', '')
 
@@ -412,7 +406,6 @@ def list_model_versions() -> list:
             'version': meta.get('version', '?') + ' (live)',
             'created_at': meta.get('created_at', ''),
             'has_win_model': (ml_dir / "model_w.txt").exists(),
-            'feature_count_all': len(meta.get('features_all', [])),
             'feature_count_value': len(meta.get('features_value', [])),
             'is_live': True,
         })
@@ -596,7 +589,7 @@ def _fetch_race_shosai_from_db(race_id: str) -> Optional[dict]:
 def predict_race(
     race: dict,
     kb_ext: Optional[dict],
-    model_a, model_b,
+    model_p,
     meta: dict,
     history_cache: dict,
     trainer_index: dict,
@@ -605,11 +598,10 @@ def predict_race(
     db_odds: Optional[Dict[int, dict]] = None,
     training_summary_day: Optional[dict] = None,
     model_w=None,
-    model_wv=None,
     db_place_odds: Optional[Dict[int, dict]] = None,
     kb_ext_index: Optional[dict] = None,
     calibrators: Optional[dict] = None,
-    model_reg_b=None,
+    model_ar=None,
     grade_offsets: Optional[Dict[str, float]] = None,
     race_level_index: Optional[dict] = None,
     pedigree_index: Optional[dict] = None,
@@ -619,19 +611,18 @@ def predict_race(
     """1レースの予測を実行
 
     Args:
+        model_p: Place(P)モデル — is_top3分類
+        model_w: Win(W)モデル — is_win分類 (Optional)
+        model_ar: Aura(AR)モデル — 着差回帰 (Optional)
         db_odds: mykeibadbから取得した事前単勝オッズ {umaban: {'odds': float, 'ninki': int}}
         training_summary_day: CK_DATA調教サマリ {ketto_num: summary} (当日分)
-        model_w: Win精度モデル (Optional)
-        model_wv: Winバリューモデル (Optional)
         db_place_odds: mykeibadb複勝オッズ {umaban: {'odds_low': float, 'odds_high': float}}
         calibrators: IsotonicRegressionキャリブレーター辞書 (Optional)
-        model_reg_b: 着差回帰モデル (Optional)
         pedigree_index: 血統インデックス {ketto_num: {sire, dam, bms}} (Optional)
         sire_stats_index: 種牡馬/母馬/母父統計 {sire: {...}, dam: {...}, bms: {...}} (Optional)
     """
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
 
-    features_all = meta['features_all']
     features_value = meta['features_value']
 
     # Sire/Dam/BMS index (build once per predict_race call)
@@ -694,7 +685,6 @@ def predict_race(
     kb_entries = kb_ext.get('entries', {}) if kb_ext else {}
 
     predictions = []
-    feature_rows_a = []
     feature_rows_v = []
 
     for entry in race.get('entries', []):
@@ -721,6 +711,7 @@ def predict_race(
             entry_count=entry_count,
             history_cache=history_cache,
             race_level_index=race_level_index,
+            track_condition=race.get('track_condition', ''),
         )
         feat.update(past)
 
@@ -858,67 +849,49 @@ def predict_race(
             return np.nan
 
     for p in predictions:
-        row_a = [_to_float(p['features'].get(f, np.nan)) for f in features_all]
         row_v = [_to_float(p['features'].get(f, np.nan)) for f in features_value]
-        feature_rows_a.append(row_a)
         feature_rows_v.append(row_v)
 
-    arr_a = np.array(feature_rows_a, dtype=np.float64)
     arr_v = np.array(feature_rows_v, dtype=np.float64)
 
     # === 特徴量NaN検証: 全値NaNの特徴量があれば警告 ===
-    nan_cols_a = [f for j, f in enumerate(features_all)
-                  if np.all(np.isnan(arr_a[:, j]))]
     nan_cols_v = [f for j, f in enumerate(features_value)
                   if np.all(np.isnan(arr_v[:, j]))]
-    if nan_cols_a:
-        print(f"[WARN] Model A: 全値NaNの特徴量 ({len(nan_cols_a)}件): {nan_cols_a}")
     if nan_cols_v:
-        print(f"[WARN] Model B: 全値NaNの特徴量 ({len(nan_cols_v)}件): {nan_cols_v}")
+        print(f"[WARN] 全値NaNの特徴量 ({len(nan_cols_v)}件): {nan_cols_v}")
 
-    # === Place予測 (is_top3) ===
-    pred_a_raw = model_a.predict(arr_a)
-    pred_b_raw = model_b.predict(arr_v)
+    # === Place予測 P (is_top3) ===
+    pred_p_raw = model_p.predict(arr_v)
 
     # === EV用 vs ランキング用の確率使い分け ===
     # EV計算: IsotonicRegressionでキャリブレーション済みの絶対確率を使用
     #         （賭けの期待値計算には正確な確率が必要）
     # ランキング: raw予測値をレース内正規化（相対順序のみ必要、calibrationノイズを避ける）
-    # 注意: IsotonicRegressionは単調変換なのでランキング順序は変わらないが、
-    #       正規化基準が異なるため、EVとrankが乖離するケースがありうる
-    pred_b_for_ev = pred_b_raw  # デフォルト: rawをそのまま使用
-    if calibrators and 'cal_b' in calibrators:
-        pred_b_for_ev = calibrators['cal_b'].predict(pred_b_raw)
+    pred_p_for_ev = pred_p_raw  # デフォルト: rawをそのまま使用
+    if calibrators and 'cal_p' in calibrators:
+        pred_p_for_ev = calibrators['cal_p'].predict(pred_p_raw)
 
     # レース内正規化: 各馬の確率合計を100%にする（ランキング用）
-    sum_a = pred_a_raw.sum()
-    sum_b = pred_b_raw.sum()
-    pred_a = pred_a_raw / sum_a if sum_a > 0 else pred_a_raw
-    pred_b = pred_b_raw / sum_b if sum_b > 0 else pred_b_raw
+    sum_p = pred_p_raw.sum()
+    pred_p = pred_p_raw / sum_p if sum_p > 0 else pred_p_raw
 
-    # === Win予測 (is_win) ===
-    has_win_model = model_w is not None and model_wv is not None
+    # === Win予測 W (is_win) ===
+    has_win_model = model_w is not None
     pred_w = None
-    pred_wv = None
-    pred_wv_for_ev = None
+    pred_w_for_ev = None
     rank_w_dict = {}
-    rank_wv_dict = {}
 
     if has_win_model:
-        pred_w_raw = model_w.predict(arr_a)
-        pred_wv_raw = model_wv.predict(arr_v)
+        pred_w_raw = model_w.predict(arr_v)
 
         # IsotonicRegressionキャリブレーション（Win EV計算用）
-        pred_wv_for_ev = pred_wv_raw  # デフォルト: rawをそのまま使用
-        if calibrators and 'cal_wv' in calibrators:
-            pred_wv_for_ev = calibrators['cal_wv'].predict(pred_wv_raw)
+        pred_w_for_ev = pred_w_raw  # デフォルト: rawをそのまま使用
+        if calibrators and 'cal_w' in calibrators:
+            pred_w_for_ev = calibrators['cal_w'].predict(pred_w_raw)
 
         sum_w = pred_w_raw.sum()
-        sum_wv = pred_wv_raw.sum()
         pred_w = pred_w_raw / sum_w if sum_w > 0 else pred_w_raw
-        pred_wv = pred_wv_raw / sum_wv if sum_wv > 0 else pred_wv_raw
         rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w), 1)}
-        rank_wv_dict = {i: r for r, i in enumerate(np.argsort(-pred_wv), 1)}
 
     # === ability_score → rating_display (Method A: グレードオフセット付き) ===
     # 符号反転: 高い=強い。RATING_BASE + ability * RATING_SCALE + grade_offset
@@ -926,8 +899,8 @@ def predict_race(
     RATING_BASE = 74.2
     ability_score = None
     rating_display = None
-    if model_reg_b is not None:
-        ability_score = -model_reg_b.predict(arr_v)
+    if model_ar is not None:
+        ability_score = -model_ar.predict(arr_v)
         rating_display = RATING_BASE + ability_score * RATING_SCALE
         # Method A: グレードオフセット適用
         grade_key = get_grade_key(current_grade, current_age_class)
@@ -936,14 +909,12 @@ def predict_race(
             rating_display = rating_display + grade_offset
 
     # ランク計算
-    rank_a_dict = {i: r for r, i in enumerate(np.argsort(-pred_a), 1)}
-    rank_v_dict = {i: r for r, i in enumerate(np.argsort(-pred_b), 1)}
+    rank_p_dict = {i: r for r, i in enumerate(np.argsort(-pred_p), 1)}
 
     # 結果を格納
     result_entries = []
     for i, p in enumerate(predictions):
-        ra = rank_a_dict[i]
-        rv = rank_v_dict[i]
+        rp = rank_p_dict[i]
 
         # odds_rank: NaN（オッズなし）→ 0 として出力
         odds_rank_raw = p['features'].get('odds_rank', np.nan)
@@ -953,12 +924,11 @@ def predict_race(
             odds_rank = 0
 
         # VB gap: odds_rankが有効な場合のみ計算
-        gap = (odds_rank - rv) if odds_rank > 0 else 0
+        gap = (odds_rank - rp) if odds_rank > 0 else 0
 
-        # Win ranks & gap
+        # Win rank & gap
         rw = rank_w_dict.get(i) if has_win_model else None
-        rwv = rank_wv_dict.get(i) if has_win_model else None
-        win_gap = int(odds_rank - rwv) if has_win_model and rwv and odds_rank > 0 else 0
+        win_gap = int(odds_rank - rw) if has_win_model and rw and odds_rank > 0 else 0
 
         # 複勝オッズ
         umaban = p['umaban']
@@ -973,21 +943,17 @@ def predict_race(
             'horse_name': p['horse_name'],
             'odds': p['odds'],
             'popularity': p['popularity'],
-            # Place predictions (is_top3)
-            'pred_proba_a': round(float(pred_a[i]), 4),
-            'pred_proba_v': round(float(pred_b[i]), 4),
-            'pred_proba_v_raw': round(float(pred_b_raw[i]), 6),
-            'rank_a': int(ra),
-            'rank_v': int(rv),
+            # Place predictions P (is_top3)
+            'pred_proba_p': round(float(pred_p[i]), 4),
+            'pred_proba_p_raw': round(float(pred_p_raw[i]), 6),
+            'rank_p': int(rp),
             'odds_rank': odds_rank,
             'vb_gap': int(gap),  # 参考情報（EVベース判定に移行済み）
-            # Win predictions (is_win)
+            # Win predictions W (is_win)
             'pred_proba_w': round(float(pred_w[i]), 4) if has_win_model else None,
-            'pred_proba_wv': round(float(pred_wv[i]), 4) if has_win_model else None,
-            'pred_proba_wv_cal': round(float(pred_wv_for_ev[i]), 6)
-                if has_win_model and pred_wv_for_ev is not None else None,
+            'pred_proba_w_cal': round(float(pred_w_for_ev[i]), 6)
+                if has_win_model and pred_w_for_ev is not None else None,
             'rank_w': int(rw) if rw is not None else None,
-            'rank_wv': int(rwv) if rwv is not None else None,
             'win_vb_gap': win_gap,
             # Place odds
             'place_odds_min': place_low,
@@ -995,9 +961,9 @@ def predict_race(
             # EV (期待値) — キャリブレーション済み確率を使用
             # Win: calibrated P(win) × 単勝オッズ
             # Place: calibrated P(top3) × 複勝最低オッズ (raw sum≈3.0)
-            'win_ev': round(float(pred_wv_for_ev[i]) * p['odds'], 4)
-                if has_win_model and pred_wv_for_ev is not None and p['odds'] > 0 else None,
-            'place_ev': round(float(pred_b_for_ev[i]) * place_low, 4)
+            'win_ev': round(float(pred_w_for_ev[i]) * p['odds'], 4)
+                if has_win_model and pred_w_for_ev is not None and p['odds'] > 0 else None,
+            'place_ev': round(float(pred_p_for_ev[i]) * place_low, 4)
                 if place_low and place_low > 0 else None,
             # 能力R (rating_display: 高い=強い、74.3≈平均的勝ち馬)
             'predicted_margin': round(float(rating_display[i]), 1) if rating_display is not None else None,
@@ -1028,8 +994,8 @@ def predict_race(
         entry['is_value_bet'] = False  # AR偏差値計算後に更新
         result_entries.append(entry)
 
-    # ソート: Model B確率の高い順
-    result_entries.sort(key=lambda x: -x['pred_proba_v'])
+    # ソート: Place(P)確率の高い順
+    result_entries.sort(key=lambda x: -x['pred_proba_p'])
 
     # AR偏差値を計算（レース内相対評価、mean=50, std=10）
     ar_scores = [e['predicted_margin'] for e in result_entries
@@ -1046,15 +1012,31 @@ def predict_race(
         for e in result_entries:
             e['ar_deviation'] = 50.0  # AR情報不足時は全員50
 
+    # dev_gap計算（偏差値ベースの乖離: モデル評価 vs 市場評価）
+    # model_dev: pred_proba_p のレース内z-score
+    # market_dev: implied_prob (1/odds) のレース内z-score
+    # dev_gap = model_dev - market_dev （正=モデルが市場より高評価）
+    preds = np.array([e['pred_proba_p'] for e in result_entries])
+    implied = np.array([1.0 / e['odds'] if e['odds'] > 0 else 0 for e in result_entries])
+    pred_mean, pred_std = preds.mean(), max(preds.std(), 1e-8)
+    imp_mean, imp_std = implied.mean(), max(implied.std(), 1e-8)
+    for i, e in enumerate(result_entries):
+        model_z = (preds[i] - pred_mean) / pred_std
+        market_z = (implied[i] - imp_mean) / imp_std
+        e['dev_gap'] = round(model_z - market_z, 3)
+
     # VBフラグ更新: VB Floor条件（購入プラン⊆VB候補 を保証）
     # 条件A: EV >= 1.0 AND ARd >= 50（期待値＋能力）
     # 条件B: ARd >= 65 AND odds >= 10（ARd VBルート: 能力 vs 市場乖離）
+    # 条件C: dev_gap >= 0.7 AND ARd >= 45（偏差値ベースの真の乖離）
     for e in result_entries:
         ev_ok = (e.get('win_ev') or 0) >= VB_FLOOR_MIN_WIN_EV
         ard_ok = (e.get('ar_deviation') or 0) >= VB_FLOOR_MIN_ARD
         ard_vb_ok = ((e.get('ar_deviation') or 0) >= VB_FLOOR_ARD_VB_MIN_ARD
                      and (e.get('odds') or 0) >= VB_FLOOR_ARD_VB_MIN_ODDS)
-        e['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok)
+        dev_ok = ((e.get('dev_gap') or 0) >= VB_FLOOR_MIN_DEV_GAP
+                  and (e.get('ar_deviation') or 0) >= VB_FLOOR_DEV_MIN_ARD)
+        e['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok or dev_ok)
 
     return {
         'race_id': race['race_id'],
@@ -1120,7 +1102,7 @@ def main():
         for v in versions:
             live = " [LIVE]" if v.get('is_live') else ""
             win = " +Win" if v.get('has_win_model') else ""
-            feat = f"A={v.get('feature_count_all', '?')}/V={v.get('feature_count_value', '?')}"
+            feat = f"V={v.get('feature_count_value', '?')}"
             created = v.get('created_at', v.get('archived_at', ''))
             print(f"  v{v['version']}{live}{win}  {feat}  ({created})")
         print(f"{'='*60}\n")
@@ -1139,7 +1121,7 @@ def main():
 
     # モデルロード
     print("[Load] Loading models...")
-    model_a, model_b, model_w, model_wv, meta, calibrators, model_reg_b = load_model_and_meta(model_version)
+    model_p, model_w, meta, calibrators, model_ar = load_model_and_meta(model_version)
 
     # 障害モデルロード
     model_obstacle, obstacle_meta, obstacle_calibrator = load_obstacle_model()
@@ -1263,16 +1245,15 @@ def main():
         kb_ext = load_keibabook_ext(race['race_id'], race['date'])
         pred = predict_race(
             race, kb_ext,
-            model_a, model_b, meta,
+            model_p, meta,
             history_cache, trainer_index, jockey_index, pace_index,
             db_odds=db_odds_index.get(race['race_id']),
             training_summary_day=training_summary_day,
             model_w=model_w,
-            model_wv=model_wv,
             db_place_odds=db_place_odds_index.get(race['race_id']),
             kb_ext_index=kb_ext_index,
             calibrators=calibrators,
-            model_reg_b=model_reg_b,
+            model_ar=model_ar,
             grade_offsets=grade_offsets,
             race_level_index=race_level_index,
             pedigree_index=pedigree_index,
@@ -1396,7 +1377,6 @@ def main():
         'date': date,
         'model_version': actual_model_version,
         'model_source': 'archive' if model_version else 'live',
-        'model_features_all': len(meta.get('features_all', [])),
         'model_features_value': len(meta.get('features_value', [])),
         'model_has_win': model_w is not None,
         'model_has_obstacle': has_obstacle_model,
@@ -1424,16 +1404,15 @@ def main():
 
     out_json = json.dumps(output, ensure_ascii=False, indent=2)
 
-    out_path = config.ml_dir() / "predictions_live.json"
-    out_path.write_text(out_json, encoding='utf-8')
-
-    # 日別アーカイブ: races/YYYY/MM/DD/predictions.json
+    # 日別アーカイブ: races/YYYY/MM/DD/predictions.json（唯一の出力先）
     date_parts = date.split('-')
     archive_dir = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2]
     if archive_dir.exists():
-        archive_path = archive_dir / "predictions.json"
-        archive_path.write_text(out_json, encoding='utf-8')
-        print(f"\n[Archive] {archive_path}")
+        out_path = archive_dir / "predictions.json"
+        out_path.write_text(out_json, encoding='utf-8')
+    else:
+        print(f"\n[WARNING] Archive dir not found: {archive_dir}")
+        out_path = archive_dir / "predictions.json"
 
     elapsed = time.time() - t0
 

@@ -35,8 +35,9 @@ def migrate_ml():
         base_dir=ml_dir,
         version=version,
         files=[
-            "model_a.txt",
-            "model_b.txt",
+            "model_p.txt",
+            "model_w.txt",
+            "model_ar.txt",
             "model_meta.json",
             "ml_experiment_v3_result.json",
         ],

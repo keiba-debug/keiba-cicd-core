@@ -106,7 +106,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                 <th className="py-2 text-center">人気</th>
                 <th className="py-2 text-center">Gap</th>
                 <th className="py-2 text-right">オッズ</th>
-                <th className="py-2 text-right">V%</th>
+                <th className="py-2 text-right">P%</th>
                 <th className="py-2 text-right" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</th>
                 <th className="py-2 text-right" title="期待値 = P(win) × オッズ">EV</th>
                 <th className="py-2 text-center">着順</th>
@@ -142,7 +142,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                       {p.odds != null ? p.odds.toFixed(1) : '-'}
                     </td>
                     <td className="py-1.5 text-right tabular-nums text-emerald-600 dark:text-emerald-400">
-                      {(p.pred_proba_value * 100).toFixed(1)}
+                      {((p.pred_proba_p ?? p.pred_proba_value ?? 0) * 100).toFixed(1)}
                     </td>
                     <td className={cn('py-1.5 text-right tabular-nums',
                       p.predicted_margin != null && p.predicted_margin >= AR_HIGHLIGHT_THRESHOLD

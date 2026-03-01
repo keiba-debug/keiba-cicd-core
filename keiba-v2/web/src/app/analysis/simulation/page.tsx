@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useSimulationResult } from '@/hooks/useSimulationResult';
+import { useSimulationResult, useSimulationVersions } from '@/hooks/useSimulationResult';
 import { cn } from '@/lib/utils';
 import type { SimulationResult } from './types';
 import BankrollChart from './BankrollChart';
@@ -117,7 +117,9 @@ function ResultsTable({ results, initialBankroll }: { results: SimulationResult[
 }
 
 export default function SimulationPage() {
-  const { data, isLoading, error } = useSimulationResult();
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+  const { data, isLoading, error } = useSimulationResult(selectedVersion);
+  const { versions } = useSimulationVersions();
   const [selectedPreset, setSelectedPreset] = useState('aggressive');
   const [selectedBudget, setSelectedBudget] = useState('5%');
 
@@ -165,11 +167,35 @@ export default function SimulationPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Bankroll Simulation</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          初期資金 {data.initial_bankroll.toLocaleString()}円 / 複利シミュレーション / {periodInfo ? `${periodInfo.start} ~ ${periodInfo.end}（${periodInfo.days}開催日）` : '---'}
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">
+            Bankroll Simulation
+            {data.model_version && (
+              <span className="ml-2 text-base font-normal text-muted-foreground">
+                v{data.model_version}
+              </span>
+            )}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            初期資金 {data.initial_bankroll.toLocaleString()}円 / 複利シミュレーション / {periodInfo ? `${periodInfo.start} ~ ${periodInfo.end}（${periodInfo.days}開催日）` : '---'}
+            {data.created_at && (
+              <span className="ml-2">/ {data.created_at.replace('T', ' ')}</span>
+            )}
+          </p>
+        </div>
+        {versions.length > 0 && (
+          <select
+            value={selectedVersion ?? ''}
+            onChange={(e) => setSelectedVersion(e.target.value || null)}
+            className="rounded-lg border border-gray-200 bg-background px-3 py-1.5 text-sm dark:border-gray-700"
+          >
+            <option value="">最新</option>
+            {versions.map(v => (
+              <option key={v} value={v}>v{v}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Filters */}

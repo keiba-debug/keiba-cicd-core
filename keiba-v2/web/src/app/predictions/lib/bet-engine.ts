@@ -4,7 +4,11 @@
  * Python bet_engine.py のコアロジックをTypeScriptに移植。
  * ライブオッズでの購入プラン再計算に使用。
  *
- * ML出力（rank_v, ar_deviation, pred_proba_v_raw等）は predictions.json から取得し、
+ * v5.44: Composite VB Score方式に移行。
+ * 4シグナル(dev_gap/rank_gap/EV/ARd)を段階的にスコア化し、
+ * 合計スコアで選定。rank_gapはベット倍率に使用。
+ *
+ * ML出力（rank_p, ar_deviation, pred_proba_p_raw等）は predictions.json から取得し、
  * オッズのみ mykeibadb の最新値で上書きして再計算する。
  */
 
@@ -23,7 +27,11 @@ interface BetEngineParams {
   winVRatioMin: number;
   winVBypassGap: number;
   winVBypassEv: number;
-  winArdGapTiers: [number, number][]; // [minArd, minGap][]
+  winArdGapTiers: [number, number][]; // [minArd, minGap][] — rank gap用 (レガシー)
+  winArdDevTiers: [number, number][]; // [minArd, minDevGap][] — dev_gap用 (レガシー)
+  // Composite VB Score (v5.44)
+  winMinVbScore: number;   // 0=disabled (legacy tier), 5.0=recommended
+  vbStrongScore: number;   // strong分類閾値 (7.0=recommended)
   // ARd VBルート (能力 vs 市場の直接乖離)
   ardVbMinArd: number;   // 0=disabled, 65=recommended
   ardVbMinOdds: number;  // 0=disabled, 10=recommended
@@ -31,6 +39,7 @@ interface BetEngineParams {
   placeMinEv: number;
   kellyFraction: number;
   kellyCap: number;
+  winMaxRank: number;       // rank_p pre-filter fallback (v_ratio_min>0なら無視)
   dangerGapBoost: number;
   crossAlloc: boolean;
   strongWinPct: number;
@@ -47,26 +56,33 @@ const VB_FLOOR = {
   minArd: 50.0,
   ardVbMinArd: 65.0,
   ardVbMinOdds: 10.0,
+  minDevGap: 0.7,     // 偏差値gapルート: dev_gap下限
+  devMinArd: 45.0,     // 偏差値gapルート: ARd下限
 } as const;
 
 // --- プリセット (Python PRESETS と完全一致) ---
+// v5.44: Composite VB Score方式。EV>=1.0をハードフロアとして全プリセット共通で適用。
 
 const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
   standard: {
     winMinGap: 5,
-    winMinEv: 1.5,
+    winMinEv: 1.0,            // EV >= 1.0 hard floor
+    winMinVbScore: 5.5,       // Composite score >= 5.5
+    vbStrongScore: 7.0,
     winVRatioMin: 0.75,
     winVBypassGap: 7,
     winVBypassEv: 3.0,
-    winArdGapTiers: [[65, 3], [55, 4], [45, 5]],
-    ardVbMinArd: 65.0,   // ARd VBルート: ARd>=65
-    ardVbMinOdds: 10.0,  // ARd VBルート: odds>=10
-    placeMinGap: 99, // Place無効化
+    winArdGapTiers: [],       // Not used with composite score
+    winArdDevTiers: [],       // Not used with composite score
+    ardVbMinArd: 65.0,
+    ardVbMinOdds: 10.0,
+    winMaxRank: 3,
+    placeMinGap: 99,
     placeMinEv: 1.0,
     kellyFraction: 0.25,
     kellyCap: 0.10,
-    dangerGapBoost: 0, // v5.33: gap boost廃止
-    crossAlloc: false, // v5.35: WinOnly (bankroll sim最適)
+    dangerGapBoost: 0,
+    crossAlloc: false,
     strongWinPct: 100,
     normalWinPct: 100,
     maxWinPerRace: 2,
@@ -75,19 +91,23 @@ const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
   },
   wide: {
     winMinGap: 5,
-    winMinEv: 0.0, // EV disabled
+    winMinEv: 1.0,            // EV >= 1.0 hard floor
+    winMinVbScore: 5.0,       // Composite score >= 5.0 (wider net)
+    vbStrongScore: 7.0,
     winVRatioMin: 0.75,
     winVBypassGap: 7,
     winVBypassEv: 3.0,
-    winArdGapTiers: [[65, 3], [55, 4], [45, 5]],
+    winArdGapTiers: [],
+    winArdDevTiers: [],
     ardVbMinArd: 65.0,
     ardVbMinOdds: 10.0,
+    winMaxRank: 3,
     placeMinGap: 99,
     placeMinEv: 1.0,
     kellyFraction: 0.25,
     kellyCap: 0.10,
     dangerGapBoost: 0,
-    crossAlloc: false, // v5.35: WinOnly (bankroll sim最適)
+    crossAlloc: false,
     strongWinPct: 100,
     normalWinPct: 100,
     maxWinPerRace: 2,
@@ -96,19 +116,23 @@ const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
   },
   aggressive: {
     winMinGap: 5,
-    winMinEv: 1.8,
+    winMinEv: 1.0,            // EV >= 1.0 hard floor
+    winMinVbScore: 6.0,       // Composite score >= 6.0 (high conviction)
+    vbStrongScore: 7.0,
     winVRatioMin: 0.75,
     winVBypassGap: 7,
     winVBypassEv: 3.0,
-    winArdGapTiers: [[65, 3], [55, 4], [45, 5]],
+    winArdGapTiers: [],
+    winArdDevTiers: [],
     ardVbMinArd: 65.0,
     ardVbMinOdds: 10.0,
+    winMaxRank: 3,
     placeMinGap: 99,
     placeMinEv: 1.0,
     kellyFraction: 0.25,
     kellyCap: 0.10,
     dangerGapBoost: 0,
-    crossAlloc: false, // v5.35: WinOnly (bankroll sim最適)
+    crossAlloc: false,
     strongWinPct: 100,
     normalWinPct: 100,
     maxWinPerRace: 2,
@@ -135,7 +159,7 @@ function roundToUnit(amount: number, unit: number = 100): number {
   return Math.floor(amount / unit) * unit;
 }
 
-/** 危険馬検出: odds<=8 & ARd<53 & V%<15% (v5.33) */
+/** 危険馬検出: odds<=8 & ARd<53 & P%<15% (v5.33) */
 function detectDanger(
   entries: LiveEntry[],
 ): Record<number, boolean> {
@@ -143,8 +167,8 @@ function detectDanger(
   for (const e of entries) {
     const odds = e.liveOdds;
     const ard = e.arDeviation ?? 0;
-    const predV = e.predProbaV ?? 0;
-    if (odds > 0 && odds <= 8.0 && ard < 53 && predV < 0.15) {
+    const predP = e.predProbaP ?? 0;
+    if (odds > 0 && odds <= 8.0 && ard < 53 && predP < 0.15) {
       danger[e.umaban] = true;
     }
   }
@@ -152,7 +176,54 @@ function detectDanger(
 }
 
 /**
- * 単勝評価 (Gap primary + EV secondary)
+ * コンポジットVBスコア: 全シグナルを統合した一元評価
+ *
+ * Score breakdown (max 10.0):
+ *   dev_gap:  0-3 points (偏差値乖離: 的中率重視)
+ *   rank_gap: 0-3 points (ランク差: 穴馬ROI)
+ *   EV:       0-2 points (期待値)
+ *   ARd:      0-2 points (能力偏差値)
+ */
+function computeVbScore(
+  devGap: number,
+  gap: number,
+  winEv: number | null,
+  arDeviation: number | null,
+): number {
+  let score = 0.0;
+
+  // dev_gap: 偏差値ベースの本質的な乖離
+  if (devGap >= 1.5) score += 3.0;
+  else if (devGap >= 1.0) score += 2.0;
+  else if (devGap >= 0.5) score += 1.0;
+
+  // rank_gap: ランク差による穴馬検出
+  if (gap >= 7) score += 3.0;
+  else if (gap >= 5) score += 2.0;
+  else if (gap >= 3) score += 1.0;
+
+  // EV: 期待値
+  const ev = winEv ?? 0;
+  if (ev >= 2.0) score += 2.0;
+  else if (ev >= 1.5) score += 1.5;
+  else if (ev >= 1.0) score += 1.0;
+
+  // ARd: レース内能力偏差値
+  const ard = arDeviation ?? 0;
+  if (ard >= 65) score += 2.0;
+  else if (ard >= 55) score += 1.5;
+  else if (ard >= 50) score += 1.0;
+
+  return score;
+}
+
+/**
+ * 単勝評価 (composite score or tier-based)
+ *
+ * v5.44: Composite VB Score方式に移行。
+ * 4シグナル(dev_gap/rank_gap/EV/ARd)を合計スコアで選定。
+ * rank_gapはベット倍率に使用。
+ *
  * Returns [shouldBet, units]
  */
 function evaluateWin(
@@ -161,37 +232,59 @@ function evaluateWin(
   isDanger: boolean,
   arDeviation: number | null,
   winEv: number | null,
+  devGap: number,
+  vbScore: number,
 ): [boolean, number] {
-  let minGap: number | null = null;
+  let passed = false;
 
-  // ARd段階フィルター
-  if (params.winArdGapTiers.length > 0) {
-    for (const [tierArd, tierGap] of params.winArdGapTiers) {
-      if (arDeviation != null && arDeviation >= tierArd) {
-        minGap = tierGap;
-        break;
+  // === Mode 1: Composite Score ===
+  if (params.winMinVbScore > 0) {
+    if (vbScore >= params.winMinVbScore) {
+      passed = true;
+    }
+  } else {
+    // === Mode 2: Legacy tier-based ===
+    // Route 1: dev_gap tier
+    if (params.winArdDevTiers.length > 0) {
+      for (const [tierArd, tierDev] of params.winArdDevTiers) {
+        if (arDeviation != null && arDeviation >= tierArd) {
+          if (devGap >= tierDev) passed = true;
+          break;
+        }
       }
     }
-    if (minGap == null) return [false, 0]; // どのティアにも該当しない
 
-    if (isDanger) minGap += params.dangerGapBoost;
-    if (gap < minGap) return [false, 0];
-  } else {
-    // フラット閾値 (フォールバック)
-    minGap = params.winMinGap;
-    if (isDanger) minGap += params.dangerGapBoost;
-    if (gap < minGap) return [false, 0];
+    // Route 2: rank_gap tier
+    if (!passed && params.winArdGapTiers.length > 0) {
+      for (const [tierArd, tierGap] of params.winArdGapTiers) {
+        if (arDeviation != null && arDeviation >= tierArd) {
+          let minGap = tierGap;
+          if (isDanger) minGap += params.dangerGapBoost;
+          if (gap >= minGap) passed = true;
+          break;
+        }
+      }
+    }
+
+    // Route 3: フラット閾値
+    if (!passed && params.winArdDevTiers.length === 0 && params.winArdGapTiers.length === 0) {
+      let minGap = params.winMinGap;
+      if (isDanger) minGap += params.dangerGapBoost;
+      if (gap >= minGap) passed = true;
+    }
   }
+
+  if (!passed) return [false, 0];
 
   // EV filter (0=disabled)
   if (params.winMinEv > 0) {
     if (winEv == null || winEv < params.winMinEv) return [false, 0];
   }
 
-  // ベット倍率
+  // ベット倍率: rank_gapが大きいとき攻める
   let units: number;
-  if (gap >= minGap + 3) units = 3;
-  else if (gap >= minGap + 1) units = 2;
+  if (gap >= 7) units = 3;
+  else if (gap >= 5) units = 2;
   else units = 1;
 
   return [true, units];
@@ -239,16 +332,18 @@ interface LiveEntry {
   liveOddsRank: number;
   livePlaceOddsMin: number | null;
   // ML outputs (static)
-  rankV: number;
-  rankWv: number;
-  predProbaVRaw: number | null;
-  predProbaV: number | null;
-  predProbaWv: number | null;
+  rankP: number;
+  rankW: number;
+  predProbaPRaw: number | null;
+  predProbaP: number | null;
+  predProbaW: number | null;
   arDeviation: number | null;
   predictedMargin: number | null;
   // Recalculated
-  gap: number;       // liveOddsRank - rankV
-  winGap: number;    // liveOddsRank - rankWv
+  gap: number;       // liveOddsRank - rankP
+  winGap: number;    // liveOddsRank - rankW
+  devGap: number;    // z-score(model) - z-score(market)
+  vbScore: number;   // composite VB score (0-10)
   winEv: number | null;
   placeEv: number | null;
 }
@@ -297,10 +392,10 @@ export function generateLiveRecommendations(
     // 危険馬検出
     const dangerMap = detectDanger(liveEntries);
 
-    // V%比率用: レース内最大V%
-    let raceMaxV = 0;
+    // P%比率用: レース内最大P%
+    let raceMaxP = 0;
     if (params.winVRatioMin > 0) {
-      raceMaxV = Math.max(0, ...liveEntries.map(e => e.predProbaVRaw ?? 0));
+      raceMaxP = Math.max(0, ...liveEntries.map(e => e.predProbaPRaw ?? 0));
     }
 
     const raceRecs: LiveRec[] = [];
@@ -314,28 +409,34 @@ export function generateLiveRecommendations(
       const vbArdOk = (e.arDeviation ?? 0) >= VB_FLOOR.minArd;
       const vbArdRoute = (e.arDeviation ?? 0) >= VB_FLOOR.ardVbMinArd
                          && e.liveOdds >= VB_FLOOR.ardVbMinOdds;
-      if (!(vbEvOk && vbArdOk) && !vbArdRoute) continue;
+      const vbDevRoute = e.devGap >= VB_FLOOR.minDevGap
+                         && (e.arDeviation ?? 0) >= VB_FLOOR.devMinArd;
+      if (!(vbEvOk && vbArdOk) && !vbArdRoute && !vbDevRoute) continue;
 
-      // --- 単勝 pre-filter: V%比率 ---
+      // --- 単勝 pre-filter: P%比率 ---
       let winPrefilterPass: boolean;
       if (params.winVRatioMin > 0) {
-        const vPct = e.predProbaVRaw ?? 0;
-        const vRatio = raceMaxV > 0 ? vPct / raceMaxV : 0;
-        winPrefilterPass = vRatio >= params.winVRatioMin;
-        // バイパス
+        const pPct = e.predProbaPRaw ?? 0;
+        const pRatio = raceMaxP > 0 ? pPct / raceMaxP : 0;
+        winPrefilterPass = pRatio >= params.winVRatioMin;
+        // バイパス: P%比率未達でも高Gap+高EVなら通過
         if (!winPrefilterPass && params.winVBypassGap > 0 && params.winVBypassEv > 0) {
           if (e.gap >= params.winVBypassGap && (e.winEv ?? 0) >= params.winVBypassEv) {
             winPrefilterPass = true;
           }
         }
+        // dev_gapバイパス: 偏差値的に大きく乖離していれば通過
+        if (!winPrefilterPass && e.devGap >= 1.0) {
+          winPrefilterPass = true;
+        }
       } else {
-        winPrefilterPass = e.rankV <= 3;
+        winPrefilterPass = e.rankP <= params.winMaxRank;
       }
 
       let winOk = false, winUnits = 0;
       if (winPrefilterPass) {
         [winOk, winUnits] = evaluateWin(
-          e.gap, params, isDanger, e.arDeviation, e.winEv,
+          e.gap, params, isDanger, e.arDeviation, e.winEv, e.devGap, e.vbScore,
         );
       }
 
@@ -351,24 +452,35 @@ export function generateLiveRecommendations(
       }
 
       // --- 複勝 pre-filter ---
-      const placePrefilterPass = params.winVRatioMin > 0 ? winPrefilterPass : e.rankV <= 3;
+      const placePrefilterPass = params.winVRatioMin > 0 ? winPrefilterPass : e.rankP <= 3;
       let placeOk = false, kellyFrac = 0.0;
       if (placePrefilterPass) {
         [placeOk, kellyFrac] = evaluatePlace(
-          e.gap, e.predProbaVRaw, e.livePlaceOddsMin, params, isDanger, e.arDeviation,
+          e.gap, e.predProbaPRaw, e.livePlaceOddsMin, params, isDanger, e.arDeviation,
         );
       }
 
       if (!winOk && !placeOk) continue;
 
-      // strength判定 (tier相対)
-      let strongGap = params.winMinGap + 2;
-      if (params.winArdGapTiers.length > 0 && e.arDeviation != null) {
-        for (const [tierArd, tierGap] of params.winArdGapTiers) {
-          if (e.arDeviation >= tierArd) {
-            strongGap = tierGap + 2;
-            break;
+      // strength判定 (composite score or legacy)
+      let isStrong: boolean;
+      if (params.winMinVbScore > 0) {
+        // Composite Score mode: スコアで強弱判定
+        isStrong = ardVbPass || e.vbScore >= params.vbStrongScore;
+      } else {
+        // Legacy mode
+        isStrong = ardVbPass || e.devGap >= 1.5;
+        if (!isStrong) {
+          let strongGap = params.winMinGap + 2;
+          if (params.winArdGapTiers.length > 0 && e.arDeviation != null) {
+            for (const [tierArd, tierGap] of params.winArdGapTiers) {
+              if (e.arDeviation >= tierArd) {
+                strongGap = tierGap + 2;
+                break;
+              }
+            }
           }
+          if (e.gap >= strongGap) isStrong = true;
         }
       }
 
@@ -376,10 +488,10 @@ export function generateLiveRecommendations(
       let strength: 'strong' | 'normal';
       if (winOk && placeOk) {
         betType = '単複';
-        strength = (ardVbPass || e.gap >= strongGap || e.gap >= params.placeMinGap + 2) ? 'strong' : 'normal';
+        strength = isStrong ? 'strong' : 'normal';
       } else if (winOk) {
         betType = '単勝';
-        strength = (ardVbPass || e.gap >= strongGap) ? 'strong' : 'normal';
+        strength = isStrong ? 'strong' : 'normal';
       } else {
         betType = '複勝';
         strength = e.gap >= params.placeMinGap + 2 ? 'strong' : 'normal';
@@ -424,6 +536,8 @@ export function generateLiveRecommendations(
     win_amount: r.winAmount,
     place_amount: r.placeAmount,
     gap: r.entry.gap,
+    dev_gap: Math.round(r.entry.devGap * 1000) / 1000,
+    vb_score: Math.round(r.entry.vbScore * 10) / 10,
     win_gap: r.entry.winGap,
     predicted_margin: r.entry.predictedMargin != null
       ? Math.round(r.entry.predictedMargin * 10) / 10
@@ -474,20 +588,34 @@ function buildLiveEntries(
   const rankMap: Record<number, number> = {};
   sorted.forEach((x, i) => { rankMap[x.entry.umaban] = i + 1; });
 
-  // Step 3: LiveEntry構築
-  return withOdds.map(({ entry: e, liveWinOdds, livePlaceMin }) => {
+  // Step 3: dev_gap計算用 — z-score(model) vs z-score(market)
+  const predValues = withOdds.map(({ entry: e }) => e.pred_proba_p_raw ?? e.pred_proba_p ?? 0);
+  const impliedValues = withOdds.map(({ liveWinOdds }) => liveWinOdds > 0 ? 1.0 / liveWinOdds : 0);
+  const { mean: predMean, std: predStd } = meanStd(predValues);
+  const { mean: impMean, std: impStd } = meanStd(impliedValues);
+
+  // Step 4: LiveEntry構築
+  return withOdds.map(({ entry: e, liveWinOdds, livePlaceMin }, i) => {
     const liveRank = rankMap[e.umaban] ?? e.odds_rank ?? 99;
-    const gap = liveRank - e.rank_v;
-    const winGap = liveRank - (e.rank_wv ?? e.rank_v);
+    const gap = liveRank - e.rank_p;
+    const winGap = liveRank - (e.rank_w ?? e.rank_p);
+
+    // dev_gap計算
+    const modelZ = predStd > 0 ? (predValues[i] - predMean) / predStd : 0;
+    const marketZ = impStd > 0 ? (impliedValues[i] - impMean) / impStd : 0;
+    const devGap = modelZ - marketZ;
 
     // EV再計算 — calibrated確率を使用（Python IsotonicRegressionと一致）
-    const winProb = e.pred_proba_wv_cal ?? e.pred_proba_wv;
+    const winProb = e.pred_proba_w_cal ?? e.pred_proba_w;
     const winEv = (winProb != null && liveWinOdds > 0)
       ? winProb * liveWinOdds
       : e.win_ev ?? null;
-    const placeEv = (e.pred_proba_v_raw != null && livePlaceMin != null && livePlaceMin > 0)
-      ? e.pred_proba_v_raw * livePlaceMin
+    const placeEv = (e.pred_proba_p_raw != null && livePlaceMin != null && livePlaceMin > 0)
+      ? e.pred_proba_p_raw * livePlaceMin
       : e.place_ev ?? null;
+
+    // Composite VB Score
+    const vbScore = computeVbScore(devGap, gap, winEv, e.ar_deviation ?? null);
 
     return {
       umaban: e.umaban,
@@ -495,19 +623,29 @@ function buildLiveEntries(
       liveOdds: liveWinOdds,
       liveOddsRank: liveRank,
       livePlaceOddsMin: livePlaceMin,
-      rankV: e.rank_v,
-      rankWv: e.rank_wv ?? e.rank_v,
-      predProbaVRaw: e.pred_proba_v_raw ?? null,
-      predProbaV: e.pred_proba_v ?? null,
-      predProbaWv: e.pred_proba_wv ?? null,
+      rankP: e.rank_p,
+      rankW: e.rank_w ?? e.rank_p,
+      predProbaPRaw: e.pred_proba_p_raw ?? null,
+      predProbaP: e.pred_proba_p ?? null,
+      predProbaW: e.pred_proba_w ?? null,
       arDeviation: e.ar_deviation ?? null,
       predictedMargin: e.predicted_margin ?? null,
       gap,
       winGap,
+      devGap,
+      vbScore,
       winEv,
       placeEv,
     };
   });
+}
+
+/** mean & std (sample std, min 1e-8) */
+function meanStd(values: number[]): { mean: number; std: number } {
+  if (values.length === 0) return { mean: 0, std: 1e-8 };
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+  return { mean, std: Math.max(Math.sqrt(variance), 1e-8) };
 }
 
 /** 1レースN単勝制約 */
@@ -517,7 +655,10 @@ function applyWinPerRaceLimit(recs: LiveRec[], maxWin: number): void {
   const winCandidates = recs.filter(r => r.betType === '単勝' || r.betType === '単複');
   if (winCandidates.length <= maxWin) return;
 
-  winCandidates.sort((a, b) => -(a.entry.gap - b.entry.gap) || -(a.entry.liveOdds - b.entry.liveOdds));
+  // vbScore降順ソート (複合スコアで優先順位)
+  winCandidates.sort((a, b) =>
+    -(a.entry.vbScore - b.entry.vbScore) || -(a.entry.devGap - b.entry.devGap) || -(a.entry.liveOdds - b.entry.liveOdds)
+  );
 
   for (const r of winCandidates.slice(maxWin)) {
     if (r.betType === '単勝') {

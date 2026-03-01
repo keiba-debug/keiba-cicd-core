@@ -1,28 +1,19 @@
 /**
- * VB印一括書込みAPI
+ * Danger Alert 印一括書込みAPI
  *
- * POST: predictions のVB候補をTARGET馬印2に一括反映
- * Body: { date?: string, liveGaps?: Record<raceId, Record<umaban, number>>, raceIds?: string[] }
- * raceIds指定時はそのレースのみ対象（フィルタ連動）。省略時は全レース。
- * liveGaps指定時はリアルタイムオッズ連動のGapを使用。省略時はpredictions.jsonのvb_gap。
+ * POST: predictions の危険馬をTARGET馬印1に一括反映
+ * Body: { date?: string, dangerHorses: Array<{ raceId: string, umaban: number }>, raceIds?: string[] }
+ * raceIds指定時はそのレースのみクリア対象（フィルタ連動）。省略時は全レース。
  *
- * バッチI/O: 同一ファイル(year+kai+venue)への全操作を1回のread/writeで実行。
- * 旧実装では12R×18頭=216回のI/Oが発生し、TARGETのファイル読み込みと
- * 競合して古い印が残る問題があった。
+ * 印: "危" 固定（危険な人気馬）
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPredictionsByDate } from '@/lib/data/predictions-reader';
 import { batchWriteHorseMarks } from '@/lib/data/target-mark-reader';
 
-const MARK_SET = 2; // UmaMark2
-
-/** VB Gap → 印マッピング（半角2文字: "+5", "10" 等） */
-function gapToMark(gap: number): string {
-  if (gap <= 0) return 'VB';
-  if (gap >= 10) return String(gap).slice(0, 2);  // "10", "11", ...
-  return '+' + gap;                                // "+1", "+2", ... "+9"
-}
+const MARK_SET = 1; // UmaMark1
+const DANGER_MARK = '危';
 
 /** ファイルキー: 同一DATファイルに書き込むレースをグルーピング */
 function fileKey(year: number, kai: number, venue: string): string {
@@ -32,17 +23,17 @@ function fileKey(year: number, kai: number, venue: string): string {
 export async function POST(request: NextRequest) {
   try {
     let date: string | undefined;
-    let liveGaps: Record<string, Record<number, number>> | undefined;
+    let dangerHorses: Array<{ raceId: string; umaban: number }> = [];
     let raceIdFilter: Set<string> | undefined;
     try {
       const body = await request.json();
       date = body.date;
-      liveGaps = body.liveGaps;
+      dangerHorses = body.dangerHorses ?? [];
       if (Array.isArray(body.raceIds) && body.raceIds.length > 0) {
         raceIdFilter = new Set(body.raceIds as string[]);
       }
     } catch {
-      // empty body is fine — use today's predictions
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
 
     // dateなし時は今日の日付をデフォルト使用
@@ -56,13 +47,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 危険馬をSetに変換（高速ルックアップ）
+    const dangerSet = new Set(dangerHorses.map(d => `${d.raceId}-${d.umaban}`));
+
     // ファイル別に操作をグルーピング
     const fileGroups = new Map<string, {
       year: number; kai: number; venue: string;
       ops: Array<{ day: number; raceNumber: number; horseNumber: number; mark: string }>;
     }>();
 
-    const markCounts: Record<string, number> = {};
     let totalRaces = 0;
     let markedHorses = 0;
 
@@ -92,21 +85,16 @@ export async function POST(request: NextRequest) {
         group.ops.push({ day: nichi, raceNumber, horseNumber: uma, mark: '' });
       }
 
-      // VB候補のみ印を書込み（liveGaps優先、なければpredictions時点のvb_gap）
-      const raceGaps = liveGaps?.[raceId];
+      // 危険馬に印を書込み
       for (const entry of race.entries) {
-        if (!entry.is_value_bet) continue;
-        const gap = raceGaps?.[entry.umaban] ?? entry.vb_gap;
-        const mark = gapToMark(gap);
-        if (mark) {
-          group.ops.push({ day: nichi, raceNumber, horseNumber: entry.umaban, mark });
+        if (dangerSet.has(`${raceId}-${entry.umaban}`)) {
+          group.ops.push({ day: nichi, raceNumber, horseNumber: entry.umaban, mark: DANGER_MARK });
           markedHorses++;
-          markCounts[mark] = (markCounts[mark] || 0) + 1;
         }
       }
     }
 
-    // ファイル別にバッチ書込み実行（1ファイル=1回のread/write）
+    // ファイル別にバッチ書込み実行
     for (const group of fileGroups.values()) {
       batchWriteHorseMarks(group.year, group.kai, group.venue, group.ops, MARK_SET);
     }
@@ -117,14 +105,13 @@ export async function POST(request: NextRequest) {
       summary: {
         totalRaces,
         markedHorses,
-        marks: markCounts,
         files: fileGroups.size,
       },
     });
   } catch (error) {
-    console.error('[auto-vb API] Error:', error);
+    console.error('[auto-danger API] Error:', error);
     return NextResponse.json(
-      { error: 'VB印書込みに失敗しました', details: String(error) },
+      { error: 'DA印書込みに失敗しました', details: String(error) },
       { status: 500 }
     );
   }

@@ -59,20 +59,20 @@ function RoiBlock({ label, roi, color }: { label: string; roi: RoiAnalysis; colo
 }
 
 export default function RoiTab({ data }: { data: MlExperimentResultV2 }) {
-  const hasWin = !!data.roi_analysis.win_accuracy_model;
+  const placeRoi = data.roi_analysis.place_model ?? data.roi_analysis.value_model;
+  const winRoi = data.roi_analysis.win_model ?? data.roi_analysis.win_value_model;
+  const auraRoi = data.roi_analysis.aura_model ?? data.roi_analysis.regression_model;
+  const hasWin = !!winRoi;
 
-  const models: { label: string; roi: RoiAnalysis; color: string }[] = [
-    { label: '好走 市場', roi: data.roi_analysis.accuracy_model, color: 'border-blue-200 dark:border-blue-800' },
-    { label: '好走 独自', roi: data.roi_analysis.value_model, color: 'border-blue-200 dark:border-blue-800' },
-  ];
-  if (data.roi_analysis.win_accuracy_model) {
-    models.push({ label: '勝利 市場', roi: data.roi_analysis.win_accuracy_model, color: 'border-emerald-200 dark:border-emerald-800' });
+  const models: { label: string; roi: RoiAnalysis; color: string }[] = [];
+  if (placeRoi) {
+    models.push({ label: '好走(P)', roi: placeRoi, color: 'border-blue-200 dark:border-blue-800' });
   }
-  if (data.roi_analysis.win_value_model) {
-    models.push({ label: '勝利 独自', roi: data.roi_analysis.win_value_model, color: 'border-emerald-200 dark:border-emerald-800' });
+  if (winRoi) {
+    models.push({ label: '勝利(W)', roi: winRoi, color: 'border-emerald-200 dark:border-emerald-800' });
   }
-  if (data.roi_analysis.regression_model) {
-    models.push({ label: 'AR (能力予測)', roi: data.roi_analysis.regression_model, color: 'border-amber-200 dark:border-amber-800' });
+  if (auraRoi) {
+    models.push({ label: '能力(AR)', roi: auraRoi, color: 'border-amber-200 dark:border-amber-800' });
   }
 
   return (
@@ -80,7 +80,7 @@ export default function RoiTab({ data }: { data: MlExperimentResultV2 }) {
       {/* Summary comparison table */}
       {hasWin && (
         <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-          <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">4モデル比較サマリー</h3>
+          <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">モデル比較サマリー</h3>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700">

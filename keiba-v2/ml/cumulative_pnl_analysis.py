@@ -22,7 +22,6 @@ from core import config
 from ml.experiment import (
     load_data,
     build_dataset,
-    FEATURE_COLS_ALL,
     FEATURE_COLS_VALUE,
 )
 
@@ -30,35 +29,30 @@ from ml.experiment import (
 def load_v55_models():
     import lightgbm as lgb
     model_dir = config.ml_dir() / "versions" / "v5.5"
-    model_a = lgb.Booster(model_file=str(model_dir / "model_a.txt"))
-    model_b = lgb.Booster(model_file=str(model_dir / "model_b.txt"))
+    model_p = lgb.Booster(model_file=str(model_dir / "model_p.txt"))
     model_w = lgb.Booster(model_file=str(model_dir / "model_w.txt"))
-    model_wv = lgb.Booster(model_file=str(model_dir / "model_wv.txt"))
-    model_reg_b = lgb.Booster(model_file=str(model_dir / "model_reg_b.txt"))
+    model_ar = lgb.Booster(model_file=str(model_dir / "model_ar.txt"))
     with open(model_dir / "calibrators.pkl", 'rb') as f:
         calibrators = pickle.load(f)
-    return model_a, model_b, model_w, model_wv, model_reg_b, calibrators
+    return model_p, model_w, model_ar, calibrators
 
 
-def predict_on_df(df, model_a, model_b, model_w, model_wv, model_reg_b, calibrators):
-    pred_a = model_a.predict(df[FEATURE_COLS_ALL])
-    pred_b = model_b.predict(df[FEATURE_COLS_VALUE])
-    pred_wv = model_wv.predict(df[FEATURE_COLS_VALUE])
-    pred_reg = model_reg_b.predict(df[FEATURE_COLS_VALUE])
+def predict_on_df(df, model_p, model_w, model_ar, calibrators):
+    pred_p = model_p.predict(df[FEATURE_COLS_VALUE])
+    pred_w = model_w.predict(df[FEATURE_COLS_VALUE])
+    pred_reg = model_ar.predict(df[FEATURE_COLS_VALUE])
 
-    cal_a = calibrators.get('cal_a')
-    cal_b = calibrators.get('cal_b')
-    cal_wv = calibrators.get('cal_wv')
+    cal_p = calibrators.get('cal_p')
+    cal_w = calibrators.get('cal_w')
 
-    df['pred_proba_a'] = cal_a.predict(pred_a) if cal_a else pred_a
-    df['pred_proba_v'] = cal_b.predict(pred_b) if cal_b else pred_b
-    df['pred_proba_wv'] = cal_wv.predict(pred_wv) if cal_wv else pred_wv
-    df['pred_margin_b'] = pred_reg
+    df['pred_proba_p'] = cal_p.predict(pred_p) if cal_p else pred_p
+    df['pred_proba_w'] = cal_w.predict(pred_w) if cal_w else pred_w
+    df['pred_margin_ar'] = pred_reg
 
-    df['pred_rank_v'] = df.groupby('race_id')['pred_proba_v'].rank(ascending=False, method='min')
-    df['pred_rank_wv'] = df.groupby('race_id')['pred_proba_wv'].rank(ascending=False, method='min')
-    df['win_gap'] = (df['odds_rank'] - df['pred_rank_wv']).clip(lower=0).astype(int)
-    df['win_ev'] = df['pred_proba_wv'] * df['odds']
+    df['pred_rank_p'] = df.groupby('race_id')['pred_proba_p'].rank(ascending=False, method='min')
+    df['pred_rank_w'] = df.groupby('race_id')['pred_proba_w'].rank(ascending=False, method='min')
+    df['win_gap'] = (df['odds_rank'] - df['pred_rank_w']).clip(lower=0).astype(int)
+    df['win_ev'] = df['pred_proba_w'] * df['odds']
     df['margin'] = pred_reg
     df['month'] = df['date'].str[:7]
     return df
@@ -66,7 +60,7 @@ def predict_on_df(df, model_a, model_b, model_w, model_wv, model_reg_b, calibrat
 
 def filter_bets(df, min_gap=5, max_margin=1.2):
     mask = (
-        (df['pred_rank_wv'] <= 3) &
+        (df['pred_rank_w'] <= 3) &
         (df['win_gap'] >= min_gap) &
         (df['margin'] <= max_margin) &
         (df['odds'] > 0)

@@ -1,362 +1,221 @@
-import { CourseCard, CourseCardGrid, type CourseInfo } from '@/components/course-card';
+'use client';
 
-// サンプルデータ（中山芝内回り）- 実データ基づく
-const nakayamaTurf2000: CourseInfo = {
-  trackName: '中山',
-  surface: '芝',
-  distanceMeters: 2000,
-  turn: '右',
-  courseVariant: '内回り',
-  
-  courseGeometry: {
-    straightLengthM: 310,
-    elevationDiffM: 5.3,
-    cornerCount: 4,
-    courseWidthM: '20-32m',
-    totalLengthM: 1667.1
-  },
-  
-  straightDirection: {
-    runDirection: '南南西→北北東',
-    headwindDirection: '北北東',
-    tailwindDirection: '南南西'
-  },
-  
-  elevationProfile: {
-    description: '芝コース高低断面図（右・内回り）',
-    points: [
-      { distanceFromGoalM: 0, elevationM: 2.0, landmark: 'ゴール' },
-      { distanceFromGoalM: 70, elevationM: 0.0, landmark: '急坂終点' },
-      { distanceFromGoalM: 180, elevationM: -2.2, landmark: '急坂開始' },
-      { distanceFromGoalM: 310, elevationM: -2.5, landmark: '4コーナー' },
-      { distanceFromGoalM: 600, elevationM: -3.5, landmark: '最深部' },
-      { distanceFromGoalM: 750, elevationM: -3.0, landmark: '3コーナー' },
-      { distanceFromGoalM: 950, elevationM: -1.5, landmark: '向正面' },
-      { distanceFromGoalM: 1350, elevationM: 2.0, landmark: '2コーナー' },
-      { distanceFromGoalM: 1500, elevationM: 2.8, landmark: '最高地点' },
-      { distanceFromGoalM: 1600, elevationM: 2.5, landmark: '1コーナー' },
-      { distanceFromGoalM: 1667, elevationM: 2.0, landmark: 'スタート' }
-    ],
-    keyFeatures: [
-      { position: 'ゴール前180m-70m', description: '中山名物の急坂（高低差2.2m、最大勾配2.24%・JRA最大）' },
-      { position: '2コーナー手前', description: '最高到達点（+2.8m）' },
-      { position: '3-4コーナー間', description: '最深部（-3.5m）' }
-    ]
-  },
-  
-  bias: {
-    drawBias: '内枠有利',
-    runningStyleBias: '先行有利',
-    paceBias: 'スローペース有利',
-    groundConditionNotes: '瞬発力勝負にはなりにくい。持久力勝負を得意とする馬が台頭'
-  },
-  
-  runningStyleStats: {
-    escape: 18,
-    frontRunner: 35,
-    stalker: 42,
-    closer: 5,
-    sampleCount: 200,
-    period: '2023-2025'
-  },
-  
-  pciStandard: {
-    overall: {
-      standard: 49.7,
-      hThreshold: 47.0,
-      sThreshold: 52.5,
-      sampleCount: 104
-    }
-  },
-  
-  raceQuality: {
-    standard: '内枠・先行・スローペース',
-    highSpeedTrack: '内枠・先行・スローペース',
-    wetTrack: '内枠・先行・スローペース'
-  }
-};
+import { useState, useMemo } from 'react';
+import { CourseCard, type CourseInfo } from '@/components/course-card';
+import { ALL_COURSES, VENUES } from '@/data/course-data';
 
-// 中山ダート - 実データ基づく
-const nakayamaDirt1200: CourseInfo = {
-  trackName: '中山',
-  surface: 'ダート',
-  distanceMeters: 1200,
-  turn: '右',
-  courseVariant: 'なし',
-  
-  courseGeometry: {
-    straightLengthM: 308,
-    elevationDiffM: 4.5,
-    cornerCount: 4,
-    totalLengthM: 1493
-  },
-  
-  straightDirection: {
-    runDirection: '南南西→北北東',
-    headwindDirection: '北北東',
-    tailwindDirection: '南南西'
-  },
-  
-  elevationProfile: {
-    description: 'ダートコース高低断面図（右回り）',
-    points: [
-      { distanceFromGoalM: 0, elevationM: 2.0, landmark: 'ゴール' },
-      { distanceFromGoalM: 70, elevationM: 0.0, landmark: '急坂終点' },
-      { distanceFromGoalM: 180, elevationM: -2.0, landmark: '急坂開始' },
-      { distanceFromGoalM: 308, elevationM: -2.5, landmark: '4コーナー' },
-      { distanceFromGoalM: 600, elevationM: -2.0, landmark: '向正面' },
-      { distanceFromGoalM: 800, elevationM: -1.0, landmark: '3コーナー' },
-      { distanceFromGoalM: 1150, elevationM: 1.5, landmark: '2コーナー' },
-      { distanceFromGoalM: 1300, elevationM: 2.0, landmark: '1コーナー' },
-      { distanceFromGoalM: 1493, elevationM: 2.0, landmark: 'スタート' }
-    ],
-    keyFeatures: [
-      { position: 'ゴール前', description: '芝コース同様の急坂（高低差4.5m）' },
-      { position: '1200mスタート', description: '芝スタート、発走してすぐ下り坂' }
-    ]
-  },
-  
-  bias: {
-    drawBias: '外枠有利',
-    runningStyleBias: '先行有利',
-    paceBias: 'ハイペース',
-    groundConditionNotes: '高含水率時は内枠有利。1200mのみ芝スタート'
-  },
-  
-  runningStyleStats: {
-    escape: 22,
-    frontRunner: 38,
-    stalker: 32,
-    closer: 8,
-    sampleCount: 383,
-    period: '2023-2025'
-  },
-  
-  pciStandard: {
-    overall: {
-      standard: 42.4,
-      hThreshold: 39.6,
-      sThreshold: 45.3,
-      sampleCount: 383
-    }
-  },
-  
-  raceQuality: {
-    standard: '外枠・先行・短縮・ハイペース',
-    highSpeedTrack: '内枠・差し・短縮・ハイペース',
-    wetTrack: '内枠・先行・ハイペース'
-  }
-};
+type SortKey = 'innerAdv' | 'styleAdv' | 'distance' | 'frontPct' | 'fcDist';
 
-// 東京芝2400m
-const tokyoTurf2400: CourseInfo = {
-  trackName: '東京',
-  surface: '芝',
-  distanceMeters: 2400,
-  turn: '左',
-  courseVariant: 'なし',
-  
-  courseGeometry: {
-    straightLengthM: 525.9,
-    elevationDiffM: 2.7,
-    cornerCount: 4,
-    totalLengthM: 2083.1
-  },
-  
-  straightDirection: {
-    runDirection: '東→西',
-    headwindDirection: '西',
-    tailwindDirection: '東'
-  },
-  
-  bias: {
-    drawBias: '枠順フラット',
-    runningStyleBias: '差し有利',
-    paceBias: 'ペースフラット',
-    groundConditionNotes: '日本ダービーの舞台、長い直線で末脚勝負'
-  },
-  
-  runningStyleStats: {
-    escape: 12,
-    frontRunner: 28,
-    stalker: 45,
-    closer: 15,
-    sampleCount: 150,
-    period: '2023-2025'
-  },
-  
-  raceQuality: {
-    standard: '差し・長い直線',
-    highSpeedTrack: '差し・追込有利',
-    wetTrack: '先行有利'
-  }
-};
-
-// 京都芝1600m（外回り）- 実データ基づく
-const kyotoTurf1600: CourseInfo = {
-  trackName: '京都',
-  surface: '芝',
-  distanceMeters: 1600,
-  turn: '右',
-  courseVariant: '外回り',
-  
-  courseGeometry: {
-    straightLengthM: 403.7,
-    elevationDiffM: 4.3,
-    cornerCount: 4,
-    courseWidthM: '28-38m',
-    totalLengthM: 1894.3
-  },
-  
-  straightDirection: {
-    runDirection: '南西→北東',
-    headwindDirection: '北東',
-    tailwindDirection: '南西'
-  },
-  
-  elevationProfile: {
-    description: '芝コース高低断面図（右・外回り）',
-    points: [
-      { distanceFromGoalM: 0, elevationM: 0.0, landmark: 'ゴール' },
-      { distanceFromGoalM: 404, elevationM: 0.0, landmark: '直線入口' },
-      { distanceFromGoalM: 550, elevationM: 0.5, landmark: '4コーナー' },
-      { distanceFromGoalM: 700, elevationM: 2.5, landmark: '坂の下り' },
-      { distanceFromGoalM: 850, elevationM: 4.3, landmark: '3コーナー（頂上）' },
-      { distanceFromGoalM: 1000, elevationM: 3.0, landmark: '坂の上り' },
-      { distanceFromGoalM: 1150, elevationM: 1.0, landmark: '向正面' },
-      { distanceFromGoalM: 1300, elevationM: 0.0, landmark: '2コーナー' },
-      { distanceFromGoalM: 1600, elevationM: 0.0, landmark: '1コーナー' },
-      { distanceFromGoalM: 1894, elevationM: 0.0, landmark: 'スタート' }
-    ],
-    keyFeatures: [
-      { position: '3コーナー', description: '京都名物「淀の坂」（頂上・高低差4.3m・JRA2位）' },
-      { position: '3C→4C', description: '一気に下るレイアウト、惰性をつけて直線へ' },
-      { position: '残り800m', description: '坂の頂上付近、ペースが上がるポイント' }
-    ]
-  },
-  
-  bias: {
-    drawBias: '枠順フラット（幅員が広いため）',
-    runningStyleBias: '差し有利',
-    paceBias: 'スローペース',
-    groundConditionNotes: 'マイルCS(G1)の舞台。坂の下りで惰性をつけて直線に向く戦法が浸透'
-  },
-  
-  runningStyleStats: {
-    escape: 15,
-    frontRunner: 30,
-    stalker: 40,
-    closer: 15,
-    sampleCount: 173,
-    period: '2023-2025'
-  },
-  
-  pciStandard: {
-    overall: {
-      standard: 53.6,
-      hThreshold: 50.1,
-      sThreshold: 57.0,
-      sampleCount: 173
-    }
-  },
-  
-  raceQuality: {
-    standard: '差し・スローペース',
-    highSpeedTrack: '差し・追込有利',
-    wetTrack: '先行有利'
-  }
-};
-
-// データなしサンプル（最小構成）
-const minimalCourse: CourseInfo = {
-  trackName: '札幌',
-  surface: '芝',
-  distanceMeters: 1800,
-  turn: '右',
-};
-
-const sampleCourses: CourseInfo[] = [
-  nakayamaTurf2000,
-  nakayamaDirt1200,
-  tokyoTurf2400,
-  kyotoTurf1600,
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'innerAdv', label: '内有利度' },
+  { key: 'styleAdv', label: '差し有利度' },
+  { key: 'frontPct', label: '逃先top3率' },
+  { key: 'fcDist', label: '1角距離' },
+  { key: 'distance', label: '距離' },
 ];
 
-export default function CourseDemoPage() {
+function getSortValue(course: CourseInfo, key: SortKey): number {
+  const b = course.babaAnalysis;
+  switch (key) {
+    case 'innerAdv': return b?.innerAdvantage ?? 0;
+    case 'styleAdv': return b?.styleAdvantage ?? 0;
+    case 'frontPct': return b?.frontRunnerTop3Pct ?? 0;
+    case 'fcDist': return b?.firstCornerDistM ?? 999;
+    case 'distance': return course.distanceMeters;
+  }
+}
+
+export default function CourseDictionaryPage() {
+  const [selectedVenue, setSelectedVenue] = useState<string>('全て');
+  const [selectedSurface, setSelectedSurface] = useState<string>('全て');
+  const [sortKey, setSortKey] = useState<SortKey>('innerAdv');
+  const [sortDesc, setSortDesc] = useState(true);
+  const [expandAll, setExpandAll] = useState(false);
+
+  const filtered = useMemo(() => {
+    let courses = ALL_COURSES;
+    if (selectedVenue !== '全て') {
+      courses = courses.filter(c => c.trackName === selectedVenue);
+    }
+    if (selectedSurface !== '全て') {
+      courses = courses.filter(c => c.surface === selectedSurface);
+    }
+    const sorted = [...courses].sort((a, b) => {
+      const va = getSortValue(a, sortKey);
+      const vb = getSortValue(b, sortKey);
+      return sortDesc ? vb - va : va - vb;
+    });
+    return sorted;
+  }, [selectedVenue, selectedSurface, sortKey, sortDesc]);
+
+  // 統計サマリ
+  const summary = useMemo(() => {
+    if (filtered.length === 0) return null;
+    const withBaba = filtered.filter(c => c.babaAnalysis);
+    if (withBaba.length === 0) return null;
+
+    const avgInner = withBaba.reduce((s, c) => s + (c.babaAnalysis?.innerAdvantage ?? 0), 0) / withBaba.length;
+    const avgStyle = withBaba.reduce((s, c) => s + (c.babaAnalysis?.styleAdvantage ?? 0), 0) / withBaba.length;
+    const totalN = withBaba.reduce((s, c) => s + (c.babaAnalysis?.sampleSize ?? 0), 0);
+    const mostInner = withBaba.reduce((best, c) =>
+      (c.babaAnalysis?.innerAdvantage ?? -99) > (best.babaAnalysis?.innerAdvantage ?? -99) ? c : best
+    );
+    const mostOuter = withBaba.reduce((best, c) =>
+      (c.babaAnalysis?.innerAdvantage ?? 99) < (best.babaAnalysis?.innerAdvantage ?? 99) ? c : best
+    );
+
+    return { avgInner, avgStyle, totalN, mostInner, mostOuter, count: withBaba.length };
+  }, [filtered]);
+
   return (
-    <div className="container py-6">
-      <h1 className="text-3xl font-bold mb-2">🏟️ コース情報ビジュアライズ デモ</h1>
-      <p className="text-muted-foreground mb-6">
-        競馬場コースデータを視覚化したコンポーネントのデモページです。
-        高低断面図、脚質傾向、風向き情報などを表示します。
+    <div className="container py-6 max-w-5xl">
+      <h1 className="text-2xl font-bold mb-1">コース辞典</h1>
+      <p className="text-sm text-gray-500 mb-4">
+        全{ALL_COURSES.length}コースの馬場バイアス分析 (2021-2026, 229,343エントリ)
       </p>
 
-      {/* 説明 */}
-      <div className="bg-blue-50 rounded-lg p-4 mb-8 border border-blue-200">
-        <h2 className="font-bold text-blue-800 mb-2">📊 表示項目</h2>
-        <div className="grid md:grid-cols-2 gap-4 text-sm">
-          <ul className="list-disc list-inside text-gray-700 space-y-1">
-            <li>コース基本情報（距離、回り、直線長、高低差）</li>
-            <li>コースバイアス（枠順、脚質、ペース）</li>
-            <li>高低断面図（SVG描画）</li>
-            <li>脚質別勝率（バーチャート）</li>
-          </ul>
-          <ul className="list-disc list-inside text-gray-700 space-y-1">
-            <li>直線の方角（風向き分析用）</li>
-            <li>PCI基準値</li>
-            <li>レース質（馬場状態別）</li>
-          </ul>
+      {/* フィルタ・ソート */}
+      <div className="bg-white rounded-xl border p-4 mb-4 space-y-3">
+        {/* 会場フィルタ */}
+        <div>
+          <div className="text-xs text-gray-500 mb-1.5">会場</div>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setSelectedVenue('全て')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                selectedVenue === '全て'
+                  ? 'bg-gray-800 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              全て
+            </button>
+            {VENUES.map(v => (
+              <button
+                key={v}
+                onClick={() => setSelectedVenue(v)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  selectedVenue === v
+                    ? 'bg-gray-800 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 芝/ダートフィルタ */}
+        <div className="flex items-center gap-4">
+          <div>
+            <div className="text-xs text-gray-500 mb-1.5">馬場</div>
+            <div className="flex gap-1.5">
+              {['全て', '芝', 'ダート'].map(s => (
+                <button
+                  key={s}
+                  onClick={() => setSelectedSurface(s)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    selectedSurface === s
+                      ? s === '芝' ? 'bg-green-600 text-white'
+                        : s === 'ダート' ? 'bg-amber-600 text-white'
+                        : 'bg-gray-800 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ソート */}
+          <div className="ml-auto">
+            <div className="text-xs text-gray-500 mb-1.5">並び順</div>
+            <div className="flex items-center gap-1.5">
+              <select
+                value={sortKey}
+                onChange={e => setSortKey(e.target.value as SortKey)}
+                className="text-xs border rounded px-2 py-1 bg-white"
+              >
+                {SORT_OPTIONS.map(o => (
+                  <option key={o.key} value={o.key}>{o.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setSortDesc(!sortDesc)}
+                className="text-xs border rounded px-2 py-1 bg-white hover:bg-gray-50"
+              >
+                {sortDesc ? '↓降順' : '↑昇順'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 表示切替 */}
+        <div className="flex items-center gap-2 border-t pt-2">
+          <button
+            onClick={() => setExpandAll(!expandAll)}
+            className="text-xs text-gray-500 hover:text-gray-700"
+          >
+            {expandAll ? '全て閉じる' : '全て展開'}
+          </button>
+          <span className="text-xs text-gray-400">{filtered.length}コース表示</span>
         </div>
       </div>
 
-      {/* メインのサンプル */}
-      <h2 className="text-xl font-bold mb-4">🎯 フル情報サンプル</h2>
-      <div className="mb-8">
-        <CourseCard course={nakayamaTurf2000} />
-      </div>
+      {/* サマリ */}
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+          <div className="bg-white rounded-lg border p-3 text-center">
+            <div className="text-xs text-gray-500">平均内有利度</div>
+            <div className={`text-lg font-bold ${summary.avgInner > 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+              {summary.avgInner > 0 ? '+' : ''}{summary.avgInner.toFixed(1)}pt
+            </div>
+          </div>
+          <div className="bg-white rounded-lg border p-3 text-center">
+            <div className="text-xs text-gray-500">平均差し有利度</div>
+            <div className={`text-lg font-bold ${summary.avgStyle > -15 ? 'text-green-600' : 'text-red-600'}`}>
+              {summary.avgStyle.toFixed(1)}pt
+            </div>
+          </div>
+          <div className="bg-white rounded-lg border p-3 text-center">
+            <div className="text-xs text-gray-500">最も内有利</div>
+            <div className="text-sm font-bold text-blue-700">
+              {summary.mostInner.trackName}{summary.mostInner.distanceMeters}m
+            </div>
+            <div className="text-xs text-blue-500">
+              +{summary.mostInner.babaAnalysis?.innerAdvantage.toFixed(1)}pt
+            </div>
+          </div>
+          <div className="bg-white rounded-lg border p-3 text-center">
+            <div className="text-xs text-gray-500">最も外有利</div>
+            <div className="text-sm font-bold text-orange-700">
+              {summary.mostOuter.trackName}{summary.mostOuter.surface === 'ダート' ? 'D' : ''}{summary.mostOuter.distanceMeters}m
+            </div>
+            <div className="text-xs text-orange-500">
+              {summary.mostOuter.babaAnalysis?.innerAdvantage.toFixed(1)}pt
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* グリッド表示 */}
-      <h2 className="text-xl font-bold mb-4">📋 コース一覧（グリッド表示）</h2>
-      <div className="mb-8">
-        <CourseCardGrid courses={sampleCourses} />
-      </div>
-
-      {/* コンパクト表示 */}
-      <h2 className="text-xl font-bold mb-4">📦 コンパクト表示（クリックで展開）</h2>
-      <div className="space-y-2 mb-8">
-        {sampleCourses.map((course, i) => (
-          <CourseCard key={i} course={course} compact />
+      {/* コースカード一覧 */}
+      <div className="space-y-3">
+        {filtered.map((course, i) => (
+          <CourseCard
+            key={`${course.trackName}-${course.surface}-${course.distanceMeters}-${course.courseVariant || ''}`}
+            course={course}
+            compact={!expandAll}
+          />
         ))}
       </div>
 
-      {/* 最小データ */}
-      <h2 className="text-xl font-bold mb-4">⚠️ データ不足時の表示</h2>
-      <div className="max-w-md mb-8">
-        <CourseCard course={minimalCourse} />
-      </div>
-
-      {/* 今後の拡張 */}
-      <div className="mt-12 p-6 bg-green-50 rounded-lg border border-green-200">
-        <h2 className="text-xl font-bold mb-4 text-green-800">🔮 今後の拡張予定</h2>
-        <div className="grid md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <h3 className="font-bold text-green-700 mb-2">データ整備</h3>
-            <ul className="list-disc list-inside text-gray-700 space-y-1">
-              <li>全10競馬場の主要距離データ作成</li>
-              <li>高低断面図の座標データ入力</li>
-              <li>脚質別勝率の算出</li>
-            </ul>
-          </div>
-          <div>
-            <h3 className="font-bold text-green-700 mb-2">機能拡張</h3>
-            <ul className="list-disc list-inside text-gray-700 space-y-1">
-              <li>天気API連携（気象庁API）</li>
-              <li>風向きと直線方角の照合</li>
-              <li>リアルタイム馬場状態表示</li>
-            </ul>
-          </div>
+      {filtered.length === 0 && (
+        <div className="text-center text-gray-500 py-12">
+          該当するコースがありません
         </div>
-      </div>
+      )}
     </div>
   );
 }

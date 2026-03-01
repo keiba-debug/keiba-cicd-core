@@ -64,8 +64,8 @@ export interface RoiAnalysis {
 export interface HorsePredictionV2 {
   horse_number: number;
   horse_name: string;
-  pred_proba_accuracy: number;
-  pred_proba_value: number;
+  pred_proba_p: number;
+  pred_proba_value?: number;   // legacy alias for pred_proba_p
   pred_top3: number;
   actual_position: number;
   actual_top3: number;
@@ -104,9 +104,11 @@ export interface ValueBetAnalysis {
 }
 
 export interface RoiAnalysisV2 {
-  accuracy_model: RoiAnalysis;
-  value_model: RoiAnalysis;
+  place_model: RoiAnalysis;
   value_bets: ValueBetAnalysis;
+  // Legacy keys
+  accuracy_model?: RoiAnalysis;
+  value_model?: RoiAnalysis;
 }
 
 export interface ValueBetPick {
@@ -120,8 +122,8 @@ export interface ValueBetPick {
   odds_rank: number;
   gap: number;
   odds: number | null;
-  pred_proba_accuracy: number;
-  pred_proba_value: number;
+  pred_proba_p: number;
+  pred_proba_value?: number;   // legacy alias for pred_proba_p
   actual_position: number;
   is_top3: number;
 }
@@ -134,8 +136,10 @@ export interface MlExperimentResultV2 {
   description: string;
   split: { train: string; test: string };
   models: {
-    accuracy: MlModelResult;
-    value: MlModelResult;
+    place: MlModelResult;
+    // Legacy keys
+    accuracy?: MlModelResult;
+    value?: MlModelResult;
   };
   hit_analysis: HitAnalysisEntry[];
   roi_analysis: RoiAnalysisV2;

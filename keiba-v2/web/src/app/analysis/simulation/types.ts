@@ -34,6 +34,8 @@ export interface StrategyConfig {
 }
 
 export interface SimulationData {
+  model_version?: string;
+  created_at?: string;
   initial_bankroll: number;
   budget_configs: BudgetConfig[];
   strategies: StrategyConfig[];

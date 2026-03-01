@@ -9,14 +9,14 @@ predict.py / experiment.py の両方から利用する。
 
 設計原則:
   - Win-only戦略（Place ROI<100%のため単勝のみ）
-  - VB判定の主軸: EV (期待値) = calibrated_pred_proba_wv × odds
+  - VB判定の主軸: EV (期待値) = calibrated_pred_proba_w × odds
   - 足切り: AR偏差値 (レース内相対評価)
   - Gapは参考情報として維持
   - 1レース最大2単勝（2番手候補の的中率>全体平均のため緩和）
   - 3プリセット: standard (EV>=1.5) / wide (EVなし) / aggressive (EV>=1.8)
 
 VB判定フロー:
-  Step 1: V%比率 >= 0.75 or Gap+EVバイパス (V%ベースのpre-filter)
+  Step 1: P%比率 >= 0.75 or Gap+EVバイパス (P%ベースのpre-filter)
   Step 2: ARd段階gap (ARd帯別に異なるgap閾値)
   Step 3: EV_win >= threshold (期待値プラス判定)
   Step 4: 1レースmax 2単勝 (gap降順で上位2頭)
@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # 能力R変換定数 (ability_score → rating)
-# ability_score = -pred_margin_b (符号反転: 高い=強い)
+# ability_score = -pred_margin_ar (符号反転: 高い=強い)
 # rating = RATING_BASE + ability_score * RATING_SCALE
 RATING_SCALE = 14.7
 RATING_BASE = 74.2
@@ -48,6 +48,8 @@ VB_FLOOR_MIN_WIN_EV = 1.0       # 単勝EV下限
 VB_FLOOR_MIN_ARD = 50.0          # AR偏差値下限
 VB_FLOOR_ARD_VB_MIN_ARD = 65.0   # ARd VBルート: ARd下限
 VB_FLOOR_ARD_VB_MIN_ODDS = 10.0  # ARd VBルート: オッズ下限
+VB_FLOOR_MIN_DEV_GAP = 0.7       # 偏差値gapルート: dev_gap下限
+VB_FLOOR_DEV_MIN_ARD = 45.0      # 偏差値gapルート: ARd下限
 
 
 def load_grade_offsets(path: str = None) -> Dict[str, float]:
@@ -96,25 +98,39 @@ def get_grade_key(grade: str, age_class: str) -> str:
 class BetStrategyParams:
     """戦略パラメータ"""
     # --- Win (Gap primary + EV secondary) ---
-    # Gap = odds_rank - rank_v (Place model基準。Win modelよりPlace modelのGapが高ROI)
+    # Gap = odds_rank - rank_p (Place model基準。Win modelよりPlace modelのGapが高ROI)
     win_min_gap: int = 5              # Place-model gap filter (primary, tiersがある場合はフォールバック)
     win_min_ev: float = 0.0           # Win EV supplementary filter (0=disabled)
     win_min_rating: float = 0.0       # AR絶対閾値 (0=無効、レガシー互換)
     win_min_ar_deviation: float = 0.0  # AR偏差値足切り (0=無効, 45=推奨, tiersがある場合は最低ティアが足切りになる)
-    win_max_rank: int = 3             # rank_v (Place model) pre-filter (v_ratio_min>0なら無視)
-    win_v_ratio_min: float = 0.0      # V%比率フィルター (0=無効→rank_v使用, 0.75=top1の75%以上)
-    # V%比率バイパス: V%比率が閾値未満でも、Gap+EVが十分高ければ通過させる
+    win_max_rank: int = 3             # rank_p (Place model) pre-filter (v_ratio_min>0なら無視)
+    win_v_ratio_min: float = 0.0      # P%比率フィルター (0=無効→rank_p使用, 0.75=top1の75%以上)
+    # P%比率バイパス: P%比率が閾値未満でも、Gap+EVが十分高ければ通過させる
     # 「モデル評価は低いが市場がさらに低評価→超穴馬」を拾うルート
     win_v_bypass_gap: int = 0         # バイパス用Gap下限 (0=無効, 7=推奨)
     win_v_bypass_ev: float = 0.0      # バイパス用EV下限 (0=無効, 3.0=推奨)
-    # --- ARd段階フィルター ---
+    # --- ARd段階フィルター (rank gap用, レガシー互換) ---
     # (min_ard, min_gap) のリスト。ARd高い順に定義。
     # 例: [(65, 3), (55, 4), (45, 5)] → ARd>=65ならgap>=3, ARd>=55ならgap>=4, それ未満はgap>=5
     # 空リスト = 従来のフラット閾値 (win_min_gap + win_min_ar_deviation)
     win_ard_gap_tiers: List[Tuple[float, int]] = field(default_factory=list)
 
+    # --- dev_gap (偏差値gap) フィルター ---
+    # メイン選定基準: z-score(model_pred) - z-score(1/odds)
+    # 的中率重視: dev_gapが大きい = モデルが市場より本当に高く評価している
+    # (min_ard, min_dev_gap) のリスト。ARd高い順に定義。
+    win_ard_dev_tiers: List[Tuple[float, float]] = field(default_factory=list)
+
+    # --- Composite VB Score ---
+    # 4シグナル(dev_gap/rank_gap/EV/ARd)を段階的にスコア化し、
+    # 合計で選定・強弱を統合判定する。
+    # 単一シグナルだけでは高スコアにならず、複数シグナルの合致が必要。
+    # 0 = 無効（レガシーtierベースを使用）
+    win_min_vb_score: float = 0.0    # 選定閾値 (0=無効, 5.0=推奨)
+    vb_strong_score: float = 7.0     # strong分類閾値
+
     # --- ARd VBルート (能力 vs 市場の直接乖離) ---
-    # Gapフィルターを経ない独立ルート。分類モデル(V%)が低評価でも
+    # Gapフィルターを経ない独立ルート。分類モデル(P%)が低評価でも
     # 回帰モデル(AR)が高評価 & 市場が過小評価の馬を拾う。
     # バックテスト: ARd>=65 & odds>=10 → 80件, 勝率11.2%, WinROI 179.9%
     ard_vb_min_ard: float = 0.0      # ARd下限 (0=無効, 65.0=推奨)
@@ -150,7 +166,7 @@ class BetStrategyParams:
 
 
 # --- プリセット ---
-# Gap主軸 + EV補助: Place model (rank_v) のGapが最も収益性が高い
+# Gap主軸 + EV補助: Place model (rank_p) のGapが最も収益性が高い
 # v5.19のEV主軸はダブルキャリブレーションバグのアーティファクトだった
 # AR偏差値足切り: レース内相対評価で格下を除外
 # Place ROI<100%のためWin-only推奨
@@ -165,12 +181,12 @@ class BetStrategyParams:
 #   tiered:     ~1,744件, Place ROI ~124%, 利益 +41,935
 #   wide(旧):   ~1,143件, Place ROI ~130%, 利益 +33,947
 #
-# v5.30: V%比率フィルター導入（rank_v順位ベース→V%比率ベース）
+# v5.30: P%比率フィルター導入（rank_p順位ベース→P%比率ベース）
 #   大混戦（top1-4がほぼ同率）で実力差のない馬を正しく拾う
-#   V%比率 = 馬のV% / レース内最大V%。0.75=top1の75%以上
+#   P%比率 = 馬のP% / レース内最大P%。0.75=top1の75%以上
 #
-# v5.30b: V%比率バイパスルート追加
-#   V%比率<0.75でも Gap>=7 + EV>=3.0 なら通過（超穴馬救済）
+# v5.30b: P%比率バイパスルート追加
+#   P%比率<0.75でも Gap>=7 + EV>=3.0 なら通過（超穴馬救済）
 #   バイパス単体: 58件 Win ROI 460.5%、ベースライン合算で ROI 109.7%→134.9%
 #
 # v5.31: tier相対strength判定 + クロス配分
@@ -186,56 +202,66 @@ class BetStrategyParams:
 #   max=2が最適: 3頭目以降は勝ちなしでROI希薄化
 #
 # v5.34: ARd VBルート (能力 vs 市場の直接乖離)
-#   Gap VBが確率ランク(rank_v) vs 市場ランクの乖離を見るのに対し、
+#   Gap VBが確率ランク(rank_p) vs 市場ランクの乖離を見るのに対し、
 #   ARd VBは能力(ARd) vs 市場オッズの直接乖離を見る独立ルート。
-#   分類モデルが低評価(rank_v低い)でも回帰モデルが高評価(ARd高い)の馬を拾う。
+#   分類モデルが低評価(rank_p低い)でも回帰モデルが高評価(ARd高い)の馬を拾う。
 #   バックテスト: ARd>=65 & odds>=10 → 80件, 勝率11.2%, WinROI 179.9%
 #   現行漏れ馬(ARd>=65, Gap<=2, odds>=10): 23件, 勝率17.4%, WinROI 210%
+# v5.44: Composite VB Score方式
+# 4シグナル(dev_gap/rank_gap/EV/ARd)を段階的にスコア化し合計で選定。
+# 単一シグナルだけでは通過できず、複数シグナルの合致が必要。
+# EV>=1.0をハードフロアとして全プリセット共通で適用。
+#
+# バックテスト結果 (test 2025-2026, v5.12-pit3):
+#   wide:       438件, WinROI 103.2%, P&L +1,390  (Score>=5.0 + EV>=1.0)
+#   standard:   398件, WinROI 113.5%, P&L +5,390  (Score>=5.5 + EV>=1.0)
+#   aggressive: 344件, WinROI 117.7%, P&L +6,080  (Score>=6.0 + EV>=1.0)
+#
+# 旧システム比較 (dev_gap/rank_gap ORルート):
+#   旧aggressive(EV>=1.8): 166件, ROI 106.4% → 新: 344件, 117.7% (+11pt, 2倍のベット)
+#   旧wide(EVなし):        3,753件, ROI 90.2% → 新: 438件, 103.2% (ベット数1/8で黒字化)
 PRESETS: Dict[str, BetStrategyParams] = {
     'standard': BetStrategyParams(
-        win_min_gap=5,              # フォールバック（ティアがカバーしない場合）
-        win_min_ev=1.5,             # EV >= 1.5 supplementary filter
-        win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
+        win_min_vb_score=5.5,       # Composite score >= 5.5
+        win_min_ev=1.0,             # EV >= 1.0 hard floor
+        win_v_ratio_min=0.75,       # P%比率 >= 75%
         win_v_bypass_gap=7,         # バイパス: Gap>=7
         win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
-        win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
         ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
         ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
-        place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
-        cross_alloc=False,          # WinOnly: バンクロールSim検証で単勝100%が最適
-        strong_win_pct=100,         # strong: 全額単勝
-        normal_win_pct=100,         # normal: 全額単勝
-        max_win_per_race=2,         # 1レース最大2単勝
+        place_min_gap=99,           # Place無効化
+        cross_alloc=False,
+        strong_win_pct=100,
+        normal_win_pct=100,
+        max_win_per_race=2,
     ),
     'wide': BetStrategyParams(
-        win_min_gap=5,              # フォールバック
-        win_min_ev=0.0,             # EV filter disabled
-        win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
-        win_v_bypass_gap=7,         # バイパス: Gap>=7
-        win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
-        win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
-        ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
-        ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
-        place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
-        cross_alloc=False,          # WinOnly: バンクロールSim検証で単勝100%が最適
-        strong_win_pct=100,         # strong: 全額単勝
-        normal_win_pct=100,         # normal: 全額単勝
-        max_win_per_race=2,         # 1レース最大2単勝
+        win_min_vb_score=5.0,       # Composite score >= 5.0 (wider net)
+        win_min_ev=1.0,             # EV >= 1.0 hard floor
+        win_v_ratio_min=0.75,
+        win_v_bypass_gap=7,
+        win_v_bypass_ev=3.0,
+        ard_vb_min_ard=65.0,
+        ard_vb_min_odds=10.0,
+        place_min_gap=99,
+        cross_alloc=False,
+        strong_win_pct=100,
+        normal_win_pct=100,
+        max_win_per_race=2,
     ),
     'aggressive': BetStrategyParams(
-        win_min_gap=5,              # フォールバック
-        win_min_ev=1.8,             # EV >= 1.8
-        win_v_ratio_min=0.75,       # V%比率 >= 75%（rank_vの代わり）
-        win_v_bypass_gap=7,         # バイパス: Gap>=7
-        win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
-        win_ard_gap_tiers=[(65, 3), (55, 4), (45, 5)],
-        ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
-        ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
-        place_min_gap=99,           # Place無効化（VB判定は単勝のみ）
-        cross_alloc=False,          # WinOnly: バンクロールSim検証で単勝100%が最適
-        strong_win_pct=100,         # strong: 全額単勝
-        normal_win_pct=100,         # normal: 全額単勝
-        max_win_per_race=2,         # 1レース最大2単勝
+        win_min_vb_score=6.0,       # Composite score >= 6.0 (high conviction)
+        win_min_ev=1.0,             # EV >= 1.0 hard floor
+        win_v_ratio_min=0.75,
+        win_v_bypass_gap=7,
+        win_v_bypass_ev=3.0,
+        ard_vb_min_ard=65.0,
+        ard_vb_min_odds=10.0,
+        place_min_gap=99,
+        cross_alloc=False,
+        strong_win_pct=100,
+        normal_win_pct=100,
+        max_win_per_race=2,
     ),
 }
 
@@ -251,7 +277,9 @@ class BetRecommendation:
     win_amount: int = 0         # 単勝購入額 (100円単位)
     place_amount: int = 0       # 複勝購入額 (100円単位)
     # --- debug / display ---
-    gap: int = 0                # VB gap (place-based)
+    gap: int = 0                # VB gap (place-based, rank差)
+    dev_gap: float = 0.0        # 偏差値gap (z-score差, メイン選定基準)
+    vb_score: float = 0.0       # コンポジットVBスコア (0-10)
     win_gap: int = 0            # Win VB gap
     predicted_margin: float = 0.0
     win_ev: Optional[float] = None
@@ -276,52 +304,63 @@ def evaluate_win(
     is_danger: bool = False,
     ar_deviation: Optional[float] = None,
     win_ev: Optional[float] = None,
+    dev_gap: float = 0.0,
+    vb_score: float = 0.0,
 ) -> Tuple[bool, int]:
-    """単勝評価 (Gap primary + EV secondary)
+    """単勝評価 (composite score or tier-based)
 
-    ARd段階フィルターがある場合:
-      ARd帯域ごとに異なるgap閾値を適用。高ARd=緩いgap、低ARd=厳しいgap。
-      どのティアにも該当しなければ不合格。
+    v5.44: Composite VB Score方式に移行。
+    4シグナル(dev_gap/rank_gap/EV/ARd)を段階的にスコア化し、
+    合計スコアで選定。rank_gapはベット倍率に使用。
 
-    従来モード (tiers空):
-      Step 1: AR偏差値足切り
-      Step 2: Gap >= threshold
-      Step 3: EV >= threshold
+    選定モード:
+      Mode 1 (win_min_vb_score > 0): Composite Score ≥ threshold
+      Mode 2 (legacy): dev_gap tier → rank_gap tier → flat threshold
 
     Returns:
         (should_bet, units) — units はベット倍率
         1 unit = params.bet_unit (100円)
     """
-    # === ARd段階フィルター ===
-    if params.win_ard_gap_tiers:
-        # ティアからgap閾値を決定（ARd高い順にチェック）
-        min_gap = None
-        for tier_ard, tier_gap in params.win_ard_gap_tiers:
-            if ar_deviation is not None and ar_deviation >= tier_ard:
-                min_gap = tier_gap
-                break
-        if min_gap is None:
-            # どのティアにも該当しない（ARdが全ティア未満）→ 不合格
-            return False, 0
+    passed = False
 
-        if is_danger:
-            min_gap += params.danger_gap_boost
-
-        if gap < min_gap:
-            return False, 0
+    # === Mode 1: Composite Score ===
+    if params.win_min_vb_score > 0:
+        if vb_score >= params.win_min_vb_score:
+            passed = True
     else:
-        # === 従来のフラット閾値 ===
-        # AR偏差値足切り (0=無効)
-        if params.win_min_ar_deviation > 0 and ar_deviation is not None:
-            if ar_deviation < params.win_min_ar_deviation:
-                return False, 0
+        # === Mode 2: Legacy tier-based ===
+        # Route 1: dev_gap tier
+        if params.win_ard_dev_tiers:
+            for tier_ard, tier_dev in params.win_ard_dev_tiers:
+                if ar_deviation is not None and ar_deviation >= tier_ard:
+                    if dev_gap >= tier_dev:
+                        passed = True
+                    break
 
-        min_gap = params.win_min_gap
-        if is_danger:
-            min_gap += params.danger_gap_boost
+        # Route 2: rank_gap tier
+        if not passed and params.win_ard_gap_tiers:
+            for tier_ard, tier_gap in params.win_ard_gap_tiers:
+                if ar_deviation is not None and ar_deviation >= tier_ard:
+                    min_gap = tier_gap
+                    if is_danger:
+                        min_gap += params.danger_gap_boost
+                    if gap >= min_gap:
+                        passed = True
+                    break
 
-        if gap < min_gap:
-            return False, 0
+        # Route 3: フラット閾値
+        if not passed and not params.win_ard_dev_tiers and not params.win_ard_gap_tiers:
+            if params.win_min_ar_deviation > 0 and ar_deviation is not None:
+                if ar_deviation < params.win_min_ar_deviation:
+                    return False, 0
+            min_gap = params.win_min_gap
+            if is_danger:
+                min_gap += params.danger_gap_boost
+            if gap >= min_gap:
+                passed = True
+
+    if not passed:
+        return False, 0
 
     # AR絶対閾値 (後方互換、0=無効)
     if params.win_min_rating > 0 and rating is not None:
@@ -333,10 +372,10 @@ def evaluate_win(
         if win_ev is None or win_ev < params.win_min_ev:
             return False, 0
 
-    # ベット倍率: gap が大きいほど厚く
-    if gap >= min_gap + 3:
+    # ベット倍率: rank_gapが大きいとき攻める（穴馬での上乗せ）
+    if gap >= 7:
         units = 3
-    elif gap >= min_gap + 1:
+    elif gap >= 5:
         units = 2
     else:
         units = 1
@@ -413,13 +452,72 @@ def calc_kelly_fraction(prob: float, odds: float) -> float:
     return max(0.0, f)
 
 
+def compute_vb_score(
+    dev_gap: float,
+    gap: int,
+    win_ev: Optional[float],
+    ar_deviation: Optional[float],
+) -> float:
+    """コンポジットVBスコア: 全シグナルを統合した一元評価
+
+    4つのシグナルを段階的に加点し、合計スコアで選定・強弱を判定する。
+    単一シグナルだけでは高スコアにならず、複数シグナルの合致が必要。
+
+    Score breakdown (max 10.0):
+      dev_gap:  0-3 points (偏差値乖離: 的中率重視)
+      rank_gap: 0-3 points (ランク差: 穴馬ROI)
+      EV:       0-2 points (期待値)
+      ARd:      0-2 points (能力偏差値)
+
+    Returns:
+        float: composite score (0.0 - 10.0)
+    """
+    score = 0.0
+
+    # dev_gap: 偏差値ベースの本質的な乖離
+    if dev_gap >= 1.5:
+        score += 3.0
+    elif dev_gap >= 1.0:
+        score += 2.0
+    elif dev_gap >= 0.5:
+        score += 1.0
+
+    # rank_gap: ランク差による穴馬検出
+    if gap >= 7:
+        score += 3.0
+    elif gap >= 5:
+        score += 2.0
+    elif gap >= 3:
+        score += 1.0
+
+    # EV: 期待値 (calibrated probability × odds)
+    ev = win_ev or 0.0
+    if ev >= 2.0:
+        score += 2.0
+    elif ev >= 1.5:
+        score += 1.5
+    elif ev >= 1.0:
+        score += 1.0
+
+    # ARd: レース内能力偏差値
+    ard = ar_deviation or 0.0
+    if ard >= 65:
+        score += 2.0
+    elif ard >= 55:
+        score += 1.5
+    elif ard >= 50:
+        score += 1.0
+
+    return score
+
+
 def detect_danger(
     entries: List[dict],
     max_odds: float = 8.0,
     max_ard: float = 53.0,
-    max_pred_v: float = 0.15,
+    max_pred_p: float = 0.15,
 ) -> Dict[int, bool]:
-    """危険馬検出: odds <= max_odds & ARd < max_ard & V% < max_pred_v
+    """危険馬検出: odds <= max_odds & ARd < max_ard & P% < max_pred_p
 
     v5.33: ARd閾値 50→53 に拡大 (ラベル精度向上)
     バックテスト実績: 勝率 13.8%, 複勝率 35.3% (ベースライン 21.0%, 51.4%)
@@ -428,7 +526,7 @@ def detect_danger(
         entries: predict_race() の出力 entries リスト
         max_odds: オッズ上限 (この値以下が対象)
         max_ard: AR偏差値上限 (この値未満が対象)
-        max_pred_v: V%上限 (この値未満が対象, calibrated)
+        max_pred_p: P%上限 (この値未満が対象, calibrated)
 
     Returns:
         {umaban: True} — 危険馬と判定された馬のみ
@@ -437,8 +535,8 @@ def detect_danger(
     for e in entries:
         odds = e.get('odds', 0) or 0
         ard = e.get('ar_deviation') or 0
-        pred_v = e.get('pred_proba_v', 0) or 0
-        if 0 < odds <= max_odds and ard < max_ard and pred_v < max_pred_v:
+        pred_p = e.get('pred_proba_p', 0) or 0
+        if 0 < odds <= max_odds and ard < max_ard and pred_p < max_pred_p:
             danger[e['umaban']] = True
     return danger
 
@@ -459,9 +557,9 @@ def generate_recommendations(
             各レースに必要なフィールド:
               - race_id, track_type, entries[]
               - entries[]: umaban, horse_name, odds, vb_gap, win_vb_gap,
-                           rank_v, odds_rank, place_odds_min, place_ev, win_ev,
+                           rank_p, odds_rank, place_odds_min, place_ev, win_ev,
                            predicted_margin (能力R rating, optional),
-                           pred_proba_v_raw (optional, for Kelly),
+                           pred_proba_p_raw (optional, for Kelly),
                            comment_memo_trouble_score (optional)
         params: 戦略パラメータ
         budget: 総予算 (円)
@@ -478,12 +576,12 @@ def generate_recommendations(
         if not entries:
             continue
 
-        # 危険馬検出 (odds<=8 & ARd<53 & V%<15%) — ラベルのみ、gap boostなし
+        # 危険馬検出 (odds<=8 & ARd<53 & P%<15%) — ラベルのみ、gap boostなし
         danger_map = detect_danger(entries)
 
-        # V%比率フィルター用: レース内最大V%を計算
+        # P%比率フィルター用: レース内最大P%を計算
         if params.win_v_ratio_min > 0:
-            v_pcts = [(e.get('pred_proba_v_raw') or 0) for e in entries]
+            v_pcts = [(e.get('pred_proba_p_raw') or 0) for e in entries]
             race_max_v = max(v_pcts) if v_pcts else 0
         else:
             race_max_v = 0
@@ -496,57 +594,66 @@ def generate_recommendations(
             odds = e.get('odds', 0) or 0
             gap = e.get('vb_gap', 0) or 0
             win_gap = e.get('win_vb_gap', 0) or 0
-            rank_v = e.get('rank_v', 99)
-            rank_wv = e.get('rank_wv') or 99
+            rank_p = e.get('rank_p', 99)
+            rank_w = e.get('rank_w') or 99
             odds_rank = e.get('odds_rank', 0) or 0
             margin = e.get('predicted_margin')
             ar_dev = e.get('ar_deviation')
-            p_top3_raw = e.get('pred_proba_v_raw')
+            p_top3_raw = e.get('pred_proba_p_raw')
             place_odds = e.get('place_odds_min')
             win_ev = e.get('win_ev')
             place_ev = e.get('place_ev')
 
             is_danger = umaban in danger_map
             danger_score = 1.0 if is_danger else 0.0
+            entry_dev_gap = e.get('dev_gap', 0) or 0
+
+            # Composite VB Score (全シグナル統合)
+            entry_vb_score = compute_vb_score(entry_dev_gap, gap, win_ev, ar_dev)
 
             # === VB Floor Gate: 購入プラン⊆VB候補 ===
             vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV
             vb_ard_ok = (ar_dev or 0) >= VB_FLOOR_MIN_ARD
             vb_ard_route = ((ar_dev or 0) >= VB_FLOOR_ARD_VB_MIN_ARD
                             and odds >= VB_FLOOR_ARD_VB_MIN_ODDS)
-            if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route:
+            vb_dev_route = (entry_dev_gap >= VB_FLOOR_MIN_DEV_GAP
+                            and (ar_dev or 0) >= VB_FLOOR_DEV_MIN_ARD)
+            if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route and not vb_dev_route:
                 continue
 
             # --- 単勝評価 ---
-            # Pre-filter: V%比率 or rank_v
-            #   V%比率: レース内top1のV%に対する比率で足切り（大混戦に対応）
-            #   バイパス: V%比率未達でもGap+EVが十分高い穴馬を例外通過
-            #   rank_v: 従来の順位ベース足切り（V%比率が0の場合のフォールバック）
+            # Pre-filter: P%比率 or rank_p
+            #   P%比率: レース内top1のP%に対する比率で足切り（大混戦に対応）
+            #   バイパス: P%比率未達でもGap+EVが十分高い穴馬を例外通過
+            #   rank_p: 従来の順位ベース足切り（P%比率が0の場合のフォールバック）
             if params.win_v_ratio_min > 0:
                 v_pct = p_top3_raw or 0
                 v_ratio = v_pct / race_max_v if race_max_v > 0 else 0
                 win_prefilter_pass = v_ratio >= params.win_v_ratio_min
-                # バイパス: V%比率未達でも高Gap+高EVなら通過
+                # バイパス: P%比率未達でも高Gap+高EVなら通過
                 if not win_prefilter_pass and params.win_v_bypass_gap > 0 and params.win_v_bypass_ev > 0:
                     bypass_gap_ok = gap >= params.win_v_bypass_gap
                     bypass_ev_ok = (win_ev or 0) >= params.win_v_bypass_ev
                     if bypass_gap_ok and bypass_ev_ok:
                         win_prefilter_pass = True
+                # dev_gapバイパス: 偏差値的に大きく乖離していれば通過
+                if not win_prefilter_pass and entry_dev_gap >= 1.0:
+                    win_prefilter_pass = True
             else:
-                win_prefilter_pass = rank_v <= params.win_max_rank
+                win_prefilter_pass = rank_p <= params.win_max_rank
 
             if not win_prefilter_pass:
                 win_ok, win_units = False, 0
             else:
-                # Gap = vb_gap (Place model基準: odds_rank - rank_v)
                 win_ok, win_units = evaluate_win(
                     gap, margin, params, is_danger,
                     ar_deviation=ar_dev, win_ev=win_ev,
+                    dev_gap=entry_dev_gap, vb_score=entry_vb_score,
                 )
 
             # --- ARd VBルート (能力 vs 市場の直接乖離) ---
             # Gap VBが不合格でも、ARdが極端に高くオッズが高い馬は独立ルートで通過
-            # V%比率・Gap・EVフィルターを全てバイパスする
+            # P%比率・Gap・EVフィルターを全てバイパスする
             ard_vb_pass = False
             if not win_ok and params.ard_vb_min_ard > 0 and params.ard_vb_min_odds > 0:
                 if (ar_dev is not None and ar_dev >= params.ard_vb_min_ard
@@ -556,11 +663,11 @@ def generate_recommendations(
                     ard_vb_pass = True
 
             # --- 複勝評価 ---
-            # Pre-filter: V%比率 or rank_v top3
+            # Pre-filter: P%比率 or rank_p top3
             if params.win_v_ratio_min > 0:
                 place_prefilter_pass = win_prefilter_pass  # 単勝と同じ基準
             else:
-                place_prefilter_pass = rank_v <= 3
+                place_prefilter_pass = rank_p <= 3
             if not place_prefilter_pass:
                 place_ok, kelly_frac = False, 0.0
             else:
@@ -571,25 +678,31 @@ def generate_recommendations(
             if not win_ok and not place_ok:
                 continue
 
-            # bet_type 決定 (tier相対strength判定)
-            # tier_gap = ARd帯別の通過gap閾値、strong = gap >= tier_gap + 2
-            # ARd>=65: gap>=5, ARd>=55: gap>=6, ARd<55: gap>=7
-            if params.win_ard_gap_tiers and ar_dev is not None:
-                strong_gap = params.win_min_gap + 2  # default fallback
-                for tier_ard, tier_gap in params.win_ard_gap_tiers:
-                    if ar_dev >= tier_ard:
-                        strong_gap = tier_gap + 2
-                        break
+            # bet_type 決定 (strength判定: composite score or legacy)
+            if params.win_min_vb_score > 0:
+                # Composite Score mode: スコアで強弱判定
+                is_strong = ard_vb_pass or entry_vb_score >= params.vb_strong_score
             else:
-                strong_gap = params.win_min_gap + 2
+                # Legacy mode
+                is_strong = ard_vb_pass or entry_dev_gap >= 1.5
+                if not is_strong:
+                    if params.win_ard_gap_tiers and ar_dev is not None:
+                        strong_gap = params.win_min_gap + 2
+                        for tier_ard, tier_gap in params.win_ard_gap_tiers:
+                            if ar_dev >= tier_ard:
+                                strong_gap = tier_gap + 2
+                                break
+                    else:
+                        strong_gap = params.win_min_gap + 2
+                    if gap >= strong_gap:
+                        is_strong = True
 
             if win_ok and place_ok:
                 bet_type = '単複'
-                strength = 'strong' if (ard_vb_pass or gap >= strong_gap or
-                                        gap >= params.place_min_gap + 2) else 'normal'
+                strength = 'strong' if is_strong else 'normal'
             elif win_ok:
                 bet_type = '単勝'
-                strength = 'strong' if (ard_vb_pass or gap >= strong_gap) else 'normal'
+                strength = 'strong' if is_strong else 'normal'
             else:
                 bet_type = '複勝'
                 strength = 'strong' if gap >= params.place_min_gap + 2 else 'normal'
@@ -603,6 +716,8 @@ def generate_recommendations(
                 win_amount=win_units * params.bet_unit if win_ok else 0,
                 place_amount=0,  # Kelly sizing in apply_budget
                 gap=gap,
+                dev_gap=entry_dev_gap,
+                vb_score=round(entry_vb_score, 1),
                 win_gap=win_gap,
                 predicted_margin=round(margin, 1) if margin is not None else 0.0,
                 win_ev=round(win_ev, 4) if win_ev is not None else None,
@@ -643,7 +758,7 @@ def apply_win_per_race_limit(
       制限なし: aggressive ROI 406%, wide ROI 135%
     2番手候補の的中率は全体平均より高い（14.3% vs 5.3%）
 
-    優先順位: gap (Place-model based) の大きい馬が上位
+    優先順位: dev_gap (偏差値乖離) → gap (rank差) → odds の順
     """
     if max_win <= 0:
         # 0 = 制限なし
@@ -655,8 +770,8 @@ def apply_win_per_race_limit(
     if len(win_candidates) <= max_win:
         return recs
 
-    # gap 降順ソート (Place model基準)
-    win_candidates.sort(key=lambda r: (-r.gap, -r.odds))
+    # vb_score 降順ソート (複合スコアで優先順位)
+    win_candidates.sort(key=lambda r: (-r.vb_score, -r.dev_gap, -r.odds))
 
     # 上位max_win頭はそのまま、それ以降を降格
     for r in win_candidates[max_win:]:
@@ -808,13 +923,14 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
     """DataFrame → generate_recommendations() 入力形式に変換
 
     experiment.py / backtest_bet_engine.py の両方から利用。
-    df_test には pred_rank_v, odds_rank, pred_margin_b 等が必要。
+    df_test には pred_rank_p, odds_rank, pred_margin_ar 等が必要。
 
     Args:
         grade_offsets: Method A グレードオフセット {grade_key: offset}
             Noneの場合はオフセットなし（従来の相対R）
     """
     import pandas as pd
+    import numpy as np
 
     races = []
     for race_id, group in df_test.groupby('race_id'):
@@ -831,7 +947,7 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
 
         entries = []
         for _, row in group.iterrows():
-            relative_rating = RATING_BASE - float(row['pred_margin_b']) * RATING_SCALE if pd.notna(row.get('pred_margin_b')) else None
+            relative_rating = RATING_BASE - float(row['pred_margin_ar']) * RATING_SCALE if pd.notna(row.get('pred_margin_ar')) else None
             absolute_rating = (relative_rating + offset) if relative_rating is not None else None
 
             entries.append({
@@ -840,11 +956,11 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
                 'odds': float(row.get('odds', 0)),
                 'vb_gap': int(row.get('vb_gap', 0)),
                 'win_vb_gap': int(row.get('win_vb_gap', 0)),
-                'rank_v': int(row.get('pred_rank_v', 99)),
-                'rank_wv': int(row.get('pred_rank_wv', 99)) if pd.notna(row.get('pred_rank_wv')) else 99,
+                'rank_p': int(row.get('pred_rank_p', 99)),
+                'rank_w': int(row.get('pred_rank_w', 99)) if pd.notna(row.get('pred_rank_w')) else 99,
                 'odds_rank': int(row.get('odds_rank', 0)),
                 'place_odds_min': float(row['place_odds_low']) if pd.notna(row.get('place_odds_low')) else None,
-                'pred_proba_v_raw': float(row.get('pred_proba_v_raw', 0)),
+                'pred_proba_p_raw': float(row.get('pred_proba_p_raw', 0)),
                 'predicted_margin': absolute_rating,
                 'win_ev': float(row.get('win_ev', 0)) if pd.notna(row.get('win_ev')) else None,
                 'place_ev': float(row.get('place_ev', 0)) if pd.notna(row.get('place_ev')) else None,
@@ -868,6 +984,16 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
         else:
             for e in entries:
                 e['ar_deviation'] = 50.0
+
+        # dev_gap計算（偏差値ベースの乖離: モデル評価 vs 市場評価）
+        preds = np.array([e.get('pred_proba_p_raw', 0) or 0 for e in entries])
+        implied = np.array([1.0 / e['odds'] if e['odds'] > 0 else 0 for e in entries])
+        pred_mean, pred_std = preds.mean(), max(preds.std(), 1e-8)
+        imp_mean, imp_std = implied.mean(), max(implied.std(), 1e-8)
+        for i, e in enumerate(entries):
+            model_z = (preds[i] - pred_mean) / pred_std
+            market_z = (implied[i] - imp_mean) / imp_std
+            e['dev_gap'] = round(float(model_z - market_z), 3)
 
         races.append({
             'race_id': str(race_id),

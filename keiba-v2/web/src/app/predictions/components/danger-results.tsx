@@ -9,6 +9,9 @@ import { getFinishColor, getPlaceLimit, getTrackBadgeClass, getTrackLabel, getRa
 interface DangerResultsProps {
   dangerHorses: DangerHorseEntry[];
   getFinishPos: (raceId: string, umaban: number) => number;
+  syncDangerMarks: () => Promise<void>;
+  dangerMarkSyncing: boolean;
+  dangerMarkResult: { markedHorses: number } | null;
 }
 
 type Verdict = 'correct' | 'incorrect' | 'pending';
@@ -19,7 +22,7 @@ function getVerdict(finishPos: number, numRunners: number): Verdict {
   return finishPos <= placeLimit ? 'incorrect' : 'correct';
 }
 
-export function DangerResults({ dangerHorses, getFinishPos }: DangerResultsProps) {
+export function DangerResults({ dangerHorses, getFinishPos, syncDangerMarks, dangerMarkSyncing, dangerMarkResult }: DangerResultsProps) {
   const [sort, setSort] = useState<SortState>({ key: 'race_number', dir: 'asc' });
 
   // サマリー集計
@@ -92,8 +95,9 @@ export function DangerResults({ dangerHorses, getFinishPos }: DangerResultsProps
               {dangerHorses.length}頭 ({raceCount}R中)
             </span>
           </CardTitle>
-          {finished > 0 && (
-            <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-3">
+            {finished > 0 && (
+              <div className="flex items-center gap-3 text-sm">
               <span>
                 的中{' '}
                 <span className={`font-bold ${accuracy != null && accuracy >= 50 ? 'text-green-600' : 'text-red-500'}`}>
@@ -109,7 +113,21 @@ export function DangerResults({ dangerHorses, getFinishPos }: DangerResultsProps
                 <span className="text-muted-foreground text-xs">残{pending}頭</span>
               )}
             </div>
-          )}
+            )}
+            {dangerMarkResult && (
+              <span className="text-xs text-green-700 dark:text-green-400">
+                {dangerMarkResult.markedHorses}頭 反映完了
+              </span>
+            )}
+            <button
+              onClick={syncDangerMarks}
+              disabled={dangerMarkSyncing}
+              className="px-3 py-1 text-xs font-medium rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-orange-300 dark:border-orange-700 disabled:opacity-50"
+              title="危険馬の印をTARGET馬印1に一括書込み"
+            >
+              {dangerMarkSyncing ? '反映中...' : 'DA印→馬印1'}
+            </button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="pt-4 pb-4">

@@ -8,6 +8,7 @@ v2のcompute_past_features()を移植・拡張。
 
 v4.0: best_l3f_last5, finish_std_last5, comeback_strength_last5 を追加
 v5.4: ベイズ平滑化レート + career_stage を追加
+v5.45: Phase P — 前走→今回 直接比較特徴量 (14個追加)
 """
 
 from typing import Dict, List, Optional
@@ -26,6 +27,12 @@ PRIOR_WIN_BETA = 12.0    # prior mean = 1/13 ≈ 0.077
 PRIOR_TOP3_ALPHA = 2.5
 PRIOR_TOP3_BETA = 7.5    # prior mean = 2.5/10 = 0.25
 
+# v5.45: 馬場状態 ordinal mapping
+BABA_ORDINAL = {'良': 0, '稍重': 1, '重': 2, '不良': 3}
+
+# track_type numeric mapping
+_TT_MAP = {'turf': 0, 'dirt': 1}
+
 
 def bayesian_rate(successes: int, total: int, alpha: float, beta: float) -> float:
     """ベイズ平滑化レート (Beta-Binomial posterior mean)"""
@@ -41,6 +48,7 @@ def compute_past_features(
     entry_count: int,
     history_cache: dict,
     race_level_index: dict = None,
+    track_condition: str = '',  # v5.45: "良"/"稍重"/"重"/"不良"
 ) -> dict:
     """
     馬の過去走成績から特徴量を計算。
@@ -48,6 +56,7 @@ def compute_past_features(
     時系列リーク防止: race_date より前のレースのみ使用。
 
     v5.6: race_level_index を使った前走レースレベル特徴量追加
+    v5.45: Phase P — 前走→今回 直接比較特徴量 (14個)
     """
     result = {
         'avg_finish_last3': -1,
@@ -78,6 +87,23 @@ def compute_past_features(
         'prev_race_level_vs_class': None,
         'avg_race_level_last3': None,
         'prev_race_level_rank': None,
+        # v5.45: Phase P — Category A: 前走直接シグナル
+        'prev_finish': -1,
+        'prev_last3f': -1,
+        'distance_change': -1,
+        'track_type_change': -1,
+        'condition_change': -1,
+        'prev_odds': -1,
+        # v5.45: Phase P — Category B: 条件別適性率
+        'condition_top3_rate': -1,
+        'condition_top3_rate_smoothed': None,
+        'heavy_track_top3_rate': -1,
+        'exact_distance_top3_rate': -1,
+        'exact_distance_top3_rate_smoothed': None,
+        # v5.45: Phase P — Category C: 条件変化パターン
+        'surface_switch_top3_rate': -1,
+        'distance_direction_top3_rate': -1,
+        'field_size_category_top3_rate': -1,
     }
 
     runs = history_cache.get(ketto_num, [])
@@ -235,5 +261,114 @@ def compute_past_features(
         if level_vals:
             result['avg_race_level_last3'] = round(
                 sum(level_vals) / len(level_vals), 2)
+
+    # =================================================================
+    # v5.45: Phase P — 前走→今回 直接比較特徴量
+    # =================================================================
+
+    # --- Category A: 前走直接シグナル ---
+    result['prev_finish'] = last_race['finish_position']
+
+    prev_l3f = last_race.get('last_3f', 0)
+    if prev_l3f > 0:
+        result['prev_last3f'] = prev_l3f
+
+    prev_dist = last_race.get('distance', 0)
+    if prev_dist > 0 and distance > 0:
+        result['distance_change'] = distance - prev_dist
+
+    prev_tt = _TT_MAP.get(last_race.get('track_type', ''))
+    cur_tt = _TT_MAP.get(track_type)
+    if prev_tt is not None and cur_tt is not None:
+        result['track_type_change'] = cur_tt - prev_tt
+
+    prev_cond = BABA_ORDINAL.get(last_race.get('track_condition', ''))
+    cur_cond = BABA_ORDINAL.get(track_condition)
+    if prev_cond is not None and cur_cond is not None:
+        result['condition_change'] = cur_cond - prev_cond
+
+    prev_odds = last_race.get('odds', 0)
+    if prev_odds > 0:
+        result['prev_odds'] = prev_odds
+
+    # --- Category B: 条件別適性率 ---
+
+    # B1/B2: 同馬場状態での複勝率
+    if track_condition:
+        cond_runs = [r for r in past if r.get('track_condition', '') == track_condition]
+        if cond_runs:
+            c_top3 = sum(1 for r in cond_runs if 1 <= r['finish_position'] <= 3)
+            result['condition_top3_rate'] = round(c_top3 / len(cond_runs), 4)
+            result['condition_top3_rate_smoothed'] = bayesian_rate(
+                c_top3, len(cond_runs), PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+        else:
+            result['condition_top3_rate_smoothed'] = bayesian_rate(
+                0, 0, PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+
+    # B3: 湿走路適性（重+不良）
+    heavy_runs = [r for r in past if r.get('track_condition', '') in ('重', '不良')]
+    if heavy_runs:
+        h_top3 = sum(1 for r in heavy_runs if 1 <= r['finish_position'] <= 3)
+        result['heavy_track_top3_rate'] = round(h_top3 / len(heavy_runs), 4)
+
+    # B4/B5: 厳密距離適性（±100m）
+    exact_dist_runs = [r for r in past if abs(r.get('distance', 0) - distance) <= 100]
+    if exact_dist_runs:
+        ed_top3 = sum(1 for r in exact_dist_runs if 1 <= r['finish_position'] <= 3)
+        result['exact_distance_top3_rate'] = round(ed_top3 / len(exact_dist_runs), 4)
+        result['exact_distance_top3_rate_smoothed'] = bayesian_rate(
+            ed_top3, len(exact_dist_runs), PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+    else:
+        result['exact_distance_top3_rate_smoothed'] = bayesian_rate(
+            0, 0, PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA)
+
+    # --- Category C: 条件変化パターン ---
+
+    # C1: 芝↔ダ転換時の成功率（今回が転換の場合のみ）
+    if prev_tt is not None and cur_tt is not None and prev_tt != cur_tt:
+        switch_runs = []
+        for i in range(1, len(past)):
+            pr_tt = _TT_MAP.get(past[i - 1].get('track_type', ''))
+            r_tt = _TT_MAP.get(past[i].get('track_type', ''))
+            if pr_tt is not None and r_tt is not None and pr_tt != r_tt:
+                switch_runs.append(past[i])
+        if switch_runs:
+            sw_top3 = sum(1 for r in switch_runs if 1 <= r['finish_position'] <= 3)
+            result['surface_switch_top3_rate'] = round(sw_top3 / len(switch_runs), 4)
+
+    # C2: 距離短縮/延長時の成功率（変化時のみ）
+    if prev_dist > 0 and distance > 0 and prev_dist != distance:
+        shortening = distance < prev_dist
+        direction_runs = []
+        for i in range(1, len(past)):
+            pd = past[i - 1].get('distance', 0)
+            rd = past[i].get('distance', 0)
+            if pd > 0 and rd > 0 and pd != rd:
+                if shortening and rd < pd:
+                    direction_runs.append(past[i])
+                elif not shortening and rd > pd:
+                    direction_runs.append(past[i])
+        if direction_runs:
+            dd_top3 = sum(1 for r in direction_runs if 1 <= r['finish_position'] <= 3)
+            result['distance_direction_top3_rate'] = round(
+                dd_top3 / len(direction_runs), 4)
+
+    # C3: 同頭数帯での成功率
+    def _field_cat(n):
+        if n <= 11:
+            return 'small'
+        elif n <= 15:
+            return 'mid'
+        return 'large'
+
+    if entry_count > 0:
+        cur_cat = _field_cat(entry_count)
+        cat_runs = [r for r in past
+                    if r.get('num_runners', 0) > 0
+                    and _field_cat(r['num_runners']) == cur_cat]
+        if cat_runs:
+            fc_top3 = sum(1 for r in cat_runs if 1 <= r['finish_position'] <= 3)
+            result['field_size_category_top3_rate'] = round(
+                fc_top3 / len(cat_runs), 4)
 
     return result

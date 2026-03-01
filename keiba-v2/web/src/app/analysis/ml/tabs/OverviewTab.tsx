@@ -243,39 +243,36 @@ function ArdAnalysisTable({ entries }: { entries: ArdThresholdEntry[] }) {
 
 export default function OverviewTab({ data, obstacleModel }: { data: MlExperimentResultV2; obstacleModel?: ObstacleModelMeta | null }) {
   const ha = Array.isArray(data.hit_analysis) ? null : data.hit_analysis;
-  const hitAccuracy = ha?.accuracy ?? (Array.isArray(data.hit_analysis) ? data.hit_analysis : []);
-  const hitValue = ha?.value ?? [];
-  const hasV2 = !!(ha?.accuracy_v2);
-  const hasWin = !!data.models.win_accuracy;
-  const hasRegression = !!data.models.regression_value;
+  const hitPlace = ha?.place ?? ha?.value ?? (Array.isArray(data.hit_analysis) ? data.hit_analysis : []);
+  const hasV2 = !!(ha?.place_v2 ?? ha?.accuracy_v2);
+  const hasWin = !!(data.models.win ?? data.models.win_value);
+  const hasAura = !!(data.models.aura ?? data.models.regression_value);
 
   return (
     <div className="space-y-6">
-      {/* Place Models */}
+      {/* Place Model */}
       <div>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">好走モデル (3着内)</h2>
-        <div className="grid grid-cols-2 gap-4">
-          <ModelCard title="好走 市場" model={data.models.accuracy} color="blue" targetLabel="全特徴量 — VB未使用" />
-          <ModelCard title="好走 独自" model={data.models.value} color="blue" targetLabel="市場系除外 → V%, Gap, 頭%" />
+        <div className="grid grid-cols-1 gap-4">
+          <ModelCard title="好走(P)" model={data.models.place ?? data.models.value!} color="blue" targetLabel="市場系除外 → P%, Gap, 頭%" />
         </div>
       </div>
 
-      {/* Win Models */}
+      {/* Win Model */}
       {hasWin && (
         <div>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">勝利モデル (1着)</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <ModelCard title="勝利 市場" model={data.models.win_accuracy!} color="emerald" targetLabel="全特徴量 — VB未使用" />
-            <ModelCard title="勝利 独自" model={data.models.win_value!} color="emerald" targetLabel="市場系除外 → WV%, EV, 頭%" />
+          <div className="grid grid-cols-1 gap-4">
+            <ModelCard title="勝利(W)" model={(data.models.win ?? data.models.win_value)!} color="emerald" targetLabel="市場系除外 → W%, EV, 頭%" />
           </div>
         </div>
       )}
 
-      {/* Regression Model */}
-      {hasRegression && (
+      {/* Aura (AR) Model */}
+      {hasAura && (
         <div>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">能力予測モデル (着差)</h2>
-          <RegressionCard model={data.models.regression_value!} />
+          <RegressionCard model={(data.models.aura ?? data.models.regression_value)!} />
         </div>
       )}
 
@@ -301,8 +298,8 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
               }
             </span>
           </div>
-          <div><span className="text-gray-500">学習件数: </span><span className="font-medium">{data.models.accuracy.metrics.train_size.toLocaleString()}</span></div>
-          <div><span className="text-gray-500">テスト件数: </span><span className="font-medium">{data.models.accuracy.metrics.test_size.toLocaleString()}</span></div>
+          <div><span className="text-gray-500">学習件数: </span><span className="font-medium">{(data.models.place ?? data.models.value)!.metrics.train_size.toLocaleString()}</span></div>
+          <div><span className="text-gray-500">テスト件数: </span><span className="font-medium">{(data.models.place ?? data.models.value)!.metrics.test_size.toLocaleString()}</span></div>
         </div>
         {data.split.val && (
           <div className="mt-1 text-xs text-gray-400">3-way split: Train / Val(early stopping) / Test(純粋評価)</div>
@@ -310,60 +307,57 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
       </div>
 
       {/* Hit Analysis v2 */}
-      {hasV2 && ha?.accuracy_v2 && ha?.value_v2 ? (
-        <div className="space-y-4">
+      {(() => {
+        const placeV2 = ha?.place_v2 ?? ha?.accuracy_v2;
+        const auraV2 = ha?.aura_v2 ?? ha?.regression_v2;
+        return hasV2 && placeV2 ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+              <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Top1 成績比較
+                <span className="ml-2 text-xs font-normal text-gray-400">各モデルの予測1位がどれだけ当たるか</span>
+              </h3>
+              <div className={cn('grid gap-3', auraV2 ? 'grid-cols-2' : 'grid-cols-1')}>
+                <Top1Card label="好走(P)" v2={placeV2} color="text-blue-600 dark:text-blue-400" />
+                {auraV2 && (
+                  <Top1Card label="能力(AR)" v2={auraV2} color="text-amber-600 dark:text-amber-400" />
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+              <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Top3 的中分布
+              </h3>
+              <p className="mb-3 text-[10px] text-gray-500">予測上位3頭のうち何頭が3着以内に入ったかの分布</p>
+              <div className="space-y-3">
+                <div>
+                  <div className="mb-1 text-xs font-medium text-blue-600 dark:text-blue-400">好走(P)</div>
+                  <Top3DistributionBar v2={placeV2} />
+                </div>
+                {auraV2 && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-amber-600 dark:text-amber-400">能力(AR)</div>
+                    <Top3DistributionBar v2={auraV2} />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {ha?.ard_analysis && ha.ard_analysis.length > 0 && (
+              <ArdAnalysisTable entries={ha.ard_analysis} />
+            )}
+          </div>
+        ) : hitPlace.length > 0 && (
+          /* Legacy fallback */
           <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
             <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
-              Top1 成績比較
-              <span className="ml-2 text-xs font-normal text-gray-400">各モデルの予測1位がどれだけ当たるか</span>
+              Top-N予測の的中率
             </h3>
-            <div className={cn('grid gap-3', ha.regression_v2 ? 'grid-cols-3' : 'grid-cols-2')}>
-              <Top1Card label="好走 市場" v2={ha.accuracy_v2} color="text-blue-600 dark:text-blue-400" />
-              <Top1Card label="好走 独自" v2={ha.value_v2} color="text-blue-600 dark:text-blue-400" />
-              {ha.regression_v2 && (
-                <Top1Card label="AR (能力予測)" v2={ha.regression_v2} color="text-amber-600 dark:text-amber-400" />
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-            <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">
-              Top3 的中分布
-            </h3>
-            <p className="mb-3 text-[10px] text-gray-500">予測上位3頭のうち何頭が3着以内に入ったかの分布</p>
-            <div className="space-y-3">
-              <div>
-                <div className="mb-1 text-xs font-medium text-blue-600 dark:text-blue-400">好走 市場</div>
-                <Top3DistributionBar v2={ha.accuracy_v2} />
-              </div>
-              <div>
-                <div className="mb-1 text-xs font-medium text-blue-600 dark:text-blue-400">好走 独自</div>
-                <Top3DistributionBar v2={ha.value_v2} />
-              </div>
-              {ha.regression_v2 && (
-                <div>
-                  <div className="mb-1 text-xs font-medium text-amber-600 dark:text-amber-400">AR (能力予測)</div>
-                  <Top3DistributionBar v2={ha.regression_v2} />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {ha.ard_analysis && ha.ard_analysis.length > 0 && (
-            <ArdAnalysisTable entries={ha.ard_analysis} />
-          )}
-        </div>
-      ) : hitAccuracy.length > 0 && (
-        /* Legacy fallback */
-        <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-          <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
-            Top-N予測の的中率
-          </h3>
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <h4 className="mb-2 text-xs font-medium text-blue-600 dark:text-blue-400">好走 市場</h4>
+              <h4 className="mb-2 text-xs font-medium text-blue-600 dark:text-blue-400">好走(P)</h4>
               <div className="grid grid-cols-3 gap-3">
-                {hitAccuracy.map((h) => (
+                {hitPlace.map((h) => (
                   <div key={h.top_n} className="rounded-lg bg-gray-50 p-3 text-center dark:bg-gray-800/50">
                     <div className="text-xs text-gray-500">Top {h.top_n}</div>
                     <div className="mt-1 text-xl font-bold text-blue-600 dark:text-blue-400">
@@ -374,25 +368,9 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
                 ))}
               </div>
             </div>
-            {hitValue.length > 0 && (
-              <div>
-                <h4 className="mb-2 text-xs font-medium text-blue-600 dark:text-blue-400">好走 独自</h4>
-                <div className="grid grid-cols-3 gap-3">
-                  {hitValue.map((h) => (
-                    <div key={h.top_n} className="rounded-lg bg-gray-50 p-3 text-center dark:bg-gray-800/50">
-                      <div className="text-xs text-gray-500">Top {h.top_n}</div>
-                      <div className="mt-1 text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                        {(h.hit_rate * 100).toFixed(1)}%
-                      </div>
-                      <div className="text-xs text-gray-400">{h.hits}/{h.total}R</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

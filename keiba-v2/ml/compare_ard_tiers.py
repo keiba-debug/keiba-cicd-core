@@ -214,13 +214,13 @@ def main():
             entries_in_bin = []
             for race in race_preds:
                 # V%比率計算
-                v_pcts = [(e.get('pred_proba_v_raw') or 0) for e in race['entries']]
+                v_pcts = [(e.get('pred_proba_p_raw') or 0) for e in race['entries']]
                 race_max_v = max(v_pcts) if v_pcts else 0
 
                 for e in race['entries']:
                     ard = e.get('ar_deviation') or 0
                     gap = e.get('vb_gap', 0) or 0
-                    v_raw = e.get('pred_proba_v_raw') or 0
+                    v_raw = e.get('pred_proba_p_raw') or 0
                     v_ratio = v_raw / race_max_v if race_max_v > 0 else 0
 
                     if (ard_lo <= ard < ard_hi and gap == gap_val and v_ratio >= 0.75):
@@ -260,12 +260,12 @@ def main():
     for min_gap in [2, 3, 4, 5, 6, 7]:
         entries_in_bin = []
         for race in race_preds:
-            v_pcts = [(e.get('pred_proba_v_raw') or 0) for e in race['entries']]
+            v_pcts = [(e.get('pred_proba_p_raw') or 0) for e in race['entries']]
             race_max_v = max(v_pcts) if v_pcts else 0
             for e in race['entries']:
                 ard = e.get('ar_deviation') or 0
                 gap = e.get('vb_gap', 0) or 0
-                v_raw = e.get('pred_proba_v_raw') or 0
+                v_raw = e.get('pred_proba_p_raw') or 0
                 v_ratio = v_raw / race_max_v if race_max_v > 0 else 0
                 if 60 <= ard < 65 and gap >= min_gap and v_ratio >= 0.75:
                     entries_in_bin.append(e)

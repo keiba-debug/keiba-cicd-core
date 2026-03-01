@@ -160,7 +160,7 @@ def get_danger_horses(entries: list) -> set:
     for e in entries:
         odds = e.get("odds", 999)
         ard = e.get("ar_deviation", 99)
-        v_pct = e.get("pred_proba_v_raw", 1.0)
+        v_pct = e.get("pred_proba_p_raw", 1.0)
         if 0 < odds <= 8 and ard < 53 and v_pct < 0.15:
             danger.add(e["umaban"])
     return danger
@@ -168,7 +168,7 @@ def get_danger_horses(entries: list) -> set:
 
 def get_vb_candidates(entries: list) -> list:
     """aggressiveプリセット相当のVB候補判定（簡易インライン版）"""
-    v_pcts = [e.get("pred_proba_v_raw", 0) for e in entries]
+    v_pcts = [e.get("pred_proba_p_raw", 0) for e in entries]
     race_max_v = max(v_pcts) if v_pcts else 0
 
     candidates = []
@@ -177,7 +177,7 @@ def get_vb_candidates(entries: list) -> list:
         gap = e.get("vb_gap", 0)
         win_ev = e.get("win_ev", 0)
         odds = e.get("odds", 0)
-        v_pct = e.get("pred_proba_v_raw", 0)
+        v_pct = e.get("pred_proba_p_raw", 0)
 
         # ARd VBルート（独立バイパス）
         if ard >= 65 and odds >= 10:

@@ -49,8 +49,18 @@ export function normalizeResult(raw: any): MlExperimentResultV2 {
 
   const d = raw;
 
-  // Normalize feature_importance labels for all models (including win models)
-  for (const modelKey of ['accuracy', 'value', 'win_accuracy', 'win_value'] as const) {
+  // --- Model key migration: old → new ---
+  // place (was: accuracy→DELETE, value→place)
+  // win (was: win_accuracy→DELETE, win_value→win)
+  // aura (was: regression_value→aura)
+  if (d.models) {
+    if (!d.models.place && d.models.value) d.models.place = d.models.value;
+    if (!d.models.win && d.models.win_value) d.models.win = d.models.win_value;
+    if (!d.models.aura && d.models.regression_value) d.models.aura = d.models.regression_value;
+  }
+
+  // Normalize feature_importance labels for all models
+  for (const modelKey of ['place', 'win', 'accuracy', 'value', 'win_accuracy', 'win_value'] as const) {
     const m = d.models?.[modelKey];
     if (!m) continue;
     if (m.feature_importance) {
@@ -66,20 +76,28 @@ export function normalizeResult(raw: any): MlExperimentResultV2 {
   }
 
   // Normalize regression model feature_importance labels
-  if (d.models?.regression_value?.feature_importance) {
-    for (const fi of d.models.regression_value.feature_importance) {
+  const auraModel = d.models?.aura ?? d.models?.regression_value;
+  if (auraModel?.feature_importance) {
+    for (const fi of auraModel.feature_importance) {
       if (!fi.label) fi.label = fi.feature;
     }
   }
 
   let hitAnalysis = d.hit_analysis;
   if (hitAnalysis && !Array.isArray(hitAnalysis)) {
-    hitAnalysis = hitAnalysis;
+    // Migrate hit_analysis keys: value→place, value_v2→place_v2, regression_v2→aura_v2
+    if (!hitAnalysis.place && hitAnalysis.value) hitAnalysis.place = hitAnalysis.value;
+    if (!hitAnalysis.place_v2 && hitAnalysis.value_v2) hitAnalysis.place_v2 = hitAnalysis.value_v2;
+    if (!hitAnalysis.aura_v2 && hitAnalysis.regression_v2) hitAnalysis.aura_v2 = hitAnalysis.regression_v2;
   }
 
   const roiRaw = d.roi_analysis;
   let roiNormalized;
-  if (roiRaw?.accuracy_model) {
+  if (roiRaw?.place_model || roiRaw?.accuracy_model) {
+    // Migrate roi_analysis keys
+    if (!roiRaw.place_model && roiRaw.value_model) roiRaw.place_model = roiRaw.value_model;
+    if (!roiRaw.win_model && roiRaw.win_value_model) roiRaw.win_model = roiRaw.win_value_model;
+    if (!roiRaw.aura_model && roiRaw.regression_model) roiRaw.aura_model = roiRaw.regression_model;
     roiNormalized = roiRaw;
   } else {
     const makeRoi = (m: { top1_win_roi?: number; top1_place_roi?: number; top1_bets?: number }): RoiAnalysis => ({
@@ -88,6 +106,10 @@ export function normalizeResult(raw: any): MlExperimentResultV2 {
       by_threshold: [],
     });
     roiNormalized = {
+      place_model: makeRoi(roiRaw?.value ?? roiRaw?.place ?? {}),
+      win_model: roiRaw?.win_value || roiRaw?.win ? makeRoi(roiRaw.win_value ?? roiRaw.win) : undefined,
+      aura_model: roiRaw?.regression || roiRaw?.aura ? makeRoi(roiRaw.regression ?? roiRaw.aura) : undefined,
+      // Keep legacy keys for backward compat
       accuracy_model: makeRoi(roiRaw?.accuracy ?? {}),
       value_model: makeRoi(roiRaw?.value ?? {}),
       ...(roiRaw?.win_accuracy ? { win_accuracy_model: makeRoi(roiRaw.win_accuracy) } : {}),

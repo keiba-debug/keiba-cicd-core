@@ -263,12 +263,14 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
   const winVb = data.roi_analysis.value_bets.win_by_rank_gap;
   const hasWinVb = winVb && winVb.length > 0;
 
+  const placeRoi = data.roi_analysis.place_model ?? data.roi_analysis.value_model;
+  const winRoi = data.roi_analysis.win_model ?? data.roi_analysis.win_value_model;
+  const auraRoi = data.roi_analysis.aura_model ?? data.roi_analysis.regression_model;
+
   const roiModels = [
-    { key: 'A', label: '好走 市場', roi: data.roi_analysis.accuracy_model, color: 'blue' as const },
-    { key: 'V', label: '好走 独自', roi: data.roi_analysis.value_model, color: 'blue' as const },
-    ...(data.roi_analysis.win_accuracy_model ? [{ key: 'W', label: '勝利 市場', roi: data.roi_analysis.win_accuracy_model, color: 'emerald' as const }] : []),
-    ...(data.roi_analysis.win_value_model ? [{ key: 'WV', label: '勝利 独自', roi: data.roi_analysis.win_value_model, color: 'emerald' as const }] : []),
-    ...(data.roi_analysis.regression_model ? [{ key: 'AR', label: 'AR (能力予測)', roi: data.roi_analysis.regression_model, color: 'amber' as const }] : []),
+    ...(placeRoi ? [{ key: 'P', label: '好走(P)', roi: placeRoi, color: 'blue' as const }] : []),
+    ...(winRoi ? [{ key: 'W', label: '勝利(W)', roi: winRoi, color: 'emerald' as const }] : []),
+    ...(auraRoi ? [{ key: 'AR', label: '能力(AR)', roi: auraRoi, color: 'amber' as const }] : []),
   ];
 
   return (
@@ -276,7 +278,7 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20">
         <h3 className="mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">Value Bet戦略</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          好走 独自モデル（市場情報なし）がレース内上位3位に予測 × 実際の人気が低い馬を購入。
+          好走(P)モデル（市場情報なし）がレース内上位3位に予測 × 実際の人気が低い馬を購入。
           <strong>Gap≥5</strong>（人気順位 - VR）が主軸フィルター。
           <strong>AR偏差値≥50</strong>（レース平均以上の能力）で足切り。
           EVフィルター（P(win)×オッズ）はプリセットにより1.5/0/1.8で切替。

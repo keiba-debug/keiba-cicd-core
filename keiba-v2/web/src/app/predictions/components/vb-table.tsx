@@ -76,8 +76,8 @@ export function VBTable({
                 <SortTh sortKey="ar_dev" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-teal-50/50 dark:bg-teal-900/20" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
                 <SortTh sortKey="gap" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border bg-amber-50/50 dark:bg-amber-900/20" title="Gap = 人気順位 - VR。参考指標">Gap</SortTh>
                 <SortTh sortKey="odds" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="単勝オッズ">オッズ</SortTh>
-                <SortTh sortKey="prob_v" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="好走 独自モデルの3着内確率">V%</SortTh>
-                <th className="px-2 py-2 text-center border" title="勝利 独自モデルの勝率予測">WV%</th>
+                <SortTh sortKey="prob_p" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="好走モデル(P)の3着内確率">P%</SortTh>
+                <th className="px-2 py-2 text-center border" title="勝利モデル(W)の勝率予測">W%</th>
                 <SortTh sortKey="rating" sort={vbSort} setSort={setVbSort} className="px-2 py-2 text-center border" title="BR (Book Rating) — 競馬ブックレイティング">BR</SortTh>
                 <th className="px-2 py-2 text-center border" title="競馬ブック調教評価の矢印">調</th>
                 <th className="px-2 py-2 text-center border" title="厩舎談話NLPスコア（仕上がり度 -3〜+3）">談</th>
@@ -141,8 +141,8 @@ export function VBTable({
                           );
                         }
                         // VB候補全体: 単勝/複勝適性バッジ
-                        const headRatio = entry.pred_proba_wv && entry.pred_proba_v > 0
-                          ? entry.pred_proba_wv / entry.pred_proba_v : 0;
+                        const headRatio = entry.pred_proba_w && entry.pred_proba_p > 0
+                          ? entry.pred_proba_w / entry.pred_proba_p : 0;
                         const winSuited = (ev ?? 0) >= 1.0 && headRatio >= 0.30;
                         const placeSuited = (entry.place_ev ?? 0) >= 1.0;
                         if (winSuited && placeSuited) {
@@ -173,10 +173,10 @@ export function VBTable({
                       {(() => { const wo = getWinOdds(oddsMap, race.race_id, entry.umaban, entry.odds); return wo ? wo.toFixed(1) : '-'; })()}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono text-xs">
-                      {(entry.pred_proba_v * 100).toFixed(1)}
+                      {(entry.pred_proba_p * 100).toFixed(1)}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono text-xs text-emerald-600">
-                      {entry.pred_proba_wv != null ? (entry.pred_proba_wv * 100).toFixed(1) : '-'}
+                      {entry.pred_proba_w != null ? (entry.pred_proba_w * 100).toFixed(1) : '-'}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono text-xs">{entry.kb_rating > 0 ? entry.kb_rating.toFixed(1) : '-'}</td>
                     <td className="px-2 py-1.5 border text-center">{entry.kb_training_arrow}</td>

@@ -27,8 +27,8 @@ ML_VERSIONS_DIR = os.path.join(DATA3_ROOT, "ml/versions")
 # フィルタ条件の軸
 GAP_THRESHOLDS = [2, 3, 4, 5, 6]
 EV_THRESHOLDS = [0.0, 0.8, 1.0, 1.2, 1.5]  # 0.0 = フィルタなし
-PROBA_A_THRESHOLDS = [0.0, 0.05, 0.08, 0.10, 0.15]  # Model A確率
-PROBA_V_THRESHOLDS = [0.0, 0.05, 0.08, 0.10, 0.15]  # Model B確率
+PROBA_A_THRESHOLDS = [0.0, 0.05, 0.08, 0.10, 0.15]  # Model P (All) 確率
+PROBA_V_THRESHOLDS = [0.0, 0.05, 0.08, 0.10, 0.15]  # Model P 確率
 ODDS_RANGES = [
     ("all", 0, 9999),
     ("1-5", 1, 5),
@@ -398,10 +398,10 @@ def print_track_comparison(records: List[dict], use_db_odds: bool = False):
             )
 
 
-def print_model_b_top1_analysis(records: List[dict], use_db_odds: bool = False):
-    """Model B Top1 単勝ROI分析（ユーザーの重点関心事項）"""
+def print_model_p_top1_analysis(records: List[dict], use_db_odds: bool = False):
+    """Model P Top1 単勝ROI分析（ユーザーの重点関心事項）"""
     print(f"\n{'='*100}")
-    print(" Model B Top1 単勝ROI分析")
+    print(" Model P Top1 単勝ROI分析")
     print(f"{'='*100}")
 
     for track in ["all", "turf", "dirt"]:
@@ -410,7 +410,7 @@ def print_model_b_top1_analysis(records: List[dict], use_db_odds: bool = False):
         print(header)
         print("-" * len(header))
 
-        # Model B Top1 (= value_rank == 1), さまざまなサブフィルタ
+        # Model P Top1 (= value_rank == 1), さまざまなサブフィルタ
         filters = [
             ("Top1 全体", lambda r: r["value_rank"] == 1),
             ("Top1 + odds>=3", lambda r: r["value_rank"] == 1 and r["odds"] >= 3),
@@ -498,8 +498,8 @@ def main():
     # A. 芝/ダート比較
     print_track_comparison(records, use_db_odds=bool(db_place_odds))
 
-    # B. Model B Top1分析
-    print_model_b_top1_analysis(records, use_db_odds=bool(db_place_odds))
+    # B. Model P Top1分析
+    print_model_p_top1_analysis(records, use_db_odds=bool(db_place_odds))
 
     # C. グリッドサーチ
     grid_results = run_grid_search(records, use_db_odds=bool(db_place_odds))

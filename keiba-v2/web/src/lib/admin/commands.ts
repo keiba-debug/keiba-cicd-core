@@ -22,7 +22,7 @@ export type ActionType =
   | 'rebuild_sire_stats'         // 血統統計再集計
   | 'rebuild_slow_start'         // 出遅れ分析再集計
   | 'v4_build_race'              // JRA-VAN → data3/races/
-  | 'v4_predict'                 // ML予測 → data3/ml/predictions_live.json
+  | 'v4_predict'                 // ML予測 → races/YYYY/MM/DD/predictions.json
   | 'v4_pipeline'                // 上記を連結実行
   | 'vb_refresh';                // VB/買い目再計算（最新オッズ）
 

@@ -5,18 +5,17 @@ import { cn } from '@/lib/utils';
 import { FEATURE_LABELS, FEATURE_CATEGORIES, getFeatureCategory } from '../utils';
 import type { MlExperimentResultV2, ObstacleModelMeta } from '../types';
 
-type ModelKey = 'accuracy' | 'value' | 'win_accuracy' | 'win_value' | 'obstacle';
+type ModelKey = 'place' | 'win' | 'aura' | 'obstacle';
 
 const MODEL_OPTIONS: { key: ModelKey; label: string; shortLabel: string; color: string; activeColor: string }[] = [
-  { key: 'accuracy', label: '好走 市場', shortLabel: 'A', color: 'blue', activeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-  { key: 'value', label: '好走 独自', shortLabel: 'V', color: 'emerald', activeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
-  { key: 'win_accuracy', label: '勝利 市場', shortLabel: 'W', color: 'green', activeColor: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
-  { key: 'win_value', label: '勝利 独自', shortLabel: 'WV', color: 'teal', activeColor: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' },
+  { key: 'place', label: '好走(P)', shortLabel: 'P', color: 'blue', activeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  { key: 'win', label: '勝利(W)', shortLabel: 'W', color: 'emerald', activeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { key: 'aura', label: '能力(AR)', shortLabel: 'AR', color: 'amber', activeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
   { key: 'obstacle', label: '障害', shortLabel: '障', color: 'purple', activeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
 ];
 
 export default function ImportanceTab({ data, obstacleModel }: { data: MlExperimentResultV2; obstacleModel?: ObstacleModelMeta | null }) {
-  const [showModel, setShowModel] = useState<ModelKey>('value');
+  const [showModel, setShowModel] = useState<ModelKey>('place');
 
   const modelData = showModel === 'obstacle' ? null : data.models[showModel as keyof typeof data.models];
   const fi = showModel === 'obstacle'
@@ -25,10 +24,9 @@ export default function ImportanceTab({ data, obstacleModel }: { data: MlExperim
   const maxImportance = fi[0]?.importance ?? 1;
 
   const barColors: Record<string, { top: string; high: string; base: string }> = {
-    accuracy: { top: 'bg-blue-500', high: 'bg-blue-400', base: 'bg-blue-300 dark:bg-blue-600' },
-    value: { top: 'bg-emerald-500', high: 'bg-emerald-400', base: 'bg-emerald-300 dark:bg-emerald-600' },
-    win_accuracy: { top: 'bg-green-500', high: 'bg-green-400', base: 'bg-green-300 dark:bg-green-600' },
-    win_value: { top: 'bg-teal-500', high: 'bg-teal-400', base: 'bg-teal-300 dark:bg-teal-600' },
+    place: { top: 'bg-blue-500', high: 'bg-blue-400', base: 'bg-blue-300 dark:bg-blue-600' },
+    win: { top: 'bg-emerald-500', high: 'bg-emerald-400', base: 'bg-emerald-300 dark:bg-emerald-600' },
+    aura: { top: 'bg-amber-500', high: 'bg-amber-400', base: 'bg-amber-300 dark:bg-amber-600' },
     obstacle: { top: 'bg-purple-500', high: 'bg-purple-400', base: 'bg-purple-300 dark:bg-purple-600' },
   };
   const currentBar = barColors[showModel];

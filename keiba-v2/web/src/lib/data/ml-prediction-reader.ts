@@ -2,8 +2,8 @@
  * MLリアルタイム予測リーダー（サーバーサイド専用）
  *
  * v4 (data3) → v2 (data2) フォールバック対応。
- * v4: 16桁race_id, entries[].umaban, pred_proba_a/v, rank_v, vb_gap
- * v2: 12桁race_id, horses[].horse_number, pred_proba_accuracy/value, value_rank, gap
+ * v4: 16桁race_id, entries[].umaban, pred_proba_p/w, rank_p, vb_gap
+ * v2: 12桁race_id, horses[].horse_number, pred_proba_p, value_rank, gap
  *
  * 呼び出し側は12桁race_idで検索。v4データは race_number+date で照合。
  */
@@ -17,8 +17,7 @@ import { DATA3_ROOT } from '@/lib/config';
 export interface MlHorsePrediction {
   horse_number: number;
   horse_name: string;
-  pred_proba_accuracy: number;
-  pred_proba_value: number;
+  pred_proba_p: number;
   value_rank: number;
   odds_rank: number | null;
   odds: number | null;
@@ -53,10 +52,13 @@ interface V4Entry {
   horse_name: string;
   odds: number;
   popularity: number;
-  pred_proba_a: number;
-  pred_proba_v: number;
-  rank_a: number;
-  rank_v: number;
+  pred_proba_p: number;
+  // Legacy field names (pre-v5.45 JSON)
+  pred_proba_a?: number;
+  pred_proba_v?: number;
+  rank_p: number;
+  rank_a?: number;
+  rank_v?: number;
   odds_rank: number;
   vb_gap: number;
   is_value_bet: boolean;
@@ -92,25 +94,9 @@ interface V4PredictionsLive {
 
 // --- キャッシュ ---
 
-const V4_PREDICTIONS_PATH = path.join(DATA3_ROOT, 'ml', 'predictions_live.json');
-
-let cachedV4: V4PredictionsLive | null = null;
-let cacheTimestampV4 = 0;
+// 日別アーカイブのキャッシュ（date → data）
+const archiveCache = new Map<string, { data: V4PredictionsLive; ts: number }>();
 const CACHE_TTL = 60 * 1000;
-
-async function loadV4(): Promise<V4PredictionsLive | null> {
-  if (cachedV4 && Date.now() - cacheTimestampV4 < CACHE_TTL) {
-    return cachedV4;
-  }
-  try {
-    const content = await fs.readFile(V4_PREDICTIONS_PATH, 'utf-8');
-    cachedV4 = JSON.parse(content) as V4PredictionsLive;
-    cacheTimestampV4 = Date.now();
-    return cachedV4;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * v4のV4Entryを既存MlHorsePredictionに変換
@@ -119,9 +105,8 @@ function convertV4Entry(e: V4Entry): MlHorsePrediction {
   return {
     horse_number: e.umaban,
     horse_name: e.horse_name,
-    pred_proba_accuracy: e.pred_proba_a,
-    pred_proba_value: e.pred_proba_v,
-    value_rank: e.rank_v,
+    pred_proba_p: e.pred_proba_p ?? e.pred_proba_v ?? 0,
+    value_rank: e.rank_p ?? e.rank_v ?? 0,
     odds_rank: e.odds_rank,
     odds: e.odds,
     gap: e.vb_gap,
@@ -167,12 +152,18 @@ function findV4Race(races: V4Race[], raceId12: string): V4Race | undefined {
  * 日別アーカイブ (races/YYYY/MM/DD/predictions.json) からV4データをロード
  */
 async function loadV4Archive(date: string): Promise<V4PredictionsLive | null> {
+  const cached = archiveCache.get(date);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return cached.data;
+  }
   try {
     const [y, m, d] = date.split('-');
     if (!y || !m || !d) return null;
     const filePath = path.join(DATA3_ROOT, 'races', y, m, d, 'predictions.json');
     const content = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(content) as V4PredictionsLive;
+    const data = JSON.parse(content) as V4PredictionsLive;
+    archiveCache.set(date, { data, ts: Date.now() });
+    return data;
   } catch {
     return null;
   }
@@ -205,10 +196,10 @@ function findRaceInV4(v4: V4PredictionsLive, raceId: string, raceId16?: string):
 
 /**
  * 指定レースIDのML予測を取得
- * predictions_live.json → 日別アーカイブ フォールバック
+ * races/YYYY/MM/DD/predictions.json から読み込み
  * @param raceId 12桁race_id
  * @param raceId16 16桁race_id（v4直接検索用、省略時は12桁から変換を試みる）
- * @param date レース日付 YYYY-MM-DD（アーカイブフォールバック用）
+ * @param date レース日付 YYYY-MM-DD（必須）
  * @returns 馬番 → MlHorsePrediction のマップ（なければ null）
  */
 export async function getMlPredictions(
@@ -216,33 +207,15 @@ export async function getMlPredictions(
   raceId16?: string,
   date?: string,
 ): Promise<Record<number, MlHorsePrediction> | null> {
-  // 1. predictions_live.json を優先
-  const v4 = await loadV4();
-  if (v4) {
-    const race = findRaceInV4(v4, raceId, raceId16);
+  if (!date) return null;
+
+  const archive = await loadV4Archive(date);
+  if (archive) {
+    const race = findRaceInV4(archive, raceId, raceId16);
     if (race) {
       return buildPredictionMap(race);
     }
   }
 
-  // 2. 日別アーカイブにフォールバック
-  if (date) {
-    const archive = await loadV4Archive(date);
-    if (archive) {
-      const race = findRaceInV4(archive, raceId, raceId16);
-      if (race) {
-        return buildPredictionMap(race);
-      }
-    }
-  }
-
   return null;
-}
-
-/**
- * ML予測データの日付を取得（表示用）
- */
-export async function getMlPredictionDate(): Promise<string | null> {
-  const v4 = await loadV4();
-  return v4?.date ?? null;
 }

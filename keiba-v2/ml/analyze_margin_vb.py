@@ -20,8 +20,8 @@ if sys.platform == 'win32':
 
 from ml.experiment import (
     load_data, build_dataset, load_race_json,
-    FEATURE_COLS_VALUE, FEATURE_COLS_ALL,
-    PARAMS_B, train_model, _get_place_odds,
+    FEATURE_COLS_VALUE,
+    PARAMS_P, train_model, _get_place_odds,
 )
 from ml.features.margin_target import add_margin_target_to_df
 
@@ -51,7 +51,7 @@ print('[Margin] Computing...')
 for label, df in [('train', df_train), ('val', df_val), ('test', df_test)]:
     add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
 
-# --- Reg B (Value) 学習 ---
+# --- Reg AR (Value) 学習 ---
 import lightgbm as lgb
 
 PARAMS_REG_VALUE = {
@@ -70,7 +70,7 @@ y_tr = df_train.loc[mask_tr, 'target_margin']
 X_vl = df_val.loc[mask_vl, FEATURE_COLS_VALUE]
 y_vl = df_val.loc[mask_vl, 'target_margin']
 
-print('[Train] Reg_B...')
+print('[Train] Reg_AR...')
 train_data = lgb.Dataset(X_tr, label=y_tr)
 valid_data = lgb.Dataset(X_vl, label=y_vl, reference=train_data)
 model_rb = lgb.train(
@@ -80,24 +80,24 @@ model_rb = lgb.train(
 )
 
 # --- テスト予測 ---
-df_test['pred_margin_b'] = model_rb.predict(df_test[FEATURE_COLS_VALUE])
-df_test['reg_rank_v'] = df_test.groupby('race_id')['pred_margin_b'].rank(
+df_test['pred_margin_ar'] = model_rb.predict(df_test[FEATURE_COLS_VALUE])
+df_test['reg_rank_ar'] = df_test.groupby('race_id')['pred_margin_ar'].rank(
     ascending=True, method='min'
 )
 
-# --- 分類 B (Value) 学習 ---
-print('[Train] Cls_B...')
+# --- 分類 P (Place) 学習 ---
+print('[Train] Place...')
 _, _, _, pred_cb, _ = train_model(
-    df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_B, 'is_top3', 'Cls_B'
+    df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_P, 'is_top3', 'Place'
 )
-df_test['pred_proba_v'] = pred_cb
-df_test['pred_rank_v'] = df_test.groupby('race_id')['pred_proba_v'].rank(
+df_test['pred_proba_p'] = pred_cb
+df_test['pred_rank_p'] = df_test.groupby('race_id')['pred_proba_p'].rank(
     ascending=False, method='min'
 )
 
 # VB gap
-df_test['vb_gap_cls'] = df_test['odds_rank'] - df_test['pred_rank_v']
-df_test['vb_gap_reg'] = df_test['odds_rank'] - df_test['reg_rank_v']
+df_test['vb_gap_cls'] = df_test['odds_rank'] - df_test['pred_rank_p']
+df_test['vb_gap_reg'] = df_test['odds_rank'] - df_test['reg_rank_ar']
 
 
 def roi_by_bins(df_subset, bin_col='margin_bin'):
@@ -118,7 +118,7 @@ def roi_by_bins(df_subset, bin_col='margin_bin'):
             'win_rate': round(subset['is_win'].mean(), 4),
             'top3_rate': round(subset['is_top3'].mean(), 4),
             'avg_actual': round(subset['target_margin'].mean(), 3),
-            'avg_pred': round(subset['pred_margin_b'].mean(), 3),
+            'avg_pred': round(subset['pred_margin_ar'].mean(), 3),
             'avg_odds': round(subset['odds'].mean(), 1),
             'win_roi': round(win_ret / total * 100, 1),
             'place_roi': round(place_ret / total * 100, 1),
@@ -134,14 +134,14 @@ labels = ['<0.3', '0.3-0.5', '0.5-0.8', '0.8-1.0', '1.0-1.5', '1.5+']
 # ===================================================================
 print()
 print('=' * 80)
-print('  分析1: 回帰B VB候補(reg_rank_v<=3 & gap>=N) のmargin分布')
+print('  分析1: 回帰AR VB候補(reg_rank_ar<=3 & gap>=N) のmargin分布')
 print('=' * 80)
 
 for gap_min in [3, 4, 5]:
-    vb = df_test[(df_test['reg_rank_v'] <= 3) & (df_test['vb_gap_reg'] >= gap_min)].copy()
-    vb['margin_bin'] = pd.cut(vb['pred_margin_b'], bins=bins, labels=labels, right=True)
+    vb = df_test[(df_test['reg_rank_ar'] <= 3) & (df_test['vb_gap_reg'] >= gap_min)].copy()
+    vb['margin_bin'] = pd.cut(vb['pred_margin_ar'], bins=bins, labels=labels, right=True)
     result = roi_by_bins(vb)
-    print(f'\n--- Reg B VB (gap>={gap_min}): {len(vb)} bets ---')
+    print(f'\n--- Reg AR VB (gap>={gap_min}): {len(vb)} bets ---')
     print(result.to_string(index=False))
 
 # ===================================================================
@@ -149,13 +149,13 @@ for gap_min in [3, 4, 5]:
 # ===================================================================
 print()
 print('=' * 80)
-print('  分析2: 分類B VB候補(pred_rank_v<=3 & gap>=3) のmargin分布')
+print('  分析2: Place VB候補(pred_rank_p<=3 & gap>=3) のmargin分布')
 print('=' * 80)
 
-vb_cls = df_test[(df_test['pred_rank_v'] <= 3) & (df_test['vb_gap_cls'] >= 3)].copy()
-vb_cls['margin_bin'] = pd.cut(vb_cls['pred_margin_b'], bins=bins, labels=labels, right=True)
+vb_cls = df_test[(df_test['pred_rank_p'] <= 3) & (df_test['vb_gap_cls'] >= 3)].copy()
+vb_cls['margin_bin'] = pd.cut(vb_cls['pred_margin_ar'], bins=bins, labels=labels, right=True)
 result_cls = roi_by_bins(vb_cls)
-print(f'\n--- Cls B VB (gap>=3): {len(vb_cls)} bets ---')
+print(f'\n--- Place VB (gap>=3): {len(vb_cls)} bets ---')
 print(result_cls.to_string(index=False))
 
 # ===================================================================
@@ -163,7 +163,7 @@ print(result_cls.to_string(index=False))
 # ===================================================================
 print()
 print('=' * 80)
-print('  分析3: ハイブリッド (分類B VB gap>=3 + margin閾値)')
+print('  分析3: ハイブリッド (Place VB gap>=3 + margin閾値)')
 print('=' * 80)
 
 print(f'\n  {"margin_th":>10} {"bets":>6} {"top3%":>7} {"win%":>7} {"avg_odds":>9} {"Win_ROI":>9} {"Place_ROI":>10}')
@@ -171,11 +171,11 @@ print(f'  {"-"*62}')
 
 for threshold in [0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0, 999]:
     if threshold < 999:
-        mask = ((df_test['pred_rank_v'] <= 3) &
+        mask = ((df_test['pred_rank_p'] <= 3) &
                 (df_test['vb_gap_cls'] >= 3) &
-                (df_test['pred_margin_b'] <= threshold))
+                (df_test['pred_margin_ar'] <= threshold))
     else:
-        mask = ((df_test['pred_rank_v'] <= 3) &
+        mask = ((df_test['pred_rank_p'] <= 3) &
                 (df_test['vb_gap_cls'] >= 3))
     subset = df_test[mask]
     if len(subset) == 0:
@@ -213,11 +213,11 @@ for gap_min in [2, 3, 4, 5]:
     print(f'  gap>={gap_min:<4}', end='')
     for th in [0.5, 0.8, 1.0, 1.5, 999]:
         if th < 999:
-            mask = ((df_test['pred_rank_v'] <= 3) &
+            mask = ((df_test['pred_rank_p'] <= 3) &
                     (df_test['vb_gap_cls'] >= gap_min) &
-                    (df_test['pred_margin_b'] <= th))
+                    (df_test['pred_margin_ar'] <= th))
         else:
-            mask = ((df_test['pred_rank_v'] <= 3) &
+            mask = ((df_test['pred_rank_p'] <= 3) &
                     (df_test['vb_gap_cls'] >= gap_min))
         subset = df_test[mask]
         if len(subset) == 0:

@@ -1,6 +1,6 @@
 /**
- * predictions_live.json リーダー
- * predict.py が生成する当日予測データを読み込む
+ * 予測データリーダー
+ * races/YYYY/MM/DD/predictions.json を読み込む
  * + レース結果読み込み（着順・確定オッズ）
  */
 
@@ -16,21 +16,17 @@ export interface PredictionEntry {
   horse_name: string;
   odds: number;
   popularity: number;
-  // Place predictions (is_top3)
-  pred_proba_a: number;   // P(top3) all features
-  pred_proba_v: number;   // P(top3) value features
-  pred_proba_v_raw?: number; // P(top3) raw (non-normalized, for Kelly)
-  rank_a: number;
-  rank_v: number;
+  // Place predictions (is_top3) — Place model (P)
+  pred_proba_p: number;       // P(top3) Place model
+  pred_proba_p_raw?: number;  // P(top3) raw (non-normalized, for Kelly)
+  rank_p: number;
   odds_rank: number;
   vb_gap: number;
   is_value_bet: boolean;
-  // Win predictions (is_win) — optional for backward compat
-  pred_proba_w?: number;   // P(win) all features
-  pred_proba_wv?: number;  // P(win) value features (raw normalized, NOT calibrated)
-  pred_proba_wv_cal?: number; // P(win) calibrated (IsotonicRegression, use for EV calculation)
+  // Win predictions (is_win) — Win model (W)
+  pred_proba_w?: number;      // P(win) Win model (raw normalized, NOT calibrated)
+  pred_proba_w_cal?: number;  // P(win) calibrated (IsotonicRegression, use for EV calculation)
   rank_w?: number;
-  rank_wv?: number;
   win_vb_gap?: number;
   // Place odds from DB
   place_odds_min?: number;
@@ -41,6 +37,7 @@ export interface PredictionEntry {
   // AR: Aura Rating (v5.19)
   predicted_margin?: number | null;  // AR — グレード補正済みの絶対能力指数 (高い=強い)
   ar_deviation?: number | null;      // AR偏差値 — レース内相対評価 (mean=50, std=10)
+  dev_gap?: number;                  // 偏差値gap — z-score(model) - z-score(market)
   // keibabook
   kb_mark: string;
   kb_mark_point: number;
@@ -91,6 +88,8 @@ export interface ServerBetRecommendation {
   win_amount: number;
   place_amount: number;
   gap: number;
+  dev_gap?: number;           // 偏差値gap (z-score差)
+  vb_score?: number;          // コンポジットVBスコア (0-10)
   win_gap: number;
   predicted_margin: number;
   win_ev: number | null;
@@ -174,21 +173,7 @@ export interface PredictionsLive {
 }
 
 /**
- * predictions_live.json を読み込む
- */
-export function getPredictionsLive(): PredictionsLive | null {
-  try {
-    const filePath = path.join(DATA3_ROOT, 'ml', 'predictions_live.json');
-    if (!fs.existsSync(filePath)) return null;
-    const content = fs.readFileSync(filePath, 'utf-8');
-    return JSON.parse(content) as PredictionsLive;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 日別アーカイブ (races/YYYY/MM/DD/predictions.json) を読み込む
+ * 日別 predictions.json (races/YYYY/MM/DD/predictions.json) を読み込む
  */
 export function getPredictionsByDate(date: string): PredictionsLive | null {
   try {

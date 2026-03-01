@@ -51,8 +51,8 @@ export interface TargetMarksMap {
 /** ML予測データ（馬単位） */
 export interface MlPredictionEntry {
   horse_number: number;
-  pred_proba_accuracy: number;
-  pred_proba_value: number;
+  pred_proba_p: number;
+  pred_proba_value?: number;  // legacy alias for pred_proba_p
   value_rank: number;
   odds_rank: number | null;
   gap: number | null;
@@ -523,7 +523,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
                     ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white"
                     : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white"
               )}
-                title={`EV ${mlPrediction.win_ev.toFixed(2)} | VR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\n好走 市場: ${(mlPrediction.pred_proba_accuracy * 100).toFixed(1)}%\n好走 独自: ${(mlPrediction.pred_proba_value * 100).toFixed(1)}%`}
+                title={`EV ${mlPrediction.win_ev.toFixed(2)} | PR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\n好走(P): ${((mlPrediction.pred_proba_p ?? mlPrediction.pred_proba_value ?? 0) * 100).toFixed(1)}%`}
               >
                 {mlPrediction.win_ev.toFixed(1)}
               </span>
