@@ -67,6 +67,8 @@ def main():
     parser = argparse.ArgumentParser(description='bet_engine バックテスト')
     parser.add_argument('--retrain', action='store_true',
                         help='独自にモデル学習（旧方式、liveモデルとは異なる結果）')
+    parser.add_argument('--sire-cutoff', type=str, default=None,
+                        help='血統統計カットオフ日 (YYYY-MM-DD)。未指定時はmodel_metaから自動取得')
     args = parser.parse_args()
 
     print('=' * 70)
@@ -76,11 +78,43 @@ def main():
         print('  bet_engine バックテスト (live model mode)')
     print('=' * 70)
 
+    # === sire_cutoff 決定 ===
+    sire_cutoff = args.sire_cutoff
+    if not sire_cutoff and not args.retrain:
+        # liveモデルのmodel_metaからsire_cutoffを取得
+        meta_path = config.ml_dir() / "model_meta.json"
+        if meta_path.exists():
+            with open(meta_path, encoding='utf-8') as f:
+                _meta = json.load(f)
+            sire_cutoff = _meta.get('sire_cutoff')
+            if sire_cutoff:
+                print(f'[Sire] Using cutoff from model_meta: {sire_cutoff}')
+            else:
+                # model_metaにsire_cutoff未記録の場合、trainの末日から推定
+                split = _meta.get('split', {})
+                train_label = split.get('train', '')
+                m = re.match(r'.*~\s*(\d{4})(?:-(\d{2}))?', train_label)
+                if m:
+                    end_y = int(m.group(1))
+                    end_m = int(m.group(2)) if m.group(2) else 12
+                    import calendar
+                    end_d = calendar.monthrange(end_y, end_m)[1]
+                    sire_cutoff = f'{end_y}-{end_m:02d}-{end_d:02d}'
+                    print(f'[Sire] Derived cutoff from train split "{train_label}": {sire_cutoff}')
+    elif not sire_cutoff and args.retrain:
+        # retrain: 訓練期間2020-2023 → cutoff=2023-12-31
+        sire_cutoff = '2023-12-31'
+        print(f'[Sire] Using retrain cutoff: {sire_cutoff}')
+
+    if not sire_cutoff:
+        print('[Sire] WARNING: sire_cutoff未設定 → 全データの血統統計を使用（リーク注意！）')
+
     # === データロード ===
     print('\n[Load] Loading data...')
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index, pedigree_index, sire_stats_index) = load_data()
+     race_level_index, pedigree_index, sire_stats_index) = load_data(
+        sire_cutoff=sire_cutoff)
 
     # PIT timelines
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()

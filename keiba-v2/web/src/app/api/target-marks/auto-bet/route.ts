@@ -109,10 +109,15 @@ export async function POST(request: NextRequest) {
     // FF CSV 書込み
     const result = writePdBets(entries);
 
+    const winBets = bets.filter(b => b.betType === 0).length;
+    const placeBets = bets.filter(b => b.betType === 1).length;
+
     return NextResponse.json({
       success: true,
       summary: {
         totalBets: bets.length,
+        winBets,
+        placeBets,
         totalAmount,
         racesWritten: result.written,
         filePath: result.filePath,

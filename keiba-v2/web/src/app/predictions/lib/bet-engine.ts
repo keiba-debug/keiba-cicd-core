@@ -47,6 +47,11 @@ interface BetEngineParams {
   maxWinPerRace: number;
   minBet: number;
   betUnit: number;
+  // --- Place上乗せ (単勝ベース + 条件付き複勝追加) ---
+  placeAddon: boolean;
+  placeAddonMinPev: number;
+  placeAddonMinArd: number;
+  placeAddonAmount: number;
 }
 
 // VB Floor: 購入プラン⊆VB候補 を保証する最低条件
@@ -88,6 +93,10 @@ const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
     maxWinPerRace: 2,
     minBet: 100,
     betUnit: 100,
+    placeAddon: true,
+    placeAddonMinPev: 1.3,
+    placeAddonMinArd: 50.0,
+    placeAddonAmount: 200,
   },
   wide: {
     winMinGap: 5,
@@ -113,6 +122,10 @@ const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
     maxWinPerRace: 2,
     minBet: 100,
     betUnit: 100,
+    placeAddon: true,
+    placeAddonMinPev: 1.3,
+    placeAddonMinArd: 50.0,
+    placeAddonAmount: 200,
   },
   aggressive: {
     winMinGap: 5,
@@ -138,6 +151,10 @@ const ENGINE_PRESETS: Record<ServerPresetKey, BetEngineParams> = {
     maxWinPerRace: 2,
     minBet: 100,
     betUnit: 100,
+    placeAddon: true,
+    placeAddonMinPev: 1.3,
+    placeAddonMinArd: 50.0,
+    placeAddonAmount: 200,
   },
 };
 
@@ -497,13 +514,24 @@ export function generateLiveRecommendations(
         strength = e.gap >= params.placeMinGap + 2 ? 'strong' : 'normal';
       }
 
+      // --- Place上乗せ: 単勝候補に条件付きで複勝追加 ---
+      let addonPlaceAmount = 0;
+      if (winOk && params.placeAddon) {
+        const pev = e.placeEv ?? 0;
+        const ard = e.arDeviation ?? 0;
+        if (pev >= params.placeAddonMinPev && ard >= params.placeAddonMinArd) {
+          addonPlaceAmount = params.placeAddonAmount;
+          betType = '単複';
+        }
+      }
+
       raceRecs.push({
         raceId: race.race_id,
         entry: e,
         betType,
         strength,
         winAmount: winOk ? winUnits * params.betUnit : 0,
-        placeAmount: 0, // apply_budget で設定
+        placeAmount: addonPlaceAmount, // place_addon or 0 (Kelly複勝はapplyBudgetで設定)
         kellyRaw: kellyFrac > 0 && params.kellyFraction > 0
           ? Math.round((kellyFrac / params.kellyFraction) * 10000) / 10000
           : 0,
@@ -682,7 +710,9 @@ function applyBudget(recs: LiveRec[], budget: number, params: BetEngineParams): 
 
   // Place金額を仮計算
   for (const r of recs) {
-    if ((r.betType === '複勝' || r.betType === '単複') && r.kellyCapped > 0) {
+    if (r.placeAmount > 0) {
+      // place_addon等で既にセット済み → そのまま
+    } else if ((r.betType === '複勝' || r.betType === '単複') && r.kellyCapped > 0) {
       const raw = r.kellyCapped * budget;
       r.placeAmount = Math.max(params.minBet, roundToUnit(raw, params.betUnit));
     } else if (r.betType === '複勝' && r.kellyCapped <= 0) {

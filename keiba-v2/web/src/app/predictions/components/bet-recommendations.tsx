@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import type { PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, SortState, DbResultsMap } from '../lib/types';
 import { BET_CONFIG, PRESET_OPTIONS, BUDGET_PCT_OPTIONS, type ServerPresetKey, type AllocMode } from '../lib/bet-logic';
-import { getWinOdds, calcHeadRatio, getGapColor, getEvColor, getRecBadgeClass, getRaceLink, SortTh, getArColor, getArdColor } from '../lib/helpers';
+import { getWinOdds, calcHeadRatio, getGapColor, getEvColor, getRecBadgeClass, getRaceLink, SortTh, getArColor, getArdColor, getPlaceLimit } from '../lib/helpers';
 
 interface BetRecommendationsProps {
   betRecommendations: BetRecommendation[];
@@ -91,7 +91,7 @@ export function BetRecommendations({
       <CardHeader className="pb-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-lg flex items-center gap-2">
-            システム投資（単勝） ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
+            システム投資 ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
             {isLiveCalc ? (
               <Badge variant="outline" className={`ml-2 text-[10px] ${isArchive
                 ? 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700'
@@ -328,7 +328,8 @@ export function BetRecommendations({
                       const fp = getFinishPos?.(r.race.race_id, r.entry.umaban) ?? 0;
                       const dbEntry = dbResults?.[r.race.race_id]?.[r.entry.umaban];
                       const isWinHit = fp === 1;
-                      const isPlaceHit = fp >= 1 && fp <= 3;
+                      const placeLimit = getPlaceLimit(r.race.num_runners);
+                      const isPlaceHit = fp > 0 && placeLimit > 0 && fp <= placeLimit;
                       return (
                         <>
                           <td className={`px-2 py-1.5 border text-center font-mono text-xs font-bold ${
@@ -375,7 +376,8 @@ export function BetRecommendations({
                 totalReturn += Math.floor(dbEntry.confirmedWinOdds * r.betAmountWin / 100) * 100;
                 winHits++;
               }
-              if (fp <= 3 && r.betAmountPlace > 0 && dbEntry?.confirmedPlaceOddsMin) {
+              const placeLimit = getPlaceLimit(r.race.num_runners);
+              if (r.betAmountPlace > 0 && placeLimit > 0 && fp <= placeLimit && dbEntry?.confirmedPlaceOddsMin) {
                 totalReturn += Math.floor(dbEntry.confirmedPlaceOddsMin * r.betAmountPlace / 100) * 100;
                 placeHits++;
               }
@@ -430,6 +432,7 @@ export function BetRecommendations({
             }{' '}
             / 全額単勝（バンクロールSim検証: 単勝100% {'>'} 単複混合, ROI +345%）
             / 推奨日予算: バンクロールの5%（MaxDD 62-69%, 127日で4.5倍）
+            / Place上乗せ: 複EV≥1.3 {'&'} ARd≥50 → 複勝¥200追加
           </div>
         </div>
       </CardContent>

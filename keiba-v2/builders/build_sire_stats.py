@@ -141,23 +141,35 @@ def _extract_sjis(data: bytes, offset: int, length: int) -> str:
         return ''
 
 
-def load_race_jsons() -> List[dict]:
-    """全レースJSONを日付順にロード"""
+def load_race_jsons(cutoff: str = None) -> List[dict]:
+    """全レースJSONを日付順にロード
+
+    Args:
+        cutoff: カットオフ日 (YYYY-MM-DD)。指定時はこの日以前のレースのみ。
+    """
     races_dir = config.races_dir()
     files = sorted(races_dir.glob("**/race_[0-9]*.json"))
     print(f"  Found {len(files):,} race files")
+    if cutoff:
+        print(f"  Cutoff: {cutoff} (only races on or before this date)")
 
     races = []
+    skipped = 0
     for f in files:
         try:
             with open(f, encoding='utf-8') as fp:
                 race = json.load(fp)
+            if cutoff and race.get('date', '') > cutoff:
+                skipped += 1
+                continue
             races.append(race)
         except Exception:
             continue
 
     # 日付順ソート
     races.sort(key=lambda r: r.get('date', ''))
+    if cutoff and skipped:
+        print(f"  Loaded {len(races):,} races (skipped {skipped:,} after cutoff)")
     return races
 
 
@@ -315,6 +327,7 @@ def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict
             'mature_age_min': MATURE_AGE_MIN,
             'min_runs_conditional': MIN_RUNS_CONDITIONAL,
             'built_at': datetime.now().isoformat(timespec='seconds'),
+            'cutoff': None,  # main()で上書き
         }
     }
 
@@ -643,12 +656,20 @@ def _print_distribution(name: str, values: List[float]):
 # ============================================================
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description='Sire/Dam/BMS Stats Builder')
+    parser.add_argument('--analyze', action='store_true', help='ビルド後に全仮説分析を実行')
+    parser.add_argument('--cutoff', type=str, default=None,
+                        help='カットオフ日 (YYYY-MM-DD)。この日以前のレースのみ使用')
+    args = parser.parse_args()
+
     print(f"\n{'='*60}")
     print(f"  KeibaCICD v4 - Sire/Dam/BMS Stats Builder")
+    if args.cutoff:
+        print(f"  Cutoff: {args.cutoff}")
     print(f"{'='*60}\n")
 
     t0 = time.time()
-    do_analyze = '--analyze' in sys.argv
 
     # データロード
     print("[1/3] Loading pedigree index...")
@@ -660,7 +681,7 @@ def main():
     print(f"  Loaded {len(pedigree_index):,} horses")
 
     print("\n[2/3] Loading race JSONs...")
-    races = load_race_jsons()
+    races = load_race_jsons(cutoff=args.cutoff)
 
     print("\n[3/3] Building sire/dam/bms stats...")
     stats = build_sire_stats(races, pedigree_index)
@@ -675,8 +696,16 @@ def main():
                 named += 1
     print(f"  Named {named:,} / {sum(len(stats[c]) for c in ('sire','dam','bms')):,} entries")
 
-    # 保存
-    out_path = config.indexes_dir() / "sire_stats_index.json"
+    # cutoffをメタに記録
+    if args.cutoff:
+        stats['meta']['cutoff'] = args.cutoff
+
+    # 保存 (cutoff指定時はファイル名を区別)
+    if args.cutoff:
+        suffix = args.cutoff.replace('-', '')
+        out_path = config.indexes_dir() / f"sire_stats_index_cutoff_{suffix}.json"
+    else:
+        out_path = config.indexes_dir() / "sire_stats_index.json"
     config.ensure_dir(config.indexes_dir())
 
     print(f"\n[Save] Writing {out_path}...")
@@ -700,7 +729,7 @@ def main():
     print(f"{'='*60}")
 
     # 分析モード
-    if do_analyze:
+    if args.analyze:
         analyze_all_hypotheses(stats)
 
     print()

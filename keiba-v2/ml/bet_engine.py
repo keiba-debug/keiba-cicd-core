@@ -148,9 +148,20 @@ class BetStrategyParams:
     danger_threshold: float = 5.0     # danger score threshold
     danger_gap_boost: int = 0         # v5.33: gap boost廃止 (ラベルのみ、ROI希薄化防止)
 
+    # --- Place上乗せ (単勝ベース + 条件付き複勝追加) ---
+    # v6.2: 単勝は必ず100円購入。PlaceEV+ARdの条件を満たす馬に複勝を追加。
+    # バックテスト: G1戦略(PEV>=1.3&ARd>=50→複200) gap>=3で ROI 115.8% (+8.1pt vs Win100%)
+    #   低~中オッズ(5-20倍)は複勝が有利、高オッズ(50倍+)は単勝が有利
+    #   PlaceEV>=1.3が複勝プラスの分水嶺（ROI 103-132%）
+    #   複勝で2-3着の15.3%を回収 → 長期バンクロール安定化
+    place_addon: bool = False               # Place上乗せ有効化
+    place_addon_min_pev: float = 1.3        # 最低PlaceEV (複勝期待値)
+    place_addon_min_ard: float = 50.0       # 最低ARd (能力確認)
+    place_addon_amount: int = 200           # 複勝追加額 (円)
+
     # --- クロス配分 (strength別の単複配分) ---
     # v5.35: バンクロールSim検証でWinOnly(100/100)が最適と判明
-    # Calmar比 WinOnly=5.38 vs S70/N30=1.56 (aggressive, 5%予算)
+    # → v6.2: place_addonに置き換え（cross_allocは互換性のため残存）
     cross_alloc: bool = False           # WinOnly: 全額単勝
     strong_win_pct: int = 100           # strong: 全額単勝
     normal_win_pct: int = 100           # normal: 全額単勝
@@ -229,7 +240,11 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_ev=3.0,        # バイパス: EV>=3.0
         ard_vb_min_ard=65.0,        # ARd VBルート: ARd>=65
         ard_vb_min_odds=10.0,       # ARd VBルート: odds>=10
-        place_min_gap=99,           # Place無効化
+        place_min_gap=99,           # Place単独評価は無効
+        place_addon=True,           # Place上乗せ: 単勝+条件付き複勝
+        place_addon_min_pev=1.3,    # PlaceEV >= 1.3
+        place_addon_min_ard=50.0,   # ARd >= 50
+        place_addon_amount=200,     # 複勝200円追加
         cross_alloc=False,
         strong_win_pct=100,
         normal_win_pct=100,
@@ -243,7 +258,11 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_ev=3.0,
         ard_vb_min_ard=65.0,
         ard_vb_min_odds=10.0,
-        place_min_gap=99,
+        place_min_gap=99,           # Place単独評価は無効
+        place_addon=True,           # Place上乗せ: 単勝+条件付き複勝
+        place_addon_min_pev=1.3,    # PlaceEV >= 1.3
+        place_addon_min_ard=50.0,   # ARd >= 50
+        place_addon_amount=200,     # 複勝200円追加
         cross_alloc=False,
         strong_win_pct=100,
         normal_win_pct=100,
@@ -257,7 +276,11 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_v_bypass_ev=3.0,
         ard_vb_min_ard=65.0,
         ard_vb_min_odds=10.0,
-        place_min_gap=99,
+        place_min_gap=99,           # Place単独評価は無効
+        place_addon=True,           # Place上乗せ: 単勝+条件付き複勝
+        place_addon_min_pev=1.3,    # PlaceEV >= 1.3
+        place_addon_min_ard=50.0,   # ARd >= 50
+        place_addon_amount=200,     # 複勝200円追加
         cross_alloc=False,
         strong_win_pct=100,
         normal_win_pct=100,
@@ -730,6 +753,14 @@ def generate_recommendations(
                 place_odds_min=place_odds,
                 ar_deviation=round(ar_dev, 1) if ar_dev is not None else None,
             )
+            # --- Place上乗せ: 単勝候補に条件付きで複勝追加 ---
+            if win_ok and params.place_addon:
+                pev = place_ev or 0
+                ard = ar_dev or 0
+                if pev >= params.place_addon_min_pev and ard >= params.place_addon_min_ard:
+                    rec.place_amount = params.place_addon_amount
+                    rec.bet_type = '単複'
+
             race_recs.append(rec)
 
         # 1レースN単勝制約 (max_win_per_race: 0=無制限, 2=推奨)
@@ -807,8 +838,12 @@ def apply_budget(
         return recs
 
     # Step 1: Place金額を仮計算
+    # place_addon で既にセット済みの場合はスキップ
     for r in recs:
-        if r.bet_type in ('複勝', '単複') and r.kelly_capped > 0:
+        if r.place_amount > 0:
+            # place_addon等で既にセット済み → そのまま
+            pass
+        elif r.bet_type in ('複勝', '単複') and r.kelly_capped > 0:
             raw_amount = r.kelly_capped * budget
             rounded = max(params.min_bet,
                           round_to_unit(raw_amount, params.bet_unit))

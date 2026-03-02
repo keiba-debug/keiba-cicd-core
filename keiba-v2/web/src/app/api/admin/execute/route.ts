@@ -160,17 +160,21 @@ export async function POST(request: NextRequest) {
             commands = [cmd];
           }
         } else if (action === 'batch_after_race') {
-          // 成績情報登録: 成績情報のみ取得
+          // 成績情報登録: 成績情報取得 → JRA-VANデータでrace_*.json更新
           if (isRangeAction && startDate && endDate) {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
             ];
+            for (const d of expandDateRange(startDate, endDate)) {
+              commands.push(['-m', 'builders.build_race_master', '--date', d]);
+            }
           } else {
             const dateArg = date || '';
             const cmd = ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'seiseki'];
             if (raceFrom) cmd.push('--from-race', String(raceFrom));
             if (raceTo) cmd.push('--to-race', String(raceTo));
             commands = [cmd];
+            if (dateArg) commands.push(['-m', 'builders.build_race_master', '--date', dateArg]);
           }
         } else if (action === 'sunpyo_update') {
           // 寸評更新: seiseki再取得（寸評・インタビュー・次走メモ）→ kb_ext更新

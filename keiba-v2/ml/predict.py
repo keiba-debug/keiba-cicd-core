@@ -874,6 +874,22 @@ def predict_race(
             predictions[idx]['features']['odds_rank'] = rank
     # else: odds_rank = np.nan のまま → LightGBMのNaN処理に委ねる
 
+    # 特徴量スナップショット保存（odds_rank計算済みの状態で）
+    try:
+        from ml.feature_snapshot import save_feature_snapshot
+        snap_rows = []
+        for p in predictions:
+            row = dict(p['features'])
+            row['race_id'] = race_id
+            row['date'] = race.get('date', '')
+            row['ketto_num'] = p.get('ketto_num', '')
+            row['horse_name'] = p.get('horse_name', '')
+            row['umaban'] = p.get('umaban')
+            snap_rows.append(row)
+        save_feature_snapshot(snap_rows, race, source="predict")
+    except Exception as e:
+        print(f"[WARN] Feature snapshot save failed: {e}")
+
     # 特徴量行列を構築（NaN処理はLightGBMネイティブに委ねる）
     # None/非数値はnp.nanに変換（comment_features等がNoneを返す場合のnp.isnan対応）
     def _to_float(val):

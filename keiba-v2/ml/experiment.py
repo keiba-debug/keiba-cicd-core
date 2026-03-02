@@ -890,8 +890,12 @@ def build_pit_sire_timeline(date_index: dict, pedigree_index: dict) -> Tuple[dic
     return dict(sire_tl), dict(dam_tl), dict(bms_tl)
 
 
-def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
-    """data3からデータをロード"""
+def load_data(sire_cutoff: str = None) -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
+    """data3からデータをロード
+
+    Args:
+        sire_cutoff: 血統統計カットオフ日 (YYYY-MM-DD)。指定時はcutoff付きインデックスを使用。
+    """
     print("[Load] Loading data3...")
 
     # Horse history cache
@@ -941,7 +945,16 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
         print("  Pedigree index: NOT FOUND (skipping)")
 
     # Sire stats index (v5.8)
-    sire_path = config.indexes_dir() / "sire_stats_index.json"
+    if sire_cutoff:
+        suffix = sire_cutoff.replace('-', '')
+        sire_path = config.indexes_dir() / f"sire_stats_index_cutoff_{suffix}.json"
+        if not sire_path.exists():
+            print(f"  Sire stats (cutoff={sire_cutoff}): NOT FOUND → {sire_path}")
+            print(f"  Run: python -m builders.build_sire_stats --cutoff {sire_cutoff}")
+            sire_path = config.indexes_dir() / "sire_stats_index.json"
+            print(f"  Falling back to default: {sire_path}")
+    else:
+        sire_path = config.indexes_dir() / "sire_stats_index.json"
     sire_stats_index = {}
     if sire_path.exists():
         with open(sire_path, encoding='utf-8') as f:
@@ -949,7 +962,8 @@ def load_data() -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
         n_sire = len(sire_stats_index.get('sire', {}))
         n_dam = len(sire_stats_index.get('dam', {}))
         n_bms = len(sire_stats_index.get('bms', {}))
-        print(f"  Sire stats: {n_sire:,} sires, {n_dam:,} dams, {n_bms:,} BMS")
+        cutoff_info = sire_stats_index.get('meta', {}).get('cutoff', 'none')
+        print(f"  Sire stats: {n_sire:,} sires, {n_dam:,} dams, {n_bms:,} BMS (cutoff={cutoff_info})")
     else:
         print("  Sire stats: NOT FOUND (skipping)")
 
@@ -1220,6 +1234,7 @@ def build_dataset(
     pit_dam_tl: dict = None,
     pit_bms_tl: dict = None,
     baba_index: dict = None,
+    save_features: bool = False,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
 
@@ -1230,6 +1245,7 @@ def build_dataset(
         use_db_odds: True=mykeibadbから事前オッズ取得, False=JSON確定オッズ（従来動作）
         training_summary_index: CK_DATA調教サマリインデックス
         race_level_index: レースレベルインデックス
+        save_features: True=特徴量スナップショットを保存
     """
     # 月フィルタ: YYYYMM形式の整数で比較
     date_min = min_year * 100 + (min_month or 1)
@@ -1297,6 +1313,9 @@ def build_dataset(
                 pit_bms_tl=pit_bms_tl,
                 baba_index=baba_index,
             )
+            if save_features and rows:
+                from ml.feature_snapshot import save_feature_snapshot
+                save_feature_snapshot(rows, race, source="experiment")
             all_rows.extend(rows)
             race_count += 1
         except Exception as e:
@@ -1321,6 +1340,8 @@ def build_dataset(
     msg = f"[Build] {race_count:,} races, {len(df):,} entries, {error_count} errors"
     if obstacle_count > 0:
         msg += f", {obstacle_count} obstacle races excluded"
+    if save_features:
+        msg += f", snapshots saved to data3/features/"
     print(msg)
     return df
 
@@ -2324,6 +2345,10 @@ def main():
                         help='除外する特徴量名のリスト (例: --exclude-features feat1 feat2)')
     parser.add_argument('--use-optuna', action='store_true',
                         help='Optuna最適化済みパラメータを使用 (ml/optuna/optuna_best_params.json)')
+    parser.add_argument('--save-features', action='store_true',
+                        help='特徴量スナップショットをdata3/features/に保存')
+    parser.add_argument('--sire-cutoff', type=str, default=None,
+                        help='血統統計カットオフ日 (YYYY-MM-DD)。cutoff付きインデックスを使用')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -2384,10 +2409,25 @@ def main():
 
     t0 = time.time()
 
+    # === リーク防止チェック: sire_cutoff vs テスト期間 ===
+    if args.sire_cutoff:
+        # テスト期間の開始日を構築
+        test_start = f"{test_min}-{test_min_m:02d}-01" if test_min_m else f"{test_min}-01-01"
+        if args.sire_cutoff >= test_start:
+            print(f"\n  {'!'*60}")
+            print(f"  WARNING: sire_cutoff ({args.sire_cutoff}) >= test start ({test_start})")
+            print(f"  血統統計にテスト期間のデータが含まれ、リークが発生します！")
+            print(f"  推奨: --sire-cutoff をテスト期間の開始前に設定してください")
+            print(f"  {'!'*60}\n")
+    else:
+        print(f"\n  WARNING: --sire-cutoff 未指定 → 全データの血統統計を使用（テスト期間リークあり）")
+        print(f"  推奨: --sire-cutoff YYYY-MM-DD でテスト期間前のcutoffを指定\n")
+
     # データロード
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index, pedigree_index, sire_stats_index) = load_data()
+     race_level_index, pedigree_index, sire_stats_index) = load_data(
+        sire_cutoff=args.sire_cutoff)
 
     # Point-in-time: 調教師・騎手の累積タイムライン構築
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()
@@ -2403,6 +2443,7 @@ def main():
     # build_pit_sire_timeline() is available but disabled.
 
     # データセット構築（3-way split）
+    _save_feat = args.save_features
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
         kb_ext_index, train_min, train_max, use_db_odds=use_db_odds,
@@ -2413,6 +2454,7 @@ def main():
         min_month=train_min_m, max_month=train_max_m,
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         baba_index=baba_index,
+        save_features=_save_feat,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2424,6 +2466,7 @@ def main():
         min_month=val_min_m, max_month=val_max_m,
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         baba_index=baba_index,
+        save_features=_save_feat,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2435,6 +2478,7 @@ def main():
         min_month=test_min_m, max_month=test_max_m,
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         baba_index=baba_index,
+        save_features=_save_feat,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
@@ -2886,6 +2930,7 @@ def main():
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {'train': train_label, 'val': val_label, 'test': test_label},
         'optuna_optimized': optuna_optimized,
+        'sire_cutoff': args.sire_cutoff,
     }
     # Optunaでモデル別特徴量が異なる場合、個別リストも保存
     if optuna_optimized and optuna_feature_cols:
