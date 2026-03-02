@@ -3,17 +3,22 @@
 """
 bet_engine バックテスト
 
-experiment.py のパイプラインで構築したテストデータに対して
+liveモデル（保存済み）をロードしてテストデータに対して
 bet_engine の各プリセットを適用し、実ROIを計算する。
 
 Usage:
     python -m ml.backtest_bet_engine
+    python -m ml.backtest_bet_engine --retrain   # 旧方式：独自にモデル学習
 """
 
+import argparse
 import json
+import pickle
+import re
 import sys
 from pathlib import Path
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
@@ -22,13 +27,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
+from core import config
 from ml.experiment import (
     load_data, build_dataset, load_race_json,
     FEATURE_COLS_ALL, FEATURE_COLS_VALUE,
     PARAMS_P, PARAMS_W, PARAMS_AR,
     train_model, train_regression_model, _get_place_odds,
+    build_pit_personnel_timeline,
 )
 from ml.features.margin_target import add_margin_target_to_df
+from ml.features.baba_features import load_baba_index
 from ml.bet_engine import (
     PRESETS, BetStrategyParams,
     generate_recommendations, recommendations_summary,
@@ -37,9 +45,35 @@ from ml.bet_engine import (
 )
 
 
+def _parse_split_label(label: str):
+    """model_meta split label → (min_year, max_year, min_month, max_month)
+
+    Examples:
+        '2020 ~ 2024'        → (2020, 2024, None, None)
+        '2025-01 ~ 2025-02'  → (2025, 2025, 1, 2)
+        '2025-03 ~ 2026-02'  → (2025, 2026, 3, 2)
+    """
+    m = re.match(r'(\d{4})(?:-(\d{2}))?\s*~\s*(\d{4})(?:-(\d{2}))?', label)
+    if not m:
+        raise ValueError(f"Cannot parse split label: {label}")
+    min_y = int(m.group(1))
+    max_y = int(m.group(3))
+    min_m = int(m.group(2)) if m.group(2) else None
+    max_m = int(m.group(4)) if m.group(4) else None
+    return min_y, max_y, min_m, max_m
+
+
 def main():
+    parser = argparse.ArgumentParser(description='bet_engine バックテスト')
+    parser.add_argument('--retrain', action='store_true',
+                        help='独自にモデル学習（旧方式、liveモデルとは異なる結果）')
+    args = parser.parse_args()
+
     print('=' * 70)
-    print('  bet_engine バックテスト')
+    if args.retrain:
+        print('  bet_engine バックテスト (retrain mode: 独自学習)')
+    else:
+        print('  bet_engine バックテスト (live model mode)')
     print('=' * 70)
 
     # === データロード ===
@@ -48,41 +82,119 @@ def main():
      date_index, pace_index, kb_ext_index, training_summary_index,
      race_level_index, pedigree_index, sire_stats_index) = load_data()
 
-    df_train = build_dataset(
-        date_index, history_cache, trainer_index, jockey_index, pace_index,
-        kb_ext_index, 2020, 2023, use_db_odds=True,
-        training_summary_index=training_summary_index,
-    )
-    df_val = build_dataset(
-        date_index, history_cache, trainer_index, jockey_index, pace_index,
-        kb_ext_index, 2024, 2024, use_db_odds=True,
-        training_summary_index=training_summary_index,
-    )
-    df_test = build_dataset(
-        date_index, history_cache, trainer_index, jockey_index, pace_index,
-        kb_ext_index, 2025, 2026, use_db_odds=True,
-        training_summary_index=training_summary_index,
-    )
+    # PIT timelines
+    pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()
+    baba_index = load_baba_index()
 
-    print(f'[Dataset] Train={len(df_train):,}, Val={len(df_val):,}, Test={len(df_test):,}')
+    if args.retrain:
+        # === 旧方式: 独自にモデル学習 (2020-2023/2024/2025-2026) ===
+        df_train = build_dataset(
+            date_index, history_cache, trainer_index, jockey_index, pace_index,
+            kb_ext_index, 2020, 2023, use_db_odds=True,
+            training_summary_index=training_summary_index,
+            race_level_index=race_level_index,
+            pedigree_index=pedigree_index,
+            sire_stats_index=sire_stats_index,
+            pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
+            baba_index=baba_index,
+        )
+        df_val = build_dataset(
+            date_index, history_cache, trainer_index, jockey_index, pace_index,
+            kb_ext_index, 2024, 2024, use_db_odds=True,
+            training_summary_index=training_summary_index,
+            race_level_index=race_level_index,
+            pedigree_index=pedigree_index,
+            sire_stats_index=sire_stats_index,
+            pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
+            baba_index=baba_index,
+        )
+        df_test = build_dataset(
+            date_index, history_cache, trainer_index, jockey_index, pace_index,
+            kb_ext_index, 2025, 2026, use_db_odds=True,
+            training_summary_index=training_summary_index,
+            race_level_index=race_level_index,
+            pedigree_index=pedigree_index,
+            sire_stats_index=sire_stats_index,
+            pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
+            baba_index=baba_index,
+        )
+        print(f'[Dataset] Train={len(df_train):,}, Val={len(df_val):,}, Test={len(df_test):,}')
 
-    # === モデル学習 ===
-    print('\n[Train] Training classification models...')
-    _, _, _, pred_p, cal_p, pred_p_raw = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_P, 'is_top3', 'Place'
-    )
-    _, _, _, pred_w, cal_w, pred_w_raw = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_W, 'is_win', 'Win'
-    )
+        print('\n[Train] Training classification models...')
+        _, _, _, pred_p, cal_p, pred_p_raw = train_model(
+            df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_P, 'is_top3', 'Place'
+        )
+        _, _, _, pred_w, cal_w, pred_w_raw = train_model(
+            df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_W, 'is_win', 'Win'
+        )
 
-    # === 回帰モデル (着差予測) ===
-    print('\n[Margin] Computing target_margin...')
-    for label, df in [('train', df_train), ('val', df_val), ('test', df_test)]:
-        add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
+        print('\n[Margin] Computing target_margin...')
+        for label, df in [('train', df_train), ('val', df_val), ('test', df_test)]:
+            add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
 
-    _, _, _, pred_ar = train_regression_model(
-        df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_AR, 'Aura'
-    )
+        _, _, _, pred_ar = train_regression_model(
+            df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_AR, 'Aura'
+        )
+    else:
+        # === 新方式: liveモデルをロードしてテストデータで予測 ===
+        ml_dir = config.ml_dir()
+        meta_path = ml_dir / "model_meta.json"
+        with open(meta_path, encoding='utf-8') as f:
+            meta = json.load(f)
+
+        split = meta['split']
+        features_value = meta['features_value']
+        print(f'[Model] v{meta["version"]}: {split["train"]} → {split["test"]}')
+        print(f'[Model] Features: {len(features_value)}')
+
+        # Load models
+        model_p = lgb.Booster(model_file=str(ml_dir / "model_p.txt"))
+        model_w = lgb.Booster(model_file=str(ml_dir / "model_w.txt"))
+        model_ar = lgb.Booster(model_file=str(ml_dir / "model_ar.txt"))
+
+        # Load calibrators
+        cal_p, cal_w = None, None
+        cal_path = ml_dir / "calibrators.pkl"
+        if cal_path.exists():
+            with open(cal_path, 'rb') as f:
+                cals = pickle.load(f)
+            cal_p = cals.get('cal_p')
+            cal_w = cals.get('cal_w')
+            print(f'[Model] Calibrators: {list(cals.keys())}')
+
+        # Build test dataset using model's split
+        test_min_y, test_max_y, test_min_m, test_max_m = _parse_split_label(split['test'])
+        print(f'[Dataset] Test period: {split["test"]}')
+
+        df_test = build_dataset(
+            date_index, history_cache, trainer_index, jockey_index, pace_index,
+            kb_ext_index, test_min_y, test_max_y, use_db_odds=True,
+            training_summary_index=training_summary_index,
+            race_level_index=race_level_index,
+            pedigree_index=pedigree_index,
+            sire_stats_index=sire_stats_index,
+            min_month=test_min_m, max_month=test_max_m,
+            pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
+            baba_index=baba_index,
+        )
+        print(f'[Dataset] Test={len(df_test):,}')
+
+        # Margin target
+        print('\n[Margin] Computing target_margin...')
+        add_margin_target_to_df(df_test, date_index, load_race_json, cap=5.0)
+
+        # Predict using loaded models (per-model features if Optuna optimized)
+        features_per_model = meta.get('features_per_model')
+        feats_p = features_per_model['p'] if features_per_model and 'p' in features_per_model else features_value
+        feats_w = features_per_model['w'] if features_per_model and 'w' in features_per_model else features_value
+        feats_ar = features_per_model['ar'] if features_per_model and 'ar' in features_per_model else features_value
+        pred_p = model_p.predict(df_test[feats_p].values)
+        pred_w = model_w.predict(df_test[feats_w].values)
+        pred_ar = model_ar.predict(df_test[feats_ar].values)
+
+        print(f'[Predict] P: mean={pred_p.mean():.4f}, W: mean={pred_w.mean():.4f}, '
+              f'AR: mean={pred_ar.mean():.2f}')
+
     df_test['pred_margin_ar'] = pred_ar
 
     # 予測結果をDataFrameに追加

@@ -23,11 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from ml.bet_engine import (
-    PRESETS, generate_recommendations,
-    recommendations_to_dict, recommendations_summary,
     VB_FLOOR_MIN_WIN_EV, VB_FLOOR_MIN_ARD,
     VB_FLOOR_ARD_VB_MIN_ARD, VB_FLOOR_ARD_VB_MIN_ODDS,
 )
+from ml.generate_bets import apply_bet_engine
 
 
 def load_predictions(date: str) -> dict:
@@ -144,7 +143,11 @@ def main():
 
     # predictions読み込み
     date = args.date
-    predictions_data = load_predictions(date)
+    try:
+        predictions_data = load_predictions(date)
+    except FileNotFoundError as e:
+        print(f"[Skip] {e}")
+        return
 
     races = predictions_data.get('races', [])
     if not races:
@@ -192,62 +195,11 @@ def main():
         vb_marker = f' [VB={vb}]' if vb > 0 else ''
         print(f"  {venue}{rn}R: Top1={top1_name}{vb_marker}")
 
-    # 買い目推奨再生成 (bet_engine)
+    # 買い目推奨再生成（generate_bets の共通関数を使用）
     print(f"\n[BetEngine] Generating recommendations...")
-    all_recommendations = {}
-    for preset_name, preset_params in PRESETS.items():
-        recs = generate_recommendations(races, preset_params, budget=30000)
-        all_recommendations[preset_name] = {
-            'params': {
-                'win_min_ev': preset_params.win_min_ev,
-                'win_min_gap': preset_params.win_min_gap,
-                'win_min_rating': preset_params.win_min_rating,
-                'win_min_ar_deviation': preset_params.win_min_ar_deviation,
-                'win_max_rank': preset_params.win_max_rank,
-                'win_v_ratio_min': preset_params.win_v_ratio_min,
-                'win_v_bypass_gap': preset_params.win_v_bypass_gap,
-                'win_v_bypass_ev': preset_params.win_v_bypass_ev,
-                'place_min_gap': preset_params.place_min_gap,
-                'place_min_rating': preset_params.place_min_rating,
-                'place_min_ar_deviation': preset_params.place_min_ar_deviation,
-                'place_min_ev': preset_params.place_min_ev,
-                'kelly_fraction': preset_params.kelly_fraction,
-            },
-            'bets': recommendations_to_dict(recs),
-            'summary': recommendations_summary(recs),
-        }
-        s = recommendations_summary(recs)
-        print(f"  {preset_name}: {s['total_bets']} bets, "
-              f"Win={s['win_bets']}, Place={s['place_bets']}, "
-              f"Amount={s['total_amount']:,}")
+    apply_bet_engine(predictions_data, budget=30000)
 
-    # マルチレグ推奨再生成
-    print(f"\n[MultiLeg] Generating multi-leg recommendations...")
-    multi_leg_output = []
-    try:
-        from ml.simulate_multi_leg import generate_recommendations as gen_multi_leg
-        multi_leg_recs = gen_multi_leg(races)
-        for r in multi_leg_recs:
-            multi_leg_output.append({
-                'race_id': r.race_id,
-                'venue': r.venue,
-                'race_number': r.race_num,
-                'strategy': r.strategy,
-                'ticket_type': r.ticket_type,
-                'horses': list(r.horses),
-                'horse_names': list(r.horse_names),
-                'cost': r.cost,
-                'note': r.note,
-            })
-        print(f"  {len(multi_leg_output)} tickets across "
-              f"{len(set(r.race_id for r in multi_leg_recs))} races")
-    except Exception as e:
-        print(f"  [Warning] multi-leg generation failed: {e}")
-
-    # 結果更新
-    predictions_data['recommendations'] = all_recommendations
-    predictions_data['multi_leg_recommendations'] = multi_leg_output
-    predictions_data['predict_only'] = False
+    # VBリフレッシュ固有の更新
     predictions_data['vb_refreshed_at'] = datetime.now().isoformat(timespec='seconds')
     predictions_data['summary']['value_bets'] = total_vb
     predictions_data['summary']['ev_positive_win'] = sum(

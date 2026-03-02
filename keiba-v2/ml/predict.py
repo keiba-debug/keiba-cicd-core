@@ -1,18 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-リアルタイム予測スクリプト (v3.4モデル)
+リアルタイム予測スクリプト
 
 JRA-VANレースJSON + keibabook拡張JSON + mykeibadb事前オッズ → races/YYYY/MM/DD/predictions.json
 
-v3.4: mykeibadb連携 - レース前最新オッズを自動取得
-      DB接続不可時はJSONオッズにフォールバック
+デフォルトはML推論のみ。買い目生成は generate_bets.py で別途実行。
+--with-bets で従来互換（推論+買い目を一括実行）。
 
 Usage:
     python -m ml.predict [--date 2026-02-08] [--race-id 2026020806010101]
-    python -m ml.predict --latest   # 最新の開催日
-    python -m ml.predict --no-db    # DBオッズ未使用
-    python -m ml.predict --predict-only  # ML予測のみ（VB/買い目スキップ）
+    python -m ml.predict --latest           # 最新の開催日
+    python -m ml.predict --no-db            # DBオッズ未使用
+    python -m ml.predict --with-bets        # 推論+買い目一括（従来互換）
 """
 
 import argparse
@@ -40,9 +40,8 @@ from ml.features.training_features import compute_training_features
 from ml.features.speed_features import compute_speed_features
 from ml.features.comment_features import compute_comment_features
 from ml.features.slow_start_features import compute_slow_start_features
+# VB Floor定数（推論のis_value_bet判定に使用）+ grade_offsets
 from ml.bet_engine import (
-    PRESETS, generate_recommendations,
-    recommendations_to_dict, recommendations_summary,
     load_grade_offsets, get_grade_key,
     VB_FLOOR_MIN_WIN_EV, VB_FLOOR_MIN_ARD,
     VB_FLOOR_ARD_VB_MIN_ARD, VB_FLOOR_ARD_VB_MIN_ODDS,
@@ -184,6 +183,8 @@ def predict_obstacle_race(
     race_level_index: Optional[dict] = None,
     pedigree_index: Optional[dict] = None,
     sire_stats_index: Optional[dict] = None,
+    pit_trainer_tl: Optional[dict] = None,
+    pit_jockey_tl: Optional[dict] = None,
 ) -> dict:
     """障害レースの予測を実行（簡易版: モデル1本、VB/bet_engine不要）"""
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
@@ -231,10 +232,16 @@ def predict_obstacle_race(
         feat.update(past)
 
         tc = entry.get('trainer_code', '')
-        feat.update(get_trainer_features(tc, venue_code, trainer_index))
+        feat.update(get_trainer_features(
+            tc, venue_code, trainer_index,
+            race_date=race_date, pit_timeline=pit_trainer_tl,
+        ))
 
         jc = entry.get('jockey_code', '')
-        feat.update(get_jockey_features(jc, venue_code, jockey_index))
+        feat.update(get_jockey_features(
+            jc, venue_code, jockey_index,
+            race_date=race_date, pit_timeline=pit_jockey_tl,
+        ))
 
         rs_feat = compute_running_style_features(
             ketto_num=ketto_num, race_date=race_date,
@@ -349,6 +356,17 @@ def predict_obstacle_race(
 
     result_entries.sort(key=lambda x: -x['pred_proba_p'])
 
+    # PIT特徴量スナップショット（リーク検証用）
+    feature_snapshot = []
+    for p in predictions:
+        feat = p['features']
+        feature_snapshot.append({
+            'umaban': p['umaban'],
+            'ketto_num': p['ketto_num'],
+            'features': {k: (None if isinstance(v, float) and np.isnan(v) else v)
+                         for k, v in feat.items()},
+        })
+
     return {
         'race_id': race_id,
         'date': race_date,
@@ -362,6 +380,7 @@ def predict_obstacle_race(
         'is_handicap': current_is_handicap,
         'is_female_only': current_is_female_only,
         'entries': result_entries,
+        '_feature_snapshot': feature_snapshot,
     }
 
 
@@ -470,9 +489,14 @@ def load_master_data():
     baba_index = load_baba_index()
     print(f"  Baba index: {len(baba_index):,} races")
 
+    # PIT timeline: 騎手・調教師の累積タイムライン（point-in-time safe）
+    from ml.experiment import build_pit_personnel_timeline
+    pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()
+    print(f"  PIT: Trainer {len(pit_trainer_tl):,}, Jockey {len(pit_jockey_tl):,}")
+
     return (history_cache, trainer_index, jockey_index, pace_index,
             kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
-            baba_index)
+            baba_index, pit_trainer_tl, pit_jockey_tl)
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -607,6 +631,8 @@ def predict_race(
     pedigree_index: Optional[dict] = None,
     sire_stats_index: Optional[dict] = None,
     baba_index: Optional[dict] = None,
+    pit_trainer_tl: Optional[dict] = None,
+    pit_jockey_tl: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -620,10 +646,14 @@ def predict_race(
         calibrators: IsotonicRegressionキャリブレーター辞書 (Optional)
         pedigree_index: 血統インデックス {ketto_num: {sire, dam, bms}} (Optional)
         sire_stats_index: 種牡馬/母馬/母父統計 {sire: {...}, dam: {...}, bms: {...}} (Optional)
+        pit_trainer_tl: 調教師PIT timeline (Optional, point-in-time safe)
+        pit_jockey_tl: 騎手PIT timeline (Optional, point-in-time safe)
     """
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
 
     features_value = meta['features_value']
+    # Optunaモデル別特徴量（異なるグループON/OFF時に使用）
+    features_per_model = meta.get('features_per_model')  # {'p': [...], 'w': [...], 'ar': [...]}
 
     # Sire/Dam/BMS index (build once per predict_race call)
     _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
@@ -715,14 +745,20 @@ def predict_race(
         )
         feat.update(past)
 
-        # 調教師特徴量
+        # 調教師特徴量 (PIT mode: race_date時点の成績を使用)
         tc = entry.get('trainer_code', '')
-        trainer_feat = get_trainer_features(tc, venue_code, trainer_index)
+        trainer_feat = get_trainer_features(
+            tc, venue_code, trainer_index,
+            race_date=race_date, pit_timeline=pit_trainer_tl,
+        )
         feat.update(trainer_feat)
 
-        # 騎手特徴量
+        # 騎手特徴量 (PIT mode: race_date時点の成績を使用)
         jc = entry.get('jockey_code', '')
-        jockey_feat = get_jockey_features(jc, venue_code, jockey_index)
+        jockey_feat = get_jockey_features(
+            jc, venue_code, jockey_index,
+            race_date=race_date, pit_timeline=pit_jockey_tl,
+        )
         feat.update(jockey_feat)
 
         # 脚質特徴量 (v3.1)
@@ -860,8 +896,18 @@ def predict_race(
     if nan_cols_v:
         print(f"[WARN] 全値NaNの特徴量 ({len(nan_cols_v)}件): {nan_cols_v}")
 
+    # モデル別特徴量配列（Optunaでモデル別特徴量選択時に使用）
+    def _build_model_array(model_key):
+        if not features_per_model or model_key not in features_per_model:
+            return arr_v
+        model_feats = features_per_model[model_key]
+        return np.array([
+            [_to_float(p['features'].get(f, np.nan)) for f in model_feats]
+            for p in predictions
+        ], dtype=np.float64)
+
     # === Place予測 P (is_top3) ===
-    pred_p_raw = model_p.predict(arr_v)
+    pred_p_raw = model_p.predict(_build_model_array('p'))
 
     # === EV用 vs ランキング用の確率使い分け ===
     # EV計算: IsotonicRegressionでキャリブレーション済みの絶対確率を使用
@@ -882,7 +928,7 @@ def predict_race(
     rank_w_dict = {}
 
     if has_win_model:
-        pred_w_raw = model_w.predict(arr_v)
+        pred_w_raw = model_w.predict(_build_model_array('w'))
 
         # IsotonicRegressionキャリブレーション（Win EV計算用）
         pred_w_for_ev = pred_w_raw  # デフォルト: rawをそのまま使用
@@ -900,7 +946,7 @@ def predict_race(
     ability_score = None
     rating_display = None
     if model_ar is not None:
-        ability_score = -model_ar.predict(arr_v)
+        ability_score = -model_ar.predict(_build_model_array('ar'))
         rating_display = RATING_BASE + ability_score * RATING_SCALE
         # Method A: グレードオフセット適用
         grade_key = get_grade_key(current_grade, current_age_class)
@@ -1038,6 +1084,17 @@ def predict_race(
                   and (e.get('ar_deviation') or 0) >= VB_FLOOR_DEV_MIN_ARD)
         e['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok or dev_ok)
 
+    # PIT特徴量スナップショット（リーク検証用）
+    feature_snapshot = []
+    for p in predictions:
+        feat = p['features']
+        feature_snapshot.append({
+            'umaban': p['umaban'],
+            'ketto_num': p['ketto_num'],
+            'features': {k: (None if isinstance(v, float) and np.isnan(v) else v)
+                         for k, v in feat.items()},
+        })
+
     return {
         'race_id': race['race_id'],
         'date': race_date,
@@ -1051,6 +1108,7 @@ def predict_race(
         'is_handicap': current_is_handicap,
         'is_female_only': current_is_female_only,
         'entries': result_entries,
+        '_feature_snapshot': feature_snapshot,
     }
 
 
@@ -1090,7 +1148,9 @@ def main():
     parser.add_argument('--model-version', help='モデルバージョン指定 (例: 5.0, 3.5)')
     parser.add_argument('--list-versions', action='store_true', help='利用可能なモデルバージョン一覧')
     parser.add_argument('--predict-only', action='store_true',
-                        help='ML予測のみ（VB判定・買い目生成をスキップ）')
+                        help='(deprecated: デフォルト動作が推論のみになりました)')
+    parser.add_argument('--with-bets', action='store_true',
+                        help='推論+買い目を一括実行（従来互換）')
     args = parser.parse_args()
 
     # バージョン一覧表示
@@ -1131,7 +1191,7 @@ def main():
     print("[Load] Loading master data...")
     (history_cache, trainer_index, jockey_index, pace_index,
      kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
-     baba_index) = load_master_data()
+     baba_index, pit_trainer_tl, pit_jockey_tl) = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
@@ -1259,6 +1319,8 @@ def main():
             pedigree_index=pedigree_index,
             sire_stats_index=sire_stats_index,
             baba_index=baba_index,
+            pit_trainer_tl=pit_trainer_tl,
+            pit_jockey_tl=pit_jockey_tl,
         )
         all_predictions.append(pred)
 
@@ -1301,6 +1363,8 @@ def main():
                 race_level_index=race_level_index,
                 pedigree_index=pedigree_index,
                 sire_stats_index=sire_stats_index,
+                pit_trainer_tl=pit_trainer_tl,
+                pit_jockey_tl=pit_jockey_tl,
             )
             obstacle_predictions.append(pred)
             all_predictions.append(pred)
@@ -1317,10 +1381,13 @@ def main():
     all_recommendations = {}
     multi_leg_output = []
 
-    if args.predict_only:
-        print(f"\n[PredictOnly] Skipping bet_engine & multi-leg (--predict-only)")
-    else:
-        print(f"\n[BetEngine] Generating recommendations...")
+    if args.with_bets:
+        # 従来互換: 推論+買い目を一括実行
+        from ml.bet_engine import (
+            PRESETS, generate_recommendations,
+            recommendations_to_dict, recommendations_summary,
+        )
+        print(f"\n[BetEngine] Generating recommendations (--with-bets)...")
         for preset_name, preset_params in PRESETS.items():
             recs = generate_recommendations(all_predictions, preset_params, budget=30000)
             all_recommendations[preset_name] = {
@@ -1347,7 +1414,7 @@ def main():
                   f"Win={s['win_bets']}, Place={s['place_bets']}, "
                   f"Amount={s['total_amount']:,}")
 
-        # === マルチレグ推奨生成 ===
+        # マルチレグ推奨生成
         print(f"\n[MultiLeg] Generating multi-leg recommendations...")
         try:
             from ml.simulate_multi_leg import generate_recommendations as gen_multi_leg
@@ -1368,11 +1435,23 @@ def main():
                   f"{len(set(r.race_id for r in multi_leg_recs))} races")
         except Exception as e:
             print(f"  [Warning] multi-leg generation failed: {e}")
+    else:
+        print(f"\n[Info] 推論のみ（買い目は python -m ml.generate_bets --date {date} で生成）")
+
+    # === 特徴量スナップショット抽出（リーク検証用） ===
+    feature_snapshot_data = []
+    for pred in all_predictions:
+        snap = pred.pop('_feature_snapshot', [])
+        if snap:
+            feature_snapshot_data.append({
+                'race_id': pred['race_id'],
+                'entries': snap,
+            })
 
     # 結果保存
     actual_model_version = model_version if model_version else meta.get('version', '?')
     output = {
-        'version': '4.0',
+        'version': '4.1',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'date': date,
         'model_version': actual_model_version,
@@ -1381,7 +1460,8 @@ def main():
         'model_has_win': model_w is not None,
         'model_has_obstacle': has_obstacle_model,
         'odds_source': 'mykeibadb' if db_odds_index else 'json',
-        'predict_only': bool(args.predict_only),
+        'pit_mode': True,
+        'predict_only': not args.with_bets,
         'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
         'races': all_predictions,
         'recommendations': all_recommendations,
@@ -1407,9 +1487,46 @@ def main():
     # 日別アーカイブ: races/YYYY/MM/DD/predictions.json（唯一の出力先）
     date_parts = date.split('-')
     archive_dir = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2]
+
     if archive_dir.exists():
         out_path = archive_dir / "predictions.json"
+
+        # 既存predictions.jsonをバージョン付きアーカイブ
+        if out_path.exists():
+            try:
+                with open(out_path, encoding='utf-8') as f:
+                    old = json.load(f)
+                old_ver = old.get('model_version', 'unknown')
+                old_ts = old.get('created_at', '')
+                # ISO timestamp → compact: 2026-03-01T12:30:00 → 20260301T123000
+                old_ts_compact = old_ts.replace('-', '').replace(':', '')[:15]
+                archive_name = f"predictions_v{old_ver}_{old_ts_compact}.json"
+            except Exception:
+                archive_name = f"predictions_{datetime.now().strftime('%Y%m%dT%H%M%S')}.json"
+            archive_path = archive_dir / archive_name
+            if not archive_path.exists():
+                import shutil
+                shutil.copy2(str(out_path), str(archive_path))
+                print(f"  Archived: {archive_name}")
+
         out_path.write_text(out_json, encoding='utf-8')
+
+        # 特徴量スナップショット保存（PIT/リーク検証用）
+        if feature_snapshot_data:
+            snap_path = archive_dir / "feature_snapshot.json"
+            snap_output = {
+                'created_at': datetime.now().isoformat(timespec='seconds'),
+                'model_version': actual_model_version,
+                'pit_mode': True,
+                'prediction_date': date,
+                'races': feature_snapshot_data,
+            }
+            snap_path.write_text(
+                json.dumps(snap_output, ensure_ascii=False),
+                encoding='utf-8',
+            )
+            snap_size_mb = snap_path.stat().st_size / (1024 * 1024)
+            print(f"  Feature snapshot: {snap_path.name} ({snap_size_mb:.1f}MB)")
     else:
         print(f"\n[WARNING] Archive dir not found: {archive_dir}")
         out_path = archive_dir / "predictions.json"

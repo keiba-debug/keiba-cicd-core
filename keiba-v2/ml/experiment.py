@@ -1378,6 +1378,7 @@ def train_model(
     params: dict,
     label_col: str = 'is_top3',
     model_name: str = 'model',
+    num_boost_round: int = 1500,
 ) -> Tuple:
     """LightGBMモデルを学習
 
@@ -1401,7 +1402,7 @@ def train_model(
           f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}")
 
     model = lgb.train(
-        params, train_data, num_boost_round=1500,
+        params, train_data, num_boost_round=num_boost_round,
         valid_sets=[valid_data],
         callbacks=[
             lgb.early_stopping(stopping_rounds=50),
@@ -2077,6 +2078,7 @@ def train_regression_model(
     feature_cols: List[str],
     params: dict,
     model_name: str = 'Aura',
+    num_boost_round: int = 1500,
 ) -> Tuple:
     """着差回帰モデル (LGBMRegressor) を学習
 
@@ -2109,7 +2111,7 @@ def train_regression_model(
     valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
     model = lgb.train(
-        params, train_data, num_boost_round=1500,
+        params, train_data, num_boost_round=num_boost_round,
         valid_sets=[valid_data],
         callbacks=[
             lgb.early_stopping(stopping_rounds=50),
@@ -2320,6 +2322,8 @@ def main():
                         help='Importance下位N%%の特徴量を除外 (例: 20)')
     parser.add_argument('--exclude-features', nargs='+', default=[],
                         help='除外する特徴量名のリスト (例: --exclude-features feat1 feat2)')
+    parser.add_argument('--use-optuna', action='store_true',
+                        help='Optuna最適化済みパラメータを使用 (ml/optuna/optuna_best_params.json)')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -2476,14 +2480,72 @@ def main():
             print(f"\n[Pruning] WARNING: No previous result found at {prev_result_path}")
             print(f"  Run experiment without --prune-bottom first to generate importance data")
 
+    # === Optunaパラメータロード ===
+    optuna_optimized = False
+    optuna_num_boost_round = {}  # モデル別num_boost_round
+    optuna_feature_cols = {}     # モデル別特徴量リスト
+    # ローカルコピー（グローバル変数を関数内で再代入するとスコープ問題が起きるため）
+    params_p = dict(PARAMS_P)
+    params_w = dict(PARAMS_W)
+    params_ar = dict(PARAMS_AR)
+    if args.use_optuna:
+        optuna_path = config.ml_dir() / "optuna" / "optuna_best_params.json"
+        if not optuna_path.exists():
+            print(f"\n  ERROR: Optuna結果が見つかりません: {optuna_path}")
+            print(f"  先に python -m ml.optuna_tuner --all を実行してください")
+            sys.exit(1)
+        optuna_data = json.loads(optuna_path.read_text(encoding='utf-8'))
+        optuna_models = optuna_data.get('models', {})
+
+        for model_key in ['p', 'w', 'ar']:
+            if model_key in optuna_models:
+                opt = optuna_models[model_key]
+                opt_params = opt.get('params', {})
+                opt_nbr = opt.get('num_boost_round', 1500)
+                opt_features = opt.get('features')
+
+                # ハイパーパラメータ上書き
+                if model_key == 'p':
+                    params_p = {**params_p, **opt_params}
+                elif model_key == 'w':
+                    params_w = {**params_w, **opt_params}
+                elif model_key == 'ar':
+                    params_ar = {**params_ar, **opt_params}
+                optuna_num_boost_round[model_key] = opt_nbr
+
+                # モデル別特徴量リスト
+                if opt_features:
+                    optuna_feature_cols[model_key] = [
+                        f for f in opt_features if f in df_train.columns
+                    ]
+
+                print(f"  [Optuna] Model {model_key.upper()}: "
+                      f"trial#{opt.get('best_trial')}, "
+                      f"value={opt.get('best_value')}, "
+                      f"nbr={opt_nbr}, features={len(opt_features or [])}")
+
+        # デフォルト特徴量をPモデルのOptuna結果で上書き（W/ARに個別結果がなければこれを使う）
+        if 'p' in optuna_feature_cols:
+            feature_cols_value = optuna_feature_cols['p']
+
+        optuna_optimized = True
+        print(f"  [Optuna] Loaded params from {optuna_path}")
+
+    # モデル別特徴量（Optunaで個別最適化されていればそちらを使う）
+    features_p = optuna_feature_cols.get('p', feature_cols_value)
+    features_w = optuna_feature_cols.get('w', feature_cols_value)
+    features_ar = optuna_feature_cols.get('ar', feature_cols_value)
+
     # === Place モデル P (is_top3) ===
     model_p, metrics_p, importance_p, pred_p, cal_p, pred_p_raw = train_model(
-        df_train, df_val, df_test, feature_cols_value, PARAMS_P, 'is_top3', 'Place'
+        df_train, df_val, df_test, features_p, params_p, 'is_top3', 'Place',
+        num_boost_round=optuna_num_boost_round.get('p', 1500),
     )
 
     # === Win モデル W (is_win) ===
     model_w, metrics_w, importance_w, pred_w, cal_w, pred_w_raw = train_model(
-        df_train, df_val, df_test, feature_cols_value, PARAMS_W, 'is_win', 'Win'
+        df_train, df_val, df_test, features_w, params_w, 'is_win', 'Win',
+        num_boost_round=optuna_num_boost_round.get('w', 1500),
     )
 
     # === Aura モデル AR (着差回帰) ===
@@ -2493,7 +2555,8 @@ def main():
         add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
 
     model_ar, metrics_ar, importance_ar, pred_ar = train_regression_model(
-        df_train, df_val, df_test, feature_cols_value, PARAMS_AR, 'Aura'
+        df_train, df_val, df_test, features_ar, params_ar, 'Aura',
+        num_boost_round=optuna_num_boost_round.get('ar', 1500),
     )
 
     # 予測結果をDataFrameに追加
@@ -2763,7 +2826,7 @@ def main():
         track_split_results = run_track_split_experiment(
             df_train, df_val, df_test,
             feature_cols_value,
-            PARAMS_P,
+            params_p,
             pred_p,
         )
 
@@ -2807,9 +2870,11 @@ def main():
     print(f"  Calibrators saved: {list(calibrators.keys())}")
 
     import sklearn
+    # features_value = 全モデルの特徴量union（predict.pyが使う）
+    all_features_union = list(dict.fromkeys(features_p + features_w + features_ar))
     meta = {
         'version': experiment_version,
-        'features_value': feature_cols_value,
+        'features_value': all_features_union,
         'market_features': list(MARKET_FEATURES),
         'targets': {'place': 'is_top3', 'win': 'is_win', 'margin': 'target_margin'},
         'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
@@ -2820,7 +2885,15 @@ def main():
         'sklearn_version': sklearn.__version__,
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'split': {'train': train_label, 'val': val_label, 'test': test_label},
+        'optuna_optimized': optuna_optimized,
     }
+    # Optunaでモデル別特徴量が異なる場合、個別リストも保存
+    if optuna_optimized and optuna_feature_cols:
+        meta['features_per_model'] = {
+            'p': features_p,
+            'w': features_w,
+            'ar': features_ar,
+        }
     (model_dir / "model_meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
     )
@@ -2842,8 +2915,8 @@ def main():
         'models': {
             'place': {
                 'target': 'is_top3',
-                'features': feature_cols_value,
-                'feature_count': len(feature_cols_value),
+                'features': features_p,
+                'feature_count': len(features_p),
                 'metrics': metrics_p,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
@@ -2852,8 +2925,8 @@ def main():
             },
             'win': {
                 'target': 'is_win',
-                'features': feature_cols_value,
-                'feature_count': len(feature_cols_value),
+                'features': features_w,
+                'feature_count': len(features_w),
                 'metrics': metrics_w,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
@@ -2862,8 +2935,8 @@ def main():
             },
             'aura': {
                 'target': 'target_margin',
-                'features': feature_cols_value,
-                'feature_count': len(feature_cols_value),
+                'features': features_ar,
+                'feature_count': len(features_ar),
                 'metrics': metrics_ar,
                 'feature_importance': [
                     {'feature': f, 'importance': int(i)}
