@@ -40,6 +40,7 @@ from ml.features.training_features import compute_training_features
 from ml.features.speed_features import compute_speed_features
 from ml.features.comment_features import compute_comment_features
 from ml.features.slow_start_features import compute_slow_start_features
+from ml.features.obstacle_features import compute_obstacle_experience, compute_jockey_selection
 # VB Floor定数（推論のis_value_bet判定に使用）+ grade_offsets
 from ml.bet_engine import (
     load_grade_offsets, get_grade_key,
@@ -210,6 +211,11 @@ def predict_obstacle_race(
     predictions = []
     feature_rows = []
 
+    # 障害レース専用特徴量: 騎手選択シグナル（レースレベル計算）
+    jockey_sel = compute_jockey_selection(
+        race.get('entries', []), history_cache, race_date,
+    )
+
     for entry in race.get('entries', []):
         umaban = entry.get('umaban', 0)
         ketto_num = entry.get('ketto_num', '')
@@ -268,6 +274,13 @@ def predict_obstacle_race(
             ketto_num, pedigree_index or {}, _sire_idx, _dam_idx, _bms_idx,
         )
         feat.update(ped_feat)
+
+        # 障害レース専用特徴量
+        obs_exp = compute_obstacle_experience(ketto_num, race_date, history_cache)
+        feat.update(obs_exp)
+        sel = jockey_sel.get(umaban, {})
+        feat['jockey_selected'] = sel.get('jockey_selected', 0)
+        feat['jockey_selected_count'] = sel.get('jockey_selected_count', 0)
 
         kb_e = kb_entries.get(str(umaban))
 

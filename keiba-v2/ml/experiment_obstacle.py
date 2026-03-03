@@ -40,6 +40,10 @@ from ml.experiment import (
     _iter_date_index, _format_period,
 )
 from core.jravan import race_id as rid
+from ml.features.obstacle_features import (
+    compute_obstacle_experience,
+    compute_jockey_selection,
+)
 
 # === 障害レース用特徴量 ===
 # 平地から流用可能な特徴量のみ（ペース系・調教系・コメント系はスキップ）
@@ -66,6 +70,13 @@ OBSTACLE_ROTATION_FEATURES = [
     'jockey_change',
 ]
 
+# 障害レース専用特徴量
+OBSTACLE_SPECIFIC_FEATURES = [
+    'obstacle_experience',        # 障害戦出走回数 (0=初障害)
+    'jockey_selected',            # 騎手選択シグナル (+1=選ばれた, -1=選ばれなかった, 0=対象外)
+    'jockey_selected_count',      # 同一前走騎手の馬数
+]
+
 # odds/popularity は市場系だが障害では精度向上に重要（モデル1本なのでA/B分離しない）
 OBSTACLE_MARKET_FEATURES = ['odds', 'popularity']
 
@@ -73,6 +84,7 @@ OBSTACLE_FEATURE_COLS = (
     OBSTACLE_BASE_FEATURES + OBSTACLE_MARKET_FEATURES +
     OBSTACLE_PAST_FEATURES + TRAINER_FEATURES + JOCKEY_FEATURES +
     RUNNING_STYLE_FEATURES + OBSTACLE_ROTATION_FEATURES +
+    OBSTACLE_SPECIFIC_FEATURES +
     SPEED_FEATURES + PEDIGREE_FEATURES
 )
 
@@ -169,6 +181,30 @@ def build_obstacle_dataset(
                 pit_trainer_tl=pit_trainer_tl,
                 pit_jockey_tl=pit_jockey_tl,
             )
+
+            # --- 障害レース専用特徴量を追加 ---
+            race_date = date_str
+            race_entries = race.get('entries', [])
+
+            # 騎手選択シグナル (レースレベル計算)
+            jockey_sel = compute_jockey_selection(
+                race_entries, history_cache, race_date,
+            )
+
+            for row in rows:
+                # 障害戦経験回数
+                kn = row.get('ketto_num', '')
+                obs_exp = compute_obstacle_experience(
+                    kn, race_date, history_cache,
+                )
+                row.update(obs_exp)
+
+                # 騎手選択シグナル
+                uma = row.get('umaban', 0)
+                sel = jockey_sel.get(uma, {})
+                row['jockey_selected'] = sel.get('jockey_selected', 0)
+                row['jockey_selected_count'] = sel.get('jockey_selected_count', 0)
+
             all_rows.extend(rows)
             race_count += 1
         except Exception as e:
