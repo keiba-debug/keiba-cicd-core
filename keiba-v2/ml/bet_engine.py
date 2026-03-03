@@ -171,6 +171,14 @@ class BetStrategyParams:
     # バックテスト: max=2がROI最良。2番手候補の的中率>全体平均。
     max_win_per_race: int = 2
 
+    # --- Closing Race Boost (差し決着予測レースでのVBスコア加算) ---
+    # closing_race_proba >= closing_boost_threshold のレースで
+    # closing_strength >= closing_boost_min_strength の差し馬に VB スコアを加算。
+    # 差し決着が予想されるレースで差し脚質の馬を優遇する。
+    closing_boost_threshold: float = 0.0   # 0=無効, 0.13=推奨
+    closing_boost_min_strength: float = 1.0  # closing_strength最低値
+    closing_boost_score: float = 1.0       # 加算するVBスコア
+
     # --- 単位 ---
     min_bet: int = 100
     bet_unit: int = 100
@@ -249,6 +257,9 @@ PRESETS: Dict[str, BetStrategyParams] = {
         strong_win_pct=100,
         normal_win_pct=100,
         max_win_per_race=2,
+        closing_boost_threshold=0.13,   # 差し決着予測 >= 13%でブースト
+        closing_boost_min_strength=1.0, # closing_strength >= 1.0
+        closing_boost_score=1.0,        # VBスコア +1.0
     ),
     'wide': BetStrategyParams(
         win_min_vb_score=5.0,       # Composite score >= 5.0 (wider net)
@@ -267,6 +278,9 @@ PRESETS: Dict[str, BetStrategyParams] = {
         strong_win_pct=100,
         normal_win_pct=100,
         max_win_per_race=2,
+        closing_boost_threshold=0.13,   # 差し決着予測 >= 13%でブースト
+        closing_boost_min_strength=1.0,
+        closing_boost_score=1.0,
     ),
     'aggressive': BetStrategyParams(
         win_min_vb_score=6.0,       # Composite score >= 6.0 (high conviction)
@@ -285,6 +299,9 @@ PRESETS: Dict[str, BetStrategyParams] = {
         strong_win_pct=100,
         normal_win_pct=100,
         max_win_per_race=2,
+        closing_boost_threshold=0.13,
+        closing_boost_min_strength=1.0,
+        closing_boost_score=1.0,
     ),
 }
 
@@ -609,6 +626,11 @@ def generate_recommendations(
         else:
             race_max_v = 0
 
+        # Closing Race Boost: 差し決着が予想されるレースかどうか
+        closing_proba = race.get('closing_race_proba', 0) or 0
+        is_closing_race = (params.closing_boost_threshold > 0
+                           and closing_proba >= params.closing_boost_threshold)
+
         race_recs: List[BetRecommendation] = []
 
         for e in entries:
@@ -633,6 +655,12 @@ def generate_recommendations(
 
             # Composite VB Score (全シグナル統合)
             entry_vb_score = compute_vb_score(entry_dev_gap, gap, win_ev, ar_dev)
+
+            # Closing Race Boost: 差し決着レースで差し馬にスコア加算
+            if is_closing_race:
+                cs = e.get('closing_strength', -1) or -1
+                if cs >= params.closing_boost_min_strength:
+                    entry_vb_score += params.closing_boost_score
 
             # === VB Floor Gate: 購入プラン⊆VB候補 ===
             vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV

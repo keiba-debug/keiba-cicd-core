@@ -6,8 +6,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import { ActionType, getCommandArgs, getCommandArgsRange, getAction, type CommandOptions } from '@/lib/admin/commands';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
+import { DATA3_ROOT } from '@/lib/config';
 import { clearRaceDateIndex, buildRaceDateIndex } from '@/lib/data/race-date-index';
 
 export const runtime = 'nodejs';
@@ -78,6 +81,18 @@ export async function POST(request: NextRequest) {
         cur.setDate(cur.getDate() + 1);
       }
       return dates;
+    };
+
+    // 日付範囲 → 開催日のみ展開（race_date_indexでフィルタ）
+    const expandRaceDateRange = (start: string, end: string): string[] => {
+      try {
+        const indexPath = path.join(DATA3_ROOT, 'indexes', 'race_date_index.json');
+        const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+        return Object.keys(index).filter(d => d >= start && d <= end).sort();
+      } catch {
+        // インデックス読み込み失敗時はフォールバック
+        return expandDateRange(start, end);
+      }
     };
 
     // SSEストリームを作成
@@ -165,7 +180,7 @@ export async function POST(request: NextRequest) {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
             ];
-            for (const d of expandDateRange(startDate, endDate)) {
+            for (const d of expandRaceDateRange(startDate, endDate)) {
               commands.push(['-m', 'builders.build_race_master', '--date', d]);
             }
           } else {
@@ -215,7 +230,7 @@ export async function POST(request: NextRequest) {
           }
         } else if (action === 'v4_predict') {
           if (isRangeAction && startDate && endDate) {
-            for (const d of expandDateRange(startDate, endDate)) {
+            for (const d of expandRaceDateRange(startDate, endDate)) {
               commands.push(['-m', 'ml.predict', '--date', d]);
               commands.push(['-m', 'ml.predict_closing', '--date', d]);
             }
@@ -236,7 +251,7 @@ export async function POST(request: NextRequest) {
         } else if (action === 'vb_refresh') {
           // VBリフレッシュ: 最新オッズでVB/買い目を再計算
           if (isRangeAction && startDate && endDate) {
-            for (const d of expandDateRange(startDate, endDate)) {
+            for (const d of expandRaceDateRange(startDate, endDate)) {
               commands.push(['-m', 'ml.vb_refresh', '--date', d]);
             }
           } else {

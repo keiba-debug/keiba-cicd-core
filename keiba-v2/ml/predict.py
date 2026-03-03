@@ -1052,6 +1052,9 @@ def predict_race(
             'comment_memo_trouble_score': p['features'].get('comment_memo_trouble_score', 0) or 0,
             'comment_has_stable': p['features'].get('comment_has_stable', 0) or 0,
             'comment_has_interview': p['features'].get('comment_has_interview', 0) or 0,
+            # 差し追込指標 (closing model連携, v6.3)
+            'closing_strength': p['features'].get('closing_strength', -1),
+            'avg_first_corner_ratio': p['features'].get('avg_first_corner_ratio', -1),
         }
         entry['is_value_bet'] = False  # AR偏差値計算後に更新
         result_entries.append(entry)

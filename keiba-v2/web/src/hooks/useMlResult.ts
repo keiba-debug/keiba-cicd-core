@@ -12,7 +12,8 @@ export function useMlResult(version?: string | null) {
       const raw = await fetcher(u);
       const v = (raw.version ?? '').replace(/^v/, '');
       const major = parseInt(v.split('.')[0], 10);
-      if (isNaN(major) || major < 2) {
+      // 数値バージョンは2.x以上のみ対応、非数値(cv1等)はv3フォーマットなので許可
+      if (!isNaN(major) && major < 2) {
         throw new Error(`対応バージョン: 2.x以上 (got: ${raw.version})`);
       }
       return normalizeResult(raw);

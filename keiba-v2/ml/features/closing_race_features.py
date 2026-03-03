@@ -7,11 +7,13 @@
 1レース → 1行のDataFrame行を生成。
 
 特徴量グループ:
-  A. コース特性 (8個): distance, track_type, place_code, etc.
+  A. コース特性 (9個): distance, track_type, place_code, nichi, etc.
   B. メンバー構成・脚質分布 (14個): closing_strength集計, front_runner密度, etc.
   C. ペース予測指標 (5個): 先行馬密度→ペース圧力推定
   D. コース歴史統計 (4個, PIT safe): CourseClosingTimelineによる累積統計
-  E. 馬場 (2個): cushion_value, moisture_rate
+  E. 馬場・開催進行 (6個): cushion_value, moisture_rate, late_kaisai交互作用
+  F. 距離延長 (4個): 距離延長馬数→ペース激化→差し有利
+  G. ラップ・持続力 (5個): メンバーのラップ傾向集約
 """
 
 import bisect
@@ -211,6 +213,12 @@ CLOSING_RACE_FEATURES = [
     'cushion_value', 'moisture_rate',
     'is_late_kaisai', 'turf_late_kaisai',
     'moisture_x_late', 'cushion_low',
+    # F. 距離延長 (距離延長馬が多い→ペース激化→差し有利)
+    'n_distance_extenders', 'distance_extension_ratio',
+    'mean_distance_change', 'n_distance_shorteners',
+    # G. ラップ・持続力 (メンバーの過去ラップ傾向を集約)
+    'avg_lap33_mean', 'decel_l1f_mean', 'yoriki_score_mean',
+    'n_sustained_trend', 'sustained_trend_ratio',
 ]
 
 
@@ -414,5 +422,50 @@ def compute_closing_race_features(
     feat['moisture_x_late'] = moisture * is_late if not np.isnan(moisture) else np.nan
     # クッション値が低い (柔らかい馬場 = 差し有利傾向)
     feat['cushion_low'] = 1 if (not np.isnan(cushion) and cushion < 8.0) else 0
+
+    # F. 距離延長 — 距離延長馬が多い→ペース激化→差し有利
+    distance_changes = []
+    for hf in horse_features:
+        dc = hf.get('distance_change')
+        if dc is not None and dc != -1 and dc != 0:  # 0=同距離
+            distance_changes.append(dc)
+
+    n_extenders = sum(1 for dc in distance_changes if dc >= 200)
+    n_shorteners = sum(1 for dc in distance_changes if dc <= -200)
+    feat['n_distance_extenders'] = n_extenders
+    feat['distance_extension_ratio'] = round(n_extenders / entry_count, 4) if entry_count > 0 else 0
+    feat['mean_distance_change'] = round(float(np.mean(distance_changes)), 1) if distance_changes else 0
+    feat['n_distance_shorteners'] = n_shorteners
+
+    # G. ラップ・持続力 — メンバーの過去ラップ傾向を集約
+    # NOTE: pace_features.pyのフィールドはNoneを返すことがある（-1ではない）
+    lap33_vals = []
+    decel_vals = []
+    yoriki_vals = []
+    sustained_count = 0
+
+    for hf in horse_features:
+        lap33 = hf.get('avg_lap33_last3')
+        if lap33 is not None and lap33 != -1 and lap33 != 0:
+            lap33_vals.append(lap33)
+
+        decel = hf.get('race_decel_l1f_avg_last3')
+        if decel is not None and decel != -1:
+            decel_vals.append(decel)
+
+        yoriki = hf.get('yoriki_score_last5')
+        if yoriki is not None and yoriki != -1:
+            yoriki_vals.append(yoriki)
+
+        # dominant_trend_v2_enc: 4=sustained_hp, 5=sustained_strong, 6=sustained_doroashi
+        trend = hf.get('dominant_trend_v2_enc')
+        if trend is not None and trend in (4, 5, 6):
+            sustained_count += 1
+
+    feat['avg_lap33_mean'] = round(float(np.mean(lap33_vals)), 3) if lap33_vals else -1
+    feat['decel_l1f_mean'] = round(float(np.mean(decel_vals)), 3) if decel_vals else -1
+    feat['yoriki_score_mean'] = round(float(np.mean(yoriki_vals)), 3) if yoriki_vals else -1
+    feat['n_sustained_trend'] = sustained_count
+    feat['sustained_trend_ratio'] = round(sustained_count / entry_count, 4) if entry_count > 0 else 0
 
     return feat

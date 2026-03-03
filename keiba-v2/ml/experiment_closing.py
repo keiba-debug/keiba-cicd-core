@@ -548,7 +548,7 @@ def main():
 
     # メタデータ保存
     meta = {
-        'version': 'closing-v1.0',
+        'version': 'closing-v2.0',
         'model_type': 'closing_race',
         'description': '差し追込好走予測: 3着以内に差し/追込 2頭以上',
         'created_at': datetime.now().isoformat(timespec='seconds'),
