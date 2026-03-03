@@ -114,6 +114,15 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
             <span className="text-sm text-muted-foreground">{race.num_runners}頭</span>
           </div>
           <div className="flex items-center gap-2">
+            {race.closing_race_proba != null && race.closing_race_proba >= 0.10 && (
+              <Badge variant="outline" className={`text-[10px] ${
+                race.closing_race_proba >= 0.18 ? 'text-red-600 border-red-400 bg-red-50/50 dark:bg-red-900/20' :
+                race.closing_race_proba >= 0.13 ? 'text-orange-600 border-orange-300 bg-orange-50/50 dark:bg-orange-900/20' :
+                'text-sky-600 border-sky-300'
+              }`} title={`差し決着度: ${(race.closing_race_proba * 100).toFixed(1)}%`}>
+                差し {(race.closing_race_proba * 100).toFixed(0)}%
+              </Badge>
+            )}
             {vbEntries.length > 0 && (
               <Badge variant="outline" className="text-amber-600 border-amber-300">
                 VB {vbEntries.length}頭

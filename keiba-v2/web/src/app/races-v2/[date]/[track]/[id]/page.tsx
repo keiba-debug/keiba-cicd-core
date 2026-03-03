@@ -27,7 +27,7 @@ import { getRaceTrendIndex, lookupRaceTrend } from '@/lib/data/race-trend-reader
 import { loadTrainerPatterns, evaluatePatternMatch, type TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
 import { getTrainerInfo } from '@/lib/data/trainer-index';
 import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
-import { getMlPredictions } from '@/lib/data/ml-prediction-reader';
+import { getMlPredictions, getClosingRaceProba } from '@/lib/data/ml-prediction-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -137,7 +137,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
   }
 
   // データ取得（並列取得: 依存関係のないデータを全て同時に取得）
-  const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions] = await Promise.all([
+  const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions, closingRaceProba] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
@@ -145,6 +145,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
     getRatingStandards(),
     loadTrainerPatterns(),
     getMlPredictions(id, raceId16, date),
+    getClosingRaceProba(id, raceId16, date),
   ]);
 
   // v4(data3)優先 → data2でエンリッチ → data2フォールバック
@@ -516,6 +517,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
         babaInfo={babaInfo}
         jraRaceId={jraRaceId}
         laps={raceData.laps}
+        closingRaceProba={closingRaceProba}
       />
 
       {/* メインコンテンツ */}

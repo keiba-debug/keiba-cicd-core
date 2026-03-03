@@ -217,10 +217,12 @@ export async function POST(request: NextRequest) {
           if (isRangeAction && startDate && endDate) {
             for (const d of expandDateRange(startDate, endDate)) {
               commands.push(['-m', 'ml.predict', '--date', d]);
+              commands.push(['-m', 'ml.predict_closing', '--date', d]);
             }
           } else {
             const dateArg = date || '';
             commands = [dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']];
+            commands.push(dateArg ? ['-m', 'ml.predict_closing', '--date', dateArg] : ['-m', 'ml.predict_closing']);
           }
         } else if (action === 'v4_pipeline') {
           if (isRangeAction && startDate && endDate) {

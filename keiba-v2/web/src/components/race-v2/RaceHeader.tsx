@@ -43,6 +43,8 @@ interface RaceHeaderProps {
   jraRaceId?: string | null;
   /** ラップデータ（ペース傾向バッジ表示用） */
   laps?: LapsData | null;
+  /** 差し決着度（closing model） */
+  closingRaceProba?: number | null;
 }
 
 // 競馬場テキストカラー
@@ -68,6 +70,7 @@ export default function RaceHeader({
   babaInfo,
   jraRaceId,
   laps,
+  closingRaceProba,
 }: RaceHeaderProps) {
   // URLパラメータを優先、なければJSONデータを使用
   const displayDate = urlDate || raceInfo.date;
@@ -147,6 +150,22 @@ export default function RaceHeader({
               {/* このレースの実際のペース傾向 */}
               {laps?.race_trend_v2 && (
                 <RaceTrendBadge trendV2={laps.race_trend_v2} lap33={laps.lap33} />
+              )}
+
+              {/* 差し決着度 */}
+              {closingRaceProba != null && closingRaceProba >= 0.10 && (
+                <span
+                  className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                    closingRaceProba >= 0.18
+                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                      : closingRaceProba >= 0.13
+                      ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                      : 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
+                  }`}
+                  title={`差し決着度: ${(closingRaceProba * 100).toFixed(1)}% — 差し/追込が好走しやすいレース`}
+                >
+                  🏇 差し {(closingRaceProba * 100).toFixed(0)}%
+                </span>
               )}
             </div>
           </div>

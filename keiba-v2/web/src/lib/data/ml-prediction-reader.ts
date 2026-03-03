@@ -219,3 +219,22 @@ export async function getMlPredictions(
 
   return null;
 }
+
+/**
+ * 指定レースの差し決着度（closing_race_proba）を取得
+ */
+export async function getClosingRaceProba(
+  raceId: string,
+  raceId16?: string,
+  date?: string,
+): Promise<number | null> {
+  if (!date) return null;
+
+  const archive = await loadV4Archive(date);
+  if (!archive) return null;
+
+  const race = findRaceInV4(archive, raceId, raceId16);
+  if (!race) return null;
+
+  return (race as V4Race & { closing_race_proba?: number }).closing_race_proba ?? null;
+}

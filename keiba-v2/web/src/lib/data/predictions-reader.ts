@@ -74,6 +74,7 @@ export interface PredictionRace {
   age_class?: string;
   is_handicap?: boolean;
   is_female_only?: boolean;
+  closing_race_proba?: number;
   entries: PredictionEntry[];
 }
 
@@ -162,6 +163,8 @@ export interface PredictionsLive {
   odds_source: string;
   db_odds_coverage: string;
   races: PredictionRace[];
+  has_closing_model?: boolean;
+  closing_model_version?: string;
   recommendations?: ServerRecommendations;
   multi_leg_recommendations?: MultiLegRecommendation[];
   vb_exclusions?: VbExclusion[];
