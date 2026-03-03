@@ -982,7 +982,11 @@ def recommendations_summary(recs: List[BetRecommendation]) -> dict:
 # バックテスト用ユーティリティ
 # =====================================================================
 
-def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> List[dict]:
+def df_to_race_predictions(
+    df_test,
+    grade_offsets: Dict[str, float] = None,
+    closing_proba_map: Dict[str, float] = None,
+) -> List[dict]:
     """DataFrame → generate_recommendations() 入力形式に変換
 
     experiment.py / backtest_bet_engine.py の両方から利用。
@@ -991,6 +995,8 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
     Args:
         grade_offsets: Method A グレードオフセット {grade_key: offset}
             Noneの場合はオフセットなし（従来の相対R）
+        closing_proba_map: {race_id: closing_race_proba} レースレベル差し決着確率
+            Noneの場合は0（closing boostなし）
     """
     import pandas as pd
     import numpy as np
@@ -1028,6 +1034,8 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
                 'win_ev': float(row.get('win_ev', 0)) if pd.notna(row.get('win_ev')) else None,
                 'place_ev': float(row.get('place_ev', 0)) if pd.notna(row.get('place_ev')) else None,
                 'comment_memo_trouble_score': float(row.get('comment_memo_trouble', 0)),
+                # closing model 連携
+                'closing_strength': float(row.get('closing_strength', -1)) if pd.notna(row.get('closing_strength')) else -1,
                 # 結果情報（ROI計算用）
                 'finish_position': int(row.get('finish_position', 0)),
                 'is_win': int(row.get('is_win', 0)),
@@ -1058,12 +1066,17 @@ def df_to_race_predictions(df_test, grade_offsets: Dict[str, float] = None) -> L
             market_z = (implied[i] - imp_mean) / imp_std
             e['dev_gap'] = round(float(model_z - market_z), 3)
 
+        closing_proba = 0.0
+        if closing_proba_map:
+            closing_proba = closing_proba_map.get(str(race_id), 0.0)
+
         races.append({
             'race_id': str(race_id),
             'track_type': str(row.get('track_type_name', '')),
             'grade': grade,
             'age_class': age_class,
             'grade_offset': offset,
+            'closing_race_proba': closing_proba,
             'entries': entries,
         })
     return races

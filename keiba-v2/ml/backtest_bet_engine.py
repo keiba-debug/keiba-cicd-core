@@ -36,13 +36,144 @@ from ml.experiment import (
     build_pit_personnel_timeline,
 )
 from ml.features.margin_target import add_margin_target_to_df
-from ml.features.baba_features import load_baba_index
+from ml.features.baba_features import load_baba_index, get_baba_features
 from ml.bet_engine import (
     PRESETS, BetStrategyParams,
     generate_recommendations, recommendations_summary,
     df_to_race_predictions, calc_bet_engine_roi,
     load_grade_offsets, compute_vb_score,
 )
+from ml.experiment import compute_features_for_race
+from ml.features.closing_race_features import (
+    CLOSING_RACE_FEATURES,
+    CourseClosingTimeline,
+    compute_closing_race_features,
+)
+
+
+def compute_closing_probas(
+    df_test,
+    history_cache, trainer_index, jockey_index,
+    pace_index, kb_ext_index, date_index,
+    baba_index,
+    race_level_index=None, pedigree_index=None,
+    sire_stats_index=None,
+    pit_trainer_tl=None, pit_jockey_tl=None,
+) -> dict:
+    """テスト用レースの closing_race_proba を計算
+
+    Returns:
+        {race_id_str: proba} の辞書
+    """
+    ml_dir = config.ml_dir()
+    model_path = ml_dir / "model_closing.txt"
+    cal_path = ml_dir / "calibrator_closing.pkl"
+    meta_path = ml_dir / "model_closing_meta.json"
+
+    if not model_path.exists():
+        print('[Closing] model_closing.txt not found, skipping')
+        return {}
+
+    model = lgb.Booster(model_file=str(model_path))
+    calibrator = None
+    if cal_path.exists():
+        with open(cal_path, 'rb') as f:
+            calibrator = pickle.load(f)
+
+    meta = {}
+    if meta_path.exists():
+        with open(meta_path, encoding='utf-8') as f:
+            meta = json.load(f)
+
+    features = meta.get('features', CLOSING_RACE_FEATURES)
+
+    # CourseClosingTimeline を構築
+    from ml.experiment_closing import build_course_timeline
+    course_timeline = build_course_timeline(date_index)
+
+    # race_id → date の逆引きマップを構築
+    rid_to_date = {}
+    for date_str, day_data in date_index.items():
+        if isinstance(day_data, dict) and 'tracks' in day_data:
+            for track in day_data['tracks']:
+                for race in track.get('races', []):
+                    rid_to_date[str(race['id'])] = date_str
+        elif isinstance(day_data, list):
+            for rid in day_data:
+                rid_to_date[str(rid)] = date_str
+
+    # テストの全race_idを取得
+    race_ids = df_test['race_id'].unique()
+    print(f'[Closing] Computing closing_race_proba for {len(race_ids)} races...')
+
+    results = {}
+    errors = 0
+    skipped = 0
+    sample_errors = []
+    for race_id in race_ids:
+        try:
+            rid_str = str(race_id)
+            date_str = rid_to_date.get(rid_str)
+            if not date_str:
+                # race_idから日付を推定 (YYYYMMDD...)
+                date_str = f'{rid_str[:4]}-{rid_str[4:6]}-{rid_str[6:8]}'
+
+            race = load_race_json(rid_str, date_str)
+            if race is None:
+                skipped += 1
+                continue
+
+            track_type = race.get('track_type', '')
+            if track_type == 'obstacle' or '障害' in race.get('race_name', ''):
+                skipped += 1
+                continue
+            if race.get('num_runners', 0) < 8:
+                skipped += 1
+                continue
+
+            horse_features = compute_features_for_race(
+                race, history_cache, trainer_index, jockey_index,
+                pace_index, kb_ext_index,
+                race_level_index=race_level_index,
+                pedigree_index=pedigree_index,
+                sire_stats_index=sire_stats_index,
+                pit_trainer_tl=pit_trainer_tl,
+                pit_jockey_tl=pit_jockey_tl,
+            )
+
+            baba_feat = get_baba_features(rid_str, track_type, baba_index)
+
+            race_feat = compute_closing_race_features(
+                race, horse_features,
+                course_timeline=course_timeline,
+                baba_features=baba_feat,
+            )
+
+            feat_values = [race_feat.get(f, np.nan) for f in features]
+            X = np.array([feat_values])
+            pred_raw = float(model.predict(X)[0])
+
+            if calibrator is not None:
+                pred_cal = float(calibrator.predict([pred_raw])[0])
+                pred_cal = max(0.0, min(1.0, pred_cal))
+            else:
+                pred_cal = pred_raw
+
+            results[rid_str] = round(pred_cal, 4)
+        except Exception as e:
+            errors += 1
+            if len(sample_errors) < 3:
+                sample_errors.append(f'{race_id}: {e}')
+
+    print(f'[Closing] Done: {len(results)} races predicted, {skipped} skipped, {errors} errors')
+    if sample_errors:
+        for se in sample_errors:
+            print(f'  Sample error: {se}')
+    if results:
+        high_count = sum(1 for p in results.values() if p >= 0.13)
+        print(f'  >= 0.13 (boost threshold): {high_count} races ({high_count/len(results)*100:.1f}%)')
+
+    return results
 
 
 def _parse_split_label(label: str):
@@ -262,12 +393,28 @@ def main():
     place_odds_col = df_test['place_odds_low'].fillna(df_test['odds'] / 3.5)
     df_test['place_ev'] = pred_p_cal * place_odds_col
 
+    # === Closing Model 推論 ===
+    closing_proba_map = compute_closing_probas(
+        df_test,
+        history_cache, trainer_index, jockey_index,
+        pace_index, kb_ext_index, date_index,
+        baba_index,
+        race_level_index=race_level_index,
+        pedigree_index=pedigree_index,
+        sire_stats_index=sire_stats_index,
+        pit_trainer_tl=pit_trainer_tl,
+        pit_jockey_tl=pit_jockey_tl,
+    )
+
     # === bet_engine バックテスト ===
     print('\n[BetEngine] Converting to race predictions format...')
     grade_offsets = load_grade_offsets()
     if grade_offsets:
         print(f'  Method A: {len(grade_offsets)} grade offsets loaded')
-    race_preds = df_to_race_predictions(df_test, grade_offsets=grade_offsets)
+    race_preds = df_to_race_predictions(
+        df_test, grade_offsets=grade_offsets,
+        closing_proba_map=closing_proba_map,
+    )
     print(f'  {len(race_preds)} races, {sum(len(r["entries"]) for r in race_preds):,} entries')
 
     # キャッシュ保存（再分析用）
@@ -302,7 +449,7 @@ def main():
     print(f'{"=" * 70}')
 
     # Method A なし版
-    race_preds_no_offset = df_to_race_predictions(df_test, grade_offsets=None)
+    race_preds_no_offset = df_to_race_predictions(df_test, grade_offsets=None, closing_proba_map=closing_proba_map)
 
     comparison_configs = [
         ('standard', PRESETS['standard']),
@@ -653,7 +800,7 @@ def main():
     df_test_w['pred_rank_p'] = df_test_w['pred_rank_w']  # rank_p → rank_w
     df_test_w['vb_gap'] = df_test_w['win_vb_gap']         # gap → W gap
 
-    race_preds_w = df_to_race_predictions(df_test_w, grade_offsets=grade_offsets)
+    race_preds_w = df_to_race_predictions(df_test_w, grade_offsets=grade_offsets, closing_proba_map=closing_proba_map)
     print(f'  W-only: {len(race_preds_w)} races')
 
     # ヘッダー
@@ -747,6 +894,197 @@ def main():
                     break
         if w_only_wins:
             print(f'    ↑ W独自の勝ち馬: {len(w_only_wins)}頭 — {", ".join(w_only_wins[:5])}')
+
+    # === Closing Boost 有無比較 ===
+    if closing_proba_map:
+        print(f'\n{"=" * 70}')
+        print(f'  Closing Boost 有無比較 (threshold=0.13, boost_score=1.0)')
+        print(f'{"=" * 70}')
+
+        print(f'  {"Preset":>14} {"Mode":>12} {"Bets":>5} {"TotalBet":>10} '
+              f'{"TotalRet":>10} {"ROI":>7} {"WinROI":>7} {"PlcROI":>7} {"P&L":>8}')
+        print(f'  {"-" * 95}')
+
+        for preset_name, preset_params in PRESETS.items():
+            # Boost ON (current preset, threshold=0.13)
+            recs_on = generate_recommendations(race_preds, preset_params, budget=30000)
+            roi_on = calc_bet_engine_roi(recs_on, race_preds)
+
+            # Boost OFF (threshold=0 → 無効)
+            import dataclasses
+            params_off = dataclasses.replace(preset_params, closing_boost_threshold=0.0)
+            recs_off = generate_recommendations(race_preds, params_off, budget=30000)
+            roi_off = calc_bet_engine_roi(recs_off, race_preds)
+
+            for mode, roi in [('Boost OFF', roi_off), ('Boost ON', roi_on)]:
+                if roi['num_bets'] == 0:
+                    print(f'  {preset_name:>14} {mode:>12} {"---":>5}')
+                    continue
+                pnl = roi['total_return'] - roi['total_bet']
+                marker = ' ***' if roi['total_roi'] >= 100 else ''
+                print(f'  {preset_name:>14} {mode:>12} {roi["num_bets"]:>5} '
+                      f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
+                      f' {roi["win_roi"]:>6.1f}% {roi["place_roi"]:>6.1f}%'
+                      f' {pnl:>+8,}')
+
+        # Boost ON で追加された馬の詳細
+        print(f'\n  --- Closing Boost で追加/変更された買い目 ---')
+        for preset_name in ['standard']:
+            preset_params = PRESETS[preset_name]
+            recs_on = generate_recommendations(race_preds, preset_params, budget=30000)
+            params_off = dataclasses.replace(preset_params, closing_boost_threshold=0.0)
+            recs_off = generate_recommendations(race_preds, params_off, budget=30000)
+
+            set_on = {(r.race_id, r.umaban): r for r in recs_on}
+            set_off = {(r.race_id, r.umaban) for r in recs_off}
+
+            new_bets = [(k, v) for k, v in set_on.items() if k not in set_off]
+            if new_bets:
+                print(f'  {preset_name}: Boost ONで新規 {len(new_bets)} bets')
+                win_count = 0
+                for (rid, uma), rec in new_bets[:10]:
+                    for race in race_preds:
+                        if race['race_id'] == rid:
+                            closing_p = race.get('closing_race_proba', 0)
+                            for e in race['entries']:
+                                if e['umaban'] == uma:
+                                    is_win = e.get('is_win', 0)
+                                    if is_win:
+                                        win_count += 1
+                                    print(f'    {rid} 馬番{uma} {e.get("horse_name",""):8s} '
+                                          f'cs={e.get("closing_strength",-1):+.1f} '
+                                          f'closing={closing_p:.2f} '
+                                          f'odds={e.get("odds",0):.1f} '
+                                          f'{"WIN!" if is_win else ""}')
+                            break
+                if len(new_bets) > 10:
+                    print(f'    ... ({len(new_bets) - 10} more)')
+                print(f'    うち的中: {win_count}/{len(new_bets)}')
+
+        # Boost score sweep
+        print(f'\n  --- Closing Boost Score Sweep (standard preset) ---')
+        print(f'  {"threshold":>10} {"boost":>6} {"Bets":>5} {"TotalBet":>10} '
+              f'{"TotalRet":>10} {"ROI":>7} {"P&L":>8}')
+        print(f'  {"-" * 65}')
+
+        base_params = PRESETS['standard']
+        for threshold in [0.0, 0.10, 0.13, 0.15, 0.18, 0.20]:
+            for boost_score in [0.5, 1.0, 1.5, 2.0]:
+                if threshold == 0.0 and boost_score != 1.0:
+                    continue  # OFF は1回だけ
+                params = dataclasses.replace(
+                    base_params,
+                    closing_boost_threshold=threshold,
+                    closing_boost_score=boost_score,
+                )
+                recs = generate_recommendations(race_preds, params, budget=30000)
+                roi = calc_bet_engine_roi(recs, race_preds)
+                if roi['num_bets'] == 0:
+                    continue
+                pnl = roi['total_return'] - roi['total_bet']
+                t_label = 'OFF' if threshold == 0 else f'{threshold:.2f}'
+                marker = ' ***' if roi['total_roi'] >= 100 else ''
+                print(f'  {t_label:>10} {boost_score:>6.1f} {roi["num_bets"]:>5} '
+                      f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
+                      f' {pnl:>+8,}')
+
+        # === W-only + Closing Boost 比較 ===
+        print(f'\n{"=" * 70}')
+        print(f'  W-only + Closing Boost 有無比較')
+        print(f'{"=" * 70}')
+
+        print(f'  {"Preset":>14} {"Mode":>12} {"Bets":>5} {"TotalBet":>10} '
+              f'{"TotalRet":>10} {"ROI":>7} {"WinROI":>7} {"PlcROI":>7} {"P&L":>8}')
+        print(f'  {"-" * 95}')
+
+        for preset_name, preset_params in PRESETS.items():
+            # W-only Boost ON
+            recs_on = generate_recommendations(race_preds_w, preset_params, budget=30000)
+            roi_on = calc_bet_engine_roi(recs_on, race_preds_w)
+
+            # W-only Boost OFF
+            params_off = dataclasses.replace(preset_params, closing_boost_threshold=0.0)
+            recs_off = generate_recommendations(race_preds_w, params_off, budget=30000)
+            roi_off = calc_bet_engine_roi(recs_off, race_preds_w)
+
+            for mode, roi in [('Boost OFF', roi_off), ('Boost ON', roi_on)]:
+                if roi['num_bets'] == 0:
+                    print(f'  {preset_name:>14} {mode:>12} {"---":>5}')
+                    continue
+                pnl = roi['total_return'] - roi['total_bet']
+                marker = ' ***' if roi['total_roi'] >= 100 else ''
+                print(f'  {preset_name:>14} {mode:>12} {roi["num_bets"]:>5} '
+                      f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
+                      f' {roi["win_roi"]:>6.1f}% {roi["place_roi"]:>6.1f}%'
+                      f' {pnl:>+8,}')
+
+        # W-only Boost score sweep
+        print(f'\n  --- W-only Closing Boost Score Sweep (standard preset) ---')
+        print(f'  {"threshold":>10} {"boost":>6} {"Bets":>5} {"TotalBet":>10} '
+              f'{"TotalRet":>10} {"ROI":>7} {"P&L":>8}')
+        print(f'  {"-" * 65}')
+
+        base_params = PRESETS['standard']
+        for threshold in [0.0, 0.10, 0.13, 0.15, 0.18, 0.20]:
+            for boost_score in [0.5, 1.0, 1.5, 2.0]:
+                if threshold == 0.0 and boost_score != 1.0:
+                    continue
+                params = dataclasses.replace(
+                    base_params,
+                    closing_boost_threshold=threshold,
+                    closing_boost_score=boost_score,
+                )
+                recs = generate_recommendations(race_preds_w, params, budget=30000)
+                roi = calc_bet_engine_roi(recs, race_preds_w)
+                if roi['num_bets'] == 0:
+                    continue
+                pnl = roi['total_return'] - roi['total_bet']
+                t_label = 'OFF' if threshold == 0 else f'{threshold:.2f}'
+                marker = ' ***' if roi['total_roi'] >= 100 else ''
+                print(f'  {t_label:>10} {boost_score:>6.1f} {roi["num_bets"]:>5} '
+                      f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
+                      f' {pnl:>+8,}')
+
+        # W-only Boost で追加された馬の詳細
+        print(f'\n  --- W-only Closing Boost で追加された買い目 (standard) ---')
+        preset_params = PRESETS['standard']
+        recs_on = generate_recommendations(race_preds_w, preset_params, budget=30000)
+        params_off = dataclasses.replace(preset_params, closing_boost_threshold=0.0)
+        recs_off = generate_recommendations(race_preds_w, params_off, budget=30000)
+
+        set_on = {(r.race_id, r.umaban): r for r in recs_on}
+        set_off = {(r.race_id, r.umaban) for r in recs_off}
+
+        new_bets = [(k, v) for k, v in set_on.items() if k not in set_off]
+        if new_bets:
+            print(f'  Boost ONで新規 {len(new_bets)} bets')
+            win_count = 0
+            for (rid, uma), rec in sorted(new_bets, key=lambda x: x[0])[:15]:
+                for race in race_preds_w:
+                    if race['race_id'] == rid:
+                        closing_p = race.get('closing_race_proba', 0)
+                        for e in race['entries']:
+                            if e['umaban'] == uma:
+                                is_win = e.get('is_win', 0)
+                                if is_win:
+                                    win_count += 1
+                                print(f'    {rid} 馬番{uma} {e.get("horse_name",""):8s} '
+                                      f'cs={e.get("closing_strength",-1):+.1f} '
+                                      f'closing={closing_p:.2f} '
+                                      f'odds={e.get("odds",0):.1f} '
+                                      f'{"WIN!" if is_win else ""}')
+                        break
+            # 全体の的中率
+            total_wins = sum(
+                1 for (rid, uma), _ in new_bets
+                for race in race_preds_w if race['race_id'] == rid
+                for e in race['entries'] if e['umaban'] == uma and e.get('is_win', 0) == 1
+            )
+            if len(new_bets) > 15:
+                print(f'    ... ({len(new_bets) - 15} more)')
+            print(f'    うち的中: {total_wins}/{len(new_bets)} ({total_wins/len(new_bets)*100:.1f}%)')
+        else:
+            print(f'  Boost ONで新規追加なし')
 
     print('\nDone.')
 
