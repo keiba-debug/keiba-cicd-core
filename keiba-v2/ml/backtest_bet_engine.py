@@ -1086,6 +1086,109 @@ def main():
         else:
             print(f'  Boost ONで新規追加なし')
 
+    # =================================================================
+    #  Slow Start Risk Boost 比較 (W-only)
+    # =================================================================
+    print(f'\n{"=" * 70}')
+    print(f'  W-only + Slow Start Risk Boost 有無比較')
+    print(f'{"=" * 70}')
+
+    print(f'  {"Preset":>14} {"Mode":>14} {"Bets":>5} {"TotalBet":>10} '
+          f'{"TotalRet":>10} {"ROI":>7} {"P&L":>8}')
+    print(f'  {"-" * 75}')
+
+    for preset_name, preset_params in PRESETS.items():
+        # Slow Start ON (default from preset)
+        recs_on = generate_recommendations(race_preds_w, preset_params, budget=30000)
+        roi_on = calc_bet_engine_roi(recs_on, race_preds_w)
+
+        # Slow Start OFF
+        params_off = dataclasses.replace(preset_params, slow_start_penalty=0.0)
+        recs_off = generate_recommendations(race_preds_w, params_off, budget=30000)
+        roi_off = calc_bet_engine_roi(recs_off, race_preds_w)
+
+        for mode, roi in [('SS-Boost OFF', roi_off), ('SS-Boost ON', roi_on)]:
+            if roi['num_bets'] == 0:
+                print(f'  {preset_name:>14} {mode:>14} {"---":>5}')
+                continue
+            pnl = roi['total_return'] - roi['total_bet']
+            marker = ' ***' if roi['total_roi'] >= 100 else ''
+            print(f'  {preset_name:>14} {mode:>14} {roi["num_bets"]:>5} '
+                  f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
+                  f' {pnl:>+8,}')
+
+    # Slow Start パラメータスイープ (W-only, standard preset)
+    print(f'\n  --- Slow Start Risk Parameter Sweep (W-only, standard) ---')
+    print(f'  {"penalty":>8} {"min_rate":>9} {"fr_mult":>8} {"Bets":>5} {"TotalBet":>10} '
+          f'{"TotalRet":>10} {"ROI":>7} {"P&L":>8}')
+    print(f'  {"-" * 75}')
+
+    base_params = PRESETS['standard']
+    for penalty in [0.0, -0.5, -1.0, -1.5, -2.0]:
+        for min_rate in [0.15, 0.20, 0.25, 0.30]:
+            if penalty == 0.0 and min_rate != 0.20:
+                continue  # OFF は1回だけ
+            for fr_mult in [1.0, 2.0, 3.0]:
+                if penalty == 0.0 and fr_mult != 2.0:
+                    continue
+                params = dataclasses.replace(
+                    base_params,
+                    slow_start_penalty=penalty,
+                    slow_start_min_rate=min_rate,
+                    slow_start_front_runner_multiplier=fr_mult,
+                )
+                recs = generate_recommendations(race_preds_w, params, budget=30000)
+                roi = calc_bet_engine_roi(recs, race_preds_w)
+                if roi['num_bets'] == 0:
+                    continue
+                pnl = roi['total_return'] - roi['total_bet']
+                p_label = 'OFF' if penalty == 0 else f'{penalty:.1f}'
+                marker = ' ***' if roi['total_roi'] >= 100 else ''
+                print(f'  {p_label:>8} {min_rate:>9.2f} {fr_mult:>8.1f} {roi["num_bets"]:>5} '
+                      f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
+                      f' {pnl:>+8,}')
+
+    # Slow Start Boost で除外された馬の詳細 (W-only, standard)
+    print(f'\n  --- Slow Start Risk で除外された買い目 (W-only, standard) ---')
+    preset_params = PRESETS['standard']
+    recs_on = generate_recommendations(race_preds_w, preset_params, budget=30000)
+    params_off = dataclasses.replace(preset_params, slow_start_penalty=0.0)
+    recs_off = generate_recommendations(race_preds_w, params_off, budget=30000)
+
+    set_on = {(r.race_id, r.umaban) for r in recs_on}
+    set_off = {(r.race_id, r.umaban): r for r in recs_off}
+
+    removed_bets = [(k, v) for k, v in set_off.items() if k not in set_on]
+    if removed_bets:
+        print(f'  SS-Boostで除外: {len(removed_bets)} bets')
+        win_count = 0
+        for (rid, uma), rec in sorted(removed_bets, key=lambda x: x[0])[:15]:
+            for race in race_preds_w:
+                if race['race_id'] == rid:
+                    for e in race['entries']:
+                        if e['umaban'] == uma:
+                            is_win = e.get('is_win', 0)
+                            if is_win:
+                                win_count += 1
+                            ss_rate = e.get('horse_slow_start_rate', -1)
+                            c1_ratio = e.get('last_race_corner1_ratio', -1)
+                            is_fr = '逃' if (c1_ratio >= 0 and c1_ratio <= 0.25) else ''
+                            print(f'    {rid} 馬番{uma} {e.get("horse_name",""):8s} '
+                                  f'ss_rate={ss_rate:.2f} c1r={c1_ratio:.2f} {is_fr:>2s} '
+                                  f'odds={e.get("odds",0):.1f} '
+                                  f'{"WIN!" if is_win else ""}')
+                    break
+        total_wins = sum(
+            1 for (rid, uma), _ in removed_bets
+            for race in race_preds_w if race['race_id'] == rid
+            for e in race['entries'] if e['umaban'] == uma and e.get('is_win', 0) == 1
+        )
+        if len(removed_bets) > 15:
+            print(f'    ... ({len(removed_bets) - 15} more)')
+        print(f'    うち的中: {total_wins}/{len(removed_bets)} ({total_wins/len(removed_bets)*100:.1f}%)')
+    else:
+        print(f'  SS-Boostで除外なし')
+
     print('\nDone.')
 
 

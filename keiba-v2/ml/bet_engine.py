@@ -179,6 +179,15 @@ class BetStrategyParams:
     closing_boost_min_strength: float = 1.0  # closing_strength最低値
     closing_boost_score: float = 1.0       # 加算するVBスコア
 
+    # --- Slow Start Risk Boost (出遅れリスクによるVBスコア減算) ---
+    # 出遅れ常習馬にマイナスブースト。逃げ馬は出遅れでレースプラン崩壊するため倍率適用。
+    # horse_slow_start_rate >= slow_start_min_rate の馬に penalty を適用。
+    # 逃げ馬判定: last_race_corner1_ratio <= slow_start_front_runner_threshold
+    slow_start_penalty: float = 0.0             # 0=無効, -0.5~-1.0推奨
+    slow_start_min_rate: float = 0.20            # 出遅れ率20%以上で発動
+    slow_start_front_runner_multiplier: float = 2.0  # 逃げ馬はpenalty倍
+    slow_start_front_runner_threshold: float = 0.25  # corner1/num_runners <= これなら逃げ馬
+
     # --- 単位 ---
     min_bet: int = 100
     bet_unit: int = 100
@@ -260,6 +269,8 @@ PRESETS: Dict[str, BetStrategyParams] = {
         closing_boost_threshold=0.13,   # 差し決着予測 >= 13%でブースト
         closing_boost_min_strength=1.0, # closing_strength >= 1.0
         closing_boost_score=1.0,        # VBスコア +1.0
+        # slow_start: バックテストで逆効果(除外馬の的中率8.4%>平均5%)のため無効化
+        # インフラは残置、将来チューニング余地あり
     ),
     'wide': BetStrategyParams(
         win_min_vb_score=5.0,       # Composite score >= 5.0 (wider net)
@@ -278,9 +289,10 @@ PRESETS: Dict[str, BetStrategyParams] = {
         strong_win_pct=100,
         normal_win_pct=100,
         max_win_per_race=2,
-        closing_boost_threshold=0.13,   # 差し決着予測 >= 13%でブースト
+        closing_boost_threshold=0.13,
         closing_boost_min_strength=1.0,
         closing_boost_score=1.0,
+        # slow_start: 無効化 (逆効果)
     ),
     'aggressive': BetStrategyParams(
         win_min_vb_score=6.0,       # Composite score >= 6.0 (high conviction)
@@ -302,6 +314,7 @@ PRESETS: Dict[str, BetStrategyParams] = {
         closing_boost_threshold=0.13,
         closing_boost_min_strength=1.0,
         closing_boost_score=1.0,
+        # slow_start: 無効化 (逆効果)
     ),
 }
 
@@ -661,6 +674,17 @@ def generate_recommendations(
                 cs = e.get('closing_strength', -1) or -1
                 if cs >= params.closing_boost_min_strength:
                     entry_vb_score += params.closing_boost_score
+
+            # Slow Start Risk: 出遅れ常習馬にマイナスブースト
+            if params.slow_start_penalty < 0:
+                ss_rate = e.get('horse_slow_start_rate', -1)
+                if ss_rate is not None and ss_rate >= params.slow_start_min_rate:
+                    penalty = params.slow_start_penalty
+                    # 逃げ馬は出遅れでレースプラン崩壊するため倍率適用
+                    corner1_ratio = e.get('last_race_corner1_ratio', -1)
+                    if corner1_ratio is not None and 0 <= corner1_ratio <= params.slow_start_front_runner_threshold:
+                        penalty *= params.slow_start_front_runner_multiplier
+                    entry_vb_score += penalty
 
             # === VB Floor Gate: 購入プラン⊆VB候補 ===
             vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV
@@ -1036,6 +1060,9 @@ def df_to_race_predictions(
                 'comment_memo_trouble_score': float(row.get('comment_memo_trouble', 0)),
                 # closing model 連携
                 'closing_strength': float(row.get('closing_strength', -1)) if pd.notna(row.get('closing_strength')) else -1,
+                # slow start risk
+                'horse_slow_start_rate': float(row.get('horse_slow_start_rate', -1)) if pd.notna(row.get('horse_slow_start_rate')) else -1,
+                'last_race_corner1_ratio': float(row.get('last_race_corner1_ratio', -1)) if pd.notna(row.get('last_race_corner1_ratio')) else -1,
                 # 結果情報（ROI計算用）
                 'finish_position': int(row.get('finish_position', 0)),
                 'is_win': int(row.get('is_win', 0)),
