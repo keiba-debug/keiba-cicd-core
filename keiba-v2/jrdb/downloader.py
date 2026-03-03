@@ -33,6 +33,11 @@ from typing import List, Optional
 import requests
 from bs4 import BeautifulSoup
 
+try:
+    import lhafile
+except ImportError:
+    lhafile = None
+
 # === 設定 ===
 JRDB_BASE = 'https://jrdb.com'
 DATA_DIR = Path('C:/KEIBA-CICD/data3/jrdb')
@@ -40,14 +45,14 @@ ZIP_DIR = DATA_DIR / 'zip'
 RAW_DIR = DATA_DIR / 'raw'
 ENV_PATH = DATA_DIR / '.env'
 
-# データタイプ → ダウンロードページURL
+# データタイプ → ダウンロードページURL (datazip=ZIP形式, data=LZH形式)
 DATA_TYPES = {
     'SED': '/member/datazip/Sed/index.html',    # 成績データ (事後IDM)
     'SKB': '/member/datazip/Skb/index.html',    # 成績拡張データ
     'KYI': '/member/datazip/Kyi/index.html',    # 競走馬データ (事前IDM)
     'TYB': '/member/datazip/Tyb/index.html',    # 直前情報データ
-    'KAA': '/member/datazip/Kaa/index.html',    # 開催データ (馬場予想等)
     'HJC': '/member/datazip/Hjc/index.html',    # 払戻情報データ
+    'KAA': '/member/data/Kaa/index.html',       # 開催データ (馬場・天候) ※LZH形式
 }
 
 
@@ -78,8 +83,8 @@ def get_session() -> requests.Session:
     return session
 
 
-def list_zip_links(session: requests.Session, data_type: str) -> List[dict]:
-    """ダウンロードページからZIPリンクを収集
+def list_archive_links(session: requests.Session, data_type: str) -> List[dict]:
+    """ダウンロードページからZIP/LZHリンクを収集
 
     Returns:
         [{'url': str, 'filename': str, 'is_yearly': bool, 'year': int|None}]
@@ -95,35 +100,43 @@ def list_zip_links(session: requests.Session, data_type: str) -> List[dict]:
         print(f"ERROR: HTTP {r.status_code} for {url}")
         return []
 
+    # ベースURL（相対リンク解決用）
+    base_dir = page_path.rsplit('/', 1)[0]
+
     soup = BeautifulSoup(r.content, 'html.parser')
     links = []
 
     for a in soup.find_all('a', href=True):
         href = a['href']
-        if not href.endswith('.zip'):
+        if not (href.endswith('.zip') or href.endswith('.lzh')):
             continue
 
         filename = href.split('/')[-1]
+        ext = filename.rsplit('.', 1)[-1]  # zip or lzh
 
-        # 年度パック: SED_2024.zip
-        yearly_match = re.match(rf'{data_type}_(\d{{4}})\.zip', filename, re.IGNORECASE)
-        # 単体: SED260301.zip or SED_260301.zip
-        single_match = re.match(rf'{data_type}_?(\d{{6}})\.zip', filename, re.IGNORECASE)
+        # 年度パック: SED_2024.zip / KAA_2024.lzh
+        yearly_match = re.match(rf'{data_type}_(\d{{4}})\.(?:zip|lzh)', filename, re.IGNORECASE)
+        # 単体: SED260301.zip / KAA260301.lzh
+        single_match = re.match(rf'{data_type}_?(\d{{6}})\.(?:zip|lzh)', filename, re.IGNORECASE)
 
         if yearly_match:
             year = int(yearly_match.group(1))
+            full_url = href if href.startswith('http') else JRDB_BASE + base_dir + '/' + filename
             links.append({
-                'url': href if href.startswith('http') else JRDB_BASE + '/member/datazip/' + data_type.capitalize()[:3] + '/' + filename,
+                'url': full_url,
                 'filename': filename,
                 'is_yearly': True,
                 'year': year,
+                'format': ext,
             })
         elif single_match:
+            full_url = href if href.startswith('http') else JRDB_BASE + base_dir + '/' + filename
             links.append({
-                'url': href if href.startswith('http') else JRDB_BASE + '/member/datazip/' + data_type.capitalize()[:3] + '/' + filename,
+                'url': full_url,
                 'filename': filename,
                 'is_yearly': False,
                 'year': None,
+                'format': ext,
             })
 
     return links
@@ -187,11 +200,44 @@ def extract_zip(zip_path: Path, dest_dir: Path) -> int:
     return count
 
 
+def extract_lzh(lzh_path: Path, dest_dir: Path) -> int:
+    """LZHを解凍してテキストファイルを配置"""
+    if lhafile is None:
+        print("  ERROR: lhafile not installed. Run: pip install lhafile")
+        return 0
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    count = 0
+
+    try:
+        lf = lhafile.Lhafile(str(lzh_path))
+        for name in lf.namelist():
+            if name.endswith('.txt') or name.endswith('.csv'):
+                out_path = dest_dir / Path(name).name
+                if not out_path.exists():
+                    data = lf.read(name)
+                    out_path.write_bytes(data)
+                    count += 1
+    except Exception as e:
+        print(f"  ERROR: Bad LZH file: {lzh_path.name} ({e})")
+        return 0
+
+    return count
+
+
+def extract_archive(archive_path: Path, dest_dir: Path) -> int:
+    """ZIP/LZHを自動判定して解凍"""
+    if archive_path.suffix.lower() == '.lzh':
+        return extract_lzh(archive_path, dest_dir)
+    else:
+        return extract_zip(archive_path, dest_dir)
+
+
 def download_yearly(session: requests.Session, data_type: str, years: List[int]):
     """年度パックをダウンロード・解凍"""
     print(f"\n[{data_type}] Downloading yearly packs: {years[0]}-{years[-1]}")
 
-    links = list_zip_links(session, data_type)
+    links = list_archive_links(session, data_type)
     yearly = [l for l in links if l['is_yearly'] and l['year'] in years]
 
     if not yearly:
@@ -208,7 +254,7 @@ def download_yearly(session: requests.Session, data_type: str, years: List[int])
     for link in sorted(yearly, key=lambda x: x['year']):
         dest = type_zip_dir / link['filename']
         if download_file(session, link['url'], dest):
-            n = extract_zip(dest, type_raw_dir)
+            n = extract_archive(dest, type_raw_dir)
             if n > 0:
                 print(f"  Extracted: {n} files")
 
@@ -217,7 +263,7 @@ def download_latest(session: requests.Session, data_type: str, count: int = 5):
     """最新の単体ファイルをダウンロード"""
     print(f"\n[{data_type}] Downloading latest {count} files")
 
-    links = list_zip_links(session, data_type)
+    links = list_archive_links(session, data_type)
     singles = [l for l in links if not l['is_yearly']]
     singles.sort(key=lambda x: x['filename'], reverse=True)
 
@@ -227,7 +273,7 @@ def download_latest(session: requests.Session, data_type: str, count: int = 5):
     for link in singles[:count]:
         dest = type_zip_dir / link['filename']
         if download_file(session, link['url'], dest):
-            n = extract_zip(dest, type_raw_dir)
+            n = extract_archive(dest, type_raw_dir)
             if n > 0:
                 print(f"  Extracted: {n} files")
 

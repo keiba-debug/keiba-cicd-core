@@ -507,9 +507,24 @@ def load_master_data():
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()
     print(f"  PIT: Trainer {len(pit_trainer_tl):,}, Jockey {len(pit_jockey_tl):,}")
 
+    # JRDB indexes (v7.0)
+    jrdb_sed_index = {}
+    jrdb_kyi_index = {}
+    sed_path = config.indexes_dir() / "jrdb_sed_index.json"
+    kyi_path = config.indexes_dir() / "jrdb_kyi_index.json"
+    if sed_path.exists():
+        with open(sed_path, encoding='utf-8') as f:
+            jrdb_sed_index = json.load(f)
+        print(f"  JRDB SED index: {len(jrdb_sed_index):,} entries")
+    if kyi_path.exists():
+        with open(kyi_path, encoding='utf-8') as f:
+            jrdb_kyi_index = json.load(f)
+        print(f"  JRDB KYI index: {len(jrdb_kyi_index):,} entries")
+
     return (history_cache, trainer_index, jockey_index, pace_index,
             kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
-            baba_index, pit_trainer_tl, pit_jockey_tl)
+            baba_index, pit_trainer_tl, pit_jockey_tl,
+            jrdb_sed_index, jrdb_kyi_index)
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -646,6 +661,8 @@ def predict_race(
     baba_index: Optional[dict] = None,
     pit_trainer_tl: Optional[dict] = None,
     pit_jockey_tl: Optional[dict] = None,
+    jrdb_sed_index: Optional[dict] = None,
+    jrdb_kyi_index: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -663,6 +680,7 @@ def predict_race(
         pit_jockey_tl: 騎手PIT timeline (Optional, point-in-time safe)
     """
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
+    from ml.features.jrdb_features import compute_jrdb_features
 
     features_value = meta['features_value']
     # Optunaモデル別特徴量（異なるグループON/OFF時に使用）
@@ -852,6 +870,17 @@ def predict_race(
         # 馬場特徴量 (v5.41)
         baba_feat = get_baba_features(race_id, track_type, baba_index or {})
         feat.update(baba_feat)
+
+        # JRDB特徴量 (v7.0)
+        if jrdb_sed_index is not None or jrdb_kyi_index is not None:
+            jrdb_feat = compute_jrdb_features(
+                ketto_num=ketto_num,
+                race_date=race_date,
+                history_cache=history_cache,
+                jrdb_sed_index=jrdb_sed_index or {},
+                jrdb_kyi_index=jrdb_kyi_index or {},
+            )
+            feat.update(jrdb_feat)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = np.nan  # placeholder — real oddsがあればランク化される
@@ -1223,7 +1252,8 @@ def main():
     print("[Load] Loading master data...")
     (history_cache, trainer_index, jockey_index, pace_index,
      kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
-     baba_index, pit_trainer_tl, pit_jockey_tl) = load_master_data()
+     baba_index, pit_trainer_tl, pit_jockey_tl,
+     jrdb_sed_index, jrdb_kyi_index) = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
@@ -1353,6 +1383,8 @@ def main():
             baba_index=baba_index,
             pit_trainer_tl=pit_trainer_tl,
             pit_jockey_tl=pit_jockey_tl,
+            jrdb_sed_index=jrdb_sed_index,
+            jrdb_kyi_index=jrdb_kyi_index,
         )
         all_predictions.append(pred)
 

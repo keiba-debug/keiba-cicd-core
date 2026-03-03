@@ -53,6 +53,8 @@ def predict_date(
     grade_offsets,
     with_bets: bool = False,
     budget: int = 30000,
+    jrdb_sed_index: dict = None,
+    jrdb_kyi_index: dict = None,
 ):
     """1日分の予測を実行してpredictions.jsonを保存"""
     races = get_races_for_date(date)
@@ -127,6 +129,8 @@ def predict_date(
             baba_index=baba_index,
             pit_trainer_tl=pit_trainer_tl,
             pit_jockey_tl=pit_jockey_tl,
+            jrdb_sed_index=jrdb_sed_index,
+            jrdb_kyi_index=jrdb_kyi_index,
         )
         all_predictions.append(pred)
         for e in pred['entries']:
@@ -298,7 +302,8 @@ def main():
     print("[Load] Loading master data...")
     (history_cache, trainer_index, jockey_index, pace_index,
      kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
-     baba_index, pit_trainer_tl, pit_jockey_tl) = load_master_data()
+     baba_index, pit_trainer_tl, pit_jockey_tl,
+     jrdb_sed_index, jrdb_kyi_index) = load_master_data()
 
     # グレードオフセット
     grade_offsets = load_grade_offsets()
@@ -320,6 +325,8 @@ def main():
             grade_offsets,
             with_bets=args.with_bets,
             budget=args.budget,
+            jrdb_sed_index=jrdb_sed_index,
+            jrdb_kyi_index=jrdb_kyi_index,
         )
         total_races += n
         dt = time.time() - dt0

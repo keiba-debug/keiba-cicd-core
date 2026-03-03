@@ -299,6 +299,85 @@ def parse_kyi_line(line: bytes) -> Optional[dict]:
     }
 
 
+def parse_kaa_line(line: bytes) -> Optional[dict]:
+    """KAA固定長1行(54バイト) → dict
+
+    開催データ: 馬場状態・天候・トラックバイアスを含む
+    スペック相対位置は1-based → Python 0-based に変換
+    """
+    if len(line) < 49:
+        return None
+
+    venue_code = line[0:2].decode('ascii', errors='replace').strip()
+    yy = line[2:4].decode('ascii', errors='replace')
+    kai = line[4:5].decode('ascii', errors='replace')
+    nichi_hex = line[5:6].decode('ascii', errors='replace')
+    date_str = line[6:14].decode('ascii', errors='replace').strip()  # YYYYMMDD
+
+    if not date_str or len(date_str) != 8:
+        return None
+
+    # 日付をYYYY-MM-DD形式に
+    race_date = '%s-%s-%s' % (date_str[:4], date_str[4:6], date_str[6:8])
+
+    kaisai_kubun = _safe_int(line[14:15].decode('ascii', errors='replace'))  # 1:関東 2:関西 3:ローカル
+    venue_name = line[17:21].decode('shift_jis', errors='replace').strip()
+    weather_code = _safe_int(line[21:22].decode('ascii', errors='replace'))
+
+    # 芝馬場
+    turf_condition_code = _safe_int(line[22:24].decode('ascii', errors='replace'))
+    turf_inner = _safe_int(line[24:25].decode('ascii', errors='replace'))   # 1:絶好 2:良 3:稍荒 4:荒
+    turf_middle = _safe_int(line[25:26].decode('ascii', errors='replace'))
+    turf_outer = _safe_int(line[26:27].decode('ascii', errors='replace'))
+    turf_sa = _safe_int(line[27:30].decode('ascii', errors='replace'))      # 馬場差
+
+    # 直線馬場差 (5ポジション: 最内/内/中/外/大外)
+    straight_innermost = _safe_int(line[30:32].decode('ascii', errors='replace'))
+    straight_inner = _safe_int(line[32:34].decode('ascii', errors='replace'))
+    straight_middle = _safe_int(line[34:36].decode('ascii', errors='replace'))
+    straight_outer = _safe_int(line[36:38].decode('ascii', errors='replace'))
+    straight_outermost = _safe_int(line[38:40].decode('ascii', errors='replace'))
+
+    # ダート馬場
+    dirt_condition_code = _safe_int(line[40:42].decode('ascii', errors='replace'))
+    dirt_inner = _safe_int(line[42:43].decode('ascii', errors='replace'))
+    dirt_middle = _safe_int(line[43:44].decode('ascii', errors='replace'))
+    dirt_outer = _safe_int(line[44:45].decode('ascii', errors='replace'))
+    dirt_sa = _safe_int(line[45:48].decode('ascii', errors='replace'))
+
+    data_kubun = _safe_int(line[48:49].decode('ascii', errors='replace'))   # 1:特別登録 2:想定確定 3:枠確定 4:前日
+
+    return {
+        'venue_code': venue_code,
+        'venue_name': venue_name,
+        'race_date': race_date,
+        'kai': kai,
+        'nichi_hex': nichi_hex,
+        'kaisai_kubun': kaisai_kubun,
+        'weather_code': weather_code,
+        # 芝馬場
+        'turf_condition_code': turf_condition_code,
+        'turf_inner': turf_inner,
+        'turf_middle': turf_middle,
+        'turf_outer': turf_outer,
+        'turf_sa': turf_sa,
+        # 直線馬場差 (ポジション別バイアス)
+        'straight_innermost': straight_innermost,
+        'straight_inner': straight_inner,
+        'straight_middle': straight_middle,
+        'straight_outer': straight_outer,
+        'straight_outermost': straight_outermost,
+        # ダート馬場
+        'dirt_condition_code': dirt_condition_code,
+        'dirt_inner': dirt_inner,
+        'dirt_middle': dirt_middle,
+        'dirt_outer': dirt_outer,
+        'dirt_sa': dirt_sa,
+        # データ区分
+        'data_kubun': data_kubun,
+    }
+
+
 def load_sed_files(year_range: range = None) -> List[dict]:
     """SED生ファイルをまとめてパース
 
@@ -375,6 +454,41 @@ def load_kyi_files(year_range: range = None) -> List[dict]:
         file_count += 1
 
     print(f"[KYI] {file_count} files, {len(records):,} records loaded")
+    return records
+
+
+def load_kaa_files(year_range: range = None) -> List[dict]:
+    """KAA生ファイルをまとめてパース"""
+    kaa_dir = RAW_DIR / 'KAA'
+    if not kaa_dir.exists():
+        print(f"ERROR: {kaa_dir} not found")
+        return []
+
+    records = []
+    file_count = 0
+
+    for f in sorted(kaa_dir.glob('KAA*.txt')):
+        fname = f.stem
+        yy = fname[3:5]
+        try:
+            year = 2000 + int(yy) if int(yy) < 80 else 1900 + int(yy)
+        except ValueError:
+            continue
+
+        if year_range and year not in year_range:
+            continue
+
+        data = f.read_bytes()
+        for line in data.split(b'\r\n'):
+            if len(line) < 49:
+                continue
+            rec = parse_kaa_line(line)
+            if rec:
+                records.append(rec)
+
+        file_count += 1
+
+    print(f"[KAA] {file_count} files, {len(records):,} records loaded")
     return records
 
 

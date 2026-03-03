@@ -361,7 +361,8 @@ def main():
     # データロード（experiment.pyの関数を再利用）
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index, pedigree_index, sire_stats_index) = load_data()
+     race_level_index, pedigree_index, sire_stats_index,
+     jrdb_sed_index, jrdb_kyi_index) = load_data()
 
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()
 
@@ -385,6 +386,8 @@ def main():
         min_month=train_min_m, max_month=train_max_m,
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         baba_index=baba_index,
+        jrdb_sed_index=jrdb_sed_index,
+        jrdb_kyi_index=jrdb_kyi_index,
     )
 
     df_val = build_dataset(
@@ -398,6 +401,8 @@ def main():
         min_month=val_min_m, max_month=val_max_m,
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         baba_index=baba_index,
+        jrdb_sed_index=jrdb_sed_index,
+        jrdb_kyi_index=jrdb_kyi_index,
     )
 
     # AR用 margin target追加

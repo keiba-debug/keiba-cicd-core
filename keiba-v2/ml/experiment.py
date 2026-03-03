@@ -185,6 +185,10 @@ BABA_FEATURES = [
     'moisture_rate',    # 走路面の含水率 (turf→turf moisture, dirt→dirt moisture)
 ]
 
+# JRDB特徴量 (v7.0): 事後IDM履歴 + 事前IDM予測
+from ml.features.jrdb_features import JRDB_FEATURE_COLS
+JRDB_FEATURES = JRDB_FEATURE_COLS
+
 # 市場系特徴量（Model Bでは除外）
 # ※独自分析系（CK調教・レース分類）は v5.42 でVALUEに復帰
 #   CK調教ラップ = 馬のコンディション客観データ（独自分析の軸）
@@ -202,6 +206,10 @@ MARKET_FEATURES = {
     # v5.45: Phase P — 平滑化条件適性率 + 前走オッズ
     'condition_top3_rate_smoothed', 'exact_distance_top3_rate_smoothed',
     'prev_odds',
+    # v7.0: JRDB事前指数（市場と相関が高いもの）
+    'jrdb_pre_idm', 'jrdb_sogo_idx', 'jrdb_info_idx',
+    # v7.0a: 騎手/調教/厩舎指数も市場相関大 — VB差別化を破壊するため除外
+    'jrdb_jockey_idx', 'jrdb_training_idx', 'jrdb_stable_idx',
 }
 
 # 派生特徴量
@@ -214,7 +222,7 @@ FEATURE_COLS_ALL = (
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
     PACE_FEATURES + TRAINING_FEATURES + KB_MARK_FEATURES + SPEED_FEATURES +
     COMMENT_FEATURES + SLOW_START_FEATURES + PEDIGREE_FEATURES +
-    BABA_FEATURES
+    BABA_FEATURES + JRDB_FEATURES
 )
 
 # 共通特徴量（市場系除外 — 全モデル共通）
@@ -890,7 +898,7 @@ def build_pit_sire_timeline(date_index: dict, pedigree_index: dict) -> Tuple[dic
     return dict(sire_tl), dict(dam_tl), dict(bms_tl)
 
 
-def load_data(sire_cutoff: str = None) -> Tuple[dict, dict, dict, dict, dict, dict, dict, dict, dict]:
+def load_data(sire_cutoff: str = None) -> tuple:
     """data3からデータをロード
 
     Args:
@@ -976,9 +984,28 @@ def load_data(sire_cutoff: str = None) -> Tuple[dict, dict, dict, dict, dict, di
     # CK_DATA training summary index
     training_summary_index = build_training_summary_index(date_index)
 
+    # JRDB indexes (v7.0)
+    jrdb_sed_index = {}
+    jrdb_kyi_index = {}
+    sed_path = config.indexes_dir() / "jrdb_sed_index.json"
+    kyi_path = config.indexes_dir() / "jrdb_kyi_index.json"
+    if sed_path.exists():
+        with open(sed_path, encoding='utf-8') as f:
+            jrdb_sed_index = json.load(f)
+        print(f"  JRDB SED index: {len(jrdb_sed_index):,} entries")
+    else:
+        print("  JRDB SED index: NOT FOUND (skipping)")
+    if kyi_path.exists():
+        with open(kyi_path, encoding='utf-8') as f:
+            jrdb_kyi_index = json.load(f)
+        print(f"  JRDB KYI index: {len(jrdb_kyi_index):,} entries")
+    else:
+        print("  JRDB KYI index: NOT FOUND (skipping)")
+
     return (history_cache, trainer_index, jockey_index,
             date_index, pace_index, kb_ext_index, training_summary_index,
-            race_level_index, pedigree_index, sire_stats_index)
+            race_level_index, pedigree_index, sire_stats_index,
+            jrdb_sed_index, jrdb_kyi_index)
 
 
 def compute_features_for_race(
@@ -1000,6 +1027,8 @@ def compute_features_for_race(
     pit_dam_tl: dict = None,
     pit_bms_tl: dict = None,
     baba_index: dict = None,
+    jrdb_sed_index: dict = None,
+    jrdb_kyi_index: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
@@ -1023,6 +1052,7 @@ def compute_features_for_race(
     from ml.features.slow_start_features import compute_slow_start_features
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
     from ml.features.baba_features import get_baba_features
+    from ml.features.jrdb_features import compute_jrdb_features
 
     # Sire/Dam/BMS index (build once per race call)
     _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
@@ -1188,6 +1218,17 @@ def compute_features_for_race(
         baba_feat = get_baba_features(race_id, track_type, baba_index or {})
         feat.update(baba_feat)
 
+        # JRDB特徴量 (v7.0)
+        if jrdb_sed_index is not None or jrdb_kyi_index is not None:
+            jrdb_feat = compute_jrdb_features(
+                ketto_num=ketto_num,
+                race_date=race_date,
+                history_cache=history_cache,
+                jrdb_sed_index=jrdb_sed_index or {},
+                jrdb_kyi_index=jrdb_kyi_index or {},
+            )
+            feat.update(jrdb_feat)
+
         # メタ情報（学習には使わないが分析用）
         feat['race_id'] = race_id
         feat['date'] = race_date
@@ -1227,6 +1268,8 @@ def build_dataset(
     pedigree_index: dict = None,
     sire_stats_index: dict = None,
     min_month: int = None,
+    jrdb_sed_index: dict = None,
+    jrdb_kyi_index: dict = None,
     max_month: int = None,
     pit_trainer_tl: dict = None,
     pit_jockey_tl: dict = None,
@@ -1312,6 +1355,8 @@ def build_dataset(
                 pit_dam_tl=pit_dam_tl,
                 pit_bms_tl=pit_bms_tl,
                 baba_index=baba_index,
+                jrdb_sed_index=jrdb_sed_index,
+                jrdb_kyi_index=jrdb_kyi_index,
             )
             if save_features and rows:
                 from ml.feature_snapshot import save_feature_snapshot
@@ -2426,7 +2471,8 @@ def main():
     # データロード
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index, pedigree_index, sire_stats_index) = load_data(
+     race_level_index, pedigree_index, sire_stats_index,
+     jrdb_sed_index, jrdb_kyi_index) = load_data(
         sire_cutoff=args.sire_cutoff)
 
     # Point-in-time: 調教師・騎手の累積タイムライン構築
@@ -2455,6 +2501,8 @@ def main():
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         baba_index=baba_index,
         save_features=_save_feat,
+        jrdb_sed_index=jrdb_sed_index,
+        jrdb_kyi_index=jrdb_kyi_index,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2467,6 +2515,8 @@ def main():
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         baba_index=baba_index,
         save_features=_save_feat,
+        jrdb_sed_index=jrdb_sed_index,
+        jrdb_kyi_index=jrdb_kyi_index,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2479,6 +2529,8 @@ def main():
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         baba_index=baba_index,
         save_features=_save_feat,
+        jrdb_sed_index=jrdb_sed_index,
+        jrdb_kyi_index=jrdb_kyi_index,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
