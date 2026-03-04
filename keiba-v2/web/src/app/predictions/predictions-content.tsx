@@ -65,7 +65,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [bankrollBalance, setBankrollBalance] = useState<number | null>(null);
   const [bankrollBudget, setBankrollBudget] = useState<number | null>(null); // 計算済み日次予算
   const [budgetLinked, setBudgetLinked] = useState<boolean>(true); // bankroll連動モード
-  const [dailyLimitPct, setDailyLimitPct] = useState<number>(5); // 日次予算率(%)
+  const [dailyLimitPct, setDailyLimitPct] = useState<number>(2); // 日次予算率(%) — v7.3推奨2%
 
   // bankroll予算を計算するヘルパー
   const computeBudget = useCallback((balance: number, pct: number) => {
@@ -149,11 +149,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     }).catch(() => {/* ignore */});
   }, [bankrollBalance, budgetLinked, computeBudget]);
 
-  // 推奨買い目 プリセット選択（デフォルト: standard）
-  const [preset, setPreset] = useState<ServerPresetKey>('standard');
+  // 推奨買い目 プリセット選択（デフォルト: intersection）
+  const [preset, setPreset] = useState<ServerPresetKey>('intersection');
   useEffect(() => {
     const saved = localStorage.getItem('keiba_bet_preset');
-    if (saved && ['standard', 'wide'].includes(saved)) {
+    if (saved && ['intersection', 'relaxed', 'ev_focus'].includes(saved)) {
       setPreset(saved as ServerPresetKey);
     }
   }, []);
@@ -162,8 +162,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     localStorage.setItem('keiba_bet_preset', p);
   }, []);
 
-  // 配分モード（Kelly / 均等）
-  const [allocMode, setAllocMode] = useState<AllocMode>('kelly');
+  // 配分モード（Kelly / 均等）— Intersection Filterでは均等配分が基本
+  const [allocMode, setAllocMode] = useState<AllocMode>('equal');
   const updateAllocMode = useCallback((m: AllocMode) => {
     setAllocMode(m);
   }, []);

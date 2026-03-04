@@ -134,6 +134,7 @@ export function normalizeResult(raw: any): MlExperimentResultV2 {
     gap_margin_grid: d.gap_margin_grid,
     gap_ard_grid: d.gap_ard_grid,
     bet_engine_presets: d.bet_engine_presets,
+    intersection_grid: d.intersection_grid,
     obstacle_model: d.obstacle_model,
   } as MlExperimentResultV2;
 }
@@ -233,6 +234,37 @@ export const FEATURE_LABELS: Record<string, string> = {
   dam_finish_type_pref: '母:瞬発vs持続',
   sire_maturity_index: '父:成長曲線', bms_maturity_index: '母父:成長曲線',
   dam_maturity_index: '母:成長曲線',
+  // 馬場 (v5.12)
+  cushion_value: 'クッション値', moisture_rate: '含水率',
+  // コース
+  place_code: '競馬場コード', first_corner_dist: '1角距離',
+  // 前走オッズ
+  prev_odds: '前走オッズ',
+  // v5.4: 平滑化追加
+  condition_top3_rate_smoothed: '馬場状態複勝率(平滑化)',
+  exact_distance_top3_rate_smoothed: '距離適性複勝率(平滑化)',
+  // JRDB IDM能力指標 (v7.0a)
+  jrdb_idm_last: 'IDM(前走)', jrdb_idm_avg3: 'IDM(3走平均)',
+  jrdb_idm_max5: 'IDM(5走最高)', jrdb_idm_trend: 'IDMトレンド',
+  jrdb_idm_std: 'IDM分散',
+  jrdb_agari_idx_last: '上がり指数(前走)', jrdb_agari_idx_avg3: '上がり指数(3走平均)',
+  jrdb_ten_idx_last: 'テン指数(前走)', jrdb_ten_idx_avg3: 'テン指数(3走平均)',
+  jrdb_deokure_count5: '出遅れ回数(5走)', jrdb_furi_count5: '不利回数(5走)',
+  jrdb_joushou_mean: '上昇度平均',
+  jrdb_gekisou_idx: '激走指数', jrdb_start_idx: 'スタート指数',
+  jrdb_deokure_rate: '出遅れ率',
+  jrdb_idm_vs_pre: 'IDM vs 予想IDM', jrdb_idm_growth: 'IDM成長度',
+  // JRDB MARKET系 (v7.0a)
+  jrdb_pre_idm: '予想IDM', jrdb_info_idx: '情報指数',
+  jrdb_jockey_idx: '騎手指数(JRDB)', jrdb_training_idx: '調教指数(JRDB)',
+  jrdb_stable_idx: '厩舎指数(JRDB)', jrdb_sogo_idx: '総合指数(JRDB)',
+  // トラックバイアス (v7.2)
+  kaa_turf_bias: '芝内外差バイアス', kaa_turf_inner: '芝内回り状態',
+  kaa_straight_bias: '直線馬場差', kaa_is_outer_bias: '外差しバイアス',
+  kaa_dirt_bias: 'ダート内外差', kaa_surface_condition: '走路面コンディション',
+  pace_collapse_exp_last5: '前崩れ経験(5走)', pace_collapse_benefit_last5: '前崩れ恩恵(5走)',
+  avg_corner4_ratio_last3: '4角位置比率(3走)', high_pace_exp_last5: 'Hペース経験(5走)',
+  bias_race_exp_last5: '外差しレース経験(5走)',
 };
 
 /** 特徴量カテゴリ分類 */
@@ -243,6 +275,8 @@ export const FEATURE_CATEGORIES: Record<string, { label: string; color: string }
   TRAINING: { label: 'TRAINING', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' },
   CK: { label: 'CK', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400' },
   PEDIGREE: { label: 'PEDIGREE', color: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400' },
+  JRDB: { label: 'JRDB', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  TRACK_BIAS: { label: 'BIAS', color: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-400' },
 };
 
 const MARKET_FEATURES = new Set([
@@ -251,10 +285,14 @@ const MARKET_FEATURES = new Set([
   'ck_laprank_accel', 'ck_final_time4f', 'prev_grade_level',
   'ck_laprank_class', 'grade_level_diff', 'kb_aggregate_mark_point',
   'venue_rank_diff', 'ck_final_lap1', 'ck_time_rank',
-  'comment_stable_mark',
+  'comment_stable_mark', 'prev_odds',
   'win_rate_smoothed', 'top3_rate_smoothed',
   'venue_top3_rate_smoothed', 'track_type_top3_rate_smoothed',
-  'distance_fitness_smoothed',
+  'distance_fitness_smoothed', 'condition_top3_rate_smoothed',
+  'exact_distance_top3_rate_smoothed',
+  // JRDB MARKET系 (市場オッズと相関大)
+  'jrdb_pre_idm', 'jrdb_info_idx', 'jrdb_jockey_idx',
+  'jrdb_training_idx', 'jrdb_stable_idx', 'jrdb_sogo_idx',
 ]);
 const ROTATION_FEATURES = new Set([
   'futan_diff', 'futan_diff_ratio', 'weight_change_ratio',
@@ -290,8 +328,25 @@ const PEDIGREE_FEATURES_SET = new Set([
   'sire_maturity_index', 'bms_maturity_index', 'dam_maturity_index',
 ]);
 
+const JRDB_FEATURES = new Set([
+  'jrdb_idm_last', 'jrdb_idm_avg3', 'jrdb_idm_max5', 'jrdb_idm_trend', 'jrdb_idm_std',
+  'jrdb_agari_idx_last', 'jrdb_agari_idx_avg3',
+  'jrdb_ten_idx_last', 'jrdb_ten_idx_avg3',
+  'jrdb_deokure_count5', 'jrdb_furi_count5', 'jrdb_joushou_mean',
+  'jrdb_gekisou_idx', 'jrdb_start_idx', 'jrdb_deokure_rate',
+  'jrdb_idm_vs_pre', 'jrdb_idm_growth',
+]);
+const TRACK_BIAS_FEATURES = new Set([
+  'kaa_turf_bias', 'kaa_turf_inner', 'kaa_straight_bias',
+  'kaa_is_outer_bias', 'kaa_dirt_bias', 'kaa_surface_condition',
+  'pace_collapse_exp_last5', 'pace_collapse_benefit_last5',
+  'avg_corner4_ratio_last3', 'high_pace_exp_last5', 'bias_race_exp_last5',
+]);
+
 export function getFeatureCategory(feature: string): string | null {
   if (MARKET_FEATURES.has(feature)) return 'MARKET';
+  if (JRDB_FEATURES.has(feature)) return 'JRDB';
+  if (TRACK_BIAS_FEATURES.has(feature)) return 'TRACK_BIAS';
   if (CK_FEATURES.has(feature)) return 'CK';
   if (PEDIGREE_FEATURES_SET.has(feature)) return 'PEDIGREE';
   if (ROTATION_FEATURES.has(feature)) return 'ROTATION';

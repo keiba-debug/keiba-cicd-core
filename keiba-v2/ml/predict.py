@@ -521,10 +521,18 @@ def load_master_data():
             jrdb_kyi_index = json.load(f)
         print(f"  JRDB KYI index: {len(jrdb_kyi_index):,} entries")
 
+    # KAA index (v7.2: トラックバイアス)
+    jrdb_kaa_index = {}
+    kaa_path = config.indexes_dir() / "jrdb_kaa_index.json"
+    if kaa_path.exists():
+        with open(kaa_path, encoding='utf-8') as f:
+            jrdb_kaa_index = json.load(f)
+        print(f"  JRDB KAA index: {len(jrdb_kaa_index):,} entries")
+
     return (history_cache, trainer_index, jockey_index, pace_index,
             kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
             baba_index, pit_trainer_tl, pit_jockey_tl,
-            jrdb_sed_index, jrdb_kyi_index)
+            jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index)
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -663,6 +671,7 @@ def predict_race(
     pit_jockey_tl: Optional[dict] = None,
     jrdb_sed_index: Optional[dict] = None,
     jrdb_kyi_index: Optional[dict] = None,
+    jrdb_kaa_index: Optional[dict] = None,
 ) -> dict:
     """1レースの予測を実行
 
@@ -881,6 +890,24 @@ def predict_race(
                 jrdb_kyi_index=jrdb_kyi_index or {},
             )
             feat.update(jrdb_feat)
+
+        # トラックバイアス特徴量 (v7.2)
+        if jrdb_kaa_index:
+            from ml.features.track_bias_features import (
+                compute_race_bias_features, compute_horse_bias_features
+            )
+            race_bias = compute_race_bias_features(
+                race_id=race_id, race_date=race_date,
+                track_type=track_type, kaa_index=jrdb_kaa_index,
+            )
+            feat.update(race_bias)
+            horse_bias = compute_horse_bias_features(
+                ketto_num=ketto_num, race_date=race_date,
+                sed_index=jrdb_sed_index or {},
+                kaa_index=jrdb_kaa_index,
+                history_cache=history_cache,
+            )
+            feat.update(horse_bias)
 
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = np.nan  # placeholder — real oddsがあればランク化される
@@ -1253,7 +1280,7 @@ def main():
     (history_cache, trainer_index, jockey_index, pace_index,
      kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
      baba_index, pit_trainer_tl, pit_jockey_tl,
-     jrdb_sed_index, jrdb_kyi_index) = load_master_data()
+     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index) = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
@@ -1385,6 +1412,7 @@ def main():
             pit_jockey_tl=pit_jockey_tl,
             jrdb_sed_index=jrdb_sed_index,
             jrdb_kyi_index=jrdb_kyi_index,
+            jrdb_kaa_index=jrdb_kaa_index,
         )
         all_predictions.append(pred)
 

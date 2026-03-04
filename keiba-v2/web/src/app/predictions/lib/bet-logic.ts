@@ -8,13 +8,13 @@ export const BET_CONFIG = {
 } as const;
 
 /** サーバー側プリセットキー */
-export type ServerPresetKey = 'standard' | 'wide' | 'aggressive';
+export type ServerPresetKey = 'intersection' | 'relaxed' | 'ev_focus';
 
 /** プリセット表示オプション */
 export const PRESET_OPTIONS: { key: ServerPresetKey; label: string; description: string }[] = [
-  { key: 'standard', label: '標準', description: 'EV≥1.5で期待値のある馬を選定（推奨）' },
-  { key: 'wide', label: '手広く', description: 'EV条件なしで幅広く買い目を拾う（件数多め）' },
-  { key: 'aggressive', label: '厳選', description: 'EV≥1.8の高期待値馬のみに絞る（件数少・ROI重視）' },
+  { key: 'intersection', label: 'Intersection', description: 'Gap≥4 × EV≥1.3 × m≤60（推奨, ROI 310%）' },
+  { key: 'relaxed', label: 'Relaxed', description: 'Gap≥3 × EV≥1.0 × m≤60（月~8回, ROI 200%）' },
+  { key: 'ev_focus', label: 'EV重視', description: 'Gap≥1 × EV≥1.3 × m≤60（月~10回, ROI 157%）' },
 ];
 
 /** 配分モード */
@@ -22,10 +22,10 @@ export type AllocMode = 'kelly' | 'equal';
 
 /** 日次予算率オプション */
 export const BUDGET_PCT_OPTIONS = [
-  { pct: 2, label: '2%', description: 'MaxDD ~30% 安全重視' },
-  { pct: 3, label: '3%', description: 'MaxDD ~43% バランス型' },
-  { pct: 5, label: '5%', description: 'MaxDD ~62% 標準（デフォルト）' },
-  { pct: 7, label: '7%', description: 'MaxDD ~75% 攻め' },
+  { pct: 1, label: '1%', description: 'MaxDD ~7% 超安全' },
+  { pct: 2, label: '2%', description: 'MaxDD ~14% 推奨' },
+  { pct: 3, label: '3%', description: 'MaxDD ~21% バランス型' },
+  { pct: 5, label: '5%', description: 'MaxDD ~33% 攻め' },
 ] as const;
 
 /**

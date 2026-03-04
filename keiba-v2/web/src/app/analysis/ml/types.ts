@@ -188,6 +188,24 @@ export interface RegressionModelResult {
   feature_importance: FeatureImportanceEntry[];
 }
 
+export interface IntersectionGridArm {
+  count: number;
+  wins: number;
+  win_rate: number;
+  win_roi: number;
+  avg_odds: number;
+  pnl: number;
+}
+
+export interface IntersectionGridEntry {
+  min_gap: number;
+  min_ev: number;
+  max_margin: number;
+  A_gap_margin: IntersectionGridArm;
+  B_ev_margin: IntersectionGridArm;
+  C_intersection: IntersectionGridArm;
+}
+
 export interface MlExperimentResultV2 {
   version: string;
   model?: string;
@@ -209,6 +227,7 @@ export interface MlExperimentResultV2 {
   hit_analysis: HitAnalysisEntry[] | {
     place: HitAnalysisEntry[];
     place_v2?: HitAnalysisV2;
+    win_v2?: HitAnalysisV2;
     aura_v2?: HitAnalysisV2;
     ard_analysis?: ArdThresholdEntry[];
     // Legacy keys
@@ -238,6 +257,7 @@ export interface MlExperimentResultV2 {
   gap_margin_grid?: GapMarginGridEntry[];
   gap_ard_grid?: GapArdGridEntry[];
   bet_engine_presets?: Record<string, BetEnginePresetResult>;
+  intersection_grid?: IntersectionGridEntry[];
   obstacle_model?: ObstacleModelMeta;
 }
 

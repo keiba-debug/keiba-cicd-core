@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { MlExperimentResultV2, ValueBetGapEntry, GapMarginGridEntry, GapArdGridEntry } from '../types';
+import type { MlExperimentResultV2, ValueBetGapEntry, GapMarginGridEntry, GapArdGridEntry, IntersectionGridEntry } from '../types';
 
 function GapTable({ title, vb, color }: { title: string; vb: ValueBetGapEntry[]; color: 'blue' | 'emerald' }) {
   if (!vb || vb.length === 0) return null;
@@ -258,6 +258,152 @@ function GapArdHeatmap({ grid, metric }: { grid: GapArdGridEntry[]; metric: 'win
   );
 }
 
+function IntersectionHeatmap({ grid }: { grid: IntersectionGridEntry[] }) {
+  if (!grid || grid.length === 0) return null;
+
+  // Build lookup: `${gap}-${ev}-${margin}` → entry
+  const lookup = new Map<string, IntersectionGridEntry>();
+  for (const e of grid) {
+    lookup.set(`${e.min_gap}-${e.min_ev}-${e.max_margin}`, e);
+  }
+
+  const gaps = [3, 4, 5, 6];
+  const evs = [1.0, 1.3, 1.5, 2.0];
+  const evLabels = ['≥1.0', '≥1.3', '≥1.5', '≥2.0'];
+
+  // Show margin=60 as the main view (Intersection Filter condition)
+  const margin = 60;
+
+  // Preset highlight: gap≥4, EV≥1.3 (Intersection Filter)
+  const presetGap = 4;
+  const presetEv = 1.3;
+
+  return (
+    <div className="rounded-lg border border-blue-200 p-4 dark:border-blue-800">
+      <h3 className="mb-1 text-sm font-semibold text-blue-700 dark:text-blue-400">
+        Intersection Filter: Gap × EV × Margin ヒートマップ
+      </h3>
+      <p className="mb-3 text-xs text-gray-500">
+        rank_w=1 対象。3条件の交差(C)が単独(A/B)より高ROI。枠線=推奨(gap≥4, EV≥1.3, m≤60)
+      </p>
+
+      {/* Intersection ROI (C) */}
+      <div className="mb-4">
+        <h4 className="mb-1 text-xs font-medium text-blue-600 dark:text-blue-400">
+          交差条件 (gap≥N AND EV≥M AND margin≤{margin}) — 単勝ROI
+        </h4>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                <th className="py-2 text-left text-gray-500">gap \ EV</th>
+                {evLabels.map((label, i) => (
+                  <th key={i} className="py-2 text-center text-gray-500">{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {gaps.map((gap) => (
+                <tr key={gap} className="border-b border-gray-50 dark:border-gray-800">
+                  <td className="py-2 font-medium text-gray-600 dark:text-gray-400">≥{gap}</td>
+                  {evs.map((ev, ei) => {
+                    const entry = lookup.get(`${gap}-${ev}-${margin}`);
+                    const arm = entry?.C_intersection;
+                    const roi = arm?.win_roi ?? 0;
+                    const count = arm?.count ?? 0;
+                    const wins = arm?.wins ?? 0;
+                    const pnl = arm?.pnl ?? 0;
+                    const isPreset = gap === presetGap && ev === presetEv;
+
+                    let bgClass = 'bg-gray-50 dark:bg-gray-800/30';
+                    if (count > 0) {
+                      if (roi >= 200) bgClass = 'bg-green-300 dark:bg-green-800/50';
+                      else if (roi >= 120) bgClass = 'bg-green-200 dark:bg-green-900/40';
+                      else if (roi >= 100) bgClass = 'bg-green-100 dark:bg-green-900/20';
+                      else if (roi >= 80) bgClass = 'bg-yellow-50 dark:bg-yellow-900/10';
+                      else bgClass = 'bg-red-50 dark:bg-red-900/10';
+                    }
+
+                    return (
+                      <td key={ei} className={cn('py-2 text-center', bgClass,
+                        isPreset && 'ring-2 ring-amber-500 ring-inset rounded'
+                      )}>
+                        {count > 0 ? (
+                          <div>
+                            <div className={cn('font-bold tabular-nums',
+                              roi >= 100 ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                            )}>
+                              {roi.toFixed(1)}%
+                            </div>
+                            <div className="text-[10px] text-gray-400">{count}件/{wins}的中</div>
+                            <div className={cn('text-[10px] tabular-nums', pnl >= 0 ? 'text-green-500' : 'text-red-400')}>
+                              {pnl >= 0 ? '+' : ''}{pnl.toLocaleString()}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Comparison: Gap-only vs EV-only vs Intersection for the preset */}
+      {(() => {
+        const preset = lookup.get(`${presetGap}-${presetEv}-${margin}`);
+        if (!preset) return null;
+        const arms = [
+          { key: 'A', label: `Gap≥${presetGap} + m≤${margin}（gap単体）`, arm: preset.A_gap_margin, color: 'text-amber-600' },
+          { key: 'B', label: `EV≥${presetEv} + m≤${margin}（EV単体）`, arm: preset.B_ev_margin, color: 'text-purple-600' },
+          { key: 'C', label: `Gap≥${presetGap} × EV≥${presetEv} × m≤${margin}（交差）`, arm: preset.C_intersection, color: 'text-blue-600' },
+        ];
+        return (
+          <div className="mt-2 rounded border border-gray-200 p-3 dark:border-gray-700">
+            <h4 className="mb-2 text-xs font-medium text-gray-500">推奨条件の単独 vs 交差 比較</h4>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="py-1.5 text-left text-gray-500">条件</th>
+                  <th className="py-1.5 text-right text-gray-500">件数</th>
+                  <th className="py-1.5 text-right text-gray-500">的中率</th>
+                  <th className="py-1.5 text-right text-gray-500">ROI</th>
+                  <th className="py-1.5 text-right text-gray-500">P&L</th>
+                  <th className="py-1.5 text-right text-gray-500">平均倍率</th>
+                </tr>
+              </thead>
+              <tbody>
+                {arms.map(({ key, label, arm, color }) => (
+                  <tr key={key} className="border-b border-gray-50 dark:border-gray-800">
+                    <td className={cn('py-1.5 font-medium', color)}>{label}</td>
+                    <td className="py-1.5 text-right tabular-nums">{arm.count}</td>
+                    <td className="py-1.5 text-right tabular-nums">{arm.win_rate}%</td>
+                    <td className={cn('py-1.5 text-right tabular-nums font-bold',
+                      arm.win_roi >= 100 ? 'text-green-600' : 'text-red-500'
+                    )}>
+                      {arm.win_roi.toFixed(1)}%
+                    </td>
+                    <td className={cn('py-1.5 text-right tabular-nums',
+                      arm.pnl >= 0 ? 'text-green-600' : 'text-red-500'
+                    )}>
+                      {arm.pnl >= 0 ? '+' : ''}{arm.pnl.toLocaleString()}
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums">{arm.avg_odds}x</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
   const placeVb = data.roi_analysis.value_bets.by_rank_gap;
   const winVb = data.roi_analysis.value_bets.win_by_rank_gap;
@@ -278,12 +424,16 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20">
         <h3 className="mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">Value Bet戦略</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          好走(P)モデル（市場情報なし）がレース内上位3位に予測 × 実際の人気が低い馬を購入。
-          <strong>Gap≥5</strong>（人気順位 - VR）が主軸フィルター。
-          <strong>AR偏差値≥50</strong>（レース平均以上の能力）で足切り。
-          EVフィルター（P(win)×オッズ）はプリセットにより1.5/0/1.8で切替。
+          勝利(W)モデル1位（rank_w=1）の馬に対して3条件の<strong>交差</strong>でフィルタ。
+          推奨: <strong>Gap≥4 × EV≥1.3 × margin≤60</strong>（Intersection Filter, ROI 310%）。
+          単勝のみ（複勝は全条件でマイナスROI）。
         </p>
       </div>
+
+      {/* Intersection Filter Heatmap */}
+      {data.intersection_grid && data.intersection_grid.length > 0 && (
+        <IntersectionHeatmap grid={data.intersection_grid} />
+      )}
 
       {/* Gap-based ROI tables */}
       <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">

@@ -9,16 +9,13 @@ import BankrollChart from './BankrollChart';
 const PRESET_LABELS: Record<string, string> = {
   standard: 'Standard',
   aggressive: 'Aggressive',
+  ev_strategy: 'EV Strategy',
 };
 
 const MODE_COLORS: Record<string, string> = {
-  exact: '#6b7280',
-  win_only: '#10b981',
-  passthrough: '#3b82f6',
-  equal_win: '#22d3ee',
-  s90_n50: '#f59e0b',
-  s80_n50: '#f97316',
-  equal_50: '#8b5cf6',
+  intersection: '#ef4444',
+  relaxed: '#f59e0b',
+  ev_focus: '#3b82f6',
 };
 
 function MetricCard({ label, value, sub, color }: {
@@ -43,7 +40,7 @@ function MetricCard({ label, value, sub, color }: {
   );
 }
 
-function ResultsTable({ results, initialBankroll }: { results: SimulationResult[]; initialBankroll: number }) {
+function ResultsTable({ results, initialBankroll, showBudget }: { results: SimulationResult[]; initialBankroll: number; showBudget?: boolean }) {
   const sorted = [...results].sort((a, b) => b.final_bankroll - a.final_bankroll);
 
   return (
@@ -52,6 +49,7 @@ function ResultsTable({ results, initialBankroll }: { results: SimulationResult[
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
             <th className="px-3 py-2 font-medium">Strategy</th>
+            {showBudget && <th className="px-3 py-2 font-medium">Budget</th>}
             <th className="px-3 py-2 font-medium text-right">Final</th>
             <th className="px-3 py-2 font-medium text-right">ROI</th>
             <th className="px-3 py-2 font-medium text-right">Flat ROI</th>
@@ -78,6 +76,9 @@ function ResultsTable({ results, initialBankroll }: { results: SimulationResult[
                   <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: MODE_COLORS[r.mode] ?? '#888' }} />
                   {r.label}
                 </td>
+                {showBudget && (
+                  <td className="px-3 py-2 font-semibold tabular-nums">{r.budget_label}</td>
+                )}
                 <td className={cn('px-3 py-2 text-right tabular-nums font-semibold', isProfit ? 'text-emerald-600' : 'text-red-500')}>
                   {r.final_bankroll.toLocaleString()}
                 </td>
@@ -120,15 +121,17 @@ export default function SimulationPage() {
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const { data, isLoading, error } = useSimulationResult(selectedVersion);
   const { versions } = useSimulationVersions();
-  const [selectedPreset, setSelectedPreset] = useState('aggressive');
-  const [selectedBudget, setSelectedBudget] = useState('5%');
+  const defaultPreset = data?.presets?.[0] ?? 'ev_strategy';
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [selectedBudget, setSelectedBudget] = useState('2%');
+  const activePreset = selectedPreset ?? defaultPreset;
 
   const filteredResults = useMemo(() => {
     if (!data) return [];
     return data.results.filter(
-      r => r.preset === selectedPreset && r.budget_label === selectedBudget,
+      r => r.preset === activePreset && r.budget_label === selectedBudget,
     );
-  }, [data, selectedPreset, selectedBudget]);
+  }, [data, activePreset, selectedBudget]);
 
   const bestResult = useMemo(() => {
     if (!filteredResults.length) return null;
@@ -144,6 +147,66 @@ export default function SimulationPage() {
     if (!dates.length) return null;
     return { start: dates[0], end: dates[dates.length - 1], days: dates.length };
   }, [data]);
+
+  /** 購入頻度・購入なし日数の統計 */
+  const frequencyStats = useMemo(() => {
+    if (!bestResult?.history) return null;
+    const dates = bestResult.history
+      .map(h => h.date)
+      .filter((d): d is string => d !== null)
+      .sort();
+    if (dates.length < 2) return null;
+
+    // 日付間のギャップ（日数）
+    const gaps: number[] = [];
+    for (let i = 1; i < dates.length; i++) {
+      const d1 = new Date(dates[i - 1].replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'));
+      const d2 = new Date(dates[i].replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'));
+      const diffDays = Math.round((d2.getTime() - d1.getTime()) / 86400000);
+      gaps.push(diffDays);
+    }
+
+    const maxGap = Math.max(...gaps);
+    const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
+
+    // 月別ベット数
+    const monthlyBets: Record<string, number> = {};
+    for (const d of dates) {
+      const ym = `${d.slice(0, 4)}-${d.slice(4, 6)}`;
+      monthlyBets[ym] = (monthlyBets[ym] ?? 0) + 1;
+    }
+    const months = Object.keys(monthlyBets).sort();
+    const monthlyAvg = dates.length / months.length;
+
+    // 全期間の開催日数を推定（土日＝週2日）
+    const firstDate = new Date(dates[0].replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'));
+    const lastDate = new Date(dates[dates.length - 1].replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'));
+    const totalCalendarDays = Math.round((lastDate.getTime() - firstDate.getTime()) / 86400000) + 1;
+    const estimatedRacingDays = Math.round(totalCalendarDays * 2 / 7); // 週2開催想定
+
+    // 月別で購入0日の月を計算
+    const allMonths: string[] = [];
+    const cur = new Date(firstDate);
+    while (cur <= lastDate) {
+      const ym = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+      if (!allMonths.includes(ym)) allMonths.push(ym);
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    const zeroBetMonths = allMonths.filter(m => !monthlyBets[m]);
+
+    return {
+      betDays: dates.length,
+      estimatedRacingDays,
+      noBetDays: Math.max(0, estimatedRacingDays - dates.length),
+      avgGap: Math.round(avgGap * 10) / 10,
+      maxGap,
+      monthlyAvg: Math.round(monthlyAvg * 10) / 10,
+      monthlyBets,
+      months,
+      allMonths,
+      zeroBetMonths,
+    };
+  }, [bestResult]);
 
   if (isLoading) {
     return (
@@ -206,10 +269,10 @@ export default function SimulationPage() {
             {data.presets.map(p => (
               <button
                 key={p}
-                onClick={() => setSelectedPreset(p)}
+                onClick={() => setSelectedPreset(p === defaultPreset ? null : p)}
                 className={cn(
                   'px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors',
-                  selectedPreset === p
+                  activePreset === p
                     ? 'bg-blue-600 text-white border-blue-600'
                     : 'bg-background text-muted-foreground border-gray-200 dark:border-gray-700 hover:bg-muted/50',
                 )}
@@ -282,6 +345,72 @@ export default function SimulationPage() {
         </div>
       )}
 
+      {/* Betting Frequency */}
+      {bestResult && frequencyStats && (
+        <div className="mb-6 rounded-xl border bg-background p-4">
+          <h2 className="mb-3 text-lg font-semibold">
+            Betting Frequency ({bestResult.label.split(' ')[0]})
+          </h2>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5 mb-4">
+            <MetricCard
+              label="購入日数"
+              value={`${frequencyStats.betDays}日`}
+              sub={`推定開催 ~${frequencyStats.estimatedRacingDays}日中`}
+              color="blue"
+            />
+            <MetricCard
+              label="購入なし開催日"
+              value={`~${frequencyStats.noBetDays}日`}
+              sub={`${frequencyStats.estimatedRacingDays > 0 ? Math.round((1 - frequencyStats.betDays / frequencyStats.estimatedRacingDays) * 100) : 0}% スキップ`}
+              color="amber"
+            />
+            <MetricCard
+              label="月平均"
+              value={`${frequencyStats.monthlyAvg}回`}
+              sub={`${frequencyStats.months.length}ヶ月間`}
+              color="gray"
+            />
+            <MetricCard
+              label="平均間隔"
+              value={`${frequencyStats.avgGap}日`}
+              sub={`購入日間の平均`}
+              color="gray"
+            />
+            <MetricCard
+              label="最大間隔"
+              value={`${frequencyStats.maxGap}日`}
+              sub="連続購入なし最長"
+              color={frequencyStats.maxGap >= 30 ? 'red' : 'amber'}
+            />
+          </div>
+          {/* Monthly breakdown */}
+          <div className="overflow-x-auto">
+            <div className="flex gap-1 min-w-fit">
+              {frequencyStats.allMonths.map(m => {
+                const count = frequencyStats.monthlyBets[m] ?? 0;
+                const isZero = count === 0;
+                return (
+                  <div
+                    key={m}
+                    className={cn(
+                      'flex flex-col items-center rounded px-2 py-1.5 text-xs min-w-[52px]',
+                      isZero
+                        ? 'bg-red-50 dark:bg-red-950/30 text-red-500'
+                        : count >= 5
+                          ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600'
+                          : 'bg-gray-50 dark:bg-gray-800/30 text-muted-foreground',
+                    )}
+                  >
+                    <span className="font-medium">{m.slice(5)}</span>
+                    <span className="text-lg font-bold tabular-nums">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Chart */}
       <div className="mb-6 rounded-xl border bg-background p-4">
         <h2 className="mb-3 text-lg font-semibold">Bankroll Trajectory</h2>
@@ -306,9 +435,10 @@ export default function SimulationPage() {
           </h2>
           <ResultsTable
             results={data.results.filter(
-              r => r.preset === selectedPreset && r.mode === bestResult.mode,
+              r => r.preset === activePreset && r.mode === bestResult.mode,
             )}
             initialBankroll={data.initial_bankroll}
+            showBudget
           />
         </div>
       )}

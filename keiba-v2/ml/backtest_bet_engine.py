@@ -59,6 +59,7 @@ def compute_closing_probas(
     race_level_index=None, pedigree_index=None,
     sire_stats_index=None,
     pit_trainer_tl=None, pit_jockey_tl=None,
+    jrdb_sed_index=None, jrdb_kyi_index=None, jrdb_kaa_index=None,
 ) -> dict:
     """テスト用レースの closing_race_proba を計算
 
@@ -139,6 +140,9 @@ def compute_closing_probas(
                 sire_stats_index=sire_stats_index,
                 pit_trainer_tl=pit_trainer_tl,
                 pit_jockey_tl=pit_jockey_tl,
+                jrdb_sed_index=jrdb_sed_index,
+                jrdb_kyi_index=jrdb_kyi_index,
+                jrdb_kaa_index=jrdb_kaa_index,
             )
 
             baba_feat = get_baba_features(rid_str, track_type, baba_index)
@@ -244,7 +248,8 @@ def main():
     print('\n[Load] Loading data...')
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index, pedigree_index, sire_stats_index) = load_data(
+     race_level_index, pedigree_index, sire_stats_index,
+     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index) = load_data(
         sire_cutoff=sire_cutoff)
 
     # PIT timelines
@@ -262,6 +267,8 @@ def main():
             sire_stats_index=sire_stats_index,
             pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
             baba_index=baba_index,
+            jrdb_sed_index=jrdb_sed_index, jrdb_kyi_index=jrdb_kyi_index,
+            jrdb_kaa_index=jrdb_kaa_index,
         )
         df_val = build_dataset(
             date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -272,6 +279,8 @@ def main():
             sire_stats_index=sire_stats_index,
             pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
             baba_index=baba_index,
+            jrdb_sed_index=jrdb_sed_index, jrdb_kyi_index=jrdb_kyi_index,
+            jrdb_kaa_index=jrdb_kaa_index,
         )
         df_test = build_dataset(
             date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -282,6 +291,8 @@ def main():
             sire_stats_index=sire_stats_index,
             pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
             baba_index=baba_index,
+            jrdb_sed_index=jrdb_sed_index, jrdb_kyi_index=jrdb_kyi_index,
+            jrdb_kaa_index=jrdb_kaa_index,
         )
         print(f'[Dataset] Train={len(df_train):,}, Val={len(df_val):,}, Test={len(df_test):,}')
 
@@ -341,6 +352,8 @@ def main():
             min_month=test_min_m, max_month=test_max_m,
             pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
             baba_index=baba_index,
+            jrdb_sed_index=jrdb_sed_index, jrdb_kyi_index=jrdb_kyi_index,
+            jrdb_kaa_index=jrdb_kaa_index,
         )
         print(f'[Dataset] Test={len(df_test):,}')
 
@@ -404,6 +417,9 @@ def main():
         sire_stats_index=sire_stats_index,
         pit_trainer_tl=pit_trainer_tl,
         pit_jockey_tl=pit_jockey_tl,
+        jrdb_sed_index=jrdb_sed_index,
+        jrdb_kyi_index=jrdb_kyi_index,
+        jrdb_kaa_index=jrdb_kaa_index,
     )
 
     # === bet_engine バックテスト ===

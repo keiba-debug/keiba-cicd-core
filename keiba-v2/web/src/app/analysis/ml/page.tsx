@@ -52,9 +52,9 @@ export default function MlAnalysisPage() {
         {data.obstacle_model && <div><span className="font-semibold text-purple-700 dark:text-purple-400">障害モデル</span> — 障害レース専用モデル。{data.obstacle_model.feature_count}特徴量で<strong>3着内</strong>を予測（AUC {data.obstacle_model.metrics.auc.toFixed(3)}）</div>}
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">PR</span> — 好走(P)モデルによるレース内の順位（1=最も好走確率が高い）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - PR。大きいほど市場が過小評価している馬（VB判定の主軸）</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">EV</span> — 期待値 = calibrated P(win) × 単勝オッズ。1.0超えで期待値プラス（Gapの補助フィルター）</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">EV</span> — 期待値 = calibrated P(win) × 単勝オッズ。1.0超えで期待値プラス（購入判断の主軸フィルター）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">ARd</span> — AR偏差値。レース内z-score正規化（平均50）。能力の相対位置を示す</div>
-        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — PR≤3 × Gap≥5 × AR偏差値≥50。3プリセット: Standard(EV≥1.5), Wide(EVなし), Aggressive(EV≥1.8)</div>
+        <div><span className="font-semibold text-gray-800 dark:text-gray-200">Value Bet</span> — 推奨: Gap≥4 × EV≥1.3 × margin≤0.6（Intersection Filter, ROI 310%）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">AUC</span> — モデルの判別力（0.5=ランダム、1.0=完全予測）。0.82超えで実用水準</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">Brier</span> — 確率予測の精度（0=完璧、低いほど良い）。予測確率と実結果の二乗誤差</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">ECE</span> — Expected Calibration Error。予測確率の信頼度（0=完璧）。<strong>{'<'}0.03</strong>=Kelly適格、<strong>{'<'}0.05</strong>=要注意、<strong>{'≥'}0.05</strong>=Kelly不適</div>

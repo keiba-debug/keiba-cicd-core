@@ -309,7 +309,9 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
       {/* Hit Analysis v2 */}
       {(() => {
         const placeV2 = ha?.place_v2 ?? ha?.accuracy_v2;
+        const winV2 = ha?.win_v2;
         const auraV2 = ha?.aura_v2 ?? ha?.regression_v2;
+        const cardCount = 1 + (winV2 ? 1 : 0) + (auraV2 ? 1 : 0);
         return hasV2 && placeV2 ? (
           <div className="space-y-4">
             <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
@@ -317,8 +319,11 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
                 Top1 成績比較
                 <span className="ml-2 text-xs font-normal text-gray-400">各モデルの予測1位がどれだけ当たるか</span>
               </h3>
-              <div className={cn('grid gap-3', auraV2 ? 'grid-cols-2' : 'grid-cols-1')}>
+              <div className={cn('grid gap-3', cardCount >= 3 ? 'grid-cols-3' : cardCount === 2 ? 'grid-cols-2' : 'grid-cols-1')}>
                 <Top1Card label="好走(P)" v2={placeV2} color="text-blue-600 dark:text-blue-400" />
+                {winV2 && (
+                  <Top1Card label="勝利(W)" v2={winV2} color="text-emerald-600 dark:text-emerald-400" />
+                )}
                 {auraV2 && (
                   <Top1Card label="能力(AR)" v2={auraV2} color="text-amber-600 dark:text-amber-400" />
                 )}
@@ -335,6 +340,12 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
                   <div className="mb-1 text-xs font-medium text-blue-600 dark:text-blue-400">好走(P)</div>
                   <Top3DistributionBar v2={placeV2} />
                 </div>
+                {winV2 && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">勝利(W)</div>
+                    <Top3DistributionBar v2={winV2} />
+                  </div>
+                )}
                 {auraV2 && (
                   <div>
                     <div className="mb-1 text-xs font-medium text-amber-600 dark:text-amber-400">能力(AR)</div>

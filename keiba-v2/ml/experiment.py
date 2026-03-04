@@ -164,7 +164,7 @@ SLOW_START_FEATURES = [
 # v5.8-v5.9: バグデータ(母をsireとして集計)で偽の大幅改善
 # v5.10: オフセット修正後の正しいデータでAUC改善+プリセットROI大幅改善
 PEDIGREE_FEATURES = [
-    'sire_top3_rate', 'bms_top3_rate', 'dam_top3_rate',    # H0: ベースライン
+    'sire_top3_rate', 'bms_top3_rate',                      # H0: ベースライン (dam_top3_rate除外: リーク+22%支配)
     'sire_fresh_advantage', 'sire_tight_penalty',           # H3/H4: 休み明け/間隔詰め
     'bms_fresh_advantage', 'bms_tight_penalty',             # H3/H4: BMS版
     'dam_fresh_advantage', 'dam_tight_penalty',             # H3/H4: Dam版
@@ -188,6 +188,10 @@ BABA_FEATURES = [
 # JRDB特徴量 (v7.0): 事後IDM履歴 + 事前IDM予測
 from ml.features.jrdb_features import JRDB_FEATURE_COLS
 JRDB_FEATURES = JRDB_FEATURE_COLS
+
+# トラックバイアス特徴量 (v7.2): KAA馬場状態 + SED前崩れ経験
+from ml.features.track_bias_features import TRACK_BIAS_FEATURE_COLS
+TRACK_BIAS_FEATURES = TRACK_BIAS_FEATURE_COLS
 
 # 市場系特徴量（Model Bでは除外）
 # ※独自分析系（CK調教・レース分類）は v5.42 でVALUEに復帰
@@ -222,7 +226,7 @@ FEATURE_COLS_ALL = (
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
     PACE_FEATURES + TRAINING_FEATURES + KB_MARK_FEATURES + SPEED_FEATURES +
     COMMENT_FEATURES + SLOW_START_FEATURES + PEDIGREE_FEATURES +
-    BABA_FEATURES + JRDB_FEATURES
+    BABA_FEATURES + JRDB_FEATURES + TRACK_BIAS_FEATURES
 )
 
 # 共通特徴量（市場系除外 — 全モデル共通）
@@ -830,7 +834,10 @@ def build_pit_sire_timeline(date_index: dict, pedigree_index: dict) -> Tuple[dic
                     elif age >= MATURE_MIN:
                         age_cond = 'mature'
 
-                is_top3 = fp <= 3
+                # JRA複勝ルール: 8頭以上=3着以内, 5-7頭=2着以内, 4頭以下=2着以内
+                num_runners = race.get('num_runners', 0) or len(race.get('entries', []))
+                place_cutoff = 3 if num_runners >= 8 else 2
+                is_top3 = fp <= place_cutoff
                 if sire_id:
                     sire_ids_today.add(sire_id)
                 if dam_id:
@@ -1002,10 +1009,20 @@ def load_data(sire_cutoff: str = None) -> tuple:
     else:
         print("  JRDB KYI index: NOT FOUND (skipping)")
 
+    # KAA index (v7.2: トラックバイアス)
+    jrdb_kaa_index = {}
+    kaa_path = config.indexes_dir() / "jrdb_kaa_index.json"
+    if kaa_path.exists():
+        with open(kaa_path, encoding='utf-8') as f:
+            jrdb_kaa_index = json.load(f)
+        print(f"  JRDB KAA index: {len(jrdb_kaa_index):,} entries")
+    else:
+        print("  JRDB KAA index: NOT FOUND (skipping)")
+
     return (history_cache, trainer_index, jockey_index,
             date_index, pace_index, kb_ext_index, training_summary_index,
             race_level_index, pedigree_index, sire_stats_index,
-            jrdb_sed_index, jrdb_kyi_index)
+            jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index)
 
 
 def compute_features_for_race(
@@ -1029,6 +1046,7 @@ def compute_features_for_race(
     baba_index: dict = None,
     jrdb_sed_index: dict = None,
     jrdb_kyi_index: dict = None,
+    jrdb_kaa_index: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
@@ -1053,6 +1071,9 @@ def compute_features_for_race(
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
     from ml.features.baba_features import get_baba_features
     from ml.features.jrdb_features import compute_jrdb_features
+    from ml.features.track_bias_features import (
+        compute_race_bias_features, compute_horse_bias_features
+    )
 
     # Sire/Dam/BMS index (build once per race call)
     _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
@@ -1229,6 +1250,27 @@ def compute_features_for_race(
             )
             feat.update(jrdb_feat)
 
+        # トラックバイアス特徴量 (v7.2)
+        if jrdb_kaa_index:
+            # 当日バイアス (レース共通、全馬同じ値)
+            race_bias = compute_race_bias_features(
+                race_id=race_id,
+                race_date=race_date,
+                track_type=track_type,
+                kaa_index=jrdb_kaa_index,
+            )
+            feat.update(race_bias)
+
+            # 過去走バイアス経験 (馬レベル)
+            horse_bias = compute_horse_bias_features(
+                ketto_num=ketto_num,
+                race_date=race_date,
+                sed_index=jrdb_sed_index or {},
+                kaa_index=jrdb_kaa_index,
+                history_cache=history_cache,
+            )
+            feat.update(horse_bias)
+
         # メタ情報（学習には使わないが分析用）
         feat['race_id'] = race_id
         feat['date'] = race_date
@@ -1239,7 +1281,9 @@ def compute_features_for_race(
         feat['grade'] = current_grade
         feat['age_class'] = current_age_class
         feat['finish_position'] = fp
-        feat['is_top3'] = 1 if fp <= 3 else 0
+        # JRA複勝ルール: 8頭以上=3着以内, 5-7頭=2着以内, 4頭以下=2着以内
+        place_cutoff = 3 if entry_count >= 8 else 2
+        feat['is_top3'] = 1 if fp <= place_cutoff else 0
         feat['is_win'] = 1 if fp == 1 else 0
 
         # DB複勝オッズ（ROI分析用、学習には使わない）
@@ -1277,6 +1321,7 @@ def build_dataset(
     pit_dam_tl: dict = None,
     pit_bms_tl: dict = None,
     baba_index: dict = None,
+    jrdb_kaa_index: dict = None,
     save_features: bool = False,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
@@ -1357,6 +1402,7 @@ def build_dataset(
                 baba_index=baba_index,
                 jrdb_sed_index=jrdb_sed_index,
                 jrdb_kyi_index=jrdb_kyi_index,
+                jrdb_kaa_index=jrdb_kaa_index,
             )
             if save_features and rows:
                 from ml.feature_snapshot import save_feature_snapshot
@@ -2472,7 +2518,7 @@ def main():
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
      race_level_index, pedigree_index, sire_stats_index,
-     jrdb_sed_index, jrdb_kyi_index) = load_data(
+     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index) = load_data(
         sire_cutoff=args.sire_cutoff)
 
     # Point-in-time: 調教師・騎手の累積タイムライン構築
@@ -2503,6 +2549,7 @@ def main():
         save_features=_save_feat,
         jrdb_sed_index=jrdb_sed_index,
         jrdb_kyi_index=jrdb_kyi_index,
+        jrdb_kaa_index=jrdb_kaa_index,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2517,6 +2564,7 @@ def main():
         save_features=_save_feat,
         jrdb_sed_index=jrdb_sed_index,
         jrdb_kyi_index=jrdb_kyi_index,
+        jrdb_kaa_index=jrdb_kaa_index,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2531,6 +2579,7 @@ def main():
         save_features=_save_feat,
         jrdb_sed_index=jrdb_sed_index,
         jrdb_kyi_index=jrdb_kyi_index,
+        jrdb_kaa_index=jrdb_kaa_index,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
