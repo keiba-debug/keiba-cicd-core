@@ -2,18 +2,19 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Calendar, BarChart3, Brain, Wallet, MapPin, Search, ShieldCheck } from 'lucide-react';
+import { Calendar, Brain, Wallet, MapPin, Search, ShieldCheck } from 'lucide-react';
 import { RemainingBudget } from '@/components/bankroll/RemainingBudget';
 import { useEffect, useRef } from 'react';
 
 export function Header() {
   const pathname = usePathname();
+  const raceMenuRef = useRef<HTMLDetailsElement | null>(null);
   const vbMenuRef = useRef<HTMLDetailsElement | null>(null);
   const analysisMenuRef = useRef<HTMLDetailsElement | null>(null);
   const searchMenuRef = useRef<HTMLDetailsElement | null>(null);
   const adminMenuRef = useRef<HTMLDetailsElement | null>(null);
 
-  const allMenuRefs = [vbMenuRef, analysisMenuRef, searchMenuRef, adminMenuRef];
+  const allMenuRefs = [raceMenuRef, vbMenuRef, analysisMenuRef, searchMenuRef, adminMenuRef];
 
   const closeMenus = () => {
     for (const ref of allMenuRefs) {
@@ -47,11 +48,6 @@ export function Header() {
     };
   }, []);
 
-  const navItems = [
-    { href: '/', label: '出馬表', icon: Calendar },
-    { href: '/odds-board', label: 'オッズ', icon: BarChart3 },
-  ];
-
   const navItemsRight = [
     { href: '/bankroll', label: '収支', icon: Wallet },
   ];
@@ -84,25 +80,54 @@ export function Header() {
 
           {/* Nav */}
           <nav className="ml-2 flex items-center gap-1 rounded-full bg-muted/40 p-1 border">
-            {/* 出馬表・オッズ */}
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-              return (
+            {/* レース ドロップダウン */}
+            <details className="relative group" ref={raceMenuRef}>
+              <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
+                <Calendar className="h-4 w-4" />
+                <span className="hidden sm:inline whitespace-nowrap">レース</span>
+              </summary>
+              <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
                 <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors ${
-                    isActive
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
-                  }`}
+                  href="/"
+                  onClick={() => { if (raceMenuRef.current) raceMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
-                  <Icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{item.label}</span>
+                  <span className="flex items-center gap-2">
+                    <span>📋</span>
+                    <span>
+                      <span className="font-medium">出馬表</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">当日の出走馬・レース情報</span>
+                    </span>
+                  </span>
                 </Link>
-              );
-            })}
+                <Link
+                  href="/odds-board"
+                  onClick={() => { if (raceMenuRef.current) raceMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>💰</span>
+                    <span>
+                      <span className="font-medium">オッズ</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">リアルタイムオッズ一覧</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
+                  href="/registration"
+                  onClick={() => { if (raceMenuRef.current) raceMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📝</span>
+                    <span>
+                      <span className="font-medium">特別登録</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">今週の登録馬・近走成績</span>
+                    </span>
+                  </span>
+                </Link>
+              </div>
+            </details>
 
             {/* Value Bet ドロップダウン */}
             <details className="relative group" ref={vbMenuRef}>

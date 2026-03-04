@@ -69,6 +69,9 @@ export default function AdminPage() {
   // JRDBダウンロード
   const [isDownloadingJrdb, setIsDownloadingJrdb] = useState(false);
 
+  // 特別登録データ生成
+  const [isGeneratingRegistration, setIsGeneratingRegistration] = useState(false);
+
   // データ品質リフレッシュ用
   const [dataQualityRefreshKey, setDataQualityRefreshKey] = useState(0);
 
@@ -202,6 +205,85 @@ export default function AdminPage() {
       setStatus('error');
     } finally {
       setIsGeneratingTraining(false);
+      setCurrentAction(null);
+    }
+  }, [addLog]);
+
+  // 特別登録データ生成
+  const generateRegistration = useCallback(async () => {
+    setIsGeneratingRegistration(true);
+    setStatus('running');
+    setCurrentAction('特別登録データ生成');
+    addLog({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      message: '特別登録データ生成 開始...',
+    });
+
+    try {
+      const response = await fetch('/api/admin/generate-registration', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'start' || data.type === 'log' || data.type === 'progress') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: data.level || 'info',
+                  message: data.message,
+                });
+              } else if (data.type === 'complete') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: 'success',
+                  message: data.message,
+                });
+                setStatus('success');
+              } else if (data.type === 'error') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: 'error',
+                  message: data.message,
+                });
+                setStatus('error');
+              }
+            } catch (e) {
+              console.error('SSE parse error:', e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        message: `特別登録データ生成エラー: ${error}`,
+      });
+      setStatus('error');
+    } finally {
+      setIsGeneratingRegistration(false);
       setCurrentAction(null);
     }
   }, [addLog]);
@@ -790,6 +872,33 @@ export default function AdminPage() {
                         </div>
                         <span className="text-xs text-muted-foreground mt-1">
                           SED/KYI/KAAの最新20件をダウンロード（IDM・指数・馬場）
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* 特別登録データ */}
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-3">
+                      特別登録データ
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Button
+                        variant="outline"
+                        className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
+                        onClick={generateRegistration}
+                        disabled={isGeneratingRegistration || isRunning}
+                      >
+                        <div className="flex items-center gap-2 w-full">
+                          <span className={`text-lg ${isGeneratingRegistration ? 'animate-pulse' : ''}`}>📝</span>
+                          <span className="font-semibold text-sm">
+                            {isGeneratingRegistration ? '特別登録データ生成中...' : '特別登録データ生成'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground mt-1">
+                          MyKeibaDBから今週の特別登録馬データを取得・JSON生成
                         </span>
                       </Button>
                     </div>

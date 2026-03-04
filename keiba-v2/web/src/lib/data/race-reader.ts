@@ -1099,7 +1099,11 @@ export async function getRaceInfo(date: string): Promise<RaceInfoData | null> {
   try {
     const content = await fsp.readFile(filePath, 'utf-8');
     return JSON.parse(content) as RaceInfoData;
-  } catch (error) {
+  } catch (error: unknown) {
+    // ファイルが存在しない場合は静かにnullを返す（過去日付で未取得のケース）
+    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'ENOENT') {
+      return null;
+    }
     console.error(`Error reading race_info.json for ${date}:`, error);
     return null;
   }
