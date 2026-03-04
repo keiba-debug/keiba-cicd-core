@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -17,17 +17,21 @@ import type { HorseRaceResult } from '@/lib/data/integrated-horse-reader';
 
 function calcAgeMonths(birthDate: string, raceDate: string): number {
   // birthDate: YYYYMMDD, raceDate: YYYY/MM/DD or YYYY-MM-DD
+  // 日単位の精度で同月内の複数レースを区別
   const by = parseInt(birthDate.slice(0, 4), 10);
   const bm = parseInt(birthDate.slice(4, 6), 10);
+  const bd = parseInt(birthDate.slice(6, 8), 10);
   const clean = raceDate.replace(/[/-]/g, '');
   const ry = parseInt(clean.slice(0, 4), 10);
   const rm = parseInt(clean.slice(4, 6), 10);
-  return (ry - by) * 12 + (rm - bm);
+  const rd = parseInt(clean.slice(6, 8), 10);
+  return (ry - by) * 12 + (rm - bm) + (rd - bd) / 31;
 }
 
 function formatAge(months: number): string {
-  const years = Math.floor(months / 12);
-  const m = months % 12;
+  const whole = Math.floor(months);
+  const years = Math.floor(whole / 12);
+  const m = whole % 12;
   return `${years}歳${m}月`;
 }
 
@@ -85,6 +89,16 @@ function MaxDot(props: { cx?: number; cy?: number; payload?: ChartPoint }) {
   );
 }
 
+// ── レンジ設定 ──
+
+type AgeRange = '2-3' | '2-6' | '2-10';
+
+const RANGE_CONFIG: Record<AgeRange, { minYear: number; maxYear: number; label: string }> = {
+  '2-3':  { minYear: 2,  maxYear: 4,  label: '2~3歳' },
+  '2-6':  { minYear: 2,  maxYear: 7,  label: '2~6歳' },
+  '2-10': { minYear: 2,  maxYear: 10, label: '2~10歳' },
+};
+
 // ── メインコンポーネント ──
 
 interface IDMTimelineChartProps {
@@ -94,6 +108,8 @@ interface IDMTimelineChartProps {
 }
 
 export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelineChartProps) {
+  const [range, setRange] = useState<AgeRange>('2-6');
+
   const chartData = useMemo(() => {
     if (!birthDate || birthDate.length < 8) return [];
 
@@ -138,15 +154,14 @@ export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelin
 
   if (chartData.length < 2) return null;
 
-  // X軸の範囲: データの最小～最大月齢
-  const minAge = chartData[0].ageMonths;
-  const maxAge = chartData[chartData.length - 1].ageMonths;
+  // X軸: レンジに応じた固定スケール
+  const { minYear, maxYear } = RANGE_CONFIG[range];
+  const MIN_AGE = minYear * 12;
+  const MAX_AGE = maxYear * 12;
 
-  // X軸ティック: 年境界（x歳0月）を表示
+  // X軸ティック: 年境界
   const ticks: number[] = [];
-  const startYear = Math.ceil(minAge / 12);
-  const endYear = Math.floor(maxAge / 12);
-  for (let y = startYear; y <= endYear; y++) {
+  for (let y = minYear; y < maxYear; y++) {
     ticks.push(y * 12);
   }
 
@@ -156,7 +171,24 @@ export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelin
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold">📈 IDM推移</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold">📈 IDM推移</h2>
+          <div className="flex items-center rounded-md border text-xs">
+            {(Object.entries(RANGE_CONFIG) as [AgeRange, typeof RANGE_CONFIG[AgeRange]][]).map(([key, cfg]) => (
+              <button
+                key={key}
+                onClick={() => setRange(key)}
+                className={`px-2 py-1 transition-colors ${
+                  range === key
+                    ? 'bg-blue-500 text-white'
+                    : 'hover:bg-muted'
+                } ${key === '2-3' ? 'rounded-l-md' : ''} ${key === '2-10' ? 'rounded-r-md' : ''}`}
+              >
+                {cfg.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <span className="w-3 h-0.5 bg-blue-500 inline-block" /> IDM
@@ -178,7 +210,7 @@ export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelin
           <XAxis
             dataKey="ageMonths"
             type="number"
-            domain={[minAge - 1, maxAge + 1]}
+            domain={[MIN_AGE, MAX_AGE]}
             ticks={ticks}
             tickFormatter={(v: number) => `${Math.floor(v / 12)}歳`}
             tick={{ fontSize: 11 }}
