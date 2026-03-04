@@ -273,6 +273,7 @@ export interface HorseBasicInfo {
   id: string;
   name: string;
   age: string;            // 性齢 (例: "牡4")
+  birthDate?: string;     // 生年月日 YYYYMMDD
   trainer: string;        // 調教師
   trainerId: string;      // 競馬ブック厩舎ID (例: "ｳ011")
   trainerLink: string;    // 厩舎ページURL

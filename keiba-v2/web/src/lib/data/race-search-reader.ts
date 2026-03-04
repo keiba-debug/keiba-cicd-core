@@ -25,7 +25,10 @@ export interface RaceSearchEntry {
   trackCondition: string;
   entryCount: number;
   winnerName: string;
-  raceTrend: string;
+  winnerTime: string;
+  winnerLast3f: number | null;
+  weather: string;
+  paceType: string;
   rpci: number | null;
 }
 
@@ -45,27 +48,29 @@ export interface RaceSearchResult {
   filteredCount: number;
 }
 
-// ── インメモリキャッシュ ──
+// ── インメモリキャッシュ（ファイル更新時に自動再読み込み） ──
 
 let cachedIndex: RaceSearchEntry[] | null = null;
-let cacheTimestamp = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5分
+let cachedMtime = 0;
 
 function loadIndex(): RaceSearchEntry[] {
-  if (cachedIndex && Date.now() - cacheTimestamp < CACHE_TTL) {
-    return cachedIndex;
-  }
-
   if (!fs.existsSync(INDEX_FILE)) {
     console.warn('[RaceSearch] Index file not found:', INDEX_FILE);
     return [];
+  }
+
+  // ファイルの更新時刻をチェック — 変更があればリロード
+  const stat = fs.statSync(INDEX_FILE);
+  const mtime = stat.mtimeMs;
+  if (cachedIndex && mtime === cachedMtime) {
+    return cachedIndex;
   }
 
   try {
     const raw = fs.readFileSync(INDEX_FILE, 'utf-8');
     const data = JSON.parse(raw);
     cachedIndex = (data.races || []) as RaceSearchEntry[];
-    cacheTimestamp = Date.now();
+    cachedMtime = mtime;
     console.log(`[RaceSearch] Loaded ${cachedIndex.length} races from index`);
     return cachedIndex;
   } catch (error) {

@@ -20,14 +20,17 @@ interface RaceSearchEntry {
   trackCondition: string;
   entryCount: number;
   winnerName: string;
-  raceTrend: string;
+  winnerTime: string;
+  winnerLast3f: number | null;
+  weather: string;
+  paceType: string;
   rpci: number | null;
 }
 
 // ── 定数 ──
 
 const VENUES = ['東京', '中山', '阪神', '京都', '中京', '小倉', '札幌', '函館', '福島', '新潟'] as const;
-const YEARS = [2026, 2025, 2024, 2023] as const;
+const YEARS = [2026, 2025, 2024, 2023, 2022, 2021, 2020] as const;
 const GRADE_OPTIONS = ['G1', 'G2', 'G3', 'OP', 'L', '3勝', '2勝', '1勝', '未勝利', '新馬'] as const;
 
 const GRADE_COLORS: Record<string, string> = {
@@ -43,12 +46,18 @@ const GRADE_COLORS: Record<string, string> = {
   '新馬': 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
 };
 
-const TREND_BADGE: Record<string, { label: string; className: string }> = {
-  sprint_finish: { label: '瞬発', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
-  long_sprint: { label: 'ロンスパ', className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
-  even_pace: { label: '平均', className: 'bg-gray-100 text-gray-600 dark:bg-gray-700/30 dark:text-gray-300' },
-  front_loaded: { label: 'H前傾', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
-  front_loaded_strong: { label: 'H後傾', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+const PACE_BADGE: Record<string, { label: string; className: string }> = {
+  sprint: { label: '瞬発', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+  average: { label: '平均', className: 'bg-gray-100 text-gray-600 dark:bg-gray-700/30 dark:text-gray-300' },
+  stamina: { label: '持続', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+};
+
+const WEATHER_ICON: Record<string, string> = {
+  '晴': '☀',
+  '曇': '☁',
+  '雨': '🌧',
+  '小雨': '🌦',
+  '雪': '❄',
 };
 
 const BABA_COLORS: Record<string, string> = {
@@ -303,7 +312,7 @@ export default function RaceSearchPage() {
           {results.length > 0 ? (
             <div className="space-y-3">
               {results.map((race) => (
-                <RaceCard key={race.raceId} race={race} />
+                <RaceCard key={`${race.raceId}-${race.date}`} race={race} />
               ))}
             </div>
           ) : (
@@ -328,9 +337,10 @@ export default function RaceSearchPage() {
 function RaceCard({ race }: { race: RaceSearchEntry }) {
   const href = `/races-v2/${race.date}/${encodeURIComponent(race.venue)}/${race.raceId}`;
   const displayName = stripGradePrefix(race.raceName);
-  const trend = TREND_BADGE[race.raceTrend];
+  const pace = PACE_BADGE[race.paceType];
   const babaColor = BABA_COLORS[race.trackCondition];
   const gradeColor = GRADE_COLORS[race.grade];
+  const weatherIcon = WEATHER_ICON[race.weather];
 
   return (
     <Link href={href} target="_blank" rel="noopener noreferrer">
@@ -348,7 +358,7 @@ function RaceCard({ race }: { race: RaceSearchEntry }) {
           <span className="text-sm text-muted-foreground shrink-0">{race.date}</span>
         </div>
 
-        {/* 2行目: 競馬場 + コース + 馬場 + 頭数 */}
+        {/* 2行目: 競馬場 + コース + 馬場 + 天候 + 頭数 */}
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
           <span>{race.venue}</span>
           <span>{race.track}{race.distance}m</span>
@@ -357,24 +367,31 @@ function RaceCard({ race }: { race: RaceSearchEntry }) {
               {race.trackCondition}
             </span>
           )}
+          {weatherIcon && <span title={race.weather}>{weatherIcon}</span>}
           {race.entryCount > 0 && <span>{race.entryCount}頭</span>}
         </div>
 
-        {/* 3行目: 勝ち馬 + RPCI + 傾向 */}
+        {/* 3行目: 勝ち馬 + タイム + 上がり3F + RPCI + ペース */}
         <div className="flex items-center gap-2 text-sm">
           {race.winnerName && (
             <span className="text-yellow-600 dark:text-yellow-400 font-medium">
               {race.winnerName}
             </span>
           )}
+          {race.winnerTime && (
+            <span className="text-muted-foreground text-xs">{race.winnerTime}</span>
+          )}
+          {race.winnerLast3f != null && (
+            <span className="text-muted-foreground text-xs">上り{race.winnerLast3f}</span>
+          )}
           {race.rpci != null && (
             <span className="text-muted-foreground text-xs">
               RPCI {race.rpci}
             </span>
           )}
-          {trend && (
-            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', trend.className)}>
-              {trend.label}
+          {pace && (
+            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', pace.className)}>
+              {pace.label}
             </span>
           )}
         </div>

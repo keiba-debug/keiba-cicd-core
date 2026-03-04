@@ -254,6 +254,11 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
           </span>
         </td>
 
+        {/* IDM */}
+        <td className={`px-1 py-1.5 border text-center text-xs font-mono ${getJrdbColor(race.jrdb_idm, [60, 50, 40])}`}>
+          {race.jrdb_idm != null && race.jrdb_idm !== 0 ? race.jrdb_idm : race.jrdb_pre_idm != null && race.jrdb_pre_idm !== 0 ? <span className="text-muted-foreground">{race.jrdb_pre_idm}</span> : '-'}
+        </td>
+
         {/* タイム */}
         <td className="px-1 py-1.5 border text-center font-mono text-xs">
           {race.time || '-'}
@@ -269,29 +274,9 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
           {race.last3f || '-'}
         </td>
 
-        {/* 4角 */}
-        <td className="px-1 py-1.5 border text-center text-xs">
-          {race.corner4Pos || '-'}
-        </td>
-
         {/* 通過 */}
         <td className="px-1 py-1.5 border text-center text-xs">
           {race.cornerPositions || '-'}
-        </td>
-
-        {/* IDM */}
-        <td className={`px-1 py-1.5 border text-center text-xs font-mono ${getJrdbColor(race.jrdb_idm, [60, 50, 40])}`}>
-          {race.jrdb_idm != null && race.jrdb_idm !== 0 ? race.jrdb_idm : race.jrdb_pre_idm != null && race.jrdb_pre_idm !== 0 ? <span className="text-muted-foreground">{race.jrdb_pre_idm}</span> : '-'}
-        </td>
-
-        {/* 総合 */}
-        <td className={`px-1 py-1.5 border text-center text-xs font-mono ${getJrdbColor(race.jrdb_sogo_idx, [60, 50, 40])}`}>
-          {race.jrdb_sogo_idx != null && race.jrdb_sogo_idx !== 0 ? race.jrdb_sogo_idx : '-'}
-        </td>
-
-        {/* 激走 */}
-        <td className={`px-1 py-1.5 border text-center text-xs font-mono ${getJrdbColor(race.jrdb_gekisou_idx, [150, 130, 100])}`}>
-          {race.jrdb_gekisou_idx != null && race.jrdb_gekisou_idx !== 0 ? race.jrdb_gekisou_idx : '-'}
         </td>
 
         {/* 調教短評 */}
@@ -309,7 +294,7 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
       {(race.sunpyou || race.trainingComment) && (
         <tr className={`text-[10px] ${isGoodResult ? 'bg-amber-50/30 dark:bg-amber-900/5' : 'bg-gray-50/50 dark:bg-gray-800/20'}`}>
           <td className="border"></td>
-          <td colSpan={25} className="px-1 py-0.5 border">
+          <td colSpan={22} className="px-1 py-0.5 border">
             <div className="flex flex-wrap gap-x-4 gap-y-0.5">
               {race.sunpyou && (
                 <span className="inline-flex items-center gap-0.5">
@@ -340,7 +325,7 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
       {/* 展開時の詳細行 */}
       {isExpanded && (
         <tr className="bg-gray-50 dark:bg-gray-800/30">
-          <td colSpan={26} className="px-2 py-1.5 border">
+          <td colSpan={23} className="px-2 py-1.5 border">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-1 text-xs">
               {race.trainingDetail && (
                 <div className="lg:col-span-2">
@@ -468,7 +453,7 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
       <h2 className="text-lg font-semibold mb-4">📋 過去レース成績 ({races.length}戦)</h2>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm border-collapse min-w-[1500px]">
+        <table className="w-full text-sm border-collapse min-w-[1300px]">
           <thead>
             <tr className="bg-gray-100 dark:bg-gray-800 text-[10px]">
               <th className="px-1 py-1.5 border w-5"></th>
@@ -488,14 +473,11 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
               <th className="px-1 py-1.5 border text-center w-10">ｵｯｽﾞ</th>
               <th className="px-1 py-1.5 border text-center w-8">人気</th>
               <th className="px-1 py-1.5 border text-center w-5">着</th>
+              <th className="px-1 py-1.5 border text-center w-8" title="JRDB IDM（確定/予想）">IDM</th>
               <th className="px-1 py-1.5 border text-center w-12">ﾀｲﾑ</th>
               <th className="px-1 py-1.5 border text-center w-10">前3F</th>
               <th className="px-1 py-1.5 border text-center w-10">上3F</th>
-              <th className="px-1 py-1.5 border text-center w-6">4角</th>
               <th className="px-1 py-1.5 border text-center w-14">通過</th>
-              <th className="px-1 py-1.5 border text-center w-8" title="JRDB IDM（確定/予想）">IDM</th>
-              <th className="px-1 py-1.5 border text-center w-8" title="JRDB 総合指数">総合</th>
-              <th className="px-1 py-1.5 border text-center w-8" title="JRDB 激走指数">激走</th>
               <th className="px-1 py-1.5 border text-center w-24">調教短評</th>
             </tr>
           </thead>

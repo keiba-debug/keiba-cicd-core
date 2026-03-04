@@ -7,3 +7,4 @@ export { HorseStatsSection } from './HorseStatsSection';
 export { HorsePastRacesTable } from './HorsePastRacesTable';
 export { HorseCommentEditor } from './HorseCommentEditor';
 export { HorseAnalysisSection } from './HorseAnalysis';
+export { IDMTimelineChart } from './IDMTimelineChart';

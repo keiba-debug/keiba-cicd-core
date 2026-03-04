@@ -16,6 +16,7 @@ import {
   HorseStatsSection,
   HorseCommentEditor,
   HorseAnalysisSection,
+  IDMTimelineChart,
 } from '@/components/horse-v2';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -197,11 +198,6 @@ export default async function HorseProfilePage({ params }: PageParams) {
 
         <Separator className="my-6" />
 
-        {/* 成績統計 */}
-        <HorseStatsSection stats={stats} />
-
-        <Separator className="my-6" />
-
         {/* 過去レース映像比較 */}
         {selectorRaces.length > 0 && (
           <>
@@ -214,12 +210,26 @@ export default async function HorseProfilePage({ params }: PageParams) {
           </>
         )}
 
+        {/* IDMタイムライン */}
+        <IDMTimelineChart
+          pastRaces={pastRaces}
+          birthDate={basic.birthDate}
+          horseName={basic.name}
+        />
+
+        <Separator className="my-6" />
+
         {/* 過去レース成績テーブル */}
         <HorsePastRacesTable races={pastRaces} />
 
         <Separator className="my-6" />
 
-        {/* 分析セクション - 一番下に配置 */}
+        {/* 成績統計 */}
+        <HorseStatsSection stats={stats} />
+
+        <Separator className="my-6" />
+
+        {/* 分析セクション */}
         <HorseAnalysisSection analysis={analysis} />
 
         {/* フッター情報 */}
