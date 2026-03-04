@@ -204,7 +204,7 @@ export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelin
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={240}>
+      <ResponsiveContainer width="100%" height={360}>
         <LineChart data={chartData} margin={{ top: 10, right: 20, bottom: 5, left: 5 }}>
           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
           <XAxis
