@@ -119,7 +119,7 @@ export default async function HorseProfilePage({ params }: PageParams) {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container py-6 max-w-7xl">
+      <div className="container py-6 max-w-screen-2xl">
         {/* パンくずリスト + データ更新 */}
         <div className="flex items-center justify-between mb-4">
           <nav className="flex items-center space-x-2 text-sm text-muted-foreground">

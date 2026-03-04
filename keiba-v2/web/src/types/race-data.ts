@@ -217,6 +217,13 @@ export interface HorseEntry {
   past_performances: PastPerformances;
   history_features: HistoryFeatures | null;
   is_slow_start?: boolean;
+  // JRDB指標
+  jrdb_pre_idm?: number | null;       // KYI 事前IDM
+  jrdb_sogo_idx?: number | null;      // KYI 総合指数
+  jrdb_training_idx?: number | null;  // KYI 調教指数
+  jrdb_stable_idx?: number | null;    // KYI 厩舎指数
+  jrdb_gekisou_idx?: number | null;   // KYI 激走指数
+  jrdb_idm?: number | null;           // SED 確定IDM（レース後）
 }
 
 // ==========================================

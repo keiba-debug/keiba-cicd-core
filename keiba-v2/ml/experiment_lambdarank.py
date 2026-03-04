@@ -344,7 +344,7 @@ def main():
     t0 = time.time()
     data = load_data()
     (history_cache, trainer_index, jockey_index,
-     date_index, pace_index, kb_ext_index, training_summary_index) = data
+     date_index, pace_index, kb_ext_index, training_summary_index, *_extra) = data
 
     use_db = not args.no_db
 

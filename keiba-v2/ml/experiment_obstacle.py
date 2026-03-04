@@ -265,7 +265,7 @@ def main():
     # データロード（平地と共有）
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index, pedigree_index, sire_stats_index) = load_data()
+     race_level_index, pedigree_index, sire_stats_index, *_extra) = load_data()
 
     # PIT timeline
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline(

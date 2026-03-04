@@ -147,7 +147,52 @@ STRATEGIES = {
         'gap_rules': [],
         'default_n': 2,
     },
+    'w2_ar1_p1': {
+        'label': 'Plan D: W2∪AR1∪P1 (ROI 163%, 的中4回)',
+        'custom': 'plan_d',
+    },
 }
+
+
+def apply_plan_d(race_data: dict) -> list:
+    """Plan D: w2_ar1_p1 — rank_w top2 ∪ AR偏差値1位 ∪ rank_p 1位 の和集合"""
+    entries = race_data.get('entries', [])
+    if not entries:
+        return []
+
+    uma_set = set()
+    # rank_w top2
+    by_w = sorted([e for e in entries if (e.get('rank_w') or 0) > 0], key=lambda e: e['rank_w'])
+    for e in by_w[:2]:
+        uma_set.add(int(e.get('umaban', 0)))
+    # AR deviation top1
+    by_ar = sorted(entries, key=lambda e: -float(e.get('ar_deviation', 0) or 0))
+    if by_ar:
+        uma_set.add(int(by_ar[0].get('umaban', 0)))
+    # rank_p top1
+    by_p = sorted([e for e in entries if (e.get('rank_p') or 0) > 0], key=lambda e: e['rank_p'])
+    if by_p:
+        uma_set.add(int(by_p[0].get('umaban', 0)))
+
+    selected = [e for e in entries if int(e.get('umaban', 0)) in uma_set]
+    picks = []
+    for e in selected:
+        picks.append(PickEntry(
+            umaban=int(e.get('umaban', 0)),
+            horse_name=e.get('horse_name', ''),
+            odds=float(e.get('odds', 0) or 0),
+            odds_rank=int(e.get('odds_rank', 0) or 0),
+            rank_w=int(e.get('rank_w', 0) or 0),
+            rank_p=int(e.get('rank_p', 0) or 0),
+            ar_deviation=float(e.get('ar_deviation', 0) or 0),
+            win_ev=float(e.get('win_ev', 0) or 0),
+            place_ev=float(e.get('place_ev', 0) or 0),
+            pred_proba_w_cal=float(e.get('pred_proba_w_cal', 0) or 0),
+            pred_proba_p_raw=float(e.get('pred_proba_p_raw', 0) or 0),
+            kb_mark=e.get('kb_mark', ''),
+            kb_rating=float(e.get('kb_rating', 0) or 0),
+        ))
+    return sorted(picks, key=lambda p: p.rank_w if p.rank_w > 0 else 999)
 
 
 def apply_strategy(race_data: dict, strategy: dict) -> list:
@@ -279,7 +324,10 @@ def print_picks(date: str, win5_races: list, pred_index: dict, race_infos: dict)
                 total_tickets = 0
                 continue
 
-            picks = apply_strategy(race_data, strat)
+            if strat.get('custom') == 'plan_d':
+                picks = apply_plan_d(race_data)
+            else:
+                picks = apply_strategy(race_data, strat)
             race_picks.append(picks)
             n = len(picks) if picks else 0
             total_tickets *= max(n, 1)
@@ -379,7 +427,10 @@ def save_json(date: str, win5_races: list, pred_index: dict, race_infos: dict):
                 strat_result['total_tickets'] = 0
                 continue
 
-            picks = apply_strategy(race_data, strat)
+            if strat.get('custom') == 'plan_d':
+                picks = apply_plan_d(race_data)
+            else:
+                picks = apply_strategy(race_data, strat)
             n = len(picks) if picks else 0
             strat_result['total_tickets'] *= max(n, 1)
 

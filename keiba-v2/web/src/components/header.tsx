@@ -119,7 +119,7 @@ export function Header() {
                   <span className="flex items-center gap-2">
                     <span>🎯</span>
                     <span>
-                      <span className="font-medium">今日のVB</span>
+                      <span className="font-medium">Value Bet</span>
                       <span className="block text-xs text-muted-foreground mt-0.5">購入プラン・全レース予測</span>
                     </span>
                   </span>

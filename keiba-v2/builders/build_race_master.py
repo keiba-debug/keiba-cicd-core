@@ -30,6 +30,66 @@ from core.models.race import RaceMaster, RaceEntry, RacePace
 from analysis.race_classifier import classify_race_v2, compute_lap33
 
 
+# ── JRDB インデックスキャッシュ ──
+_jrdb_kyi_index: Optional[Dict] = None
+_jrdb_sed_index: Optional[Dict] = None
+
+
+def _load_jrdb_indexes() -> tuple:
+    """JRDB KYI/SED インデックスを読み込み（キャッシュ付き）"""
+    global _jrdb_kyi_index, _jrdb_sed_index
+    if _jrdb_kyi_index is not None:
+        return _jrdb_kyi_index, _jrdb_sed_index
+
+    kyi_path = config.indexes_dir() / 'jrdb_kyi_index.json'
+    sed_path = config.indexes_dir() / 'jrdb_sed_index.json'
+
+    _jrdb_kyi_index = {}
+    _jrdb_sed_index = {}
+
+    if kyi_path.exists():
+        try:
+            _jrdb_kyi_index = json.loads(kyi_path.read_text(encoding='utf-8'))
+            print(f"[JRDB] KYI index loaded: {len(_jrdb_kyi_index):,} entries")
+        except Exception as e:
+            print(f"[JRDB] KYI index load error: {e}")
+
+    if sed_path.exists():
+        try:
+            _jrdb_sed_index = json.loads(sed_path.read_text(encoding='utf-8'))
+            print(f"[JRDB] SED index loaded: {len(_jrdb_sed_index):,} entries")
+        except Exception as e:
+            print(f"[JRDB] SED index load error: {e}")
+
+    return _jrdb_kyi_index, _jrdb_sed_index
+
+
+def enrich_entries_with_jrdb(entries: List[RaceEntry], race_date: str) -> int:
+    """エントリにJRDB KYI/SED指標を付与。enriched件数を返す"""
+    kyi_index, sed_index = _load_jrdb_indexes()
+    if not kyi_index and not sed_index:
+        return 0
+
+    enriched = 0
+    for entry in entries:
+        key = f"{entry.ketto_num}_{race_date}"
+        kyi = kyi_index.get(key)
+        sed = sed_index.get(key)
+
+        if kyi:
+            entry.jrdb_pre_idm = kyi.get('pre_idm')
+            entry.jrdb_sogo_idx = kyi.get('sogo_idx')
+            entry.jrdb_training_idx = kyi.get('training_idx')
+            entry.jrdb_stable_idx = kyi.get('stable_idx')
+            entry.jrdb_gekisou_idx = kyi.get('gekisou_idx')
+            enriched += 1
+
+        if sed:
+            entry.jrdb_idm = sed.get('idm')
+
+    return enriched
+
+
 # ── コース基準値キャッシュ ──
 _course_standards: Optional[Dict] = None
 
@@ -351,6 +411,7 @@ def main():
 
         try:
             race = create_race_master(race_id, entries_raw, sr)
+            enrich_entries_with_jrdb(race.entries, race.date)
             save_race_json(race, dry_run=args.dry_run)
             created += 1
             if sr is None:

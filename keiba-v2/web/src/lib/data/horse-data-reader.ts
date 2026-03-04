@@ -367,6 +367,13 @@ async function extractRaceAndKbEnrichment(
       condition: trackCondition,
       headCount: raceData.num_runners as number || entries.length,
       first3f: pace.s3 ? String(pace.s3) : '',
+      // JRDB指標（race_*.jsonのentryから取得）
+      jrdb_pre_idm: horseEntry.jrdb_pre_idm as number ?? null,
+      jrdb_sogo_idx: horseEntry.jrdb_sogo_idx as number ?? null,
+      jrdb_training_idx: horseEntry.jrdb_training_idx as number ?? null,
+      jrdb_stable_idx: horseEntry.jrdb_stable_idx as number ?? null,
+      jrdb_gekisou_idx: horseEntry.jrdb_gekisou_idx as number ?? null,
+      jrdb_idm: horseEntry.jrdb_idm as number ?? null,
     };
 
     // Step 2: kb_ext_{race_id}.json を検索
@@ -495,6 +502,13 @@ async function enrichWithKeibabook(
         sunpyou: enrichment.sunpyou ?? race.sunpyou,
         resultMemo: enrichment.resultMemo ?? race.resultMemo,
         resultComment: enrichment.resultComment ?? race.resultComment,
+        // JRDB指標
+        jrdb_pre_idm: enrichment.jrdb_pre_idm ?? race.jrdb_pre_idm,
+        jrdb_sogo_idx: enrichment.jrdb_sogo_idx ?? race.jrdb_sogo_idx,
+        jrdb_training_idx: enrichment.jrdb_training_idx ?? race.jrdb_training_idx,
+        jrdb_stable_idx: enrichment.jrdb_stable_idx ?? race.jrdb_stable_idx,
+        jrdb_gekisou_idx: enrichment.jrdb_gekisou_idx ?? race.jrdb_gekisou_idx,
+        jrdb_idm: enrichment.jrdb_idm ?? race.jrdb_idm,
       };
     }
   }

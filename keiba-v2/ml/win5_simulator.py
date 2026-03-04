@@ -474,6 +474,21 @@ def strategy_best_union(pred: RacePrediction, n: int) -> list:
     return [e for e in pred.entries if e.umaban in union]
 
 
+def strategy_w_ar_p_combo(pred: RacePrediction, w_n: int, ar_n: int, p_n: int) -> list:
+    """rank_w上位w_n ∪ AR偏差値上位ar_n ∪ rank_p上位p_n の和集合。"""
+    uma_set = set()
+    # rank_w top
+    for e in sorted([e for e in pred.entries if e.rank_w > 0], key=lambda e: e.rank_w)[:w_n]:
+        uma_set.add(e.umaban)
+    # AR deviation top
+    for e in sorted(pred.entries, key=lambda e: -e.ar_deviation)[:ar_n]:
+        uma_set.add(e.umaban)
+    # rank_p top
+    for e in sorted([e for e in pred.entries if e.rank_p > 0], key=lambda e: e.rank_p)[:p_n]:
+        uma_set.add(e.umaban)
+    return [e for e in pred.entries if e.umaban in uma_set]
+
+
 def strategy_ard_threshold(pred: RacePrediction, threshold: float) -> list:
     """AR偏差値が閾値以上の馬を全選択。"""
     selected = [e for e in pred.entries if e.ar_deviation >= threshold]
@@ -595,6 +610,10 @@ STRATEGIES = {
     # 和集合（rank_p ∪ rank_w で最大カバレッジ）
     'union_top2': lambda pred, rt: strategy_best_union(pred, 2),
     'union_top3': lambda pred, rt: strategy_best_union(pred, 3),
+    # W+AR+P複合（3モデル投票的な和集合）
+    'w3_ar1_p1': lambda pred, rt: strategy_w_ar_p_combo(pred, 3, 1, 1),
+    'w2_ar1_p1': lambda pred, rt: strategy_w_ar_p_combo(pred, 2, 1, 1),
+    'w3_ar1_p0': lambda pred, rt: strategy_w_ar_p_combo(pred, 3, 1, 0),
     # ARd閾値
     'ard_50': lambda pred, rt: strategy_ard_threshold(pred, 50),
     'ard_45': lambda pred, rt: strategy_ard_threshold(pred, 45),

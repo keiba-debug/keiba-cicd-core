@@ -6,10 +6,16 @@
 JRA-VANベースのレースマスターJSON用データクラス。
 """
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields as dc_fields
 from typing import Any, Dict, List, Optional
 import json
 from datetime import datetime
+
+
+def _safe_construct(cls, data: Dict) -> Any:
+    """dataclassを未知フィールドを無視して安全に構築"""
+    known = {f.name for f in dc_fields(cls)}
+    return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass
@@ -37,6 +43,13 @@ class RaceEntry:
     # 将来拡張用（jockey_code, trainer_code）
     jockey_code: str = ''
     trainer_code: str = ''
+    # JRDB指標（KYI: 事前予想, SED: 事後確定）
+    jrdb_pre_idm: Optional[float] = None       # KYI 事前IDM
+    jrdb_sogo_idx: Optional[float] = None      # KYI 総合指数
+    jrdb_training_idx: Optional[float] = None  # KYI 調教指数
+    jrdb_stable_idx: Optional[float] = None    # KYI 厩舎指数
+    jrdb_gekisou_idx: Optional[int] = None     # KYI 激走指数
+    jrdb_idm: Optional[float] = None           # SED 確定IDM（レース後）
 
 
 @dataclass
@@ -92,9 +105,9 @@ class RaceMaster:
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'RaceMaster':
-        entries = [RaceEntry(**e) for e in data.get('entries', [])]
+        entries = [_safe_construct(RaceEntry, e) for e in data.get('entries', [])]
         pace_data = data.get('pace')
-        pace = RacePace(**pace_data) if pace_data else None
+        pace = _safe_construct(RacePace, pace_data) if pace_data else None
         return cls(
             race_id=data['race_id'],
             date=data['date'],

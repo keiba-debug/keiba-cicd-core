@@ -549,6 +549,13 @@ export async function loadV4RaceEntries(date: string, raceId: string) {
     finishPosition: e.finish_position || 0,
     time: e.time || '',
     last3f: e.last_3f || 0,
+    // JRDB指標
+    jrdb_pre_idm: e.jrdb_pre_idm ?? null,
+    jrdb_sogo_idx: e.jrdb_sogo_idx ?? null,
+    jrdb_training_idx: e.jrdb_training_idx ?? null,
+    jrdb_stable_idx: e.jrdb_stable_idx ?? null,
+    jrdb_gekisou_idx: e.jrdb_gekisou_idx ?? null,
+    jrdb_idm: e.jrdb_idm ?? null,
   }));
 }
 

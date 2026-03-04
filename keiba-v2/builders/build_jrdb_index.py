@@ -192,7 +192,7 @@ def build_kyi_index(year_range: range) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description='Build JRDB Index')
-    parser.add_argument('--years', default='2020-2025',
+    parser.add_argument('--years', default='2020-2026',
                         help='年度範囲 (例: 2020-2025)')
     parser.add_argument('--type', choices=['sed', 'kyi', 'all'], default='all',
                         help='構築対象 (sed/kyi/all)')

@@ -58,13 +58,13 @@ export default function RootLayout({
           <Header />
 
           {/* Main */}
-          <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <main className="flex-1 w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
             {children}
           </main>
 
           {/* Footer */}
           <footer className="border-t py-4 mt-auto">
-            <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-muted-foreground">
+            <div className="w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-muted-foreground">
               KeibaCICD — Value Bet で競馬をもっと面白く
             </div>
           </footer>

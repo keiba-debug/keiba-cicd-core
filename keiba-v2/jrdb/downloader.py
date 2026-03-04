@@ -121,7 +121,7 @@ def list_archive_links(session: requests.Session, data_type: str) -> List[dict]:
 
         if yearly_match:
             year = int(yearly_match.group(1))
-            full_url = href if href.startswith('http') else JRDB_BASE + base_dir + '/' + filename
+            full_url = href if href.startswith('http') else JRDB_BASE + base_dir + '/' + href
             links.append({
                 'url': full_url,
                 'filename': filename,
@@ -130,7 +130,7 @@ def list_archive_links(session: requests.Session, data_type: str) -> List[dict]:
                 'format': ext,
             })
         elif single_match:
-            full_url = href if href.startswith('http') else JRDB_BASE + base_dir + '/' + filename
+            full_url = href if href.startswith('http') else JRDB_BASE + base_dir + '/' + href
             links.append({
                 'url': full_url,
                 'filename': filename,
@@ -265,7 +265,17 @@ def download_latest(session: requests.Session, data_type: str, count: int = 5):
 
     links = list_archive_links(session, data_type)
     singles = [l for l in links if not l['is_yearly']]
-    singles.sort(key=lambda x: x['filename'], reverse=True)
+
+    def _sort_key(link):
+        """2桁年ファイル名を正しくソート (YY>=80→19XX, else 20XX)"""
+        m = re.search(r'(\d{6})', link['filename'])
+        if m:
+            yy = int(m.group(1)[:2])
+            full_year = 1900 + yy if yy >= 80 else 2000 + yy
+            return f"{full_year}{m.group(1)[2:]}"
+        return link['filename']
+
+    singles.sort(key=_sort_key, reverse=True)
 
     type_zip_dir = ZIP_DIR / data_type
     type_raw_dir = RAW_DIR / data_type

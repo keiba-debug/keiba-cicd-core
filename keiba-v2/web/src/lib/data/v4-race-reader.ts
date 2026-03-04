@@ -32,6 +32,13 @@ export interface V4RaceEntry {
   odds: number;
   popularity: number;
   corners: number[];
+  // JRDB指標
+  jrdb_pre_idm?: number | null;       // KYI 事前IDM
+  jrdb_sogo_idx?: number | null;      // KYI 総合指数
+  jrdb_training_idx?: number | null;  // KYI 調教指数
+  jrdb_stable_idx?: number | null;    // KYI 厩舎指数
+  jrdb_gekisou_idx?: number | null;   // KYI 激走指数
+  jrdb_idm?: number | null;           // SED 確定IDM（レース後）
 }
 
 export interface V4RacePace {

@@ -53,6 +53,8 @@ export interface MlPredictionEntry {
   horse_number: number;
   pred_proba_p: number;
   pred_proba_value?: number;  // legacy alias for pred_proba_p
+  pred_proba_w_cal?: number | null;  // P(win) calibrated
+  rank_w?: number | null;
   value_rank: number;
   odds_rank: number | null;
   gap: number | null;
@@ -96,6 +98,13 @@ function formatLast3f(value: string | number | undefined | null): string {
   const n = typeof value === 'number' ? value : parseFloat(String(value).trim());
   if (Number.isNaN(n)) return '-';
   return n.toFixed(1);
+}
+
+/** JRDB指標（馬単位） */
+export interface JrdbEntry {
+  pre_idm: number | null;
+  sogo_idx: number | null;
+  gekisou_idx: number | null;
 }
 
 interface HorseEntryTableProps {
@@ -443,6 +452,8 @@ interface HorseEntryRowProps {
   mlPrediction?: MlPredictionEntry;
   dbOdds?: DbHorseOdds;
   hasDbOdds?: boolean;
+  jrdb?: JrdbEntry;
+  hasJrdb?: boolean;
 }
 
 const HorseEntryRow = React.memo(function HorseEntryRow({
@@ -465,6 +476,8 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   mlPrediction,
   dbOdds,
   hasDbOdds,
+  jrdb,
+  hasJrdb,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
@@ -555,6 +568,38 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
               'text-gray-400'
             }>
               {mlPrediction.ar_deviation.toFixed(0)}
+            </span>
+          ) : <span className="text-gray-300">-</span>}
+        </td>
+      )}
+
+      {/* W% (勝率) */}
+      {mlPrediction !== undefined && (
+        <td className="px-1 py-1.5 text-center border font-mono text-xs">
+          {mlPrediction.pred_proba_w_cal != null ? (
+            <span className={
+              mlPrediction.pred_proba_w_cal >= 0.15 ? 'text-red-600 font-bold' :
+              mlPrediction.pred_proba_w_cal >= 0.08 ? 'text-blue-600 font-bold' :
+              mlPrediction.pred_proba_w_cal >= 0.04 ? 'text-gray-700 dark:text-gray-300' :
+              'text-gray-400'
+            }>
+              {(mlPrediction.pred_proba_w_cal * 100).toFixed(1)}
+            </span>
+          ) : <span className="text-gray-300">-</span>}
+        </td>
+      )}
+
+      {/* P% (好走率) */}
+      {mlPrediction !== undefined && (
+        <td className="px-1 py-1.5 text-center border font-mono text-xs">
+          {mlPrediction.pred_proba_p > 0 ? (
+            <span className={
+              mlPrediction.pred_proba_p >= 0.30 ? 'text-red-600 font-bold' :
+              mlPrediction.pred_proba_p >= 0.18 ? 'text-blue-600 font-bold' :
+              mlPrediction.pred_proba_p >= 0.10 ? 'text-gray-700 dark:text-gray-300' :
+              'text-gray-400'
+            }>
+              {(mlPrediction.pred_proba_p * 100).toFixed(1)}
             </span>
           ) : <span className="text-gray-300">-</span>}
         </td>
@@ -689,6 +734,54 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         {entry_data.aggregate_mark_point > 0 ? entry_data.aggregate_mark_point : '-'}
       </td>
 
+      {/* JRDB 予IDM */}
+      {hasJrdb && (
+        <td className="px-1 py-1.5 text-center border font-mono text-xs">
+          {jrdb?.pre_idm != null ? (
+            <span className={
+              jrdb.pre_idm >= 60 ? 'text-red-600 font-bold' :
+              jrdb.pre_idm >= 50 ? 'text-blue-600 font-bold' :
+              jrdb.pre_idm >= 40 ? 'text-gray-700 dark:text-gray-300' :
+              'text-gray-400'
+            }>
+              {jrdb.pre_idm.toFixed(1)}
+            </span>
+          ) : <span className="text-gray-300">-</span>}
+        </td>
+      )}
+
+      {/* JRDB 総合 */}
+      {hasJrdb && (
+        <td className="px-1 py-1.5 text-center border font-mono text-xs">
+          {jrdb?.sogo_idx != null ? (
+            <span className={
+              jrdb.sogo_idx >= 60 ? 'text-red-600 font-bold' :
+              jrdb.sogo_idx >= 50 ? 'text-blue-600 font-bold' :
+              jrdb.sogo_idx >= 40 ? 'text-gray-700 dark:text-gray-300' :
+              'text-gray-400'
+            }>
+              {jrdb.sogo_idx.toFixed(1)}
+            </span>
+          ) : <span className="text-gray-300">-</span>}
+        </td>
+      )}
+
+      {/* JRDB 激走 */}
+      {hasJrdb && (
+        <td className="px-1 py-1.5 text-center border font-mono text-xs">
+          {jrdb?.gekisou_idx != null ? (
+            <span className={
+              jrdb.gekisou_idx >= 150 ? 'text-red-600 font-bold' :
+              jrdb.gekisou_idx >= 130 ? 'text-orange-600 font-bold' :
+              jrdb.gekisou_idx >= 100 ? 'text-gray-700 dark:text-gray-300' :
+              'text-gray-400'
+            }>
+              {jrdb.gekisou_idx}
+            </span>
+          ) : <span className="text-gray-300">-</span>}
+        </td>
+      )}
+
       {/* 短評 */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
         {entry_data.short_comment || '-'}
@@ -776,6 +869,22 @@ export default function HorseEntryTable({
 }: HorseEntryTableProps) {
   const hasMlPredictions = mlPredictions && Object.keys(mlPredictions).length > 0;
 
+  // JRDB指標を entries から抽出
+  const jrdbMap = useMemo(() => {
+    const map = new Map<number, JrdbEntry>();
+    for (const e of entries) {
+      if (e.jrdb_pre_idm != null || e.jrdb_sogo_idx != null || e.jrdb_gekisou_idx != null) {
+        map.set(e.horse_number, {
+          pre_idm: e.jrdb_pre_idm ?? null,
+          sogo_idx: e.jrdb_sogo_idx ?? null,
+          gekisou_idx: e.jrdb_gekisou_idx ?? null,
+        });
+      }
+    }
+    return map;
+  }, [entries]);
+  const hasJrdbData = jrdbMap.size > 0;
+
   // DB odds取得（SWR: 当日は30秒ポーリング）
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -806,7 +915,7 @@ export default function HorseEntryTable({
   }, [dbOdds, hasDbOdds]);
 
   // --- ソート機能 ---
-  type SortKey = 'horse_number' | 'odds' | 'ai_index' | 'rating' | 'ard' | 'finish';
+  type SortKey = 'horse_number' | 'odds' | 'ai_index' | 'rating' | 'ard' | 'ml_w' | 'ml_p' | 'finish' | 'jrdb_idm' | 'jrdb_sogo' | 'jrdb_gekisou';
   const [sortKey, setSortKey] = useState<SortKey>('horse_number');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -855,10 +964,40 @@ export default function HorseEntryTable({
           cmp = da - db;
           break;
         }
+        case 'ml_w': {
+          const wa = mlPredictions?.[a.horse_number]?.pred_proba_w_cal ?? -999;
+          const wb = mlPredictions?.[b.horse_number]?.pred_proba_w_cal ?? -999;
+          cmp = wa - wb;
+          break;
+        }
+        case 'ml_p': {
+          const pa = mlPredictions?.[a.horse_number]?.pred_proba_p ?? -999;
+          const pb = mlPredictions?.[b.horse_number]?.pred_proba_p ?? -999;
+          cmp = pa - pb;
+          break;
+        }
         case 'finish': {
           const fa = parseInt(a.result?.finish_position || '99', 10);
           const fb = parseInt(b.result?.finish_position || '99', 10);
           cmp = fa - fb;
+          break;
+        }
+        case 'jrdb_idm': {
+          const ja = jrdbMap.get(a.horse_number)?.pre_idm ?? -999;
+          const jb = jrdbMap.get(b.horse_number)?.pre_idm ?? -999;
+          cmp = ja - jb;
+          break;
+        }
+        case 'jrdb_sogo': {
+          const sa = jrdbMap.get(a.horse_number)?.sogo_idx ?? -999;
+          const sb = jrdbMap.get(b.horse_number)?.sogo_idx ?? -999;
+          cmp = sa - sb;
+          break;
+        }
+        case 'jrdb_gekisou': {
+          const ga = jrdbMap.get(a.horse_number)?.gekisou_idx ?? -999;
+          const gb = jrdbMap.get(b.horse_number)?.gekisou_idx ?? -999;
+          cmp = ga - gb;
           break;
         }
       }
@@ -866,7 +1005,7 @@ export default function HorseEntryTable({
       // tiebreaker: 馬番昇順
       return a.horse_number - b.horse_number;
     });
-  }, [entries, sortKey, sortDir, mlPredictions]);
+  }, [entries, sortKey, sortDir, mlPredictions, jrdbMap]);
 
   // レイティング・AI指数の統計計算（useMemoでキャッシュ）
   // entries が変わらない限り再計算しない（O(n log n)の計算を節約）
@@ -936,6 +1075,8 @@ export default function HorseEntryTable({
               <>
                 <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ard')} title="AR偏差値 — レース内相対能力 (50=平均)">ARd{sortIndicator('ard')}</th>
+                <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200 text-xs" onClick={() => handleSort('ml_w')} title="勝率(Win) — キャリブレーション済み">W%{sortIndicator('ml_w')}</th>
+                <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200 text-xs" onClick={() => handleSort('ml_p')} title="好走率(Place) — Top3確率">P%{sortIndicator('ml_p')}</th>
               </>
             )}
             <th className="px-2 py-2 text-left border min-w-32">馬名</th>
@@ -948,7 +1089,14 @@ export default function HorseEntryTable({
             )}
             <th className="px-2 py-2 text-center border w-16 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_index')}>AI指数{sortIndicator('ai_index')}</th>
             <th className="px-2 py-2 text-center border w-12 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('rating')} title="BR (Book Rating) — 競馬ブックレイティング">BR{sortIndicator('rating')}</th>
-            <th className="px-2 py-2 text-center border w-10">P</th>
+            <th className="px-2 py-2 text-center border w-10" title="競馬ブック印集計ポイント">B印</th>
+            {hasJrdbData && (
+              <>
+                <th className="px-1 py-2 text-center border w-10 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('jrdb_idm')} title="JRDB 事前IDM">予IDM{sortIndicator('jrdb_idm')}</th>
+                <th className="px-1 py-2 text-center border w-10 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('jrdb_sogo')} title="JRDB 総合指数">総合{sortIndicator('jrdb_sogo')}</th>
+                <th className="px-1 py-2 text-center border w-10 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('jrdb_gekisou')} title="JRDB 激走指数">激走{sortIndicator('jrdb_gekisou')}</th>
+              </>
+            )}
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
             <th className="px-2 py-2 text-left border min-w-20" title="パドック評価・コメント">パ</th>
             {showResult && (
@@ -982,6 +1130,8 @@ export default function HorseEntryTable({
               mlPrediction={hasMlPredictions ? mlPredictions[entry.horse_number] : undefined}
               dbOdds={dbOddsMap.get(entry.horse_number)}
               hasDbOdds={hasDbOdds}
+              jrdb={jrdbMap.get(entry.horse_number)}
+              hasJrdb={hasJrdbData}
             />
           ))}
         </tbody>

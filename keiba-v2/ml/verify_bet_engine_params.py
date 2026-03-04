@@ -60,7 +60,7 @@ def main():
     # === データロード ===
     print('\n[Load] Loading data...')
     (history_cache, trainer_index, jockey_index,
-     date_index, pace_index, kb_ext_index, training_summary_index) = load_data()
+     date_index, pace_index, kb_ext_index, training_summary_index, *_extra) = load_data()
 
     df_train = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,

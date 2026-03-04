@@ -17,7 +17,7 @@ import { generateLiveRecommendations } from './lib/bet-engine';
 import { DateNav } from './components/date-nav';
 import { SummaryCards } from './components/summary-cards';
 import { FilterBar } from './components/filter-bar';
-import { SectionNav } from './components/section-nav';
+import { SectionNav, type PageTab } from './components/section-nav';
 import { RoiSummary } from './components/roi-summary';
 import { BetRecommendations } from './components/bet-recommendations';
 import { VBTable } from './components/vb-table';
@@ -149,11 +149,14 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     }).catch(() => {/* ignore */});
   }, [bankrollBalance, budgetLinked, computeBudget]);
 
+  // ページタブ（馬券 / 出走表）
+  const [activeTab, setActiveTab] = useState<PageTab>('bets');
+
   // 推奨買い目 プリセット選択（デフォルト: intersection）
   const [preset, setPreset] = useState<ServerPresetKey>('intersection');
   useEffect(() => {
     const saved = localStorage.getItem('keiba_bet_preset');
-    if (saved && ['intersection', 'relaxed', 'ev_focus'].includes(saved)) {
+    if (saved && ['intersection', 'relaxed', 'ev_focus', 'simple', 'simple_ev2', 'simple_wide'].includes(saved)) {
       setPreset(saved as ServerPresetKey);
     }
   }, []);
@@ -913,112 +916,122 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         totalCount={allVBEntries.length}
       />
 
-      {/* セクションナビ */}
+      {/* セクションナビ + タブ切替 */}
       <SectionNav
         hasResults={hasResults && roiStats != null}
         hasBets={betRecommendations.length > 0}
         hasVB={filteredVBEntries.length > 0}
         hasDanger={filteredDangerHorses.length > 0}
         hasMultiLeg={(data.multi_leg_recommendations?.length ?? 0) > 0}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        raceCount={summary.total_races}
       />
 
-      {/* ROIサマリー */}
-      {hasResults && roiStats && (
-        <RoiSummary all={roiStats.all} betRec={roiStats.betRec} betExcl={roiStats.betExcl} />
+      {/* === 馬券タブ === */}
+      {activeTab === 'bets' && (
+        <>
+          {/* ROIサマリー */}
+          {hasResults && roiStats && (
+            <RoiSummary all={roiStats.all} betRec={roiStats.betRec} betExcl={roiStats.betExcl} />
+          )}
+
+          {/* 推奨買い目 */}
+          <BetRecommendations
+            betRecommendations={betRecommendations}
+            sortedBetRecommendations={sortedBetRecommendations}
+            betSummary={betSummary}
+            oddsMap={oddsMap}
+            getLiveGap={getLiveGap}
+            oddsLoading={oddsLoading}
+            dailyBudget={dailyBudget}
+            updateBudget={updateBudget}
+            fetchAllOdds={fetchAllOdds}
+            syncBetMarks={syncBetMarks}
+            betSyncing={betSyncing}
+            betSyncResult={betSyncResult}
+            betSort={betSort}
+            setBetSort={setBetSort}
+            preset={preset}
+            onPresetChange={updatePreset}
+            allocMode={allocMode}
+            onAllocModeChange={updateAllocMode}
+            dbResults={dbResults}
+            getFinishPos={getFinishPos}
+            bankrollBalance={bankrollBalance}
+            budgetLinked={budgetLinked}
+            toggleBudgetLink={toggleBudgetLink}
+            dailyLimitPct={dailyLimitPct}
+            onDailyLimitPctChange={updateDailyLimitPct}
+            isLiveCalc={hasLiveOdds}
+            isArchive={isArchive}
+            oddsTime={oddsTime}
+          />
+
+          {/* マルチレグ推奨（馬単・ワイド） */}
+          {data.multi_leg_recommendations && data.multi_leg_recommendations.length > 0 && (
+            <MultiLegRecommendations
+              recommendations={data.multi_leg_recommendations}
+              results={results}
+              races={races}
+              venueFilter={venueFilter}
+              trackFilter={trackFilter}
+              raceNumFilter={raceNumFilter}
+            />
+          )}
+
+          {/* VB候補 */}
+          <VBTable
+            sortedVBEntries={sortedVBEntries}
+            filteredVBEntries={filteredVBEntries}
+            oddsMap={oddsMap}
+            dbResults={dbResults}
+            results={results}
+            hasResults={hasResults}
+            getFinishPos={getFinishPos}
+            getLiveGap={getLiveGap}
+            vbSort={vbSort}
+            setVbSort={setVbSort}
+            syncVbMarks={syncVbMarks}
+            markSyncing={markSyncing}
+            markResult={markResult}
+            betRecMap={betRecMap}
+            targetMarks={targetMarks}
+          />
+
+          {/* 危険馬結果一覧 */}
+          <DangerResults
+            dangerHorses={filteredDangerHorses}
+            getFinishPos={getFinishPos}
+            syncDangerMarks={syncDangerMarks}
+            dangerMarkSyncing={dangerMarkSyncing}
+            dangerMarkResult={dangerMarkResult}
+          />
+        </>
       )}
 
-      {/* 推奨買い目 */}
-      <BetRecommendations
-        betRecommendations={betRecommendations}
-        sortedBetRecommendations={sortedBetRecommendations}
-        betSummary={betSummary}
-        oddsMap={oddsMap}
-        getLiveGap={getLiveGap}
-        oddsLoading={oddsLoading}
-        dailyBudget={dailyBudget}
-        updateBudget={updateBudget}
-        fetchAllOdds={fetchAllOdds}
-        syncBetMarks={syncBetMarks}
-        betSyncing={betSyncing}
-        betSyncResult={betSyncResult}
-        betSort={betSort}
-        setBetSort={setBetSort}
-        preset={preset}
-        onPresetChange={updatePreset}
-        allocMode={allocMode}
-        onAllocModeChange={updateAllocMode}
-        dbResults={dbResults}
-        getFinishPos={getFinishPos}
-        bankrollBalance={bankrollBalance}
-        budgetLinked={budgetLinked}
-        toggleBudgetLink={toggleBudgetLink}
-        dailyLimitPct={dailyLimitPct}
-        onDailyLimitPctChange={updateDailyLimitPct}
-        isLiveCalc={hasLiveOdds}
-        isArchive={isArchive}
-        oddsTime={oddsTime}
-      />
+      {/* === 出走表タブ === */}
+      {activeTab === 'races' && (
+        <div id="section-races" className="space-y-8">
+          {Array.from(filteredVenueGroups.entries()).map(([venue, venueRaces]) => (
+            <div key={venue}>
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                {venue}
+                <Badge variant="outline">{venueRaces.length}R</Badge>
+                <Badge variant="secondary" className="text-xs">
+                  VB: {venueRaces.reduce((s, r) => s + r.entries.filter(e => e.is_value_bet).length, 0)}頭
+                </Badge>
+              </h2>
 
-      {/* マルチレグ推奨（馬単・ワイド） */}
-      {data.multi_leg_recommendations && data.multi_leg_recommendations.length > 0 && (
-        <MultiLegRecommendations
-          recommendations={data.multi_leg_recommendations}
-          results={results}
-          races={races}
-          venueFilter={venueFilter}
-          trackFilter={trackFilter}
-          raceNumFilter={raceNumFilter}
-        />
-      )}
-
-      {/* VB候補 */}
-      <VBTable
-        sortedVBEntries={sortedVBEntries}
-        filteredVBEntries={filteredVBEntries}
-        oddsMap={oddsMap}
-        dbResults={dbResults}
-        results={results}
-        hasResults={hasResults}
-        getFinishPos={getFinishPos}
-        getLiveGap={getLiveGap}
-        vbSort={vbSort}
-        setVbSort={setVbSort}
-        syncVbMarks={syncVbMarks}
-        markSyncing={markSyncing}
-        markResult={markResult}
-        betRecMap={betRecMap}
-        targetMarks={targetMarks}
-      />
-
-      {/* 危険馬結果一覧 */}
-      <DangerResults
-        dangerHorses={filteredDangerHorses}
-        getFinishPos={getFinishPos}
-        syncDangerMarks={syncDangerMarks}
-        dangerMarkSyncing={dangerMarkSyncing}
-        dangerMarkResult={dangerMarkResult}
-      />
-
-      {/* 開催場別レース一覧 */}
-      <div id="section-races" className="space-y-8">
-        {Array.from(filteredVenueGroups.entries()).map(([venue, venueRaces]) => (
-          <div key={venue}>
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              {venue}
-              <Badge variant="outline">{venueRaces.length}R</Badge>
-              <Badge variant="secondary" className="text-xs">
-                VB: {venueRaces.reduce((s, r) => s + r.entries.filter(e => e.is_value_bet).length, 0)}頭
-              </Badge>
-            </h2>
-
-            <div className="space-y-4">
-              {venueRaces.sort((a, b) => a.race_number - b.race_number).map((race) => (
-                <RaceCard key={race.race_id} race={race} oddsMap={oddsMap} results={results} dbResults={dbResults} targetMarks={targetMarks[race.race_id]} />
-              ))}
+              <div className="space-y-4">
+                {venueRaces.sort((a, b) => a.race_number - b.race_number).map((race) => (
+                  <RaceCard key={race.race_id} race={race} oddsMap={oddsMap} results={results} dbResults={dbResults} targetMarks={targetMarks[race.race_id]} />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

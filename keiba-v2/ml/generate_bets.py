@@ -80,6 +80,8 @@ def apply_bet_engine(
                 'win_min_rating': preset_params.win_min_rating,
                 'win_min_ar_deviation': preset_params.win_min_ar_deviation,
                 'win_max_rank': preset_params.win_max_rank,
+                'win_max_rank_w': preset_params.win_max_rank_w,
+                'win_min_win_gap': preset_params.win_min_win_gap,
                 'win_v_ratio_min': preset_params.win_v_ratio_min,
                 'win_v_bypass_gap': preset_params.win_v_bypass_gap,
                 'win_v_bypass_ev': preset_params.win_v_bypass_ev,
@@ -140,7 +142,7 @@ def main():
     parser.add_argument('--date', help='対象日 (YYYY-MM-DD)')
     parser.add_argument('--today', action='store_true', help='今日の日付を使用')
     parser.add_argument('--budget', type=int, default=30000, help='予算 (default: 30000)')
-    parser.add_argument('--preset', choices=['standard', 'wide', 'aggressive'],
+    parser.add_argument('--preset', choices=list(PRESETS.keys()),
                         help='特定プリセットのみ生成')
     args = parser.parse_args()
 

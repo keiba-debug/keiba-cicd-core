@@ -66,6 +66,9 @@ export default function AdminPage() {
   // 調教サマリー一括生成
   const [isGeneratingTraining, setIsGeneratingTraining] = useState(false);
 
+  // JRDBダウンロード
+  const [isDownloadingJrdb, setIsDownloadingJrdb] = useState(false);
+
   // データ品質リフレッシュ用
   const [dataQualityRefreshKey, setDataQualityRefreshKey] = useState(0);
 
@@ -199,6 +202,85 @@ export default function AdminPage() {
       setStatus('error');
     } finally {
       setIsGeneratingTraining(false);
+      setCurrentAction(null);
+    }
+  }, [addLog]);
+
+  // JRDBデータダウンロード
+  const downloadJrdb = useCallback(async () => {
+    setIsDownloadingJrdb(true);
+    setStatus('running');
+    setCurrentAction('JRDBダウンロード');
+    addLog({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      message: 'JRDB データダウンロード 開始...',
+    });
+
+    try {
+      const response = await fetch('/api/admin/jrdb-download', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'start' || data.type === 'log' || data.type === 'progress') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: data.level || 'info',
+                  message: data.message,
+                });
+              } else if (data.type === 'complete') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: 'success',
+                  message: data.message,
+                });
+                setStatus('success');
+              } else if (data.type === 'error') {
+                addLog({
+                  timestamp: new Date().toISOString(),
+                  level: 'error',
+                  message: data.message,
+                });
+                setStatus('error');
+              }
+            } catch (e) {
+              console.error('SSE parse error:', e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        message: `JRDBダウンロードエラー: ${error}`,
+      });
+      setStatus('error');
+    } finally {
+      setIsDownloadingJrdb(false);
       setCurrentAction(null);
     }
   }, [addLog]);
@@ -681,6 +763,33 @@ export default function AdminPage() {
                         </div>
                         <span className="text-xs text-muted-foreground mt-1">
                           新しい日程データを登録した後に実行
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* JRDBデータ */}
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-3">
+                      JRDB データ
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Button
+                        variant="outline"
+                        className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
+                        onClick={downloadJrdb}
+                        disabled={isDownloadingJrdb || isRunning}
+                      >
+                        <div className="flex items-center gap-2 w-full">
+                          <span className={`text-lg ${isDownloadingJrdb ? 'animate-pulse' : ''}`}>📡</span>
+                          <span className="font-semibold text-sm">
+                            {isDownloadingJrdb ? 'JRDBダウンロード中...' : 'JRDB最新データ取得'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground mt-1">
+                          SED/KYI/KAAの最新20件をダウンロード（IDM・指数・馬場）
                         </span>
                       </Button>
                     </div>

@@ -1,9 +1,14 @@
-"""Bankroll simulation v7.3 — Intersection Filter
+"""Bankroll simulation v7.3 — Intersection Filter + Simple Strategies
 
-3 strategies (matching bet-engine.ts presets):
-  intersection: rank_w=1, win_gap>=4, win_ev>=1.3, margin<=60
-  relaxed:      rank_w=1, win_gap>=3, win_ev>=1.0, margin<=60
-  ev_focus:     rank_w=1, win_gap>=1, win_ev>=1.3, margin<=60
+Presets:
+  ev_strategy  — Intersection Filter (gap × EV × margin)
+    intersection: rank_w=1, win_gap>=4, win_ev>=1.3, margin<=60
+    relaxed:      rank_w=1, win_gap>=3, win_ev>=1.0, margin<=60
+    ev_focus:     rank_w=1, win_gap>=1, win_ev>=1.3, margin<=60
+  simple       — シンプル戦略 (rank_w=1 + 単条件)
+    simple:       rank_w=1, win_gap>=4
+    simple_ev2:   rank_w=1, win_ev>=2.0
+    simple_wide:  rank_w=1, win_gap>=3
 
 Win-only (Place ROI < 100% for all conditions).
 Confirmed odds used for gap/EV recalculation.
@@ -34,35 +39,66 @@ BUDGET_CONFIGS = [
 ]
 
 # Intersection Filter strategies (matching bet-engine.ts)
-STRATEGIES = [
-    {
-        "mode": "intersection",
-        "label": "Intersection (gap>=4 EV>=1.3 m<=60)",
-        "max_rank_w": 1,
-        "min_win_gap": 4,
-        "min_win_ev": 1.3,
-        "max_margin": 60,
-        "max_win_per_race": 1,
-    },
-    {
-        "mode": "relaxed",
-        "label": "Relaxed (gap>=3 EV>=1.0 m<=60)",
-        "max_rank_w": 1,
-        "min_win_gap": 3,
-        "min_win_ev": 1.0,
-        "max_margin": 60,
-        "max_win_per_race": 1,
-    },
-    {
-        "mode": "ev_focus",
-        "label": "EV Focus (gap>=1 EV>=1.3 m<=60)",
-        "max_rank_w": 1,
-        "min_win_gap": 1,
-        "min_win_ev": 1.3,
-        "max_margin": 60,
-        "max_win_per_race": 1,
-    },
-]
+PRESET_STRATEGIES = {
+    "ev_strategy": [
+        {
+            "mode": "intersection",
+            "label": "Intersection (gap>=4 EV>=1.3 m<=60)",
+            "max_rank_w": 1,
+            "min_win_gap": 4,
+            "min_win_ev": 1.3,
+            "max_margin": 60,
+            "max_win_per_race": 1,
+        },
+        {
+            "mode": "relaxed",
+            "label": "Relaxed (gap>=3 EV>=1.0 m<=60)",
+            "max_rank_w": 1,
+            "min_win_gap": 3,
+            "min_win_ev": 1.0,
+            "max_margin": 60,
+            "max_win_per_race": 1,
+        },
+        {
+            "mode": "ev_focus",
+            "label": "EV Focus (gap>=1 EV>=1.3 m<=60)",
+            "max_rank_w": 1,
+            "min_win_gap": 1,
+            "min_win_ev": 1.3,
+            "max_margin": 60,
+            "max_win_per_race": 1,
+        },
+    ],
+    "simple": [
+        {
+            "mode": "simple",
+            "label": "Simple (1位 gap>=4)",
+            "max_rank_w": 1,
+            "min_win_gap": 4,
+            "min_win_ev": 0,
+            "max_margin": 999,
+            "max_win_per_race": 1,
+        },
+        {
+            "mode": "simple_ev2",
+            "label": "Simple EV2 (1位 EV>=2.0)",
+            "max_rank_w": 1,
+            "min_win_gap": 0,
+            "min_win_ev": 2.0,
+            "max_margin": 999,
+            "max_win_per_race": 1,
+        },
+        {
+            "mode": "simple_wide",
+            "label": "Simple Wide (1位 gap>=3)",
+            "max_rank_w": 1,
+            "min_win_gap": 3,
+            "min_win_ev": 0,
+            "max_margin": 999,
+            "max_win_per_race": 1,
+        },
+    ],
+}
 
 
 def load_cache():
@@ -295,8 +331,9 @@ def run_simulation(dates_races_prepared, lookup, strategy, budget_pct, min_budge
 
 def main():
     print("=" * 80)
-    print(f"  Bankroll Simulation v7.3 - Intersection Filter")
-    print(f"  Initial: {INITIAL_BANKROLL:,} | Strategies: {len(STRATEGIES)}")
+    total_strategies = sum(len(s) for s in PRESET_STRATEGIES.values())
+    print(f"  Bankroll Simulation v7.3 - Intersection Filter + Simple")
+    print(f"  Initial: {INITIAL_BANKROLL:,} | Presets: {len(PRESET_STRATEGIES)} | Strategies: {total_strategies}")
     print("=" * 80)
 
     cache = load_cache()
@@ -325,26 +362,31 @@ def main():
 
     all_results = []
 
-    for strategy in STRATEGIES:
-        print(f"\n{'─' * 60}")
-        print(f"  Strategy: {strategy['label']}")
-        print(f"{'─' * 60}")
+    for preset_name, strategies in PRESET_STRATEGIES.items():
+        print(f"\n{'=' * 60}")
+        print(f"  Preset: {preset_name}")
+        print(f"{'=' * 60}")
 
-        for bcfg in BUDGET_CONFIGS:
-            r = run_simulation(
-                dates_prepared, lookup, strategy,
-                bcfg["pct"], bcfg["min"],
-            )
-            r["preset"] = "ev_strategy"
-            r["budget_label"] = bcfg["label"]
+        for strategy in strategies:
+            print(f"\n{'─' * 60}")
+            print(f"  Strategy: {strategy['label']}")
+            print(f"{'─' * 60}")
 
-            marker = " ***" if r["final_bankroll"] > INITIAL_BANKROLL else ""
-            wl = f"{r['win_days']}/{r['lose_days']}"
-            print(f"  {bcfg['label']:>7} | Final {r['final_bankroll']:>8,} | ROI {r['roi_pct']:>+7.1f}% | "
-                  f"Flat {r['flat_roi']:>6.1f}% | DD {r['max_dd']:>5.1f}% | "
-                  f"Calmar {r['calmar']:>6.2f} | {wl:>5} | Bets {r['total_bets']:>3}{marker}")
+            for bcfg in BUDGET_CONFIGS:
+                r = run_simulation(
+                    dates_prepared, lookup, strategy,
+                    bcfg["pct"], bcfg["min"],
+                )
+                r["preset"] = preset_name
+                r["budget_label"] = bcfg["label"]
 
-            all_results.append(r)
+                marker = " ***" if r["final_bankroll"] > INITIAL_BANKROLL else ""
+                wl = f"{r['win_days']}/{r['lose_days']}"
+                print(f"  {bcfg['label']:>7} | Final {r['final_bankroll']:>8,} | ROI {r['roi_pct']:>+7.1f}% | "
+                      f"Flat {r['flat_roi']:>6.1f}% | DD {r['max_dd']:>5.1f}% | "
+                      f"Calmar {r['calmar']:>6.2f} | {wl:>5} | Bets {r['total_bets']:>3}{marker}")
+
+                all_results.append(r)
 
     # Model version
     meta_path = Path("C:/KEIBA-CICD/data3/ml/model_meta.json")
@@ -360,8 +402,12 @@ def main():
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "initial_bankroll": INITIAL_BANKROLL,
         "budget_configs": [{"label": b["label"], "pct": b["pct"]} for b in BUDGET_CONFIGS],
-        "strategies": [{"mode": s["mode"], "label": s["label"]} for s in STRATEGIES],
-        "presets": ["ev_strategy"],
+        "strategies": [
+            {"mode": s["mode"], "label": s["label"]}
+            for strategies in PRESET_STRATEGIES.values()
+            for s in strategies
+        ],
+        "presets": list(PRESET_STRATEGIES.keys()),
         "results": [],
     }
 

@@ -329,5 +329,12 @@ function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null, raceFirst3f: string)
     past_performances: pastPerformances,
     history_features: historyFeatures,
     is_slow_start: kb?.is_slow_start || false,
+    // JRDB指標
+    jrdb_pre_idm: v4.jrdb_pre_idm ?? null,
+    jrdb_sogo_idx: v4.jrdb_sogo_idx ?? null,
+    jrdb_training_idx: v4.jrdb_training_idx ?? null,
+    jrdb_stable_idx: v4.jrdb_stable_idx ?? null,
+    jrdb_gekisou_idx: v4.jrdb_gekisou_idx ?? null,
+    jrdb_idm: v4.jrdb_idm ?? null,
   };
 }

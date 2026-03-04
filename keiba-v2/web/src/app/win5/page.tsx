@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 interface Pick {
   umaban: number;
@@ -112,7 +113,7 @@ function StrategyCard({ name, strategy, races, results, strategyResult }: {
         className="w-full px-4 py-3 flex items-center justify-between bg-muted/30 hover:bg-muted/50 transition-colors"
       >
         <div className="flex items-center gap-3">
-          <span className="text-lg">{name === 'w_floor50_gap' ? '\u2B50' : name.startsWith('wp_gap') ? '\uD83C\uDFAF' : name === 'p_fixed_2' ? '\uD83D\uDCB0' : '\u25C6'}</span>
+          <span className="text-lg">{name === 'w2_ar1_p1' ? 'D' : name === 'w_floor50_gap' ? '\u2B50' : name.startsWith('wp_gap') ? '\uD83C\uDFAF' : name === 'p_fixed_2' ? '\uD83D\uDCB0' : '\u25C6'}</span>
           <div className="text-left">
             <div className="font-semibold text-sm flex items-center gap-2">
               {strategy.label}
@@ -220,20 +221,40 @@ function StrategyCard({ name, strategy, races, results, strategyResult }: {
   );
 }
 
+/** YYYY-MM-DD → "2026年2月22日(日)" */
+function formatDateDisplay(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dow = ['日', '月', '火', '水', '木', '金', '土'][new Date(y, m - 1, d).getDay()];
+  return `${y}年${m}月${d}日(${dow})`;
+}
+
 export default function Win5Page() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [data, setData] = useState<Win5Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dateInput, setDateInput] = useState(searchParams.get('date') || '');
   const [generating, setGenerating] = useState(false);
   const [genMsg, setGenMsg] = useState<string | null>(null);
   const [fetchKey, setFetchKey] = useState(0);
+  const [availDates, setAvailDates] = useState<string[]>([]);
 
   const fetchDate = searchParams.get('date') || '';
 
+  // Load available WIN5 dates
   useEffect(() => {
+    fetch('/api/win5/dates')
+      .then(res => res.json())
+      .then(d => setAvailDates(d.dates || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    // No date param but we have available dates → navigate to latest
+    if (!fetchDate && availDates.length > 0) {
+      router.replace(`/win5?date=${availDates[0]}`);
+      return;
+    }
     if (!fetchDate) {
       setLoading(false);
       setError('日付を指定してください');
@@ -254,35 +275,42 @@ export default function Win5Page() {
         setData(null);
         setLoading(false);
       });
-  }, [fetchDate, fetchKey]);
+  }, [fetchDate, fetchKey, availDates, router]);
 
-  const handleGo = () => {
-    if (dateInput) {
-      router.push(`/win5?date=${dateInput}`);
-    }
+  const currentIndex = availDates.indexOf(fetchDate);
+  const isLatest = currentIndex === 0;
+  const isOldest = currentIndex >= availDates.length - 1;
+
+  const goToPrev = useCallback(() => {
+    if (currentIndex < 0 || currentIndex >= availDates.length - 1) return;
+    router.push(`/win5?date=${availDates[currentIndex + 1]}`);
+  }, [currentIndex, availDates, router]);
+
+  const goToNext = useCallback(() => {
+    if (currentIndex <= 0) return;
+    router.push(`/win5?date=${availDates[currentIndex - 1]}`);
+  }, [currentIndex, availDates, router]);
+
+  const onSelectChange = (value: string) => {
+    router.push(`/win5?date=${value}`);
   };
 
   const handleGenerate = async () => {
-    if (!dateInput) return;
+    if (!fetchDate) return;
     setGenerating(true);
     setGenMsg(null);
     try {
       const res = await fetch('/api/win5/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: dateInput }),
+        body: JSON.stringify({ date: fetchDate }),
       });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || 'failed');
       }
       setGenMsg('生成完了');
-      // 同じ日付ならfetchKeyで再fetch、違う日付ならURLを変更
-      if (fetchDate === dateInput) {
-        setFetchKey(k => k + 1);
-      } else {
-        router.push(`/win5?date=${dateInput}`);
-      }
+      setFetchKey(k => k + 1);
     } catch (e) {
       setGenMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -290,37 +318,75 @@ export default function Win5Page() {
     }
   };
 
-  const strategyOrder = ['w_floor50_gap', 'wp_gap_f48', 'wp_gap_f50', 'w_floor48_gap', 'w_floor45_gap', 'p_fixed_2'];
+  const strategyOrder = ['w2_ar1_p1', 'w_floor50_gap', 'wp_gap_f48', 'wp_gap_f50', 'w_floor48_gap', 'w_floor45_gap', 'p_fixed_2'];
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <span className="text-3xl">5</span>
-        <div>
-          <h1 className="text-2xl font-bold">WIN5 推奨馬</h1>
-          <p className="text-sm text-muted-foreground">可変点数戦略 (backtest ROI 224%)</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <span className="text-3xl">5</span>
+          <div>
+            <h1 className="text-2xl font-bold">WIN5 推奨馬</h1>
+            <p className="text-sm text-muted-foreground">可変点数戦略 (backtest ROI 224%)</p>
+          </div>
         </div>
+        <Link
+          href="/win5/simulation"
+          className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-muted/50 transition-colors"
+        >
+          シミュレーション結果
+        </Link>
       </div>
 
-      {/* Date Picker */}
+      {/* Date Navigation (ValueBet style) */}
       <div className="flex items-center gap-2 mb-6">
-        <input
-          type="date"
-          value={dateInput}
-          onChange={e => setDateInput(e.target.value)}
-          className="px-3 py-2 border rounded-lg bg-background text-sm"
-        />
         <button
-          onClick={handleGo}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+          onClick={goToPrev}
+          disabled={currentIndex < 0 || isOldest}
+          className="p-2 border rounded-lg hover:bg-muted/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          title="前の開催日"
         >
-          表示
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" strokeWidth={2} />
+            <line x1="16" y1="2" x2="16" y2="6" strokeWidth={2} />
+            <line x1="8" y1="2" x2="8" y2="6" strokeWidth={2} />
+            <line x1="3" y1="10" x2="21" y2="10" strokeWidth={2} />
+          </svg>
+          <select
+            value={fetchDate}
+            onChange={(e) => onSelectChange(e.target.value)}
+            className="rounded-md border bg-background px-3 py-2 text-lg font-bold min-w-[220px]"
+          >
+            {availDates.length === 0 && fetchDate && (
+              <option value={fetchDate}>{formatDateDisplay(fetchDate)}</option>
+            )}
+            {availDates.map(date => (
+              <option key={date} value={date}>
+                {formatDateDisplay(date)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          onClick={goToNext}
+          disabled={isLatest || currentIndex < 0}
+          className="p-2 border rounded-lg hover:bg-muted/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          title="次の開催日"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
         </button>
         <button
           onClick={handleGenerate}
-          disabled={generating || !dateInput}
-          className="px-4 py-2 border rounded-lg text-sm font-medium transition-colors hover:bg-muted/50 disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={generating || !fetchDate}
+          className="px-4 py-2 border rounded-lg text-sm font-medium transition-colors hover:bg-muted/50 disabled:opacity-40 disabled:cursor-not-allowed ml-2"
         >
           {generating ? '生成中...' : '生成'}
         </button>

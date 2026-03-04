@@ -337,6 +337,13 @@ export interface HorseRaceResult {
   targetRaceId?: string;
   // レース傾向（race_trend_index.jsonから付与）
   raceTrend?: string;          // 'sprint_finish' | 'long_sprint' | 'even_pace' | 'front_loaded' | 'front_loaded_strong'
+  // JRDB指標（race_*.jsonから取得）
+  jrdb_pre_idm?: number | null;       // KYI 事前IDM
+  jrdb_sogo_idx?: number | null;      // KYI 総合指数
+  jrdb_training_idx?: number | null;  // KYI 調教指数
+  jrdb_stable_idx?: number | null;    // KYI 厩舎指数
+  jrdb_gekisou_idx?: number | null;   // KYI 激走指数
+  jrdb_idm?: number | null;           // SED 確定IDM（レース後）
 }
 
 /**

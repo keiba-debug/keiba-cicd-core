@@ -33,7 +33,7 @@ def main():
     # --- データ読み込み ---
     print("\n[1] Loading data...")
     (history_cache, trainer_index, jockey_index,
-     date_index, pace_index, kb_ext_index, training_summary_index) = load_data()
+     date_index, pace_index, kb_ext_index, training_summary_index, *_extra) = load_data()
 
     print("\n[2] Building dataset...")
     df = build_dataset(

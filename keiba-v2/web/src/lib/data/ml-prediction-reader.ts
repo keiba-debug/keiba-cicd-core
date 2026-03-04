@@ -18,6 +18,8 @@ export interface MlHorsePrediction {
   horse_number: number;
   horse_name: string;
   pred_proba_p: number;
+  pred_proba_w_cal: number | null;  // P(win) calibrated
+  rank_w: number | null;
   value_rank: number;
   odds_rank: number | null;
   odds: number | null;
@@ -53,6 +55,8 @@ interface V4Entry {
   odds: number;
   popularity: number;
   pred_proba_p: number;
+  pred_proba_w_cal?: number;  // P(win) calibrated
+  rank_w?: number;
   // Legacy field names (pre-v5.45 JSON)
   pred_proba_a?: number;
   pred_proba_v?: number;
@@ -106,6 +110,8 @@ function convertV4Entry(e: V4Entry): MlHorsePrediction {
     horse_number: e.umaban,
     horse_name: e.horse_name,
     pred_proba_p: e.pred_proba_p ?? e.pred_proba_v ?? 0,
+    pred_proba_w_cal: e.pred_proba_w_cal ?? null,
+    rank_w: e.rank_w ?? null,
     value_rank: e.rank_p ?? e.rank_v ?? 0,
     odds_rank: e.odds_rank,
     odds: e.odds,

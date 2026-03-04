@@ -59,6 +59,33 @@ const ENGINE_PRESETS: Record<ServerPresetKey, IntersectionParams> = {
     minBet: 100,
     betUnit: 100,
   },
+  simple: {
+    maxRankW: 1,
+    minWinGap: 4,
+    minWinEv: 0,
+    maxMargin: 999,
+    maxWinPerRace: 1,
+    minBet: 100,
+    betUnit: 100,
+  },
+  simple_ev2: {
+    maxRankW: 1,
+    minWinGap: 0,
+    minWinEv: 2.0,
+    maxMargin: 999,
+    maxWinPerRace: 1,
+    minBet: 100,
+    betUnit: 100,
+  },
+  simple_wide: {
+    maxRankW: 1,
+    minWinGap: 3,
+    minWinEv: 0,
+    maxMargin: 999,
+    maxWinPerRace: 1,
+    minBet: 100,
+    betUnit: 100,
+  },
 };
 
 // =====================================================================

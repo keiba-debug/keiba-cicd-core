@@ -188,6 +188,12 @@ class BetStrategyParams:
     slow_start_front_runner_multiplier: float = 2.0  # 逃げ馬はpenalty倍
     slow_start_front_runner_threshold: float = 0.25  # corner1/num_runners <= これなら逃げ馬
 
+    # --- シンプル戦略用 (rank_w + win_gap フィルタ) ---
+    # rank_w制限: 0=無効, 1=rank_w=1のみ (Winモデル1位のみ購入)
+    win_max_rank_w: int = 0
+    # win_vb_gap制限: 0=無効, 4=推奨 (odds_rank - rank_w >= N)
+    win_min_win_gap: int = 0
+
     # --- 単位 ---
     min_bet: int = 100
     bet_unit: int = 100
@@ -315,6 +321,61 @@ PRESETS: Dict[str, BetStrategyParams] = {
         closing_boost_min_strength=1.0,
         closing_boost_score=1.0,
         # slow_start: 無効化 (逆効果)
+    ),
+    # --- シンプル戦略 ---
+    # rank_w=1（Winモデル1位）の単勝のみ。複雑なVBスコアを使わず、
+    # win_vb_gap（市場ランクとの乖離）でフィルタする超シンプル戦略。
+    # バックテスト結果 (v7.3, 2025-03~2026-02):
+    #   simple:     139件, WinROI 143.7%, P&L +6,078 (rank_w=1, gap>=4)
+    #   simple_ev2: 108件, WinROI 148.9%, P&L +5,277 (rank_w=1, EV>=2.0)
+    #   simple_wide: 288件, WinROI 115.2%, P&L +4,387 (rank_w=1, gap>=3)
+    'simple': BetStrategyParams(
+        # rank_w=1 + win_gap>=4: モデル1位で市場5番人気以下 → 超バリュー
+        win_max_rank_w=1,           # rank_w=1のみ
+        win_min_win_gap=4,          # win_vb_gap>=4
+        win_min_vb_score=0,         # Composite Score無効
+        win_v_ratio_min=0,          # P%比率フィルタ無効
+        win_max_rank=99,            # rank_pフィルタ無効
+        win_min_gap=0,              # place gapフィルタ無効
+        win_min_ev=0,               # evaluate_win内EV無効 (VB Floorで担保)
+        ard_vb_min_ard=0,           # ARd VBルート無効
+        ard_vb_min_odds=0,
+        place_addon=False,          # 複勝なし: 単勝一本
+        place_min_gap=99,           # 複勝単独無効
+        max_win_per_race=1,         # 1レース1買い
+        closing_boost_threshold=0,  # Closing boost無効
+    ),
+    'simple_ev2': BetStrategyParams(
+        # rank_w=1 + EV>=2.0: モデル1位でEVが極端に高い → 最高ROI
+        win_max_rank_w=1,
+        win_min_win_gap=0,          # gap不問
+        win_min_vb_score=0,
+        win_v_ratio_min=0,
+        win_max_rank=99,
+        win_min_gap=0,
+        win_min_ev=2.0,             # EV>=2.0 (evaluate_win内で適用)
+        ard_vb_min_ard=0,
+        ard_vb_min_odds=0,
+        place_addon=False,
+        place_min_gap=99,
+        max_win_per_race=1,
+        closing_boost_threshold=0,
+    ),
+    'simple_wide': BetStrategyParams(
+        # rank_w=1 + win_gap>=3: simpleより広めの網
+        win_max_rank_w=1,
+        win_min_win_gap=3,
+        win_min_vb_score=0,
+        win_v_ratio_min=0,
+        win_max_rank=99,
+        win_min_gap=0,
+        win_min_ev=0,
+        ard_vb_min_ard=0,
+        ard_vb_min_odds=0,
+        place_addon=False,
+        place_min_gap=99,
+        max_win_per_race=1,
+        closing_boost_threshold=0,
     ),
 }
 
@@ -662,6 +723,10 @@ def generate_recommendations(
             win_ev = e.get('win_ev')
             place_ev = e.get('place_ev')
 
+            # rank_w フィルタ (simple preset用)
+            if params.win_max_rank_w > 0 and rank_w > params.win_max_rank_w:
+                continue
+
             is_danger = umaban in danger_map
             danger_score = 1.0 if is_danger else 0.0
             entry_dev_gap = e.get('dev_gap', 0) or 0
@@ -725,6 +790,11 @@ def generate_recommendations(
                     ar_deviation=ar_dev, win_ev=win_ev,
                     dev_gap=entry_dev_gap, vb_score=entry_vb_score,
                 )
+
+            # win_gap フィルタ (simple preset用: win_vb_gap >= N)
+            if win_ok and params.win_min_win_gap > 0 and win_gap < params.win_min_win_gap:
+                win_ok = False
+                win_units = 0
 
             # --- ARd VBルート (能力 vs 市場の直接乖離) ---
             # Gap VBが不合格でも、ARdが極端に高くオッズが高い馬は独立ルートで通過

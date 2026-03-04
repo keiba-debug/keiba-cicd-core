@@ -10,12 +10,16 @@ const PRESET_LABELS: Record<string, string> = {
   standard: 'Standard',
   aggressive: 'Aggressive',
   ev_strategy: 'EV Strategy',
+  simple: 'Simple',
 };
 
 const MODE_COLORS: Record<string, string> = {
   intersection: '#ef4444',
   relaxed: '#f59e0b',
   ev_focus: '#3b82f6',
+  simple: '#10b981',
+  simple_ev2: '#8b5cf6',
+  simple_wide: '#f97316',
 };
 
 function MetricCard({ label, value, sub, color }: {
