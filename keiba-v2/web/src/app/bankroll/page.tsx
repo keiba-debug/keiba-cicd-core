@@ -19,6 +19,7 @@ import { TodaySummary } from '@/components/bankroll/TodaySummary';
 import { DailyPurchaseList } from '@/components/bankroll/DailyPurchaseList';
 import { BetTypeStats } from '@/components/bankroll/BetTypeStats';
 import { FundManagement } from '@/components/bankroll/FundManagement';
+import { NextBetCalculator } from '@/components/bankroll/NextBetCalculator';
 import { WinningCollection } from '@/components/bankroll/WinningCollection';
 
 interface MonthlySummary {
@@ -209,6 +210,9 @@ export default function BankrollPage() {
 
       {/* アラートバー */}
       <AlertBar />
+
+      {/* 次のベット額計算 */}
+      <NextBetCalculator />
 
       {/* 資金管理 */}
       <FundManagement />
