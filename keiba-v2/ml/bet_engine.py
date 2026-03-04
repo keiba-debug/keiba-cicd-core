@@ -51,6 +51,11 @@ VB_FLOOR_ARD_VB_MIN_ODDS = 10.0  # ARd VBルート: オッズ下限
 VB_FLOOR_MIN_DEV_GAP = 0.7       # 偏差値gapルート: dev_gap下限
 VB_FLOOR_DEV_MIN_ARD = 45.0      # 偏差値gapルート: ARd下限
 
+# 障害レース用VB Floor (ARモデルなし → ARd不要、EV + dev_gap or rank_wベース)
+OBSTACLE_VB_FLOOR_MIN_WIN_EV = 1.0   # 単勝EV下限
+OBSTACLE_VB_FLOOR_MIN_DEV_GAP = 0.5  # 偏差値gapルート: dev_gap下限 (平地より緩い)
+OBSTACLE_VB_FLOOR_MAX_RANK_W = 3     # rank_wルート: Wモデル3位以内
+
 
 def load_grade_offsets(path: str = None) -> Dict[str, float]:
     """rating_standards.jsonからグレードオフセットマップを読み込み
@@ -571,6 +576,7 @@ def compute_vb_score(
     gap: int,
     win_ev: Optional[float],
     ar_deviation: Optional[float],
+    is_obstacle: bool = False,
 ) -> float:
     """コンポジットVBスコア: 全シグナルを統合した一元評価
 
@@ -581,7 +587,7 @@ def compute_vb_score(
       dev_gap:  0-3 points (偏差値乖離: 的中率重視)
       rank_gap: 0-3 points (ランク差: 穴馬ROI)
       EV:       0-2 points (期待値)
-      ARd:      0-2 points (能力偏差値)
+      ARd:      0-2 points (能力偏差値) ※障害レースはARなし→EV+rank_wで補填
 
     Returns:
         float: composite score (0.0 - 10.0)
@@ -613,14 +619,22 @@ def compute_vb_score(
     elif ev >= 1.0:
         score += 1.0
 
-    # ARd: レース内能力偏差値
-    ard = ar_deviation or 0.0
-    if ard >= 65:
-        score += 2.0
-    elif ard >= 55:
-        score += 1.5
-    elif ard >= 50:
-        score += 1.0
+    if is_obstacle:
+        # 障害レース: ARモデルなし → EV枠を拡張して補填
+        # EV >= 2.5 で追加 +2.0, EV >= 1.5 で +1.0 (ARd代替)
+        if ev >= 2.5:
+            score += 2.0
+        elif ev >= 1.5:
+            score += 1.0
+    else:
+        # ARd: レース内能力偏差値 (平地のみ)
+        ard = ar_deviation or 0.0
+        if ard >= 65:
+            score += 2.0
+        elif ard >= 55:
+            score += 1.5
+        elif ard >= 50:
+            score += 1.0
 
     return score
 
@@ -686,12 +700,14 @@ def generate_recommendations(
     for race in race_predictions:
         race_id = race['race_id']
         entries = race.get('entries', [])
+        is_obstacle = race.get('track_type') == 'obstacle'
 
         if not entries:
             continue
 
         # 危険馬検出 (odds<=8 & ARd<53 & P%<15%) — ラベルのみ、gap boostなし
-        danger_map = detect_danger(entries)
+        # 障害レースはARなし → danger検出スキップ
+        danger_map = {} if is_obstacle else detect_danger(entries)
 
         # P%比率フィルター用: レース内最大P%を計算
         if params.win_v_ratio_min > 0:
@@ -732,7 +748,7 @@ def generate_recommendations(
             entry_dev_gap = e.get('dev_gap', 0) or 0
 
             # Composite VB Score (全シグナル統合)
-            entry_vb_score = compute_vb_score(entry_dev_gap, gap, win_ev, ar_dev)
+            entry_vb_score = compute_vb_score(entry_dev_gap, gap, win_ev, ar_dev, is_obstacle=is_obstacle)
 
             # Closing Race Boost: 差し決着レースで差し馬にスコア加算
             if is_closing_race:
@@ -752,14 +768,22 @@ def generate_recommendations(
                     entry_vb_score += penalty
 
             # === VB Floor Gate: 購入プラン⊆VB候補 ===
-            vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV
-            vb_ard_ok = (ar_dev or 0) >= VB_FLOOR_MIN_ARD
-            vb_ard_route = ((ar_dev or 0) >= VB_FLOOR_ARD_VB_MIN_ARD
-                            and odds >= VB_FLOOR_ARD_VB_MIN_ODDS)
-            vb_dev_route = (entry_dev_gap >= VB_FLOOR_MIN_DEV_GAP
-                            and (ar_dev or 0) >= VB_FLOOR_DEV_MIN_ARD)
-            if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route and not vb_dev_route:
-                continue
+            if is_obstacle:
+                # 障害レース: ARモデルなし → EV + dev_gap or rank_w で判定
+                obs_ev_ok = (win_ev or 0) >= OBSTACLE_VB_FLOOR_MIN_WIN_EV
+                obs_dev_ok = entry_dev_gap >= OBSTACLE_VB_FLOOR_MIN_DEV_GAP
+                obs_rank_ok = (rank_w or 99) <= OBSTACLE_VB_FLOOR_MAX_RANK_W
+                if not (obs_ev_ok and (obs_dev_ok or obs_rank_ok)):
+                    continue
+            else:
+                vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV
+                vb_ard_ok = (ar_dev or 0) >= VB_FLOOR_MIN_ARD
+                vb_ard_route = ((ar_dev or 0) >= VB_FLOOR_ARD_VB_MIN_ARD
+                                and odds >= VB_FLOOR_ARD_VB_MIN_ODDS)
+                vb_dev_route = (entry_dev_gap >= VB_FLOOR_MIN_DEV_GAP
+                                and (ar_dev or 0) >= VB_FLOOR_DEV_MIN_ARD)
+                if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route and not vb_dev_route:
+                    continue
 
             # --- 単勝評価 ---
             # Pre-filter: P%比率 or rank_p
@@ -799,8 +823,9 @@ def generate_recommendations(
             # --- ARd VBルート (能力 vs 市場の直接乖離) ---
             # Gap VBが不合格でも、ARdが極端に高くオッズが高い馬は独立ルートで通過
             # P%比率・Gap・EVフィルターを全てバイパスする
+            # 障害レースはARなし → スキップ
             ard_vb_pass = False
-            if not win_ok and params.ard_vb_min_ard > 0 and params.ard_vb_min_odds > 0:
+            if not is_obstacle and not win_ok and params.ard_vb_min_ard > 0 and params.ard_vb_min_odds > 0:
                 if (ar_dev is not None and ar_dev >= params.ard_vb_min_ard
                         and odds >= params.ard_vb_min_odds):
                     win_ok = True
@@ -876,10 +901,13 @@ def generate_recommendations(
                 ar_deviation=round(ar_dev, 1) if ar_dev is not None else None,
             )
             # --- Place上乗せ: 単勝候補に条件付きで複勝追加 ---
+            # 障害レースはARd不要、PlaceEVのみで判定
             if win_ok and params.place_addon:
                 pev = place_ev or 0
                 ard = ar_dev or 0
-                if pev >= params.place_addon_min_pev and ard >= params.place_addon_min_ard:
+                addon_ok = (pev >= params.place_addon_min_pev
+                            and (is_obstacle or ard >= params.place_addon_min_ard))
+                if addon_ok:
                     rec.place_amount = params.place_addon_amount
                     rec.bet_type = '単複'
 

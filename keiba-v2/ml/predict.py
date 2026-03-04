@@ -421,6 +421,15 @@ def predict_obstacle_race(
     odds_sorted = sorted(odds_list, key=lambda x: x[1] if x[1] > 0 else 999999)
     odds_rank_dict = {idx: rank for rank, (idx, _) in enumerate(odds_sorted, 1)}
 
+    # dev_gap計算 (z-score model vs z-score market)
+    _pred_vals = pred_p_norm.copy()
+    _odds_vals = np.array([1.0 / p['odds'] if p['odds'] > 0 else 0 for p in predictions])
+    _mean_p, _std_p = _pred_vals.mean(), _pred_vals.std()
+    _mean_o, _std_o = _odds_vals.mean(), _odds_vals.std()
+    _z_model = (_pred_vals - _mean_p) / _std_p if _std_p > 0 else np.zeros(len(predictions))
+    _z_market = (_odds_vals - _mean_o) / _std_o if _std_o > 0 else np.zeros(len(predictions))
+    _dev_gaps = _z_model - _z_market
+
     result_entries = []
     for i, p in enumerate(predictions):
         rank_p = rank_p_dict[i]
@@ -452,6 +461,7 @@ def predict_obstacle_race(
             'pred_proba_w_cal': w_prob,
             'rank_w': int(w_rank) if w_rank else None,
             'win_vb_gap': win_vb_gap,
+            'dev_gap': round(float(_dev_gaps[i]), 4),
             'place_odds_min': None, 'place_odds_max': None,
             'win_ev': win_ev, 'place_ev': None,
             'predicted_margin': None, 'ar_deviation': None,
