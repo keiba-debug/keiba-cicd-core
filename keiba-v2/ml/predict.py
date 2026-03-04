@@ -40,7 +40,13 @@ from ml.features.training_features import compute_training_features
 from ml.features.speed_features import compute_speed_features
 from ml.features.comment_features import compute_comment_features
 from ml.features.slow_start_features import compute_slow_start_features
-from ml.features.obstacle_features import compute_obstacle_experience, compute_jockey_selection
+from ml.features.obstacle_features import (
+    compute_obstacle_experience, compute_jockey_selection,
+    compute_obstacle_level, compute_obstacle_exp_tier,
+    compute_prev_was_obstacle, compute_difficulty_exp_match,
+    compute_jockey_obstacle_stats, compute_trainer_obstacle_stats,
+    build_obstacle_personnel_timelines,
+)
 # VB Floor定数（推論のis_value_bet判定に使用）+ grade_offsets
 from ml.bet_engine import (
     load_grade_offsets, get_grade_key,
@@ -139,35 +145,62 @@ def load_model_and_meta(model_version: Optional[str] = None):
 
 
 def load_obstacle_model():
-    """障害レース用モデルをロード（存在しない場合はNone）
+    """障害レース用モデルをロード（v2: P+W, v1: single model フォールバック）
 
     Returns:
-        (model, meta, calibrator) or (None, None, None)
+        (model_p, model_w, meta, calibrators) or (None, None, None, None)
+        calibrators: dict{'cal_p':..., 'cal_w':...} (v2) or single calibrator (v1)
     """
     import lightgbm as lgb
+    import pickle
 
     ml_dir = config.ml_dir()
-    model_path = ml_dir / "model_obstacle.txt"
     meta_path = ml_dir / "model_obstacle_meta.json"
 
-    if not model_path.exists() or not meta_path.exists():
-        return None, None, None
+    if not meta_path.exists():
+        return None, None, None, None
 
-    model = lgb.Booster(model_file=str(model_path))
     with open(meta_path, encoding='utf-8') as f:
         meta = json.load(f)
 
-    calibrator = None
-    cal_path = ml_dir / "calibrator_obstacle.pkl"
-    if cal_path.exists():
-        import pickle
-        with open(cal_path, 'rb') as f:
-            calibrator = pickle.load(f)
-
     ver = meta.get('version', '?')
     feat_count = meta.get('feature_count', '?')
-    print(f"[Model] Obstacle model loaded: v{ver}, {feat_count} features")
-    return model, meta, calibrator
+    is_v2 = meta.get('model_type') == 'obstacle_p_w'
+
+    if is_v2:
+        # v2: P+W dual model
+        model_p_path = ml_dir / "model_obstacle_p.txt"
+        model_w_path = ml_dir / "model_obstacle_w.txt"
+        cal_path = ml_dir / "calibrators_obstacle.pkl"
+
+        if not model_p_path.exists():
+            return None, None, None, None
+
+        model_p = lgb.Booster(model_file=str(model_p_path))
+        model_w = lgb.Booster(model_file=str(model_w_path)) if model_w_path.exists() else None
+
+        calibrators = None
+        if cal_path.exists():
+            with open(cal_path, 'rb') as f:
+                calibrators = pickle.load(f)
+
+        print(f"[Model] Obstacle P/W model loaded: v{ver}, {feat_count} features")
+        return model_p, model_w, meta, calibrators
+    else:
+        # v1 fallback: single model
+        model_path = ml_dir / "model_obstacle.txt"
+        if not model_path.exists():
+            return None, None, None, None
+
+        model = lgb.Booster(model_file=str(model_path))
+        calibrator = None
+        cal_path = ml_dir / "calibrator_obstacle.pkl"
+        if cal_path.exists():
+            with open(cal_path, 'rb') as f:
+                calibrator = pickle.load(f)
+
+        print(f"[Model] Obstacle model loaded (v1): v{ver}, {feat_count} features")
+        return model, None, meta, calibrator
 
 
 def predict_obstacle_race(
@@ -186,8 +219,12 @@ def predict_obstacle_race(
     sire_stats_index: Optional[dict] = None,
     pit_trainer_tl: Optional[dict] = None,
     pit_jockey_tl: Optional[dict] = None,
+    model_obstacle_w=None,
+    obstacle_calibrators: Optional[dict] = None,
+    jockey_obstacle_tl: Optional[dict] = None,
+    trainer_obstacle_tl: Optional[dict] = None,
 ) -> dict:
-    """障害レースの予測を実行（簡易版: モデル1本、VB/bet_engine不要）"""
+    """障害レースの予測を実行（v2: P+Wデュアル、v1: P only フォールバック）"""
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
 
     features = obstacle_meta.get('features', [])
@@ -210,6 +247,9 @@ def predict_obstacle_race(
 
     predictions = []
     feature_rows = []
+
+    # 障害コース難易度
+    obs_level = compute_obstacle_level(venue_name, distance, 'obstacle')
 
     # 障害レース専用特徴量: 騎手選択シグナル（レースレベル計算）
     jockey_sel = compute_jockey_selection(
@@ -282,6 +322,35 @@ def predict_obstacle_race(
         feat['jockey_selected'] = sel.get('jockey_selected', 0)
         feat['jockey_selected_count'] = sel.get('jockey_selected_count', 0)
 
+        # v2 新規障害特徴量
+        feat['obstacle_level'] = obs_level
+        feat['obstacle_exp_tier'] = compute_obstacle_exp_tier(
+            obs_exp['obstacle_experience']
+        )
+        feat['prev_was_obstacle'] = compute_prev_was_obstacle(
+            ketto_num, race_date, history_cache
+        )
+        feat['difficulty_exp_match'] = compute_difficulty_exp_match(
+            ketto_num, race_date, obs_level, history_cache
+        )
+        jc = entry.get('jockey_code', '')
+        if jockey_obstacle_tl and jc:
+            j_stats = compute_jockey_obstacle_stats(
+                jc, race_date, jockey_obstacle_tl
+            )
+            feat.update(j_stats)
+        else:
+            feat['jockey_obstacle_races'] = 0
+            feat['jockey_obstacle_win_rate'] = 0.0
+        tc_code = entry.get('trainer_code', '')
+        if trainer_obstacle_tl and tc_code:
+            t_stats = compute_trainer_obstacle_stats(
+                tc_code, race_date, trainer_obstacle_tl
+            )
+            feat.update(t_stats)
+        else:
+            feat['trainer_obstacle_top3_rate'] = 0.0
+
         kb_e = kb_entries.get(str(umaban))
 
         predictions.append({
@@ -318,41 +387,75 @@ def predict_obstacle_race(
         feature_rows.append(row)
 
     arr = np.array(feature_rows, dtype=np.float64)
-    pred_raw = model_obstacle.predict(arr)
 
-    # キャリブレーション
-    pred_cal = pred_raw
-    if obstacle_calibrator is not None:
-        pred_cal = obstacle_calibrator.predict(pred_raw)
+    # P Model 予測
+    pred_p_raw = model_obstacle.predict(arr)
 
-    # レース内正規化
-    sum_pred = pred_raw.sum()
-    pred_norm = pred_raw / sum_pred if sum_pred > 0 else pred_raw
+    # P キャリブレーション
+    cal_p = None
+    if obstacle_calibrators and isinstance(obstacle_calibrators, dict):
+        cal_p = obstacle_calibrators.get('cal_p')
+    elif obstacle_calibrator is not None:
+        cal_p = obstacle_calibrator  # v1 fallback
+    pred_p_cal = cal_p.predict(pred_p_raw) if cal_p is not None else pred_p_raw
 
-    # ランク計算
-    rank_dict = {i: r for r, i in enumerate(np.argsort(-pred_norm), 1)}
+    # P レース内正規化
+    sum_pred_p = pred_p_raw.sum()
+    pred_p_norm = pred_p_raw / sum_pred_p if sum_pred_p > 0 else pred_p_raw
+
+    # P ランク計算
+    rank_p_dict = {i: r for r, i in enumerate(np.argsort(-pred_p_norm), 1)}
+
+    # W Model 予測 (v2のみ)
+    pred_w_raw = None
+    pred_w_cal = None
+    rank_w_dict = {}
+    if model_obstacle_w is not None:
+        pred_w_raw = model_obstacle_w.predict(arr)
+        cal_w = obstacle_calibrators.get('cal_w') if obstacle_calibrators and isinstance(obstacle_calibrators, dict) else None
+        pred_w_cal = cal_w.predict(pred_w_raw) if cal_w is not None else pred_w_raw
+        rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w_cal), 1)}
+
+    # odds_rank計算
+    odds_list = [(i, p['odds']) for i, p in enumerate(predictions)]
+    odds_sorted = sorted(odds_list, key=lambda x: x[1] if x[1] > 0 else 999999)
+    odds_rank_dict = {idx: rank for rank, (idx, _) in enumerate(odds_sorted, 1)}
 
     result_entries = []
     for i, p in enumerate(predictions):
-        rank = rank_dict[i]
+        rank_p = rank_p_dict[i]
+        odds_val = p['odds']
+        odds_rank = odds_rank_dict.get(i, 0)
+
+        # W model 出力
+        w_prob = round(float(pred_w_cal[i]), 6) if pred_w_cal is not None else None
+        w_rank = rank_w_dict.get(i) if rank_w_dict else None
+
+        # EV計算
+        win_ev = round(w_prob * odds_val, 4) if w_prob and odds_val > 0 else None
+
+        # VB gap
+        vb_gap = odds_rank - rank_p if odds_rank > 0 else 0
+        win_vb_gap = odds_rank - w_rank if w_rank and odds_rank > 0 else 0
+
         result_entries.append({
             'umaban': p['umaban'],
             'horse_name': p['horse_name'],
-            'odds': p['odds'],
+            'odds': odds_val,
             'popularity': p['popularity'],
-            'pred_proba_p': round(float(pred_norm[i]), 4),
-            'pred_proba_p_raw': round(float(pred_raw[i]), 6),
-            'rank_p': int(rank),
-            'odds_rank': 0,
-            'vb_gap': 0,
-            'pred_proba_w': None,
-            'pred_proba_w_cal': None,
-            'rank_w': None,
-            'win_vb_gap': 0,
+            'pred_proba_p': round(float(pred_p_norm[i]), 4),
+            'pred_proba_p_raw': round(float(pred_p_raw[i]), 6),
+            'rank_p': int(rank_p),
+            'odds_rank': int(odds_rank),
+            'vb_gap': vb_gap,
+            'pred_proba_w': w_prob,
+            'pred_proba_w_cal': w_prob,
+            'rank_w': int(w_rank) if w_rank else None,
+            'win_vb_gap': win_vb_gap,
             'place_odds_min': None, 'place_odds_max': None,
-            'win_ev': None, 'place_ev': None,
+            'win_ev': win_ev, 'place_ev': None,
             'predicted_margin': None, 'ar_deviation': None,
-            'is_value_bet': False,
+            'is_value_bet': bool(win_ev and win_ev >= 1.3 and w_rank and w_rank <= 2),
             'kb_mark': p['kb_mark'],
             'kb_mark_point': 0, 'kb_training_arrow': '',
             'kb_rating': None, 'kb_comment': '',
@@ -1271,8 +1374,8 @@ def main():
     print("[Load] Loading models...")
     model_p, model_w, meta, calibrators, model_ar = load_model_and_meta(model_version)
 
-    # 障害モデルロード
-    model_obstacle, obstacle_meta, obstacle_calibrator = load_obstacle_model()
+    # 障害モデルロード (v2: P+W, v1: single model)
+    model_obstacle, model_obstacle_w, obstacle_meta, obstacle_calibrators = load_obstacle_model()
     has_obstacle_model = model_obstacle is not None
 
     # マスタデータロード
@@ -1286,6 +1389,15 @@ def main():
     print(f"  Jockeys: {len(jockey_index):,}")
     print(f"  KB Ext: {len(kb_ext_index):,} races")
     print(f"  Pace index: {len(pace_index):,} races")
+
+    # 障害用PIT timeline (v2 P/W model用)
+    jockey_obstacle_tl = None
+    trainer_obstacle_tl = None
+    if has_obstacle_model and model_obstacle_w is not None:
+        print("[Load] Building obstacle personnel timelines...")
+        jockey_obstacle_tl, trainer_obstacle_tl = build_obstacle_personnel_timelines(
+            history_cache
+        )
 
     # 対象レース決定
     if args.race_id:
@@ -1448,7 +1560,7 @@ def main():
     if obstacle_races and has_obstacle_model:
         for race in obstacle_races:
             pred = predict_obstacle_race(
-                race, model_obstacle, obstacle_meta, obstacle_calibrator,
+                race, model_obstacle, obstacle_meta, obstacle_calibrators,
                 history_cache, trainer_index, jockey_index, pace_index,
                 db_odds=db_odds_index.get(race['race_id']),
                 kb_ext_index=kb_ext_index,
@@ -1457,6 +1569,10 @@ def main():
                 sire_stats_index=sire_stats_index,
                 pit_trainer_tl=pit_trainer_tl,
                 pit_jockey_tl=pit_jockey_tl,
+                model_obstacle_w=model_obstacle_w,
+                obstacle_calibrators=obstacle_calibrators,
+                jockey_obstacle_tl=jockey_obstacle_tl,
+                trainer_obstacle_tl=trainer_obstacle_tl,
             )
             obstacle_predictions.append(pred)
             all_predictions.append(pred)

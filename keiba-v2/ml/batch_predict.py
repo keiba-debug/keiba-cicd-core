@@ -46,7 +46,7 @@ def get_all_dates(from_date: str, to_date: str) -> list:
 def predict_date(
     date: str,
     model_p, model_w, meta, calibrators, model_ar,
-    model_obstacle, obstacle_meta, obstacle_calibrator,
+    model_obstacle, obstacle_meta, obstacle_calibrators,
     history_cache, trainer_index, jockey_index, pace_index,
     kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
     baba_index, pit_trainer_tl, pit_jockey_tl,
@@ -56,6 +56,9 @@ def predict_date(
     jrdb_sed_index: dict = None,
     jrdb_kyi_index: dict = None,
     jrdb_kaa_index: dict = None,
+    model_obstacle_w=None,
+    jockey_obstacle_tl: dict = None,
+    trainer_obstacle_tl: dict = None,
 ):
     """1日分の予測を実行してpredictions.jsonを保存"""
     races = get_races_for_date(date)
@@ -156,7 +159,7 @@ def predict_date(
     if obstacle_races and has_obstacle_model:
         for race in obstacle_races:
             pred = predict_obstacle_race(
-                race, model_obstacle, obstacle_meta, obstacle_calibrator,
+                race, model_obstacle, obstacle_meta, obstacle_calibrators,
                 history_cache, trainer_index, jockey_index, pace_index,
                 db_odds=db_odds_index.get(race['race_id']),
                 kb_ext_index=kb_ext_index,
@@ -165,6 +168,10 @@ def predict_date(
                 sire_stats_index=sire_stats_index,
                 pit_trainer_tl=pit_trainer_tl,
                 pit_jockey_tl=pit_jockey_tl,
+                model_obstacle_w=model_obstacle_w,
+                obstacle_calibrators=obstacle_calibrators,
+                jockey_obstacle_tl=jockey_obstacle_tl,
+                trainer_obstacle_tl=trainer_obstacle_tl,
             )
             obstacle_predictions.append(pred)
             all_predictions.append(pred)
@@ -297,7 +304,7 @@ def main():
     # モデルロード
     print("\n[Load] Loading models...")
     model_p, model_w, meta, calibrators, model_ar = load_model_and_meta()
-    model_obstacle, obstacle_meta, obstacle_calibrator = load_obstacle_model()
+    model_obstacle, model_obstacle_w, obstacle_meta, obstacle_calibrators = load_obstacle_model()
     print(f"  Model v{meta.get('version', '?')}")
 
     # マスタデータロード
@@ -306,6 +313,15 @@ def main():
      kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
      baba_index, pit_trainer_tl, pit_jockey_tl,
      jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index) = load_master_data()
+
+    # 障害用PIT timeline
+    jockey_obstacle_tl = None
+    trainer_obstacle_tl = None
+    if model_obstacle is not None and model_obstacle_w is not None:
+        from ml.features.obstacle_features import build_obstacle_personnel_timelines
+        jockey_obstacle_tl, trainer_obstacle_tl = build_obstacle_personnel_timelines(
+            history_cache
+        )
 
     # グレードオフセット
     grade_offsets = load_grade_offsets()
@@ -320,7 +336,7 @@ def main():
         n = predict_date(
             date,
             model_p, model_w, meta, calibrators, model_ar,
-            model_obstacle, obstacle_meta, obstacle_calibrator,
+            model_obstacle, obstacle_meta, obstacle_calibrators,
             history_cache, trainer_index, jockey_index, pace_index,
             kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
             baba_index, pit_trainer_tl, pit_jockey_tl,
@@ -330,6 +346,9 @@ def main():
             jrdb_sed_index=jrdb_sed_index,
             jrdb_kyi_index=jrdb_kyi_index,
             jrdb_kaa_index=jrdb_kaa_index,
+            model_obstacle_w=model_obstacle_w,
+            jockey_obstacle_tl=jockey_obstacle_tl,
+            trainer_obstacle_tl=trainer_obstacle_tl,
         )
         total_races += n
         dt = time.time() - dt0
