@@ -49,6 +49,10 @@ from ml.features.obstacle_features import (
     compute_trainer_obstacle_stats,
     compute_jockey_selection,
     build_obstacle_personnel_timelines,
+    compute_weight_gain_trend,
+    compute_course_attributes,
+    compute_prev_obstacle_level_diff,
+    compute_flat_idm_avg3,
 )
 
 # === 障害レース用特徴量（市場特徴量を除外 = VALUE戦略） ===
@@ -87,6 +91,15 @@ OBSTACLE_SPECIFIC_FEATURES = [
     'difficulty_exp_match',         # 当該難易度帯での経験度 (0-1)
     'jockey_selected',              # 騎手選択シグナル (+1/-1/0)
     'jockey_selected_count',        # 同一前走騎手の馬数
+    # --- 実験中（様子見）---
+    # 'weight_gain_last3',            # 近走3走の体重増加量 (kg)
+    # 'weight_gain_per_race',         # 近走5走の1走あたり体重変化 (kg/race)
+    # --- v2.1: 予想理論 + IDM ---
+    'flat_idm_avg3',                # 障害転向前の平地IDM 3走平均
+    # 'is_placed_obstacle',         # 置き障害コースか → obstacle_levelで代替済み(imp=0)
+    # 'has_sash_course',            # 襷コースの有無 → imp=0
+    # 'straight_has_obstacle',      # 直線に障害があるか → imp=0
+    'prev_obstacle_level_diff',     # 前走obstacle_level - 今走level
 ]
 
 # 市場特徴量は除外（VALUE戦略）
@@ -147,6 +160,7 @@ def build_obstacle_dataset(
     pit_jockey_tl: dict = None,
     jockey_obstacle_tl: dict = None,
     trainer_obstacle_tl: dict = None,
+    jrdb_sed_index: dict = None,
 ) -> pd.DataFrame:
     """障害レースのみの特徴量DataFrameを構築"""
     date_min = min_year * 100 + (min_month or 1)
@@ -270,6 +284,24 @@ def build_obstacle_dataset(
                 row['jockey_selected'] = sel.get('jockey_selected', 0)
                 row['jockey_selected_count'] = sel.get('jockey_selected_count', 0)
 
+                # 近走馬体重増加トレンド
+                wg = compute_weight_gain_trend(kn, race_date, history_cache)
+                row.update(wg)
+
+                # v2.1: コース属性
+                row.update(compute_course_attributes(venue_name))
+
+                # v2.1: 前走レベル差
+                row['prev_obstacle_level_diff'] = compute_prev_obstacle_level_diff(
+                    kn, race_date, obs_level, history_cache
+                )
+
+                # v2.1: 平地IDM 3走平均
+                row['flat_idm_avg3'] = compute_flat_idm_avg3(
+                    kn, race_date, history_cache,
+                    jrdb_sed_index or {}
+                )
+
             all_rows.extend(rows)
             race_count += 1
         except Exception as e:
@@ -331,7 +363,8 @@ def main():
     # データロード（平地と共有）
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index, pedigree_index, sire_stats_index, *_extra) = load_data()
+     race_level_index, pedigree_index, sire_stats_index,
+     jrdb_sed_index, *_extra) = load_data()
 
     # PIT timeline（平地用）
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline(
@@ -357,6 +390,7 @@ def main():
         pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
         jockey_obstacle_tl=jockey_obstacle_tl,
         trainer_obstacle_tl=trainer_obstacle_tl,
+        jrdb_sed_index=jrdb_sed_index,
     )
 
     df_train = build_obstacle_dataset(

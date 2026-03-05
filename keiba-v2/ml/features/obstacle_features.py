@@ -11,6 +11,13 @@
 6. jockey_obstacle_races / jockey_obstacle_win_rate: 騎手の障害成績 (PIT-safe)
 7. trainer_obstacle_top3_rate: 調教師の障害好走率 (PIT-safe)
 8. difficulty_exp_match: 当該難易度帯での経験度
+9. weight_gain_last3: 近走3走の体重増加量 (kg)  [実験中]
+10. weight_gain_per_race: 近走5走の1走あたり体重変化 (回帰傾斜, kg/race)  [実験中]
+11. flat_idm_avg3: 障害転向前の平地IDM 3走平均
+12. is_placed_obstacle: 置き障害コースか (0/1)
+13. has_sash_course: 襷コースの有無 (0/1)
+14. straight_has_obstacle: 直線に障害があるか (0/1)
+15. prev_obstacle_level_diff: 前走obstacle_level - 今走obstacle_level
 """
 
 from collections import defaultdict
@@ -259,6 +266,175 @@ def compute_trainer_obstacle_stats(
     return {
         'trainer_obstacle_top3_rate': top3s / total if total > 0 else 0.0,
     }
+
+
+def compute_weight_gain_trend(
+    ketto_num: str,
+    race_date: str,
+    history_cache: dict,
+) -> dict:
+    """近走の馬体重増加トレンドを計算
+
+    仮説: 障害馬は鍛えて筋肉をつけて体重増加 → 成長のシグナル
+
+    Returns:
+        {
+            'weight_gain_last3': float  - 直近3走の体重差(最新-3走前), kg。データ不足は0
+            'weight_gain_per_race': float - 直近5走の1走あたり体重変化(回帰傾斜), kg/race。データ不足は0
+        }
+    """
+    records = history_cache.get(ketto_num, [])
+    # PIT-safe: 当該レース日より前の走のみ、日付降順で取得
+    past_weights = []
+    for rec in reversed(records):
+        rd = rec.get('race_date', '')
+        if rd >= race_date:
+            continue
+        hw = rec.get('horse_weight', 0)
+        if hw and hw > 0:
+            past_weights.append(hw)
+        if len(past_weights) >= 5:
+            break
+
+    result = {'weight_gain_last3': 0.0, 'weight_gain_per_race': 0.0}
+
+    # weight_gain_last3: 最新走 - 3走前 (past_weights[0]が最新)
+    if len(past_weights) >= 3:
+        result['weight_gain_last3'] = float(past_weights[0] - past_weights[2])
+
+    # weight_gain_per_race: 直近N走(最大5)の線形回帰傾斜
+    n = len(past_weights)
+    if n >= 2:
+        # past_weights[0]=最新, past_weights[-1]=最古
+        # x: 0=最古, ..., n-1=最新  →  y: weights reversed
+        weights = list(reversed(past_weights))  # 古い順
+        # 単純線形回帰 slope = Σ(x-x̄)(y-ȳ) / Σ(x-x̄)²
+        x_mean = (n - 1) / 2.0
+        y_mean = sum(weights) / n
+        num = sum((i - x_mean) * (w - y_mean) for i, w in enumerate(weights))
+        den = sum((i - x_mean) ** 2 for i in range(n))
+        if den > 0:
+            result['weight_gain_per_race'] = round(num / den, 2)
+
+    return result
+
+
+# ── コース属性テーブル（予想理論_03_障害.md 由来） ──
+# 置き障害コース: 新潟, 福島, 中京（福島は一部固定だが置き扱い）
+_PLACED_OBSTACLE_VENUES = {'新潟', '福島', '中京'}
+
+# 襷コースがある会場（予想理論より）
+_SASH_COURSE_VENUES = {'東京', '中山', '京都', '阪神'}
+
+# 直線に障害がないコース（最終直線に障害物なし = 平地力有利）
+# 福島・新潟・中京の置き障害は直線にハードルを置く場合があるので個別判定
+# 固定障害コースの一部は直線に障害あり
+# ここでは「直線に障害がある」会場を定義
+_STRAIGHT_HAS_OBSTACLE_VENUES = {'中山', '京都', '阪神', '小倉'}
+
+
+def compute_course_attributes(venue_name: str) -> dict:
+    """コース属性（置き障害/襷/直線障害）を計算
+
+    Returns:
+        {
+            'is_placed_obstacle': 0/1,
+            'has_sash_course': 0/1,
+            'straight_has_obstacle': 0/1,
+        }
+    """
+    return {
+        'is_placed_obstacle': 1 if venue_name in _PLACED_OBSTACLE_VENUES else 0,
+        'has_sash_course': 1 if venue_name in _SASH_COURSE_VENUES else 0,
+        'straight_has_obstacle': 1 if venue_name in _STRAIGHT_HAS_OBSTACLE_VENUES else 0,
+    }
+
+
+def compute_prev_obstacle_level_diff(
+    ketto_num: str,
+    race_date: str,
+    current_level: int,
+    history_cache: dict,
+) -> int:
+    """前走の障害レベル - 今走の障害レベル
+
+    正値 = レベルダウン転戦（有利説）
+    負値 = レベルアップ転戦
+    0 = 前走障害なし or 同レベル
+    """
+    records = history_cache.get(ketto_num, [])
+    for rec in reversed(records):
+        rd = rec.get('race_date', '')
+        if rd >= race_date:
+            continue
+        if rec.get('track_type') != 'obstacle':
+            continue
+        prev_venue = rec.get('venue_name', '')
+        prev_dist = rec.get('distance', 0)
+        prev_level = compute_obstacle_level(prev_venue, prev_dist, 'obstacle')
+        return prev_level - current_level
+    return 0
+
+
+def compute_flat_idm_avg3(
+    ketto_num: str,
+    race_date: str,
+    history_cache: dict,
+    jrdb_sed_index: dict,
+) -> float:
+    """障害転向前の平地IDM 3走平均
+
+    障害初出走日より前の平地走から直近3走のIDMを取得。
+    2走以上のIDMがあれば平均、なければ-1.0。
+    すでに障害経験がある場合も、初障害以前の平地IDMを使う（一度計算したら不変）。
+    """
+    records = history_cache.get(ketto_num, [])
+    if not records or isinstance(records, dict):
+        return -1.0
+
+    # 初障害日を特定
+    first_obs_date = None
+    for rec in records:
+        rd = rec.get('race_date', '')
+        if rd >= race_date:
+            continue
+        if rec.get('track_type') == 'obstacle':
+            if first_obs_date is None or rd < first_obs_date:
+                first_obs_date = rd
+
+    if first_obs_date is None:
+        # まだ障害未出走 = 今回が初障害。転向前の平地全走を対象
+        first_obs_date = race_date
+
+    # 初障害より前の平地走を日付降順で収集
+    flat_recs = []
+    for rec in reversed(records):
+        rd = rec.get('race_date', '')
+        if rd >= first_obs_date:
+            continue
+        if rec.get('track_type') == 'obstacle':
+            continue
+        flat_recs.append(rec)
+        if len(flat_recs) >= 3:
+            break
+
+    if not flat_recs:
+        return -1.0
+
+    # SED index からIDMを取得
+    idms = []
+    for rec in flat_recs:
+        rd = rec.get('race_date', '')
+        sed_key = f"{ketto_num}_{rd}"
+        sed_data = jrdb_sed_index.get(sed_key, {})
+        idm = sed_data.get('idm', 0)
+        if idm and idm > 0:
+            idms.append(idm)
+
+    if len(idms) < 2:
+        return -1.0
+
+    return round(sum(idms) / len(idms), 1)
 
 
 def compute_jockey_selection(
