@@ -45,7 +45,9 @@ from ml.features.obstacle_features import (
     compute_obstacle_level, compute_obstacle_exp_tier,
     compute_prev_was_obstacle, compute_difficulty_exp_match,
     compute_jockey_obstacle_stats, compute_trainer_obstacle_stats,
-    build_obstacle_personnel_timelines,
+    build_obstacle_personnel_timelines, compute_weight_gain_trend,
+    compute_course_attributes, compute_prev_obstacle_level_diff,
+    compute_flat_idm_avg3,
 )
 # VB Floor定数（推論のis_value_bet判定に使用）+ grade_offsets
 from ml.bet_engine import (
@@ -223,6 +225,7 @@ def predict_obstacle_race(
     obstacle_calibrators: Optional[dict] = None,
     jockey_obstacle_tl: Optional[dict] = None,
     trainer_obstacle_tl: Optional[dict] = None,
+    jrdb_sed_index: Optional[dict] = None,
 ) -> dict:
     """障害レースの予測を実行（v2: P+Wデュアル、v1: P only フォールバック）"""
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
@@ -350,6 +353,20 @@ def predict_obstacle_race(
             feat.update(t_stats)
         else:
             feat['trainer_obstacle_top3_rate'] = 0.0
+
+        # 近走馬体重増加トレンド
+        wg = compute_weight_gain_trend(ketto_num, race_date, history_cache)
+        feat.update(wg)
+
+        # v2.1: コース属性 + 前走レベル差 + 平地IDM
+        feat.update(compute_course_attributes(venue_name))
+        feat['prev_obstacle_level_diff'] = compute_prev_obstacle_level_diff(
+            ketto_num, race_date, obs_level, history_cache
+        )
+        feat['flat_idm_avg3'] = compute_flat_idm_avg3(
+            ketto_num, race_date, history_cache,
+            jrdb_sed_index or {}
+        )
 
         kb_e = kb_entries.get(str(umaban))
 
@@ -1583,6 +1600,7 @@ def main():
                 obstacle_calibrators=obstacle_calibrators,
                 jockey_obstacle_tl=jockey_obstacle_tl,
                 trainer_obstacle_tl=trainer_obstacle_tl,
+                jrdb_sed_index=jrdb_sed_index,
             )
             obstacle_predictions.append(pred)
             all_predictions.append(pred)

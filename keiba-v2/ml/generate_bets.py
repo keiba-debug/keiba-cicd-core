@@ -82,6 +82,7 @@ def apply_bet_engine(
                 'win_max_rank': preset_params.win_max_rank,
                 'win_max_rank_w': preset_params.win_max_rank_w,
                 'win_min_win_gap': preset_params.win_min_win_gap,
+                'win_max_predicted_margin': preset_params.win_max_predicted_margin,
                 'win_v_ratio_min': preset_params.win_v_ratio_min,
                 'win_v_bypass_gap': preset_params.win_v_bypass_gap,
                 'win_v_bypass_ev': preset_params.win_v_bypass_ev,

@@ -198,6 +198,9 @@ class BetStrategyParams:
     win_max_rank_w: int = 0
     # win_vb_gap制限: 0=無効, 4=推奨 (odds_rank - rank_w >= N)
     win_min_win_gap: int = 0
+    # 能力R上限: 0=無効, 60=推奨 (predicted_margin <= N → 接戦予測フィルタ)
+    # 高すぎるR(=圧倒的実力差)はオッズに既に織り込み済み → 除外
+    win_max_predicted_margin: float = 0.0
 
     # --- 単位 ---
     min_bet: int = 100
@@ -326,6 +329,28 @@ PRESETS: Dict[str, BetStrategyParams] = {
         closing_boost_min_strength=1.0,
         closing_boost_score=1.0,
         # slow_start: 無効化 (逆効果)
+    ),
+    # --- Intersection Filter (推奨) ---
+    # rank_w=1 + gap>=4 + EV>=1.3 + predicted_margin<=60 の全交差条件。
+    # バックテスト結果 (v7.3, 2025-03~2026-02):
+    #   46件, 的中率19.6%, WinROI 310.7%, P&L +9,690
+    #   利益は100% Intersection条件内（他ティアは全てマイナスROI）
+    # BETTING_STRATEGY_v3.0.md 参照
+    'intersection': BetStrategyParams(
+        win_max_rank_w=1,               # rank_w=1のみ
+        win_min_win_gap=4,              # win_vb_gap>=4
+        win_min_ev=1.3,                 # EV>=1.3 (evaluate_win内で適用)
+        win_max_predicted_margin=60.0,  # R<=60 (接戦フィルタ)
+        win_min_vb_score=0,             # Composite Score無効
+        win_v_ratio_min=0,              # P%比率フィルタ無効
+        win_max_rank=99,                # rank_pフィルタ無効
+        win_min_gap=0,                  # place gapフィルタ無効
+        ard_vb_min_ard=0,              # ARd VBルート無効
+        ard_vb_min_odds=0,
+        place_addon=False,              # 複勝なし: 単勝一本
+        place_min_gap=99,               # 複勝単独無効
+        max_win_per_race=1,             # 1レース1買い
+        closing_boost_threshold=0,      # Closing boost無効
     ),
     # --- シンプル戦略 ---
     # rank_w=1（Winモデル1位）の単勝のみ。複雑なVBスコアを使わず、
@@ -819,6 +844,13 @@ def generate_recommendations(
             if win_ok and params.win_min_win_gap > 0 and win_gap < params.win_min_win_gap:
                 win_ok = False
                 win_units = 0
+
+            # 接戦フィルタ: 能力R上限 (intersection preset用)
+            # R が高すぎる = 実力差が大きすぎ → オッズに織り込み済みで VALUE なし
+            if win_ok and params.win_max_predicted_margin > 0 and margin is not None:
+                if margin > params.win_max_predicted_margin:
+                    win_ok = False
+                    win_units = 0
 
             # --- ARd VBルート (能力 vs 市場の直接乖離) ---
             # Gap VBが不合格でも、ARdが極端に高くオッズが高い馬は独立ルートで通過

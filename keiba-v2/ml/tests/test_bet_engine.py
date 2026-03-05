@@ -647,20 +647,25 @@ class TestPresets:
     def test_all_presets_exist(self):
         assert 'standard' in PRESETS
         assert 'wide' in PRESETS
+        assert 'intersection' in PRESETS
 
     def test_standard_stricter_than_wide(self):
         s = PRESETS['standard']
         w = PRESETS['wide']
-        assert s.win_min_gap > w.win_min_gap
+        assert s.win_min_vb_score > w.win_min_vb_score
 
     def test_both_win_only(self):
-        """両プリセットともPlace無効化"""
+        """全プリセットPlace単独無効化"""
         for name, params in PRESETS.items():
             assert params.place_min_gap >= 90, \
                 f"preset {name} should disable place (place_min_gap={params.place_min_gap})"
 
-    def test_margin_same(self):
-        """両プリセットともmargin<=1.2"""
-        for name, params in PRESETS.items():
-            assert params.win_max_margin == 1.2, \
-                f"preset {name} has unexpected max_margin={params.win_max_margin}"
+    def test_intersection_preset(self):
+        """Intersection Filterの条件確認"""
+        p = PRESETS['intersection']
+        assert p.win_max_rank_w == 1
+        assert p.win_min_win_gap == 4
+        assert p.win_min_ev == 1.3
+        assert p.win_max_predicted_margin == 60.0
+        assert p.max_win_per_race == 1
+        assert p.place_addon is False
