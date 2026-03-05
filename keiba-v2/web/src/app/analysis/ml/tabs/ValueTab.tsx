@@ -409,16 +409,6 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
   const winVb = data.roi_analysis.value_bets.win_by_rank_gap;
   const hasWinVb = winVb && winVb.length > 0;
 
-  const placeRoi = data.roi_analysis.place_model ?? data.roi_analysis.value_model;
-  const winRoi = data.roi_analysis.win_model ?? data.roi_analysis.win_value_model;
-  const auraRoi = data.roi_analysis.aura_model ?? data.roi_analysis.regression_model;
-
-  const roiModels = [
-    ...(placeRoi ? [{ key: 'P', label: '好走(P)', roi: placeRoi, color: 'blue' as const }] : []),
-    ...(winRoi ? [{ key: 'W', label: '勝利(W)', roi: winRoi, color: 'emerald' as const }] : []),
-    ...(auraRoi ? [{ key: 'AR', label: '能力(AR)', roi: auraRoi, color: 'amber' as const }] : []),
-  ];
-
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20">
@@ -473,37 +463,6 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
         <GapMarginHeatmap grid={data.gap_margin_grid} />
       )}
 
-      {/* Top1 ROI comparison */}
-      <div className={cn('grid gap-4', roiModels.length <= 2 ? 'grid-cols-2' : roiModels.length === 5 ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4')}>
-        {roiModels.map(({ key, label, roi, color }) => (
-          <div key={key} className={cn('rounded-lg border p-4',
-            color === 'emerald' ? 'border-emerald-200 dark:border-emerald-800' :
-            color === 'amber' ? 'border-amber-200 dark:border-amber-800' :
-            'border-gray-200 dark:border-gray-700'
-          )}>
-            <h3 className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-400">{label}</h3>
-            <div className="space-y-2">
-              <div>
-                <div className="text-[10px] text-gray-400">Top1 単勝ROI</div>
-                <div className="text-2xl font-bold tabular-nums">
-                  <span className={roi.top1_win.roi >= 100 ? 'text-green-600' : 'text-red-500'}>
-                    {roi.top1_win.roi.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] text-gray-400">Top1 複勝ROI</div>
-                <div className="text-lg font-bold tabular-nums">
-                  <span className={roi.top1_place.roi >= 100 ? 'text-green-600' : 'text-red-500'}>
-                    {roi.top1_place.roi.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-              <div className="text-xs text-gray-400">{roi.top1_win.bet_count}R</div>
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

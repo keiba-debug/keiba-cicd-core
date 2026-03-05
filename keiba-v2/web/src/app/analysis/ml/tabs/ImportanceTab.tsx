@@ -5,21 +5,25 @@ import { cn } from '@/lib/utils';
 import { FEATURE_LABELS, FEATURE_CATEGORIES, getFeatureCategory } from '../utils';
 import type { MlExperimentResultV2, ObstacleModelMeta } from '../types';
 
-type ModelKey = 'place' | 'win' | 'aura' | 'obstacle';
+type ModelKey = 'place' | 'win' | 'aura' | 'obstacle_p' | 'obstacle_w';
 
 const MODEL_OPTIONS: { key: ModelKey; label: string; shortLabel: string; color: string; activeColor: string }[] = [
   { key: 'place', label: '好走(P)', shortLabel: 'P', color: 'blue', activeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
   { key: 'win', label: '勝利(W)', shortLabel: 'W', color: 'emerald', activeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { key: 'aura', label: '能力(AR)', shortLabel: 'AR', color: 'amber', activeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  { key: 'obstacle', label: '障害', shortLabel: '障', color: 'purple', activeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
+  { key: 'obstacle_p', label: '障害(P)', shortLabel: '障P', color: 'purple', activeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
+  { key: 'obstacle_w', label: '障害(W)', shortLabel: '障W', color: 'purple', activeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
 ];
 
 export default function ImportanceTab({ data, obstacleModel }: { data: MlExperimentResultV2; obstacleModel?: ObstacleModelMeta | null }) {
   const [showModel, setShowModel] = useState<ModelKey>('place');
 
-  const modelData = showModel === 'obstacle' ? null : data.models[showModel as keyof typeof data.models];
-  const fi = showModel === 'obstacle'
-    ? (obstacleModel?.feature_importance ?? [])
+  const isObstacle = showModel === 'obstacle_p' || showModel === 'obstacle_w';
+  const modelData = isObstacle ? null : data.models[showModel as keyof typeof data.models];
+  const fi = showModel === 'obstacle_p'
+    ? (obstacleModel?.feature_importance_p ?? [])
+    : showModel === 'obstacle_w'
+    ? (obstacleModel?.feature_importance_w ?? [])
     : (modelData?.feature_importance ?? []);
   const maxImportance = fi[0]?.importance ?? 1;
 
@@ -27,7 +31,8 @@ export default function ImportanceTab({ data, obstacleModel }: { data: MlExperim
     place: { top: 'bg-blue-500', high: 'bg-blue-400', base: 'bg-blue-300 dark:bg-blue-600' },
     win: { top: 'bg-emerald-500', high: 'bg-emerald-400', base: 'bg-emerald-300 dark:bg-emerald-600' },
     aura: { top: 'bg-amber-500', high: 'bg-amber-400', base: 'bg-amber-300 dark:bg-amber-600' },
-    obstacle: { top: 'bg-purple-500', high: 'bg-purple-400', base: 'bg-purple-300 dark:bg-purple-600' },
+    obstacle_p: { top: 'bg-purple-500', high: 'bg-purple-400', base: 'bg-purple-300 dark:bg-purple-600' },
+    obstacle_w: { top: 'bg-purple-500', high: 'bg-purple-400', base: 'bg-purple-300 dark:bg-purple-600' },
   };
   const currentBar = barColors[showModel];
 
@@ -35,7 +40,7 @@ export default function ImportanceTab({ data, obstacleModel }: { data: MlExperim
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {MODEL_OPTIONS.map((opt) => {
-          const modelExists = opt.key === 'obstacle' ? !!obstacleModel : !!data.models[opt.key as keyof typeof data.models];
+          const modelExists = (opt.key === 'obstacle_p' || opt.key === 'obstacle_w') ? !!obstacleModel : !!data.models[opt.key as keyof typeof data.models];
           return (
             <button key={opt.key} onClick={() => modelExists && setShowModel(opt.key)}
               disabled={!modelExists}

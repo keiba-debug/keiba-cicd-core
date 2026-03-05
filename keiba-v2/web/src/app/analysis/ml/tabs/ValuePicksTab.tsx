@@ -107,7 +107,7 @@ export default function ValuePicksTab({ picks }: { picks: ValueBetPick[] }) {
                 <th className="py-2 text-center">Gap</th>
                 <th className="py-2 text-right">オッズ</th>
                 <th className="py-2 text-right">P%</th>
-                <th className="py-2 text-right" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</th>
+                <th className="py-2 text-right" title="AR (Aura Rating) — 勝ち馬とのタイム差予測(秒)。ARd=レース内偏差値(50以上=平均以上)">AR</th>
                 <th className="py-2 text-right" title="期待値 = P(win) × オッズ">EV</th>
                 <th className="py-2 text-center">着順</th>
                 <th className="py-2 text-center">結果</th>

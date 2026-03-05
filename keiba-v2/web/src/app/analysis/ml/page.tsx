@@ -49,7 +49,7 @@ export default function MlAnalysisPage() {
         <div><span className="font-semibold text-blue-700 dark:text-blue-400">好走(P)</span> — 市場系除外{(data.models.place ?? data.models.value)!.features.length}特徴量で<strong>3着内</strong>を予測（独自能力評価）</div>
         {(data.models.win ?? data.models.win_value) && <div><span className="font-semibold text-emerald-700 dark:text-emerald-400">勝利(W)</span> — 市場系除外{(data.models.win ?? data.models.win_value)!.features.length}特徴量で<strong>1着</strong>を予測（独自能力評価）</div>}
         {(data.models.aura ?? data.models.regression_value) && <div><span className="font-semibold text-amber-700 dark:text-amber-400">能力(AR)</span> — 能力予測モデル。勝ち馬とのタイム差を予測（市場系除外）</div>}
-        {data.obstacle_model && <div><span className="font-semibold text-purple-700 dark:text-purple-400">障害モデル</span> — 障害レース専用モデル。{data.obstacle_model.feature_count}特徴量で<strong>3着内</strong>を予測（AUC {data.obstacle_model.metrics.auc.toFixed(3)}）</div>}
+        {data.obstacle_model && <div><span className="font-semibold text-purple-700 dark:text-purple-400">障害モデル</span> — 障害レース専用P+Wデュアルモデル。{data.obstacle_model.feature_count}特徴量（P AUC {data.obstacle_model.metrics_p.auc.toFixed(3)}, W AUC {data.obstacle_model.metrics_w.auc.toFixed(3)}）</div>}
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">PR</span> — 好走(P)モデルによるレース内の順位（1=最も好走確率が高い）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">Gap</span> — 人気順位 - PR。大きいほど市場が過小評価している馬（VB判定の主軸）</div>
         <div><span className="font-semibold text-gray-800 dark:text-gray-200">EV</span> — 期待値 = calibrated P(win) × 単勝オッズ。1.0超えで期待値プラス（購入判断の主軸フィルター）</div>

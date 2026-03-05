@@ -261,39 +261,51 @@ export interface MlExperimentResultV2 {
   obstacle_model?: ObstacleModelMeta;
 }
 
+export interface ObstacleModelMetrics {
+  auc: number;
+  accuracy: number;
+  log_loss: number;
+  brier_score: number;
+  ece: number;
+  ece_calibrated: number;
+  brier_calibrated: number;
+  log_loss_calibrated: number;
+  auc_val: number;
+  best_iteration: number;
+  train_size: number;
+  val_size: number;
+  test_size: number;
+}
+
 export interface ObstacleModelMeta {
   version: string;
   model_type: string;
+  has_win_model: boolean;
   created_at: string;
   train_period: string;
   val_period: string;
   test_period: string;
   features: string[];
   feature_count: number;
-  metrics: {
-    auc: number;
-    accuracy: number;
-    log_loss: number;
-    brier_score: number;
-    ece: number;
-    ece_calibrated: number;
-    brier_calibrated: number;
-    log_loss_calibrated: number;
-    auc_val: number;
-    best_iteration: number;
-    train_size: number;
-    val_size: number;
-    test_size: number;
-  };
+  metrics_p: ObstacleModelMetrics;
+  metrics_w: ObstacleModelMetrics;
   train_races: number;
   train_entries: number;
   val_races: number;
   val_entries: number;
   test_races: number;
   test_entries: number;
-  feature_importance: FeatureImportanceEntry[];
-  hit_analysis: HitAnalysisV2;
-  roi_analysis: {
+  feature_importance_p: FeatureImportanceEntry[];
+  feature_importance_w: FeatureImportanceEntry[];
+  hit_analysis_p: HitAnalysisV2;
+  hit_analysis_w: HitAnalysisV2;
+  roi_analysis_p: {
+    top1_win_roi: number;
+    top1_place_roi: number;
+    top1_bets: number;
+    place_odds_db_count: number;
+  };
+  roi_analysis_w: {
     top1_win_roi: number;
     top1_place_roi: number;
     top1_bets: number;

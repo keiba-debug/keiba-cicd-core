@@ -126,12 +126,16 @@ export default function RoiTab({ data }: { data: MlExperimentResultV2 }) {
 }
 
 const PRESET_LABELS: Record<string, string> = {
-  standard: 'Standard (gap≥5, EV≥1.5)',
-  wide: 'Wide (gap≥5, EVなし)',
-  aggressive: 'Aggressive (gap≥5, EV≥1.8)',
+  intersection: 'Intersection (rw=1, gap≥4, EV≥1.3, R≤60)',
+  standard: 'Standard (VBscore≥5.5, EV≥1.0)',
+  wide: 'Wide (VBscore≥5.0, EV≥1.0)',
+  aggressive: 'Aggressive (VBscore≥6.0, EV≥1.0)',
+  simple: 'Simple (rw=1, gap≥4)',
+  simple_ev2: 'Simple EV2 (rw=1, EV≥2.0)',
+  simple_wide: 'Simple Wide (rw=1, gap≥3)',
 };
 
-const PRESET_ORDER = ['standard', 'wide', 'aggressive'];
+const PRESET_ORDER = ['intersection', 'standard', 'wide', 'aggressive', 'simple', 'simple_ev2', 'simple_wide'];
 
 function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEnginePresetResult> }) {
   const sorted = PRESET_ORDER.filter((k) => k in presets);
@@ -158,7 +162,7 @@ function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEngineP
           {sorted.map((key) => {
             const p = presets[key];
             const net = p.total_return - p.total_bet;
-            const isRecommended = key === 'standard';
+            const isRecommended = key === 'intersection';
             const hasCi = p.bootstrap_ci_low != null && p.bootstrap_ci_high != null;
             return (
               <tr key={key} className={cn('border-b border-gray-50 dark:border-gray-800',

@@ -258,6 +258,14 @@ export const FEATURE_LABELS: Record<string, string> = {
   jrdb_pre_idm: '予想IDM', jrdb_info_idx: '情報指数',
   jrdb_jockey_idx: '騎手指数(JRDB)', jrdb_training_idx: '調教指数(JRDB)',
   jrdb_stable_idx: '厩舎指数(JRDB)', jrdb_sogo_idx: '総合指数(JRDB)',
+  // 障害 (obstacle-v2.1)
+  obstacle_experience: '障害経験数', obstacle_level: 'コース難易度',
+  obstacle_exp_tier: '障害経験ティア', prev_was_obstacle: '前走障害',
+  jockey_obstacle_races: '騎手障害騎乗数', jockey_obstacle_win_rate: '騎手障害勝率',
+  trainer_obstacle_top3_rate: '調教師障害複勝率', difficulty_exp_match: '難易度経験度',
+  jockey_selected: '騎手指名', jockey_selected_count: '騎手指名回数',
+  flat_idm_avg3: '平地IDM3走平均', prev_obstacle_level_diff: '前走難易度差',
+  weight_gain_last3: '3走体重増加', weight_gain_per_race: '1走当体重増加率',
   // トラックバイアス (v7.2)
   kaa_turf_bias: '芝内外差バイアス', kaa_turf_inner: '芝内回り状態',
   kaa_straight_bias: '直線馬場差', kaa_is_outer_bias: '外差しバイアス',

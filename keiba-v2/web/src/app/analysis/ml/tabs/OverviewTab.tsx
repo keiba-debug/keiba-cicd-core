@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { MetricCard } from '../utils';
-import type { MlExperimentResultV2, MlModelResult, RegressionModelResult, HitAnalysisV2, ArdThresholdEntry, ObstacleModelMeta } from '../types';
+import type { MlExperimentResultV2, MlModelResult, RegressionModelResult, HitAnalysisV2, ArdThresholdEntry, ObstacleModelMeta, RoiAnalysis } from '../types';
 
 function EceBadge({ ece }: { ece: number }) {
   if (ece < 0.03) {
@@ -109,6 +109,60 @@ function Top1Card({ label, v2, color }: { label: string; v2: HitAnalysisV2; colo
   );
 }
 
+function ModelPerformanceCard({
+  label,
+  v2,
+  roi,
+  color,
+  borderColor,
+}: {
+  label: string;
+  v2: HitAnalysisV2;
+  roi?: RoiAnalysis;
+  color: string;
+  borderColor: string;
+}) {
+  return (
+    <div className={cn('rounded-lg border p-3', borderColor)}>
+      <h4 className={cn('mb-2 text-xs font-semibold', color)}>{label}</h4>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded bg-gray-50 p-2 text-center dark:bg-gray-800/50">
+          <div className="text-[10px] text-gray-500">Top1 勝率</div>
+          <div className={cn('mt-0.5 text-xl font-bold tabular-nums', color)}>
+            {(v2.top1_win_rate * 100).toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-gray-400">{v2.top1_wins}/{v2.top1_total}R</div>
+        </div>
+        <div className="rounded bg-gray-50 p-2 text-center dark:bg-gray-800/50">
+          <div className="text-[10px] text-gray-500">Top1 好走率</div>
+          <div className={cn('mt-0.5 text-xl font-bold tabular-nums', color)}>
+            {(v2.top1_place_rate * 100).toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-gray-400">{v2.top1_places}/{v2.top1_total}R</div>
+        </div>
+      </div>
+      {roi && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="rounded bg-gray-50 p-2 text-center dark:bg-gray-800/50">
+            <div className="text-[10px] text-gray-500">Top1 単勝ROI</div>
+            <div className={cn('mt-0.5 text-xl font-bold tabular-nums', roi.top1_win.roi >= 100 ? 'text-green-600' : 'text-red-500')}>
+              {roi.top1_win.roi.toFixed(1)}%
+            </div>
+            <div className="text-[10px] text-gray-400">{roi.top1_win.bet_count}R</div>
+          </div>
+          <div className="rounded bg-gray-50 p-2 text-center dark:bg-gray-800/50">
+            <div className="text-[10px] text-gray-500">Top1 複勝ROI</div>
+            <div className={cn('mt-0.5 text-xl font-bold tabular-nums', roi.top1_place.roi >= 100 ? 'text-green-600' : 'text-red-500')}>
+              {roi.top1_place.roi.toFixed(1)}%
+            </div>
+            <div className="text-[10px] text-gray-400">{roi.top1_place.bet_count}R</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Top3DistributionBar({ v2 }: { v2: HitAnalysisV2 }) {
   const dist = v2.top3_distribution;
   const total = dist.reduce((s, d) => s + d.races, 0);
@@ -143,54 +197,107 @@ function Top3DistributionBar({ v2 }: { v2: HitAnalysisV2 }) {
   );
 }
 
+function ObstaclePerformanceCard({
+  label,
+  v2,
+  roiData,
+  color,
+  borderColor,
+}: {
+  label: string;
+  v2: HitAnalysisV2;
+  roiData: { top1_win_roi: number; top1_place_roi: number; top1_bets: number };
+  color: string;
+  borderColor: string;
+}) {
+  return (
+    <div className={cn('rounded-lg border p-3', borderColor)}>
+      <h4 className={cn('mb-2 text-xs font-semibold', color)}>{label}</h4>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded bg-gray-50 p-2 text-center dark:bg-gray-800/50">
+          <div className="text-[10px] text-gray-500">Top1 勝率</div>
+          <div className={cn('mt-0.5 text-xl font-bold tabular-nums', color)}>
+            {(v2.top1_win_rate * 100).toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-gray-400">{v2.top1_wins}/{v2.top1_total}R</div>
+        </div>
+        <div className="rounded bg-gray-50 p-2 text-center dark:bg-gray-800/50">
+          <div className="text-[10px] text-gray-500">Top1 好走率</div>
+          <div className={cn('mt-0.5 text-xl font-bold tabular-nums', color)}>
+            {(v2.top1_place_rate * 100).toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-gray-400">{v2.top1_places}/{v2.top1_total}R</div>
+        </div>
+        <div className="rounded bg-gray-50 p-2 text-center dark:bg-gray-800/50">
+          <div className="text-[10px] text-gray-500">Top1 単勝ROI</div>
+          <div className={cn('mt-0.5 text-xl font-bold tabular-nums', roiData.top1_win_roi >= 100 ? 'text-green-600' : 'text-red-500')}>
+            {roiData.top1_win_roi.toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-gray-400">{roiData.top1_bets}R</div>
+        </div>
+        <div className="rounded bg-gray-50 p-2 text-center dark:bg-gray-800/50">
+          <div className="text-[10px] text-gray-500">Top1 複勝ROI</div>
+          <div className={cn('mt-0.5 text-xl font-bold tabular-nums', roiData.top1_place_roi >= 100 ? 'text-green-600' : 'text-red-500')}>
+            {roiData.top1_place_roi.toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-gray-400">{roiData.top1_bets}R</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ObstacleModelCard({ meta }: { meta: ObstacleModelMeta }) {
-  const m = meta.metrics;
+  const mp = meta.metrics_p;
+  const mw = meta.metrics_w;
   return (
     <div className="space-y-4">
+      {/* P Model */}
       <div className="rounded-lg border border-purple-200 p-4 dark:border-purple-800">
         <h3 className="mb-3 text-sm font-semibold text-purple-700 dark:text-purple-400">
-          障害モデル
-          <span className="ml-2 text-xs font-normal text-gray-400">3着内予測 / 75特徴量 / {meta.version}</span>
+          障害 好走(P)
+          <span className="ml-2 text-xs font-normal text-gray-400">3着内予測 / {meta.feature_count}特徴量 / {meta.version}</span>
         </h3>
         <div className="grid grid-cols-3 gap-2">
-          <MetricCard label="AUC" value={m.auc.toFixed(4)} highlight color="blue" />
-          <MetricCard label="Brier (cal)" value={m.brier_calibrated.toFixed(4)} />
-          <MetricCard label="ECE (cal)" value={m.ece_calibrated.toFixed(4)} />
+          <MetricCard label="AUC" value={mp.auc.toFixed(4)} highlight color="blue" />
+          <MetricCard label="Brier (cal)" value={mp.brier_calibrated.toFixed(4)} />
+          <MetricCard label="ECE (cal)" value={mp.ece_calibrated.toFixed(4)} />
         </div>
         <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-gray-500">
-          <div>Iter: <span className="font-medium text-gray-700 dark:text-gray-300">{m.best_iteration}</span></div>
-          <div>Accuracy: <span className="font-medium text-gray-700 dark:text-gray-300">{(m.accuracy * 100).toFixed(1)}%</span></div>
+          <div>Iter: <span className="font-medium text-gray-700 dark:text-gray-300">{mp.best_iteration}</span></div>
+          <div>Accuracy: <span className="font-medium text-gray-700 dark:text-gray-300">{(mp.accuracy * 100).toFixed(1)}%</span></div>
           <div>Features: <span className="font-medium text-gray-700 dark:text-gray-300">{meta.feature_count}</span></div>
-          <div>AUC(val): <span className="font-medium text-gray-700 dark:text-gray-300">{m.auc_val.toFixed(4)}</span></div>
+          <div>AUC(val): <span className="font-medium text-gray-700 dark:text-gray-300">{mp.auc_val.toFixed(4)}</span></div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Top1Card label="障害 Top1" v2={meta.hit_analysis} color="text-purple-600 dark:text-purple-400" />
-        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-          <h4 className="mb-2 text-xs font-semibold text-purple-600 dark:text-purple-400">ROI</h4>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded bg-gray-50 p-2.5 text-center dark:bg-gray-800/50">
-              <div className="text-[10px] text-gray-500">単勝ROI</div>
-              <div className={cn('mt-0.5 text-lg font-bold tabular-nums', meta.roi_analysis.top1_win_roi >= 100 ? 'text-green-600' : 'text-red-500')}>
-                {meta.roi_analysis.top1_win_roi.toFixed(1)}%
-              </div>
-              <div className="text-[10px] text-gray-400">{meta.roi_analysis.top1_bets}R</div>
-            </div>
-            <div className="rounded bg-gray-50 p-2.5 text-center dark:bg-gray-800/50">
-              <div className="text-[10px] text-gray-500">複勝ROI</div>
-              <div className={cn('mt-0.5 text-lg font-bold tabular-nums', meta.roi_analysis.top1_place_roi >= 100 ? 'text-green-600' : 'text-red-500')}>
-                {meta.roi_analysis.top1_place_roi.toFixed(1)}%
-              </div>
-              <div className="text-[10px] text-gray-400">{meta.roi_analysis.top1_bets}R</div>
-            </div>
-          </div>
+      {/* W Model */}
+      <div className="rounded-lg border border-purple-200 p-4 dark:border-purple-800">
+        <h3 className="mb-3 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+          障害 勝利(W)
+          <span className="ml-2 text-xs font-normal text-gray-400">1着予測 / {meta.feature_count}特徴量 / {meta.version}</span>
+        </h3>
+        <div className="grid grid-cols-3 gap-2">
+          <MetricCard label="AUC" value={mw.auc.toFixed(4)} highlight color="emerald" />
+          <MetricCard label="Brier (cal)" value={mw.brier_calibrated.toFixed(4)} />
+          <MetricCard label="ECE (cal)" value={mw.ece_calibrated.toFixed(4)} />
         </div>
+        <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-gray-500">
+          <div>Iter: <span className="font-medium text-gray-700 dark:text-gray-300">{mw.best_iteration}</span></div>
+          <div>Accuracy: <span className="font-medium text-gray-700 dark:text-gray-300">{(mw.accuracy * 100).toFixed(1)}%</span></div>
+          <div>Features: <span className="font-medium text-gray-700 dark:text-gray-300">{meta.feature_count}</span></div>
+          <div>AUC(val): <span className="font-medium text-gray-700 dark:text-gray-300">{mw.auc_val.toFixed(4)}</span></div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <ObstaclePerformanceCard label="障害 好走(P)" v2={meta.hit_analysis_p} roiData={meta.roi_analysis_p} color="text-purple-600 dark:text-purple-400" borderColor="border-purple-200 dark:border-purple-800" />
+        <ObstaclePerformanceCard label="障害 勝利(W)" v2={meta.hit_analysis_w} roiData={meta.roi_analysis_w} color="text-emerald-600 dark:text-emerald-400" borderColor="border-emerald-200 dark:border-emerald-800" />
       </div>
 
       <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-        <div className="mb-1 text-xs font-medium text-purple-600 dark:text-purple-400">Top3 的中分布</div>
-        <Top3DistributionBar v2={meta.hit_analysis} />
+        <div className="mb-1 text-xs font-medium text-purple-600 dark:text-purple-400">Top3 的中分布 (P)</div>
+        <Top3DistributionBar v2={meta.hit_analysis_p} />
       </div>
 
       <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
@@ -312,20 +419,43 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
         const winV2 = ha?.win_v2;
         const auraV2 = ha?.aura_v2 ?? ha?.regression_v2;
         const cardCount = 1 + (winV2 ? 1 : 0) + (auraV2 ? 1 : 0);
+
+        const placeRoi = data.roi_analysis.place_model ?? data.roi_analysis.value_model;
+        const winRoi = data.roi_analysis.win_model ?? data.roi_analysis.win_value_model;
+        const auraRoi = data.roi_analysis.aura_model ?? data.roi_analysis.regression_model;
+
         return hasV2 && placeV2 ? (
           <div className="space-y-4">
             <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
               <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
-                Top1 成績比較
-                <span className="ml-2 text-xs font-normal text-gray-400">各モデルの予測1位がどれだけ当たるか</span>
+                Top1 成績サマリー
+                <span className="ml-2 text-xs font-normal text-gray-400">予測1位の的中率と回収率</span>
               </h3>
-              <div className={cn('grid gap-3', cardCount >= 3 ? 'grid-cols-3' : cardCount === 2 ? 'grid-cols-2' : 'grid-cols-1')}>
-                <Top1Card label="好走(P)" v2={placeV2} color="text-blue-600 dark:text-blue-400" />
+              <div className={cn('grid gap-3', cardCount >= 3 ? 'grid-cols-1 lg:grid-cols-3' : cardCount === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1')}>
+                <ModelPerformanceCard
+                  label="好走(P)"
+                  v2={placeV2}
+                  roi={placeRoi}
+                  color="text-blue-600 dark:text-blue-400"
+                  borderColor="border-blue-200 dark:border-blue-800"
+                />
                 {winV2 && (
-                  <Top1Card label="勝利(W)" v2={winV2} color="text-emerald-600 dark:text-emerald-400" />
+                  <ModelPerformanceCard
+                    label="勝利(W)"
+                    v2={winV2}
+                    roi={winRoi}
+                    color="text-emerald-600 dark:text-emerald-400"
+                    borderColor="border-emerald-200 dark:border-emerald-800"
+                  />
                 )}
                 {auraV2 && (
-                  <Top1Card label="能力(AR)" v2={auraV2} color="text-amber-600 dark:text-amber-400" />
+                  <ModelPerformanceCard
+                    label="能力(AR)"
+                    v2={auraV2}
+                    roi={auraRoi}
+                    color="text-amber-600 dark:text-amber-400"
+                    borderColor="border-amber-200 dark:border-amber-800"
+                  />
                 )}
               </div>
             </div>
