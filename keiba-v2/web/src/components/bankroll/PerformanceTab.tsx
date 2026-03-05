@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
-  TrendingUp, TrendingDown, Target, BarChart3, Calendar, Crosshair,
+  TrendingUp, TrendingDown, Target, BarChart3, Calendar, Crosshair, ShoppingCart,
 } from 'lucide-react';
 
 // =====================================================================
@@ -50,6 +50,31 @@ interface StrategyBet {
   win_return: number;
 }
 
+interface PurchaseStats {
+  total_bets: number;
+  invested: number;
+  payout: number;
+  profit: number;
+  roi: number;
+  wins: number;
+  losses: number;
+  pending: number;
+  hit_rate: number;
+  matched_with_recommendation: number;
+  follow_rate: number;
+  items: Array<{
+    date: string;
+    race_id: string;
+    bet_type: string;
+    selection: string;
+    amount: number;
+    odds: number | null;
+    status: string;
+    payout: number;
+    is_intersection: boolean;
+  }>;
+}
+
 interface StrategyPerformance {
   preset: string;
   year: number;
@@ -71,6 +96,7 @@ interface StrategyPerformance {
     annualBets: number;
     monthlyBets: number;
   } | null;
+  purchase_stats: PurchaseStats | null;
 }
 
 // =====================================================================
@@ -199,6 +225,7 @@ export function PerformanceTab() {
 
   const sp = strategyData?.overall;
   const bt = strategyData?.backtest;
+  const ps = strategyData?.purchase_stats;
 
   return (
     <div className="space-y-6">
@@ -354,6 +381,120 @@ export function PerformanceTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* ===== 実購入成績 ===== */}
+      {ps && ps.total_bets > 0 && (
+        <Card className="border-green-200 dark:border-green-800">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ShoppingCart className="h-4 w-4 text-green-600" />
+              実購入成績（ExecuteTab経由の実際の購入）
+              <Badge variant="outline" className="text-xs">{ps.total_bets}件</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-4">
+              {/* KPIグリッド */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">ROI</div>
+                  <div className={`text-2xl font-bold ${ps.pending > 0 ? 'text-muted-foreground' : getRoiColor(ps.roi)}`}>
+                    {ps.wins + ps.losses > 0 ? `${ps.roi.toFixed(1)}%` : '未確定'}
+                  </div>
+                  {sp && sp.bets > 0 && (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      推奨: {sp.roi.toFixed(1)}%
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">的中率</div>
+                  <div className="text-2xl font-bold">
+                    {ps.wins + ps.losses > 0 ? `${ps.hit_rate.toFixed(1)}%` : '—'}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {ps.wins}的中 / {ps.losses}不的中{ps.pending > 0 ? ` / ${ps.pending}未確定` : ''}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">収支</div>
+                  <div className={`text-xl font-bold ${getProfitColor(ps.profit)}`}>
+                    {ps.profit >= 0 ? '+' : '-'}{formatCurrency(ps.profit)}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">投資額</div>
+                  <div className="text-xl font-bold">{formatCurrency(ps.invested)}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    払戻 {formatCurrency(ps.payout)}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">推奨追従率</div>
+                  <div className="text-2xl font-bold">
+                    {ps.follow_rate.toFixed(0)}%
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {ps.matched_with_recommendation}/{ps.total_bets}件がIntersection
+                  </div>
+                </div>
+              </div>
+
+              {/* 個別購入履歴 */}
+              {ps.items.length > 0 && (
+                <details className="group">
+                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                    個別購入履歴を表示 ({ps.items.length}件)
+                  </summary>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b text-muted-foreground">
+                          <th className="py-1 px-1 text-left">日付</th>
+                          <th className="py-1 px-1 text-left">券種</th>
+                          <th className="py-1 px-1 text-left">馬券</th>
+                          <th className="py-1 px-1 text-right">金額</th>
+                          <th className="py-1 px-1 text-right">オッズ</th>
+                          <th className="py-1 px-1 text-center">結果</th>
+                          <th className="py-1 px-1 text-right">払戻</th>
+                          <th className="py-1 px-1 text-center">INT</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ps.items.map((item, i) => (
+                          <tr key={`${item.race_id}-${i}`}
+                            className={`border-b ${item.status === 'result_win' ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
+                            <td className="py-1 px-1 font-mono">{item.date.slice(5)}</td>
+                            <td className="py-1 px-1">{item.bet_type}</td>
+                            <td className="py-1 px-1">{item.selection}</td>
+                            <td className="py-1 px-1 text-right font-mono">¥{item.amount.toLocaleString()}</td>
+                            <td className="py-1 px-1 text-right font-mono">{item.odds?.toFixed(1) ?? '—'}</td>
+                            <td className="py-1 px-1 text-center">
+                              {item.status === 'result_win' && <Badge className="bg-green-600 text-white text-xs px-1">的中</Badge>}
+                              {item.status === 'result_lose' && <span className="text-muted-foreground">✗</span>}
+                              {item.status === 'purchased' && <Badge variant="outline" className="text-xs px-1">未確定</Badge>}
+                            </td>
+                            <td className={`py-1 px-1 text-right font-mono ${item.payout > 0 ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+                              {item.payout > 0 ? `¥${item.payout.toLocaleString()}` : '—'}
+                            </td>
+                            <td className="py-1 px-1 text-center">
+                              {item.is_intersection ? (
+                                <Crosshair className="h-3 w-3 text-indigo-500 inline" />
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ===== バックテスト vs ライブ比較 ===== */}
       <Card>

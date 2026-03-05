@@ -8,7 +8,7 @@ import {
   Zap, Play, Loader2, CheckCircle2, XCircle,
   ChevronLeft, ChevronRight, Calendar, RefreshCw,
   ArrowRight, TrendingUp, ChevronDown, ChevronUp, Layers,
-  ShoppingCart, Check, X, Download,
+  ShoppingCart, Check, X, Download, Trophy,
 } from 'lucide-react';
 
 // =====================================================================
@@ -492,6 +492,40 @@ export function ExecuteTab() {
       console.error('Purchase cancel error:', err);
     } finally {
       setSavingPurchase(null);
+    }
+  };
+
+  // 結果反映
+  const [settling, setSettling] = useState(false);
+  const [settleResult, setSettleResult] = useState<{ settled: number; wins: number; totalPayout: number; profit: number } | null>(null);
+
+  const settleResults = async () => {
+    setSettling(true);
+    setSettleResult(null);
+    try {
+      const res = await fetch(`/api/purchases/${selectedDate}/settle`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setSettleResult({
+          settled: data.settled,
+          wins: data.wins,
+          totalPayout: data.totalPayout,
+          profit: data.profit,
+        });
+        await loadPurchases(selectedDate);
+        // バンクロール残高もリフレッシュ
+        fetch('/api/bankroll/fund')
+          .then(r => r.ok ? r.json() : null)
+          .then(d => { if (d?.current_balance != null) setBankrollBalance(d.current_balance); })
+          .catch(() => {});
+      } else {
+        const err = await res.json().catch(() => ({ error: 'Unknown' }));
+        alert(`結果反映失敗: ${err.error || res.statusText}`);
+      }
+    } catch (err) {
+      alert(`結果反映エラー: ${err}`);
+    } finally {
+      setSettling(false);
     }
   };
 
@@ -1068,11 +1102,43 @@ export function ExecuteTab() {
       {dailyPurchases && dailyPurchases.items.length > 0 && (
         <Card className="border-green-200 dark:border-green-800">
           <CardHeader className="py-3">
-            <CardTitle className="text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
-              <ShoppingCart className="h-4 w-4" />
-              本日の購入記録
-              <Badge className="bg-green-600 text-white text-xs">{dailyPurchases.items.length}件</Badge>
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
+                <ShoppingCart className="h-4 w-4" />
+                本日の購入記録
+                <Badge className="bg-green-600 text-white text-xs">{dailyPurchases.items.length}件</Badge>
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {settleResult && (
+                  <span className="text-xs">
+                    {settleResult.settled > 0 ? (
+                      <span className={settleResult.profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                        {settleResult.settled}件確定 / 的中{settleResult.wins} /
+                        {settleResult.profit >= 0 ? ' +' : ' '}¥{settleResult.profit.toLocaleString()}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">確定対象なし</span>
+                    )}
+                  </span>
+                )}
+                {dailyPurchases.items.some(i => i.status === 'purchased') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={settleResults}
+                    disabled={settling}
+                    className="text-xs border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-500 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                  >
+                    {settling ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                    ) : (
+                      <Trophy className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    結果反映
+                  </Button>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="grid grid-cols-3 gap-4 mb-3">

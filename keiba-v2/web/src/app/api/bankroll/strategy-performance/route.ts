@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { DATA3_ROOT } from '@/lib/config';
+import { DATA3_ROOT, AI_DATA_PATH } from '@/lib/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -225,6 +225,9 @@ export async function GET(request: NextRequest) {
   const totalReturned = allBets.reduce((s, b) => s + b.win_return, 0);
   const totalHits = allBets.filter(b => b.is_win).length;
 
+  // ===== 実購入データの集計 =====
+  const purchaseStats = await loadPurchaseStats(year, allBets);
+
   return NextResponse.json({
     preset,
     year,
@@ -261,5 +264,130 @@ export async function GET(request: NextRequest) {
       annualBets: 46,
       monthlyBets: 3.8,
     } : null,
+    purchase_stats: purchaseStats,
   });
+}
+
+// ===== 実購入データの読み込み・集計 =====
+interface PurchaseItem {
+  id: string;
+  race_id: string;
+  race_name: string;
+  venue: string;
+  race_number: number;
+  bet_type: string;
+  selection: string;
+  amount: number;
+  odds: number | null;
+  expected_value: number | null;
+  status: 'planned' | 'purchased' | 'result_win' | 'result_lose';
+  payout: number;
+  confidence: string;
+  reason: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DailyPurchases {
+  date: string;
+  budget: number;
+  total_planned: number;
+  total_purchased: number;
+  total_payout: number;
+  items: PurchaseItem[];
+}
+
+async function loadPurchaseStats(year: number, predictionBets: BetRecord[]) {
+  const purchasesDir = path.join(AI_DATA_PATH, 'purchases');
+  if (!fs.existsSync(purchasesDir)) {
+    return null;
+  }
+
+  const files = fs.readdirSync(purchasesDir)
+    .filter(f => f.endsWith('.json') && f.startsWith(`${year}-`));
+
+  if (files.length === 0) return null;
+
+  let totalBets = 0;
+  let totalInvested = 0;
+  let totalPayout = 0;
+  let wins = 0;
+  let losses = 0;
+  let pending = 0;
+  let matchedWithRecommendation = 0;
+  const purchaseItems: Array<{
+    date: string;
+    race_id: string;
+    bet_type: string;
+    selection: string;
+    amount: number;
+    odds: number | null;
+    status: string;
+    payout: number;
+    is_intersection: boolean;
+  }> = [];
+
+  // prediction bets を race_id-umaban のSetに変換
+  const predBetKeys = new Set(
+    predictionBets.map(b => `${b.race_id}-${b.umaban}`)
+  );
+
+  for (const file of files) {
+    try {
+      const content = fs.readFileSync(path.join(purchasesDir, file), 'utf-8');
+      const daily: DailyPurchases = JSON.parse(content);
+
+      for (const item of daily.items) {
+        if (item.status === 'planned') continue; // planned はスキップ
+
+        const umaban = parseInt(item.selection.split('-')[0]);
+        const isIntersection = !isNaN(umaban) && predBetKeys.has(`${item.race_id}-${umaban}`);
+
+        totalBets++;
+        totalInvested += item.amount;
+        if (item.status === 'result_win') {
+          wins++;
+          totalPayout += item.payout;
+        } else if (item.status === 'result_lose') {
+          losses++;
+        } else {
+          pending++;
+        }
+        if (isIntersection) matchedWithRecommendation++;
+
+        purchaseItems.push({
+          date: daily.date,
+          race_id: item.race_id,
+          bet_type: item.bet_type,
+          selection: item.selection,
+          amount: item.amount,
+          odds: item.odds,
+          status: item.status,
+          payout: item.payout,
+          is_intersection: isIntersection,
+        });
+      }
+    } catch {
+      // file parse error - skip
+    }
+  }
+
+  if (totalBets === 0) return null;
+
+  const settled = wins + losses;
+
+  return {
+    total_bets: totalBets,
+    invested: totalInvested,
+    payout: totalPayout,
+    profit: totalPayout - totalInvested,
+    roi: totalInvested > 0 ? (totalPayout / totalInvested) * 100 : 0,
+    wins,
+    losses,
+    pending,
+    hit_rate: settled > 0 ? (wins / settled) * 100 : 0,
+    matched_with_recommendation: matchedWithRecommendation,
+    follow_rate: totalBets > 0 ? (matchedWithRecommendation / totalBets) * 100 : 0,
+    items: purchaseItems,
+  };
 }
