@@ -30,7 +30,7 @@ import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH,
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { MessageSquareText } from 'lucide-react';
-import { TrendIndicator, StreakBadge, calculateStreak, type RecentFormEntry } from '@/components/ui/visualization';
+import { TrendIndicator, StreakBadge, calculateStreak, calculateStreakWithCurrent, toRaceResult, type RecentFormEntry } from '@/components/ui/visualization';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
 import type { RecentFormData } from '@/lib/data/target-race-result-reader';
@@ -818,8 +818,9 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
               <FinishPositionBadge position={result.finish_position} />
               {recentForm && recentForm.length > 0 && (() => {
                 const formEntries = toRecentFormEntries(recentForm);
-                const results = formEntries.map(e => e.result);
-                const streak = calculateStreak(results);
+                const pastResults = formEntries.map(e => e.result);
+                const currentResult = toRaceResult(parseInt(result.finish_position, 10));
+                const streak = calculateStreakWithCurrent(currentResult, pastResults);
                 return streak ? <StreakBadge streak={streak} /> : null;
               })()}
             </div>

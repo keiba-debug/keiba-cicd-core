@@ -267,6 +267,23 @@ async function DateRaces({ date }: { date: string }) {
     return `${dateNoDash}${code}${kai}${nichi}${raceNo}`;
   };
 
+  // 競馬ブック12桁レースID: YYYYKKJJNNRR (年+回+場所(KB独自)+日+R)
+  const keibabookTrackCodes: Record<string, string> = {
+    '京都': '00', '阪神': '01', '中京': '02', '小倉': '03',
+    '東京': '04', '中山': '05', '福島': '06', '新潟': '07',
+    '札幌': '08', '函館': '09',
+  };
+  const keibabookRaceId = (race: { track: string; raceNumber: number; kai?: number; nichi?: number; date: string }) => {
+    if (!race.kai || !race.nichi) return null;
+    const kbCode = keibabookTrackCodes[race.track];
+    if (kbCode === undefined) return null;
+    const [year] = race.date.split('-');
+    const kai = String(race.kai).padStart(2, '0');
+    const nichi = String(race.nichi).padStart(2, '0');
+    const raceNo = String(race.raceNumber).padStart(2, '0');
+    return `${year}${kai}${kbCode}${nichi}${raceNo}`;
+  };
+
   const formatCondition = (distance?: string) => {
     if (!distance) return '';
     const normalized = distance.replace('：', ':').replace('・', ' ').trim();
@@ -429,8 +446,9 @@ async function DateRaces({ date }: { date: string }) {
                       <div className="flex flex-col gap-1 pt-0.5">
                         {/* 1行目: 外部サービスリンク */}
                         <div className="flex items-center gap-1">
+                          {keibabookRaceId(race) && (
                           <a
-                            href={`https://p.keibabook.co.jp/cyuou/syutuba/${race.id}`}
+                            href={`https://p.keibabook.co.jp/cyuou/syutuba/${keibabookRaceId(race)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
@@ -438,6 +456,7 @@ async function DateRaces({ date }: { date: string }) {
                           >
                             <Image src="/keibabook.ico" alt="競馬ブック" width={16} height={16} className="object-contain opacity-80" />
                           </a>
+                          )}
                           {netkeibaRaceId(race) && (
                             <>
                               <a

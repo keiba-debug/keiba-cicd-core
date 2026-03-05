@@ -203,3 +203,45 @@ export function getSurfaceInfo(surface: Surface): {
     colorClass: 'text-amber-600 dark:text-amber-400',
   };
 }
+
+/**
+ * 天候文字列 → アイコン
+ */
+export function getWeatherIcon(weather: string): string {
+  switch (weather) {
+    case '晴': return '☀';
+    case '曇': return '☁';
+    case '雨': return '🌧';
+    case '小雨': return '🌦';
+    case '雪': return '❄';
+    case '小雪': return '🌨';
+    default: return '';
+  }
+}
+
+/**
+ * JRDB天候コード → 天候文字列
+ */
+export function getWeatherFromCode(code: number): string {
+  switch (code) {
+    case 1: return '晴';
+    case 2: return '曇';
+    case 3: return '雨';
+    case 4: return '小雨';
+    case 5: return '雪';
+    case 6: return '小雪';
+    default: return '';
+  }
+}
+
+/**
+ * JRDB差値からバイアスラベルを取得
+ * マイナス=内有利、プラス=外有利
+ */
+export function getBiasLabel(sa: number): { label: string; level: 'inner' | 'outer' | 'flat' } {
+  if (sa <= -10) return { label: '内有利', level: 'inner' };
+  if (sa <= -5) return { label: 'やや内', level: 'inner' };
+  if (sa >= 10) return { label: '外有利', level: 'outer' };
+  if (sa >= 5) return { label: 'やや外', level: 'outer' };
+  return { label: 'フラット', level: 'flat' };
+}

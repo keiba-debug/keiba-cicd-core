@@ -16,6 +16,7 @@ import type { RaceOdds, HorseOdds } from '@/lib/data/rt-data-types';
 import { getTrackNameFromRaceId } from '@/lib/data/rt-data-types';
 import { getWakuColor } from '@/types/race-data';
 import type { ExpectedValueResponse } from '@/types/prediction';
+import type { PredictionsLive, PredictionRace, PredictionEntry } from '@/lib/data/predictions-reader';
 
 const TRACK_ORDER: Record<string, number> = {
   札幌: 1, 函館: 2, 福島: 3, 新潟: 4, 東京: 5, 中山: 6,
@@ -23,10 +24,10 @@ const TRACK_ORDER: Record<string, number> = {
 };
 
 /** フィルタモード */
-type FilterMode = 'all' | 'top5' | 'under10' | 'honshi' | 'ana' | 'gekisou' | 'expected_value';
+type FilterMode = 'all' | 'top5' | 'under10' | 'honshi' | 'ana' | 'gekisou' | 'expected_value' | 'vb';
 
 /** ソートキー */
-type SortKey = 'ninki' | 'odds' | 'ai' | 'rating' | 'umaban' | 'finish';
+type SortKey = 'ninki' | 'odds' | 'ai' | 'rating' | 'umaban' | 'finish' | 'ev' | 'ard';
 type SortOrder = 'asc' | 'desc';
 
 const FILTER_OPTIONS: { value: FilterMode; label: string; description: string }[] = [
@@ -36,7 +37,8 @@ const FILTER_OPTIONS: { value: FilterMode; label: string; description: string }[
   { value: 'honshi', label: '本紙◎', description: '本紙印◎の馬のみ' },
   { value: 'ana', label: '穴馬候補', description: '10-30倍ゾーン' },
   { value: 'gekisou', label: '激走候補', description: 'AI指数高 × オッズ妙味' },
-  { value: 'expected_value', label: '💰 期待値', description: '期待値110%以上' },
+  { value: 'vb', label: '⭐ VB馬', description: 'ML予測のValue Bet馬' },
+  { value: 'expected_value', label: '💰 期待値', description: 'EV≥1.1（ML予測ベース）' },
 ];
 
 /** フィルタ適用 */
@@ -61,9 +63,14 @@ function applyFilter(horses: HorseOdds[], mode: FilterMode): HorseOdds[] {
         const isUnderrated = (h.ninki ?? 0) >= 4;
         return isHighAi && isUnderrated;
       });
+    case 'vb':
+      // ML予測のVB馬（predictions mergedデータ前提）
+      return horses.filter((h) => (h as any)._mlIsVb === true);
     case 'expected_value':
-      // 期待値110%以上の馬のみ表示（期待値データが付与されている前提）
+      // ML EV≥1.1 or レガシー期待値110%以上
       return horses.filter((h) => {
+        const mlEv = (h as any)._mlWinEv;
+        if (mlEv != null) return mlEv >= 1.1;
         const evRate = (h as any).expectedValueRate;
         return evRate != null && evRate >= 110;
       });
@@ -200,9 +207,10 @@ interface OddsTableProps {
   filterMode: FilterMode;
   showDetails: boolean;
   expectedValues?: ExpectedValueResponse;
+  predictions?: PredictionRace;
 }
 
-function OddsTable({ odds, filterMode, showDetails, expectedValues }: OddsTableProps) {
+function OddsTable({ odds, filterMode, showDetails, expectedValues, predictions }: OddsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('ninki');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
@@ -226,18 +234,36 @@ function OddsTable({ odds, filterMode, showDetails, expectedValues }: OddsTableP
       : <ArrowDown className="inline h-3 w-3 ml-0.5 text-primary" />;
   };
 
-  const filtered = useMemo(() => {
-    // 期待値データをマージ
-    let horsesWithEv = odds.horses;
-    if (expectedValues) {
-      const evMap = new Map(expectedValues.horses.map((ev) => [ev.umaban, ev.expectedValueRate]));
-      horsesWithEv = odds.horses.map((h) => ({
-        ...h,
-        expectedValueRate: evMap.get(h.umaban) ?? evMap.get(h.umaban.replace(/^0+/, '')),
-      }));
-    }
+  // ML予測マップ
+  const mlMap = useMemo(() => {
+    if (!predictions) return new Map<string, PredictionEntry>();
+    const m = new Map<string, PredictionEntry>();
+    for (const e of predictions.entries) m.set(String(e.umaban), e);
+    return m;
+  }, [predictions]);
 
-    const applied = applyFilter(horsesWithEv, filterMode);
+  const hasMl = mlMap.size > 0;
+
+  const filtered = useMemo(() => {
+    // 期待値データ + ML予測をマージ
+    let merged = odds.horses.map((h) => {
+      const umaStr = h.umaban.replace(/^0+/, '');
+      const ml = mlMap.get(umaStr);
+      const evRate = expectedValues?.horses.find(ev => ev.umaban === h.umaban || ev.umaban === umaStr)?.expectedValueRate;
+      return {
+        ...h,
+        expectedValueRate: evRate,
+        _mlWinEv: ml?.win_ev ?? null,
+        _mlArd: ml?.ar_deviation ?? null,
+        _mlIsVb: ml?.is_value_bet ?? false,
+        _mlVbGap: ml?.vb_gap ?? null,
+        _mlWinProba: ml?.pred_proba_w_cal ?? null,
+        _mlPlaceProba: ml?.pred_proba_p ?? null,
+        _mlRankW: ml?.rank_w ?? null,
+      };
+    });
+
+    const applied = applyFilter(merged, filterMode);
     return [...applied].sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
@@ -248,24 +274,30 @@ function OddsTable({ odds, filterMode, showDetails, expectedValues }: OddsTableP
           cmp = (a.winOdds ?? 9999) - (b.winOdds ?? 9999);
           break;
         case 'ai':
-          cmp = (b.aiIndex ?? 0) - (a.aiIndex ?? 0); // AI高い順がデフォルト
+          cmp = (b.aiIndex ?? 0) - (a.aiIndex ?? 0);
           break;
         case 'rating':
-          cmp = (b.rating ?? 0) - (a.rating ?? 0); // 評価高い順がデフォルト
+          cmp = (b.rating ?? 0) - (a.rating ?? 0);
           break;
         case 'umaban':
           cmp = parseInt(a.umaban, 10) - parseInt(b.umaban, 10);
           break;
-        case 'finish':
-          // 着順でソート（数値変換、未着順は最後に）
+        case 'finish': {
           const posA = a.finishPosition ? parseInt(a.finishPosition.replace(/[^\d]/g, ''), 10) : 999;
           const posB = b.finishPosition ? parseInt(b.finishPosition.replace(/[^\d]/g, ''), 10) : 999;
           cmp = (isNaN(posA) ? 999 : posA) - (isNaN(posB) ? 999 : posB);
           break;
+        }
+        case 'ev':
+          cmp = ((b as any)._mlWinEv ?? 0) - ((a as any)._mlWinEv ?? 0);
+          break;
+        case 'ard':
+          cmp = ((b as any)._mlArd ?? 0) - ((a as any)._mlArd ?? 0);
+          break;
       }
       return sortOrder === 'asc' ? cmp : -cmp;
     });
-  }, [odds.horses, filterMode, sortKey, sortOrder, expectedValues]);
+  }, [odds.horses, filterMode, sortKey, sortOrder, expectedValues, mlMap]);
 
   // ヒートマップ用の全AI値・レイティング配列
   const allAiValues = useMemo(
@@ -335,7 +367,27 @@ function OddsTable({ odds, filterMode, showDetails, expectedValues }: OddsTableP
                 </th>
               </>
             )}
-            {(filterMode === 'expected_value' || showDetails) && (
+            {/* ML指標: EV, ARd */}
+            {hasMl && (
+              <>
+                <th
+                  className="px-1 py-2 text-right font-bold w-12 cursor-pointer hover:bg-muted/70 select-none"
+                  onClick={() => handleSort('ev')}
+                >
+                  EV<SortIcon columnKey="ev" />
+                </th>
+                <th
+                  className="px-1 py-2 text-right font-bold w-12 cursor-pointer hover:bg-muted/70 select-none"
+                  onClick={() => handleSort('ard')}
+                >
+                  ARd<SortIcon columnKey="ard" />
+                </th>
+              </>
+            )}
+            {hasMl && showDetails && (
+              <th className="px-1 py-2 text-center font-bold w-10">VB</th>
+            )}
+            {!hasMl && (filterMode === 'expected_value' || showDetails) && (
               <th className="px-2 py-2 text-right font-bold w-16">
                 期待値
               </th>
@@ -433,8 +485,47 @@ function OddsTable({ odds, filterMode, showDetails, expectedValues }: OddsTableP
                     </td>
                   </>
                 )}
-                {/* 期待値 */}
-                {(filterMode === 'expected_value' || showDetails) && (
+                {/* ML: EV */}
+                {hasMl && (
+                  <td className="px-1 py-1.5 text-right font-mono tabular-nums text-xs">
+                    {(h as any)._mlWinEv != null ? (
+                      <span className={
+                        (h as any)._mlWinEv >= 1.3 ? 'text-red-600 dark:text-red-400 font-bold' :
+                        (h as any)._mlWinEv >= 1.0 ? 'text-green-600 dark:text-green-400 font-semibold' :
+                        'text-gray-400'
+                      }>
+                        {(h as any)._mlWinEv.toFixed(2)}
+                      </span>
+                    ) : '-'}
+                  </td>
+                )}
+                {/* ML: ARd */}
+                {hasMl && (
+                  <td className="px-1 py-1.5 text-right font-mono tabular-nums text-xs">
+                    {(h as any)._mlArd != null ? (
+                      <span className={
+                        (h as any)._mlArd >= 60 ? 'text-green-600 dark:text-green-400 font-bold' :
+                        (h as any)._mlArd >= 50 ? 'text-blue-600 dark:text-blue-400 font-semibold' :
+                        (h as any)._mlArd < 45 ? 'text-gray-400' :
+                        'text-gray-500'
+                      }>
+                        {(h as any)._mlArd.toFixed(0)}
+                      </span>
+                    ) : '-'}
+                  </td>
+                )}
+                {/* ML: VB badge */}
+                {hasMl && showDetails && (
+                  <td className="px-1 py-1.5 text-center text-xs">
+                    {(h as any)._mlIsVb ? (
+                      <span className="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1 py-0.5 rounded font-bold">
+                        VB
+                      </span>
+                    ) : null}
+                  </td>
+                )}
+                {/* レガシー期待値（ML無い場合のみ） */}
+                {!hasMl && (filterMode === 'expected_value' || showDetails) && (
                   <td className="px-2 py-1.5 text-right font-mono tabular-nums">
                     {(h as any).expectedValueRate != null ? (
                       <span className={
@@ -484,8 +575,11 @@ export default function OddsBoardPage() {
   const [expectedValueMap, setExpectedValueMap] = useState<Record<string, ExpectedValueResponse>>({});
   const [loadingEv, setLoadingEv] = useState(false);
 
-  // 詳細表示モード（上位5頭、激走候補、期待値などでは詳細表示）
-  const showDetails = filterMode === 'top5' || filterMode === 'gekisou' || filterMode === 'expected_value';
+  // ML予測
+  const [predictionsMap, setPredictionsMap] = useState<Record<string, PredictionRace>>({});
+
+  // 詳細表示モード（上位5頭、激走候補、期待値、VB馬では詳細表示）
+  const showDetails = filterMode === 'top5' || filterMode === 'gekisou' || filterMode === 'expected_value' || filterMode === 'vb';
 
   // 開催場リストを抽出
   const tracks = useMemo(() => {
@@ -557,6 +651,22 @@ export default function OddsBoardPage() {
     }
   }, [dateStr]);
 
+  // ML predictions 取得
+  const loadPredictions = useCallback(async () => {
+    if (!dateStr) return;
+    try {
+      const d = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
+      const res = await fetch(`/api/ml/predictions-raw?date=${d}`);
+      if (!res.ok) { setPredictionsMap({}); return; }
+      const data: PredictionsLive = await res.json();
+      const map: Record<string, PredictionRace> = {};
+      for (const race of data.races) map[race.race_id] = race;
+      setPredictionsMap(map);
+    } catch {
+      setPredictionsMap({});
+    }
+  }, [dateStr]);
+
   const loadExpectedValues = useCallback(async () => {
     if (raceIds.length === 0) return;
     setLoadingEv(true);
@@ -588,8 +698,11 @@ export default function OddsBoardPage() {
   }, [loadRaceDates]);
 
   useEffect(() => {
-    if (dateStr) loadData();
-  }, [dateStr, loadData]);
+    if (dateStr) {
+      loadData();
+      loadPredictions();
+    }
+  }, [dateStr, loadData, loadPredictions]);
 
   // 期待値フィルタが選択された時に期待値を取得
   useEffect(() => {
@@ -789,8 +902,30 @@ export default function OddsBoardPage() {
               daikon: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
             };
 
+            // ML summary
+            const pred = predictionsMap[raceId];
+            const vbCount = pred ? pred.entries.filter(e => e.is_value_bet).length : 0;
+            const topEvEntry = pred ? [...pred.entries].sort((a, b) => (b.win_ev ?? 0) - (a.win_ev ?? 0))[0] : null;
+            const topEvShow = topEvEntry && (topEvEntry.win_ev ?? 0) >= 1.0;
+
+            // 注目変動（オッズ20%以上下落 = 急人気化）
+            const hotHorses = odds.horses.filter(h =>
+              h.oddsTrend === 'down' && h.oddsChangePercent != null && h.oddsChangePercent <= -20
+            );
+
             return (
               <Card key={raceId} className="overflow-hidden">
+                {/* 注目変動アラート */}
+                {hotHorses.length > 0 && (
+                  <div className="bg-red-50 dark:bg-red-900/20 px-3 py-1 text-xs flex items-center gap-1 flex-wrap">
+                    <span>🔥</span>
+                    {hotHorses.map(h => (
+                      <span key={h.umaban} className="text-red-600 dark:text-red-400 font-bold">
+                        {parseInt(h.umaban, 10)}番{h.horseName?.slice(0, 4)} {h.oddsChangePercent?.toFixed(0)}%
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <CardHeader className="py-2 px-4 bg-muted/30 space-y-1">
                   {/* 1行目: レース番号 + 出走表リンク */}
                   <CardTitle className="text-base flex items-center justify-between gap-2">
@@ -811,7 +946,7 @@ export default function OddsBoardPage() {
                       出走表 →
                     </Link>
                   </CardTitle>
-                  {/* 2行目: レース条件 + 分析コメント */}
+                  {/* 2行目: レース条件 + 分析コメント + MLサマリー */}
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     {condText && (
                       <span className="font-medium">{condText}</span>
@@ -824,6 +959,21 @@ export default function OddsBoardPage() {
                         {odds.analysis.label}
                       </span>
                     )}
+                    {vbCount > 0 && (
+                      <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded font-bold">
+                        VB {vbCount}頭
+                      </span>
+                    )}
+                    {pred?.closing_race_proba != null && pred.closing_race_proba > 0.3 && (
+                      <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-1.5 py-0.5 rounded">
+                        差し{Math.round(pred.closing_race_proba * 100)}%
+                      </span>
+                    )}
+                    {topEvShow && topEvEntry && (
+                      <span className="text-orange-600 dark:text-orange-400 font-semibold">
+                        ⭐{topEvEntry.umaban}番 EV{topEvEntry.win_ev?.toFixed(2)}
+                      </span>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -832,6 +982,7 @@ export default function OddsBoardPage() {
                     filterMode={filterMode}
                     showDetails={showDetails}
                     expectedValues={expectedValueMap[raceId]}
+                    predictions={predictionsMap[raceId]}
                   />
                 </CardContent>
               </Card>

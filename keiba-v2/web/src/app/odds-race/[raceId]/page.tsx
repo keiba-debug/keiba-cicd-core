@@ -1095,7 +1095,7 @@ export default function OddsRacePage() {
       </div>
 
       {/* タブ切替 */}
-      <Tabs defaultValue="filter" className="w-full">
+      <Tabs defaultValue="timeseries" className="w-full">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="filter">フィルタ分析</TabsTrigger>
           <TabsTrigger value="share">シェア分析</TabsTrigger>

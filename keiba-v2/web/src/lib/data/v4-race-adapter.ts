@@ -26,6 +26,35 @@ import type { V4RaceData, V4RaceEntry } from './v4-race-reader';
 import type { KbExtData, KbEntryExt } from './v4-keibabook-reader';
 
 /**
+ * v4データから race_condition を構築
+ * 例: "3歳未勝利", "3歳以上1勝クラス", "G2", "オープン 牝"
+ */
+function buildRaceCondition(v4Race: V4RaceData): string {
+  const grade = v4Race.grade || '';
+  if (!grade) return '';
+
+  // 重賞はgrade単独で十分（race_nameがあるので）
+  if (['G1', 'G2', 'G3'].includes(grade)) return '';
+
+  // entriesから年齢を推定
+  const ages = (v4Race.entries || []).map(e => e.age).filter(a => a > 0);
+  let ageLabel = '';
+  if (ages.length > 0) {
+    const minAge = Math.min(...ages);
+    const maxAge = Math.max(...ages);
+    if (minAge === maxAge) {
+      ageLabel = `${minAge}歳`;
+    } else {
+      ageLabel = `${minAge}歳以上`;
+    }
+  }
+
+  const femaleLabel = v4Race.is_female_only ? ' 牝' : '';
+
+  return `${ageLabel}${grade}${femaleLabel}`;
+}
+
+/**
  * v4レースデータ + keibabook拡張 → IntegratedRaceData変換
  *
  * data2Fallback が提供された場合、v4/kbExtに含まれない情報
@@ -61,7 +90,7 @@ export function adaptV4ToIntegrated(
     weather: '',
     track_condition: v4Race.track_condition,
     post_time: '',
-    race_condition: '',
+    race_condition: buildRaceCondition(v4Race),
   };
 
   // レースレベルの前半3F（pace.s3）— 全馬共通のフォールバック

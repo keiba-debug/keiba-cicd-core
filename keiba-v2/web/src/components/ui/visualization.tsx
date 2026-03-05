@@ -132,6 +132,16 @@ export function PerformanceBar({
 
 export type RaceResult = '1st' | '2nd' | '3rd' | '4th' | '5th' | 'out';
 
+/** 着順数値 → RaceResult変換 */
+export function toRaceResult(pos: number): RaceResult {
+  if (pos === 1) return '1st';
+  if (pos === 2) return '2nd';
+  if (pos === 3) return '3rd';
+  if (pos === 4) return '4th';
+  if (pos === 5) return '5th';
+  return 'out';
+}
+
 /** 直近戦績の1走分（リンク情報付き） */
 export interface RecentFormEntry {
   result: RaceResult;
@@ -284,58 +294,108 @@ export function TrendIndicator({
 }
 
 export interface Streak {
-  type: 'win' | 'place' | 'lose';
+  type: 'win' | 'place' | 'lose' | 'win_stopped' | 'place_stopped';
   count: number;
 }
 
+/**
+ * 直近の結果から連勝/連複/連敗ストリークを計算
+ * 最新結果（配列先頭）から連続する同種の結果をカウント
+ */
 export function calculateStreak(results: RaceResult[]): Streak | null {
   if (results.length === 0) return null;
-  
-  let winCount = 0;
-  let placeCount = 0;
-  let loseCount = 0;
-  
-  for (const result of results) {
-    if (result === '1st') {
-      if (loseCount > 0) break;
-      winCount++;
-      placeCount++;
-    } else if (result === '2nd' || result === '3rd') {
-      if (loseCount > 0) break;
-      if (winCount > 0) break;
-      placeCount++;
-    } else {
-      if (winCount > 0 || placeCount > 0) break;
-      loseCount++;
+
+  const first = results[0];
+  const isPlace = (r: RaceResult) => r === '1st' || r === '2nd' || r === '3rd';
+
+  if (first === '1st') {
+    // 連勝チェック（先頭から連続1着）
+    let winCount = 0;
+    for (const r of results) {
+      if (r === '1st') winCount++;
+      else break;
     }
+    if (winCount >= 2) return { type: 'win', count: winCount };
+
+    // 連複チェック（先頭から連続複勝圏）
+    let placeCount = 0;
+    for (const r of results) {
+      if (isPlace(r)) placeCount++;
+      else break;
+    }
+    if (placeCount >= 3) return { type: 'place', count: placeCount };
+
+  } else if (isPlace(first)) {
+    // 2着/3着始まり → 連複チェック
+    let placeCount = 0;
+    for (const r of results) {
+      if (isPlace(r)) placeCount++;
+      else break;
+    }
+    if (placeCount >= 3) return { type: 'place', count: placeCount };
+
+  } else {
+    // 着外始まり → 連敗チェック
+    let loseCount = 0;
+    for (const r of results) {
+      if (!isPlace(r)) loseCount++;
+      else break;
+    }
+    if (loseCount >= 2) return { type: 'lose', count: loseCount };
   }
-  
-  if (winCount >= 2) return { type: 'win', count: winCount };
-  if (loseCount >= 2) return { type: 'lose', count: loseCount };
-  if (placeCount >= 3) return { type: 'place', count: placeCount };
-  
+
+  return null;
+}
+
+/**
+ * 当該レースの結果を含めたストリークを計算
+ * 継続中→通常バッジ、ストップ→ストップバッジ
+ */
+export function calculateStreakWithCurrent(
+  currentResult: RaceResult,
+  pastResults: RaceResult[]
+): Streak | null {
+  // 当該レース含めたストリーク
+  const withCurrent = calculateStreak([currentResult, ...pastResults]);
+  if (withCurrent) return withCurrent;
+
+  // ストリークが途切れた場合: 前走までのストリークを「ストップ」表示
+  const pastStreak = calculateStreak(pastResults);
+  if (pastStreak && (pastStreak.type === 'win' || pastStreak.type === 'place')) {
+    return {
+      type: pastStreak.type === 'win' ? 'win_stopped' : 'place_stopped',
+      count: pastStreak.count,
+    };
+  }
+
   return null;
 }
 
 export function StreakBadge({ streak }: { streak: Streak }) {
-  const styles = {
+  const styles: Record<Streak['type'], string> = {
     win: 'bg-emerald-500 text-white',
     place: 'bg-blue-500 text-white',
     lose: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400',
+    win_stopped: 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+    place_stopped: 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
   };
-  
-  const labels = {
+
+  const labels: Record<Streak['type'], string> = {
     win: `${streak.count}連勝`,
     place: `${streak.count}連複`,
     lose: `${streak.count}連敗`,
+    win_stopped: `${streak.count}連勝止`,
+    place_stopped: `${streak.count}連複止`,
   };
-  
-  const icons = {
+
+  const icons: Record<Streak['type'], string> = {
     win: '🔥',
     place: '✨',
     lose: '↓',
+    win_stopped: '⏹',
+    place_stopped: '⏹',
   };
-  
+
   return (
     <span className={cn(
       'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap flex-shrink-0',

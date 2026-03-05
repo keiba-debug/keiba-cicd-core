@@ -28,6 +28,7 @@ import { loadTrainerPatterns, evaluatePatternMatch, type TrainerPatternMatch } f
 import { getTrainerInfo } from '@/lib/data/trainer-index';
 import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
 import { getMlPredictions, getClosingRaceProba } from '@/lib/data/ml-prediction-reader';
+import { getTrackBias } from '@/lib/data/jrdb-kaa-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -204,6 +205,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
   let patrolUrl: string | null = null;
   
   let babaInfo: import('@/lib/data/baba-reader').BabaCondition | null = null;
+  let trackBias: import('@/lib/data/jrdb-kaa-reader').TrackBias | null = null;
   let targetComments: {
     predictions: Map<number, RaceHorseComment>;
     results: Map<number, RaceHorseComment>;
@@ -253,7 +255,13 @@ export default async function RaceDetailPage({ params }: PageParams) {
         kaisaiInfo.nichi,
         track
       );
-      
+
+      // JRDB KAA トラックバイアス取得
+      const venueCode = trackCodes[track];
+      if (venueCode) {
+        trackBias = getTrackBias(venueCode, date);
+      }
+
       // TARGETコメント取得（レース別コメント）
       targetComments = getRaceAllComments(
         track,
@@ -377,14 +385,23 @@ export default async function RaceDetailPage({ params }: PageParams) {
 
   // 外部リンクURL生成
   const [year, month, dayStr] = date.split('-');
-  const keibabookUrl = `https://p.keibabook.co.jp/cyuou/syutsuba/${year}${month}${dayStr}${id.slice(-4, -2)}${id.slice(-2).padStart(2, '0')}`;
+  // 競馬ブック12桁レースID: YYYYKKJJNNRR (年+回+場所(KB独自)+日+R)
+  const keibabookTrackCodes: Record<string, string> = {
+    '京都': '00', '阪神': '01', '中京': '02', '小倉': '03',
+    '東京': '04', '中山': '05', '福島': '06', '新潟': '07',
+    '札幌': '08', '函館': '09',
+  };
+  const kbCode = keibabookTrackCodes[track];
+  const keibabookUrl = kaisaiInfoForEdit && kbCode !== undefined
+    ? `https://p.keibabook.co.jp/cyuou/syutuba/${year}${String(kaisaiInfoForEdit.kai).padStart(2, '0')}${kbCode}${String(kaisaiInfoForEdit.nichi).padStart(2, '0')}${String(currentRaceNumber).padStart(2, '0')}`
+    : null;
   // netkeiba race_id: YYYY + 場コード(2) + 回(2) + 日(2) + レース番号(2) = 12桁
   const trackCode = trackCodes[track];
   const netkeibaRaceId = kaisaiInfoForEdit && trackCode
     ? `${year}${trackCode}${String(kaisaiInfoForEdit.kai).padStart(2, '0')}${String(kaisaiInfoForEdit.nichi).padStart(2, '0')}${String(currentRaceNumber).padStart(2, '0')}`
     : null;
   const netkeibaUrl = netkeibaRaceId ? `https://race.netkeiba.com/race/shutuba.html?race_id=${netkeibaRaceId}&rf=race_submenu` : null;
-  const netkeibaBbsUrl = netkeibaRaceId ? `https://yoso.netkeiba.com/?pid=race_board&id=c${netkeibaRaceId}` : null;
+  const netkeibaBbsUrl = netkeibaRaceId ? `https://race.netkeiba.com/race/bbs.html?race_id=${netkeibaRaceId}&rf=race_submenu` : null;
 
   // 競馬場切り替え時に同じレース番号を維持するためのヘルパー
   const getTrackRaceId = (targetTrack: string, raceNumber: number): string => {
@@ -515,6 +532,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
         }}
         rpciInfo={rpciInfo}
         babaInfo={babaInfo}
+        trackBias={trackBias}
         jraRaceId={jraRaceId}
         laps={raceData.laps}
         closingRaceProba={closingRaceProba}

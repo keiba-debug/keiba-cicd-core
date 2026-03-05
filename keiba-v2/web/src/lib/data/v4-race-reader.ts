@@ -74,6 +74,8 @@ export interface V4RaceData {
   num_runners: number;
   grade: string;             // G1/G2/G3/Listed/OP/3勝クラス/2勝クラス/1勝クラス/未勝利/新馬
   race_name: string;         // レース名
+  is_female_only: boolean;   // 牝馬限定レース
+  is_handicap: boolean;      // ハンデ戦
   pace: V4RacePace | null;
   entries: V4RaceEntry[];
 }

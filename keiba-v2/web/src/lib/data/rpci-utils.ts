@@ -36,7 +36,7 @@ export type RaceTrendV2Type =
   | 'sprint_mild'          // 軽瞬発
   | 'long_sprint'          // ロンスパ
   | 'even'                 // 平均ペース
-  | 'sustained_hp'         // 持続:HP
+  | 'sustained_hp'         // 持続:ハイペース
   | 'sustained_strong'     // 持続:強L3
   | 'sustained_doroashi';  // 持続:道悪
 
@@ -45,7 +45,7 @@ export const RACE_TREND_V2_LABELS: Record<RaceTrendV2Type, string> = {
   sprint_mild: '軽瞬発',
   long_sprint: 'ロンスパ',
   even: '平均',
-  sustained_hp: '持続HP',
+  sustained_hp: '持続ハイ',
   sustained_strong: '持続強L3',
   sustained_doroashi: '持続道悪',
 };

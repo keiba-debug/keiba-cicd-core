@@ -9,9 +9,9 @@
  * - 1200m戦は前半600m地点 = 残り600m地点（同一地点）
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { HorseEntry, parseFinishPosition, toCircleNumber } from '@/types/race-data';
-import { ChevronDown, ChevronUp, Flag, MapPin, Timer, ArrowRight } from 'lucide-react';
+import { ChevronDown, ChevronUp, Flag, MapPin, Timer, ArrowRight, ArrowUpDown } from 'lucide-react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -146,9 +146,9 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
   const rowH = 30;
   const topPad = 8;
   const svgH = horseData.length * rowH + topPad * 2;
-  const svgW = 660;
-  const lineX1 = 148;
-  const lineX2 = 512;
+  const svgW = 720;
+  const lineX1 = 175;
+  const lineX2 = 540;
 
   const by600m = [...horseData].sort((a, b) => a.position600m - b.position600m);
   const byFinish = [...horseData].sort((a, b) => a.finishPosition - b.finishPosition);
@@ -161,10 +161,23 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
   const shortName = (name: string, max = 6) =>
     name.length > max ? name.slice(0, max - 1) + '…' : name;
 
+  // 追い上げ秒数 = 600m地点差 - ゴール差（プラス=追い上げ）
+  const timeGained = (h: HorseProgressData) => h.timeDiff600m - h.marginFromWinner;
+
   const lineColor = (h: HorseProgressData) => {
-    if (h.position600m > h.finishPosition) return '#16a34a';
-    if (h.position600m < h.finishPosition) return '#dc2626';
-    return '#9ca3af';
+    const gain = timeGained(h);
+    if (gain > 0.3) return '#16a34a';  // 追い上げ
+    if (gain < -0.3) return '#dc2626'; // 後退
+    return '#9ca3af';                  // 維持
+  };
+
+  // 線の太さ = 追い上げ/後退の秒数に比例
+  const lineWidth = (h: HorseProgressData) => {
+    const absGain = Math.abs(timeGained(h));
+    if (absGain >= 1.5) return 4;
+    if (absGain >= 0.8) return 3;
+    if (absGain >= 0.3) return 2;
+    return 1.5;
   };
 
   const lineOpacity = (h: HorseProgressData) => {
@@ -183,10 +196,10 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
       <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 px-1">
         <span className="flex items-center gap-1">
           <MapPin className="h-3.5 w-3.5 text-orange-500" />
-          残600m順
+          残600m順（差）
         </span>
         <span className="flex items-center gap-1">
-          ゴール着順
+          ゴール着順（差）
           <Flag className="h-3.5 w-3.5 text-red-500" />
         </span>
       </div>
@@ -195,7 +208,7 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
         <svg
           viewBox={`0 0 ${svgW} ${svgH}`}
           className="w-full text-gray-700 dark:text-gray-300"
-          style={{ minWidth: 480 }}
+          style={{ minWidth: 520 }}
         >
           {/* Lines (worst finish first → best on top) */}
           {[...horseData]
@@ -212,7 +225,7 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
                   />
                   <line x1={lineX1} y1={ly} x2={lineX2} y2={ry}
                     stroke={lineColor(h)}
-                    strokeWidth={h.finishPosition <= 3 ? 2.5 : 1.5}
+                    strokeWidth={lineWidth(h)}
                     opacity={lineOpacity(h)}
                     strokeLinecap="round"
                     style={{ transition: 'opacity 0.15s' }}
@@ -221,7 +234,7 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
               );
             })}
 
-          {/* Left labels (残600m order) */}
+          {/* Left labels (残600m order) + タイム差 */}
           {by600m.map((h) => {
             const y = leftY.get(h.horseNumber)!;
             const wc = getWakuColorRGB(h.waku);
@@ -240,11 +253,18 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
                   fontWeight={h.finishPosition <= 3 ? 'bold' : 'normal'}>
                   {shortName(h.horseName)}
                 </text>
+                {/* 600m地点での先頭差 */}
+                {h.timeDiff600m > 0 && (
+                  <text x={lineX1 - 4} y={y + 4} textAnchor="end" fontSize={8.5}
+                    fill="#9ca3af">
+                    +{h.timeDiff600m.toFixed(1)}
+                  </text>
+                )}
               </g>
             );
           })}
 
-          {/* Right labels (着順 order) */}
+          {/* Right labels (着順 order) + 着差 */}
           {byFinish.map((h) => {
             const y = rightY.get(h.horseNumber)!;
             const wc = getWakuColorRGB(h.waku);
@@ -256,15 +276,22 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
                 onMouseEnter={() => setHoveredHorse(h.horseNumber)}
                 style={{ transition: 'opacity 0.15s' }}
               >
-                <text x={520} y={y + 4} fontSize={11} fill="currentColor"
+                {/* ゴール時点での着差 */}
+                {h.marginFromWinner > 0 && (
+                  <text x={lineX2 + 4} y={y + 4} fontSize={8.5}
+                    fill="#9ca3af">
+                    +{h.marginFromWinner.toFixed(1)}
+                  </text>
+                )}
+                <text x={570} y={y + 4} fontSize={11} fill="currentColor"
                   fontWeight={isTop3 ? 'bold' : 'normal'}>
                   {shortName(h.horseName)}
                 </text>
-                <rect x={596} y={y - 9} width={18} height={18} rx={3}
+                <rect x={648} y={y - 9} width={18} height={18} rx={3}
                   fill={wc.bg} stroke="#d1d5db" strokeWidth={0.5} />
-                <text x={605} y={y + 4} textAnchor="middle" fontSize={10}
+                <text x={657} y={y + 4} textAnchor="middle" fontSize={10}
                   fill={wc.text} fontWeight="bold">{h.horseNumber}</text>
-                <text x={652} y={y + 4} textAnchor="end" fontSize={11}
+                <text x={712} y={y + 4} textAnchor="end" fontSize={11}
                   fill={isTop3 ? '#16a34a' : 'currentColor'}
                   fontWeight="bold">
                   {h.finishPosition}着
@@ -273,7 +300,7 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
             );
           })}
 
-          {/* Hover tooltip */}
+          {/* Hover tooltip — 追い上げ秒数表示 */}
           {hoveredHorse !== null && (() => {
             const h = horseData.find(d => d.horseNumber === hoveredHorse);
             if (!h) return null;
@@ -281,16 +308,23 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
             const ry = rightY.get(h.horseNumber)!;
             const mx = (lineX1 + lineX2) / 2;
             const my = (ly + ry) / 2;
-            const change = h.position600m - h.finishPosition;
-            const arrow = change > 0 ? `↑${change}` : change < 0 ? `↓${Math.abs(change)}` : '→';
-            const label = `${h.position600m}位→${h.finishPosition}着 ${arrow}`;
-            const tw = label.length * 7.5 + 16;
+            const gain = timeGained(h);
+            const posChange = h.position600m - h.finishPosition;
+            const posArrow = posChange > 0 ? `↑${posChange}` : posChange < 0 ? `↓${Math.abs(posChange)}` : '→';
+            const gainLabel = gain > 0.05 ? `${gain.toFixed(1)}s短縮` : gain < -0.05 ? `${Math.abs(gain).toFixed(1)}s拡大` : '差維持';
+            const line1 = `${h.position600m}位→${h.finishPosition}着 ${posArrow}`;
+            const line2 = `3F ${h.last3fSeconds.toFixed(1)} / ${gainLabel}`;
+            const tw = Math.max(line1.length, line2.length) * 7.5 + 20;
             return (
               <g style={{ pointerEvents: 'none' }}>
-                <rect x={mx - tw / 2} y={my - 11} width={tw} height={20} rx={4}
+                <rect x={mx - tw / 2} y={my - 18} width={tw} height={32} rx={4}
                   fill="white" stroke="#e5e7eb" />
-                <text x={mx} y={my + 3} textAnchor="middle" fontSize={10}
-                  fill="#374151" fontWeight="bold">{label}</text>
+                <text x={mx} y={my - 4} textAnchor="middle" fontSize={10}
+                  fill="#374151" fontWeight="bold">{line1}</text>
+                <text x={mx} y={my + 9} textAnchor="middle" fontSize={9}
+                  fill={gain > 0.05 ? '#16a34a' : gain < -0.05 ? '#dc2626' : '#6b7280'}>
+                  {line2}
+                </text>
               </g>
             );
           })()}
@@ -300,12 +334,12 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 justify-center">
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block w-5 h-0.5 bg-green-600 rounded" />
-          追い上げ
+          <span className="inline-block w-6 h-1 bg-green-600 rounded" />
+          追い上げ（太=大）
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block w-5 h-0.5 bg-red-600 rounded" />
-          後退
+          <span className="inline-block w-6 h-1 bg-red-600 rounded" />
+          後退（太=大）
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="inline-block w-5 h-0.5 bg-gray-400 rounded" />
@@ -317,6 +351,36 @@ function SlopegraphDiagram({ horseData }: { horseData: HorseProgressData[] }) {
 }
 
 
+type SortKey = 'finish' | 'number' | 'goal' | 'firstHalf' | 'last3f' | 'margin' | 'change';
+
+/** ソート可能ヘッダー */
+function SortableHeader({ label, sortKey, current, onSort, className = '' }: {
+  label: React.ReactNode;
+  sortKey: SortKey;
+  current: { key: SortKey; asc: boolean };
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = current.key === sortKey;
+  return (
+    <th
+      className={`px-2 py-2 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${className}`}
+      onClick={() => onSort(sortKey)}
+    >
+      <span className="inline-flex items-center gap-0.5">
+        {label}
+        {active ? (
+          current.asc
+            ? <ChevronUp className="h-3 w-3 text-blue-500" />
+            : <ChevronDown className="h-3 w-3 text-blue-500" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 text-gray-300" />
+        )}
+      </span>
+    </th>
+  );
+}
+
 export default function RaceProgressVisualization({
   entries,
   distance,
@@ -324,6 +388,11 @@ export default function RaceProgressVisualization({
 }: RaceProgressVisualizationProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [viewMode, setViewMode] = useState<'diagram' | 'table'>('diagram');
+  const [sortState, setSortState] = useState<{ key: SortKey; asc: boolean }>({ key: 'finish', asc: true });
+
+  const handleSort = useCallback((key: SortKey) => {
+    setSortState(prev => prev.key === key ? { key, asc: !prev.asc } : { key, asc: true });
+  }, []);
 
   // 1200m戦かどうか
   const is1200m = distance === 1200;
@@ -432,25 +501,39 @@ export default function RaceProgressVisualization({
                   </span>
                 </div>
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-50 dark:bg-gray-800">
                     <tr>
-                      <th className="px-2 py-2 text-left">着順</th>
-                      <th className="px-2 py-2 text-left">馬番</th>
+                      <SortableHeader label="着順" sortKey="finish" current={sortState} onSort={handleSort} className="text-left" />
+                      <SortableHeader label="馬番" sortKey="number" current={sortState} onSort={handleSort} className="text-left" />
                       <th className="px-2 py-2 text-left">馬名</th>
-                      <th className="px-2 py-2 text-right">ゴール</th>
-                      <th className="px-2 py-2 text-center">
+                      <SortableHeader label="ゴール" sortKey="goal" current={sortState} onSort={handleSort} className="text-right" />
+                      <SortableHeader sortKey="firstHalf" current={sortState} onSort={handleSort} className="text-center" label={
                         <div className="flex flex-col items-center">
                           <span>〜残600m</span>
                           <span className="text-[10px] text-gray-400 font-normal">タイム / 順位</span>
                         </div>
-                      </th>
-                      <th className="px-2 py-2 text-right">上がり3F</th>
-                      <th className="px-2 py-2 text-right">着差</th>
-                      <th className="px-2 py-2 text-center">変化</th>
+                      } />
+                      <SortableHeader label="上がり3F" sortKey="last3f" current={sortState} onSort={handleSort} className="text-right" />
+                      <SortableHeader label="着差" sortKey="margin" current={sortState} onSort={handleSort} className="text-right" />
+                      <SortableHeader label="変化" sortKey="change" current={sortState} onSort={handleSort} className="text-center" />
                     </tr>
                   </thead>
                   <tbody>
-                    {horseData.map((horse) => {
+                    {[...horseData].sort((a, b) => {
+                      const getValue = (h: HorseProgressData): number => {
+                        switch (sortState.key) {
+                          case 'finish': return h.finishPosition;
+                          case 'number': return h.horseNumber;
+                          case 'goal': return h.goalTimeSeconds;
+                          case 'firstHalf': return h.firstHalfSeconds;
+                          case 'last3f': return h.last3fSeconds;
+                          case 'margin': return h.marginFromWinner;
+                          case 'change': return h.position600m - h.finishPosition;
+                        }
+                      };
+                      const diff = getValue(a) - getValue(b);
+                      return sortState.asc ? diff : -diff;
+                    }).map((horse) => {
                       const posChange = horse.position600m - horse.finishPosition;
                       const waku = horse.waku;
                       const wakuColor = getWakuColorRGB(waku);
