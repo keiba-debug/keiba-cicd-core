@@ -8,6 +8,7 @@ import {
   Zap, Play, Loader2, CheckCircle2, XCircle,
   ChevronLeft, ChevronRight, Calendar, RefreshCw,
   ArrowRight, TrendingUp, ChevronDown, ChevronUp, Layers,
+  ShoppingCart, Check, X, Download,
 } from 'lucide-react';
 
 // =====================================================================
@@ -82,6 +83,36 @@ interface PredictionsData {
       pred_proba_w_cal?: number;
     }>;
   }>;
+}
+
+// 購入レコード（API側の PurchaseItem に対応）
+interface PurchaseItem {
+  id: string;
+  race_id: string;
+  race_name: string;
+  venue: string;
+  race_number: number;
+  bet_type: string;
+  selection: string;  // "馬番-馬名" 形式
+  amount: number;
+  odds: number | null;
+  expected_value: number | null;
+  status: 'planned' | 'purchased' | 'result_win' | 'result_lose';
+  payout: number;
+  confidence: '高' | '中' | '低';
+  reason: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DailyPurchases {
+  date: string;
+  budget: number;
+  total_planned: number;
+  total_purchased: number;
+  total_payout: number;
+  items: PurchaseItem[];
+  updated_at: string;
 }
 
 interface OtherPresetData {
@@ -178,7 +209,39 @@ export function ExecuteTab() {
   const [expandedPresets, setExpandedPresets] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
 
+  // 購入管理
+  const [dailyPurchases, setDailyPurchases] = useState<DailyPurchases | null>(null);
+  // 推奨ごとの購入金額入力（キー: "race_id-umaban"）
+  const [purchaseAmounts, setPurchaseAmounts] = useState<Record<string, number>>({});
+  const [savingPurchase, setSavingPurchase] = useState<string | null>(null);
+
+  // バンクロール残高 & 推奨購入額
+  const [bankrollBalance, setBankrollBalance] = useState<number | null>(null);
+  const [betPct, setBetPct] = useState(2); // 資金の何%をベットするか（デフォルト2%）
+  const defaultBetAmount = bankrollBalance !== null
+    ? Math.floor((bankrollBalance * betPct / 100) / 100) * 100 // 100円単位に切り下げ
+    : 100;
+
+  // FF CSV出力
+  const [csvExporting, setCsvExporting] = useState(false);
+  const [csvResult, setCsvResult] = useState<{ totalBets: number; winBets: number; totalAmount: number; filePath: string } | null>(null);
+
   const logRef = useRef<HTMLDivElement>(null);
+
+  // バンクロール残高をロード
+  useEffect(() => {
+    fetch('/api/bankroll/fund')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.current_balance != null) {
+          setBankrollBalance(data.current_balance);
+        }
+      })
+      .catch(() => {});
+    // localStorage からベット%を復元
+    const savedPct = localStorage.getItem('keiba_execute_bet_pct');
+    if (savedPct) setBetPct(Number(savedPct));
+  }, []);
 
   // 利用可能な予測日付をロード
   useEffect(() => {
@@ -355,12 +418,156 @@ export function ExecuteTab() {
     }
   }, []);
 
+  // 購入データのロード
+  const loadPurchases = useCallback(async (date: string) => {
+    try {
+      const res = await fetch(`/api/purchases/${date}`);
+      if (res.ok) {
+        const data: DailyPurchases = await res.json();
+        setDailyPurchases(data);
+      } else {
+        setDailyPurchases(null);
+      }
+    } catch {
+      setDailyPurchases(null);
+    }
+  }, []);
+
+  // 購入キー（推奨一覧と購入レコードのマッチング用）
+  const getPurchaseKey = (raceId: string, umaban: number) => `${raceId}-${umaban}`;
+
+  // 推奨がすでに購入済みかチェック
+  const findPurchase = (raceId: string, umaban: number): PurchaseItem | undefined => {
+    if (!dailyPurchases) return undefined;
+    const selection = `${umaban}`;
+    return dailyPurchases.items.find(
+      (p) => p.race_id === raceId && p.selection.startsWith(selection + '-')
+    );
+  };
+
+  // 購入を記録
+  const recordPurchase = async (rec: RecommendationEntry) => {
+    const key = getPurchaseKey(rec.race_id, rec.umaban);
+    setSavingPurchase(key);
+    try {
+      const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
+      const res = await fetch(`/api/purchases/${selectedDate}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          race_id: rec.race_id,
+          race_name: `${rec.venue}${rec.race_number}R`,
+          venue: rec.venue,
+          race_number: rec.race_number,
+          bet_type: '単勝',
+          selection: `${rec.umaban}-${rec.horse_name}`,
+          amount,
+          odds: rec.odds,
+          confidence: rec.strength === 'strong' ? '高' : '中',
+          reason: `Intersection Filter (Gap+${rec.win_vb_gap}, EV${rec.win_ev.toFixed(2)})`,
+          status: 'purchased',
+        }),
+      });
+      if (res.ok) {
+        await loadPurchases(selectedDate);
+      }
+    } catch (err) {
+      console.error('Purchase save error:', err);
+    } finally {
+      setSavingPurchase(null);
+    }
+  };
+
+  // 購入を取り消し
+  const cancelPurchase = async (purchaseId: string) => {
+    setSavingPurchase(purchaseId);
+    try {
+      const res = await fetch(`/api/purchases/${selectedDate}?id=${purchaseId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        await loadPurchases(selectedDate);
+      }
+    } catch (err) {
+      console.error('Purchase cancel error:', err);
+    } finally {
+      setSavingPurchase(null);
+    }
+  };
+
+  // FF CSV出力（TARGET買い目取り込み用）
+  const exportFfCsv = async () => {
+    // 購入済みの推奨を対象にする（購入データがあればそれを、なければ推奨テーブルの全件を使う）
+    const bets: { raceId: string; umaban: number; betType: number; amount: number }[] = [];
+
+    if (dailyPurchases && dailyPurchases.items.length > 0) {
+      // 購入済みの馬券からFF CSVを生成
+      for (const item of dailyPurchases.items) {
+        if (item.status === 'planned' || item.status === 'purchased') {
+          const umaban = parseInt(item.selection.split('-')[0]);
+          if (umaban >= 1 && umaban <= 18) {
+            bets.push({
+              raceId: item.race_id,
+              umaban,
+              betType: item.bet_type === '複勝' ? 1 : 0,
+              amount: item.amount,
+            });
+          }
+        }
+      }
+    } else {
+      // 購入記録がない場合は推奨一覧からFF CSVを生成
+      for (const rec of recommendations) {
+        const key = getPurchaseKey(rec.race_id, rec.umaban);
+        const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
+        bets.push({
+          raceId: rec.race_id,
+          umaban: rec.umaban,
+          betType: 0, // 単勝
+          amount,
+        });
+      }
+    }
+
+    if (bets.length === 0) {
+      alert('出力対象の買い目がありません');
+      return;
+    }
+
+    setCsvExporting(true);
+    setCsvResult(null);
+    try {
+      const res = await fetch('/api/target-marks/auto-bet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bets }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setCsvResult({
+        totalBets: data.summary.totalBets,
+        winBets: data.summary.winBets,
+        totalAmount: data.summary.totalAmount,
+        filePath: data.summary.filePath,
+      });
+    } catch (error) {
+      alert(`FF CSV出力失敗: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setCsvExporting(false);
+    }
+  };
+
   // 日付変更時にリロード
   useEffect(() => {
     if (selectedDate) {
       loadPredictions(selectedDate);
+      loadPurchases(selectedDate);
+      setCsvResult(null);
     }
-  }, [selectedDate, loadPredictions]);
+  }, [selectedDate, loadPredictions, loadPurchases]);
 
   // 買い目生成の実行（SSE経由）
   const executeGenerateBets = async () => {
@@ -426,7 +633,10 @@ export function ExecuteTab() {
       if (execStatus !== 'error') {
         setExecStatus('success');
       }
-      setTimeout(() => loadPredictions(selectedDate), 1000);
+      setTimeout(() => {
+        loadPredictions(selectedDate);
+        loadPurchases(selectedDate);
+      }, 1000);
     } catch (err) {
       setExecStatus('error');
       setExecLog(prev => [...prev, `Error: ${String(err)}`]);
@@ -557,10 +767,19 @@ export function ExecuteTab() {
           </Card>
           <Card>
             <CardContent className="pt-4 pb-3">
-              <div className="text-xs text-muted-foreground mb-1">投資額</div>
-              <div className="text-xl font-bold">
-                {totalInvest > 0 ? `¥${totalInvest.toLocaleString()}` : '—'}
-              </div>
+              <div className="text-xs text-muted-foreground mb-1">購入済</div>
+              {dailyPurchases && dailyPurchases.items.length > 0 ? (
+                <div>
+                  <div className="text-xl font-bold text-green-600">
+                    {dailyPurchases.items.length}件
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    ¥{dailyPurchases.total_purchased.toLocaleString()}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xl font-bold text-muted-foreground">—</div>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -578,16 +797,83 @@ export function ExecuteTab() {
         </div>
       )}
 
+      {/* バンクロール連動 */}
+      {bankrollBalance !== null && (
+        <Card className="border-indigo-200 dark:border-indigo-800">
+          <CardContent className="py-3">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-4">
+                <div>
+                  <div className="text-xs text-muted-foreground">バンクロール残高</div>
+                  <div className="text-lg font-bold">¥{bankrollBalance.toLocaleString()}</div>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <div className="text-xs text-muted-foreground">1ベット推奨額（{betPct}%）</div>
+                  <div className="text-lg font-bold text-indigo-600">¥{defaultBetAmount.toLocaleString()}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">ベット率:</span>
+                {[1, 2, 3, 5].map(pct => (
+                  <button
+                    key={pct}
+                    onClick={() => {
+                      setBetPct(pct);
+                      localStorage.setItem('keiba_execute_bet_pct', String(pct));
+                      setPurchaseAmounts({}); // 金額入力をリセット
+                    }}
+                    className={`px-2.5 py-1 text-xs rounded border transition-colors ${
+                      betPct === pct
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-background border-border hover:border-indigo-400'
+                    }`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 推奨一覧テーブル */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-indigo-600" />
-            Intersection Filter 推奨
-            <Badge variant="outline" className="ml-2 text-xs">
-              rank_w=1 / Gap{'\u2265'}4 / EV{'\u2265'}1.3 / R{'\u2264'}60
-            </Badge>
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-indigo-600" />
+              Intersection Filter 推奨
+              <Badge variant="outline" className="ml-2 text-xs">
+                rank_w=1 / Gap{'\u2265'}4 / EV{'\u2265'}1.3 / R{'\u2264'}60
+              </Badge>
+            </CardTitle>
+            {recommendations.length > 0 && (
+              <div className="flex items-center gap-2">
+                {csvResult && (
+                  <span className="text-xs text-green-600">
+                    {csvResult.totalBets}件 / ¥{csvResult.totalAmount.toLocaleString()} → CSV出力済
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={exportFfCsv}
+                  disabled={csvExporting}
+                  title="TARGET FF CSV出力（買い目取り込みメニューで読込）"
+                  className="text-xs"
+                >
+                  {csvExporting ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  FF CSV出力
+                </Button>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -664,54 +950,108 @@ export function ExecuteTab() {
                     <th className="py-2 px-1 text-right">ARd</th>
                     <th className="py-2 px-1 text-right">オッズ</th>
                     <th className="py-2 px-1 text-right">金額</th>
+                    <th className="py-2 px-2 text-center">購入</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {recommendations.map((rec, i) => (
-                    <tr key={`${rec.race_id}-${rec.umaban}`}
-                      className={`border-b hover:bg-indigo-50 dark:hover:bg-indigo-950/30 ${getGapBg(rec.win_vb_gap)}`}>
-                      <td className="py-2 px-2 font-medium">{rec.venue}</td>
-                      <td className="py-2 px-1 text-center">{rec.race_number}</td>
-                      <td className="py-2 px-1 text-center">
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 font-bold text-sm">
-                          {rec.umaban}
-                        </span>
-                      </td>
-                      <td className="py-2 px-2 font-medium">{rec.horse_name}</td>
-                      <td className="py-2 px-1 text-center">
-                        <Badge variant={rec.strength === 'strong' ? 'default' : 'secondary'}
-                          className={rec.strength === 'strong' ? 'bg-indigo-600' : ''}>
-                          {rec.strength === 'strong' ? 'S' : 'N'}
-                        </Badge>
-                      </td>
-                      <td className="py-2 px-1 text-right font-mono font-bold text-amber-600">
-                        +{rec.win_vb_gap}
-                      </td>
-                      <td className={`py-2 px-1 text-right font-mono ${getEvColor(rec.win_ev)}`}>
-                        {rec.win_ev.toFixed(2)}
-                      </td>
-                      <td className="py-2 px-1 text-right font-mono text-teal-600">
-                        {rec.predicted_margin != null ? rec.predicted_margin.toFixed(1) : '—'}
-                      </td>
-                      <td className="py-2 px-1 text-right font-mono">
-                        {rec.ar_deviation != null ? (
-                          <span className={rec.ar_deviation >= 60 ? 'text-green-600 font-semibold' :
-                            rec.ar_deviation >= 50 ? 'text-blue-600' : ''}>
-                            {rec.ar_deviation.toFixed(1)}
+                  {recommendations.map((rec) => {
+                    const key = getPurchaseKey(rec.race_id, rec.umaban);
+                    const existing = findPurchase(rec.race_id, rec.umaban);
+                    const isSaving = savingPurchase === key || savingPurchase === existing?.id;
+                    const defaultAmount = defaultBetAmount || rec.win_amount || 100;
+                    const currentAmount = purchaseAmounts[key] ?? defaultAmount;
+
+                    return (
+                      <tr key={key}
+                        className={`border-b hover:bg-indigo-50 dark:hover:bg-indigo-950/30 ${getGapBg(rec.win_vb_gap)} ${existing ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
+                        <td className="py-2 px-2 font-medium">{rec.venue}</td>
+                        <td className="py-2 px-1 text-center">{rec.race_number}</td>
+                        <td className="py-2 px-1 text-center">
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 font-bold text-sm">
+                            {rec.umaban}
                           </span>
-                        ) : '—'}
-                      </td>
-                      <td className="py-2 px-1 text-right font-mono">{rec.odds.toFixed(1)}</td>
-                      <td className="py-2 px-1 text-right font-mono font-bold text-red-600">
-                        {rec.win_amount > 0 ? `¥${rec.win_amount.toLocaleString()}` : '—'}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="py-2 px-2 font-medium">{rec.horse_name}</td>
+                        <td className="py-2 px-1 text-center">
+                          <Badge variant={rec.strength === 'strong' ? 'default' : 'secondary'}
+                            className={rec.strength === 'strong' ? 'bg-indigo-600' : ''}>
+                            {rec.strength === 'strong' ? 'S' : 'N'}
+                          </Badge>
+                        </td>
+                        <td className="py-2 px-1 text-right font-mono font-bold text-amber-600">
+                          +{rec.win_vb_gap}
+                        </td>
+                        <td className={`py-2 px-1 text-right font-mono ${getEvColor(rec.win_ev)}`}>
+                          {rec.win_ev.toFixed(2)}
+                        </td>
+                        <td className="py-2 px-1 text-right font-mono text-teal-600">
+                          {rec.predicted_margin != null ? rec.predicted_margin.toFixed(1) : '—'}
+                        </td>
+                        <td className="py-2 px-1 text-right font-mono">
+                          {rec.ar_deviation != null ? (
+                            <span className={rec.ar_deviation >= 60 ? 'text-green-600 font-semibold' :
+                              rec.ar_deviation >= 50 ? 'text-blue-600' : ''}>
+                              {rec.ar_deviation.toFixed(1)}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td className="py-2 px-1 text-right font-mono">{rec.odds.toFixed(1)}</td>
+                        <td className="py-2 px-1 text-right font-mono font-bold text-red-600">
+                          {rec.win_amount > 0 ? `¥${rec.win_amount.toLocaleString()}` : '—'}
+                        </td>
+                        <td className="py-2 px-2">
+                          {existing ? (
+                            <div className="flex items-center gap-1">
+                              <Badge className="bg-green-600 text-white text-xs whitespace-nowrap">
+                                <Check className="h-3 w-3 mr-0.5" />
+                                ¥{existing.amount.toLocaleString()}
+                              </Badge>
+                              <button
+                                onClick={() => cancelPurchase(existing.id)}
+                                disabled={isSaving}
+                                className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-400 hover:text-red-600 transition-colors"
+                                title="購入取消"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                value={currentAmount}
+                                onChange={(e) => setPurchaseAmounts(prev => ({
+                                  ...prev,
+                                  [key]: parseInt(e.target.value) || 100,
+                                }))}
+                                className="w-16 rounded border bg-background px-1.5 py-0.5 text-xs text-right font-mono"
+                                step={100}
+                                min={100}
+                              />
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => recordPurchase(rec)}
+                                disabled={isSaving}
+                                className="h-7 px-2 text-xs border-green-300 text-green-700 hover:bg-green-50 hover:border-green-500 dark:text-green-400 dark:hover:bg-green-950/30"
+                              >
+                                {isSaving ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <><ShoppingCart className="h-3 w-3 mr-0.5" />購入</>
+                                )}
+                              </Button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 {totalInvest > 0 && (
                   <tfoot>
                     <tr className="border-t-2 font-bold">
-                      <td colSpan={10} className="py-2 px-2 text-right">合計</td>
+                      <td colSpan={11} className="py-2 px-2 text-right">合計</td>
                       <td className="py-2 px-1 text-right font-mono text-red-600">
                         ¥{totalInvest.toLocaleString()}
                       </td>
@@ -723,6 +1063,73 @@ export function ExecuteTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* 購入サマリー */}
+      {dailyPurchases && dailyPurchases.items.length > 0 && (
+        <Card className="border-green-200 dark:border-green-800">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
+              <ShoppingCart className="h-4 w-4" />
+              本日の購入記録
+              <Badge className="bg-green-600 text-white text-xs">{dailyPurchases.items.length}件</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="grid grid-cols-3 gap-4 mb-3">
+              <div>
+                <div className="text-xs text-muted-foreground">投資額</div>
+                <div className="text-lg font-bold text-red-600">
+                  ¥{dailyPurchases.total_purchased.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">払戻</div>
+                <div className="text-lg font-bold text-green-600">
+                  ¥{dailyPurchases.total_payout.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">損益</div>
+                <div className={`text-lg font-bold ${dailyPurchases.total_payout - dailyPurchases.total_purchased >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {dailyPurchases.total_payout - dailyPurchases.total_purchased >= 0 ? '+' : ''}
+                  ¥{(dailyPurchases.total_payout - dailyPurchases.total_purchased).toLocaleString()}
+                </div>
+              </div>
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b text-muted-foreground">
+                  <th className="py-1 px-1 text-left">レース</th>
+                  <th className="py-1 px-1 text-left">馬券</th>
+                  <th className="py-1 px-1 text-right">金額</th>
+                  <th className="py-1 px-1 text-right">オッズ</th>
+                  <th className="py-1 px-1 text-center">結果</th>
+                  <th className="py-1 px-1 text-right">払戻</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyPurchases.items.map((item) => (
+                  <tr key={item.id} className="border-b last:border-0">
+                    <td className="py-1 px-1">{item.race_name}</td>
+                    <td className="py-1 px-1">{item.bet_type} {item.selection}</td>
+                    <td className="py-1 px-1 text-right font-mono">¥{item.amount.toLocaleString()}</td>
+                    <td className="py-1 px-1 text-right font-mono">{item.odds?.toFixed(1) ?? '—'}</td>
+                    <td className="py-1 px-1 text-center">
+                      {item.status === 'result_win' && <Badge className="bg-green-600 text-white text-xs">的中</Badge>}
+                      {item.status === 'result_lose' && <Badge variant="secondary" className="text-xs">不的中</Badge>}
+                      {item.status === 'purchased' && <Badge variant="outline" className="text-xs">未確定</Badge>}
+                      {item.status === 'planned' && <Badge variant="outline" className="text-xs text-gray-400">予定</Badge>}
+                    </td>
+                    <td className="py-1 px-1 text-right font-mono">
+                      {item.payout > 0 ? `¥${item.payout.toLocaleString()}` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ニアミス（推奨があっても表示） */}
       {recommendations.length > 0 && nearMisses.length > 0 && (
