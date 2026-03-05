@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: '収支管理',
+  title: '収支・実行 | KeibaCICD',
 };
 
 export default function BankrollLayout({

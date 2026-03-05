@@ -49,7 +49,7 @@ export function Header() {
   }, []);
 
   const navItemsRight = [
-    { href: '/bankroll', label: '収支', icon: Wallet },
+    { href: '/bankroll', label: '収支・実行', icon: Wallet },
   ];
 
   return (
