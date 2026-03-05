@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  TrendingUp, TrendingDown, Target, BarChart3, Calendar,
+  TrendingUp, TrendingDown, Target, BarChart3, Calendar, Crosshair,
 } from 'lucide-react';
 
 // =====================================================================
@@ -36,6 +35,44 @@ interface MonthlyRow {
   roi: number;
 }
 
+interface StrategyBet {
+  date: string;
+  race_id: string;
+  umaban: number;
+  horse_name: string;
+  odds: number;
+  win_amount: number;
+  strength: string;
+  win_vb_gap: number;
+  win_ev: number;
+  finish_position: number | null;
+  is_win: boolean;
+  win_return: number;
+}
+
+interface StrategyPerformance {
+  preset: string;
+  year: number;
+  overall: {
+    bets: number;
+    hits: number;
+    hitRate: number;
+    invested: number;
+    returned: number;
+    profit: number;
+    roi: number;
+    avgOdds: number;
+  };
+  monthly: MonthlyRow[];
+  bets: StrategyBet[];
+  backtest: {
+    expectedRoi: number;
+    expectedHitRate: number;
+    annualBets: number;
+    monthlyBets: number;
+  } | null;
+}
+
 // =====================================================================
 // PerformanceTab コンポーネント
 // =====================================================================
@@ -46,11 +83,17 @@ export function PerformanceTab() {
   const currentMonth = today.getMonth() + 1;
 
   const [selectedYear, setSelectedYear] = useState(currentYear);
+
+  // TARGET CSV 全体成績
   const [monthlyData, setMonthlyData] = useState<MonthlyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [yearTotal, setYearTotal] = useState<MonthlyRow | null>(null);
 
-  // 年間の月別データをロード
+  // Intersection 成績
+  const [strategyData, setStrategyData] = useState<StrategyPerformance | null>(null);
+  const [strategyLoading, setStrategyLoading] = useState(true);
+
+  // TARGET CSV 全体成績をロード
   useEffect(() => {
     const fetchAllMonths = async () => {
       setLoading(true);
@@ -92,7 +135,6 @@ export function PerformanceTab() {
 
       setMonthlyData(rows);
 
-      // 年間合計
       if (rows.length > 0) {
         const totInvest = rows.reduce((s, r) => s + r.invested, 0);
         const totReturn = rows.reduce((s, r) => s + r.returned, 0);
@@ -118,6 +160,28 @@ export function PerformanceTab() {
     fetchAllMonths();
   }, [selectedYear, currentYear, currentMonth]);
 
+  // Intersection Strategy 成績をロード
+  useEffect(() => {
+    const fetchStrategy = async () => {
+      setStrategyLoading(true);
+      try {
+        const res = await fetch(
+          `/api/bankroll/strategy-performance?preset=intersection&year=${selectedYear}`
+        );
+        if (res.ok) {
+          const data: StrategyPerformance = await res.json();
+          setStrategyData(data);
+        } else {
+          setStrategyData(null);
+        }
+      } catch {
+        setStrategyData(null);
+      }
+      setStrategyLoading(false);
+    };
+    fetchStrategy();
+  }, [selectedYear]);
+
   const formatCurrency = (amount: number) =>
     `¥${Math.abs(amount).toLocaleString()}`;
 
@@ -133,14 +197,211 @@ export function PerformanceTab() {
     return 'text-red-600 dark:text-red-400';
   };
 
+  const sp = strategyData?.overall;
+  const bt = strategyData?.backtest;
+
   return (
     <div className="space-y-6">
-      {/* KPIカード */}
+      {/* ===== Intersection Filter 成績 ===== */}
+      <Card className="border-indigo-200 dark:border-indigo-800">
+        <CardHeader className="py-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Crosshair className="h-4 w-4 text-indigo-600" />
+            Intersection Filter 成績（ML推奨ベースの集計）
+            <Badge variant="outline" className="text-xs">
+              rank_w=1 / Gap{'\u2265'}4 / EV{'\u2265'}1.3 / R{'\u2264'}60
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {strategyLoading ? (
+            <div className="text-center py-6 text-muted-foreground">Intersection成績を集計中...</div>
+          ) : !sp || sp.bets === 0 ? (
+            <div className="text-center py-6 text-muted-foreground">
+              {selectedYear}年のIntersection推奨データがありません
+              <p className="text-xs mt-1">predictions.json に推奨が記録されると集計されます</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* KPIグリッド: 実績 vs バックテスト */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">ROI</div>
+                  <div className={`text-2xl font-bold ${getRoiColor(sp.roi)}`}>
+                    {sp.roi.toFixed(1)}%
+                  </div>
+                  {bt && (
+                    <div className="text-xs text-indigo-500 mt-0.5">
+                      目標: {bt.expectedRoi}%
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">的中率</div>
+                  <div className="text-2xl font-bold">
+                    {(sp.hitRate * 100).toFixed(1)}%
+                  </div>
+                  {bt && (
+                    <div className="text-xs text-indigo-500 mt-0.5">
+                      目標: {bt.expectedHitRate}%
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">収支</div>
+                  <div className={`text-xl font-bold flex items-center gap-1 ${getProfitColor(sp.profit)}`}>
+                    {sp.profit >= 0 ? '+' : '-'}{formatCurrency(sp.profit)}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {sp.bets}ベット / {sp.hits}的中
+                  </div>
+                </div>
+                <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 p-3">
+                  <div className="text-xs text-muted-foreground">平均オッズ</div>
+                  <div className="text-2xl font-bold">{sp.avgOdds.toFixed(1)}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    投資 {formatCurrency(sp.invested)}
+                  </div>
+                </div>
+              </div>
+
+              {/* 月別 Intersection 成績テーブル */}
+              {strategyData!.monthly.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-muted-foreground">
+                        <th className="py-1.5 px-2 text-left">月</th>
+                        <th className="py-1.5 px-2 text-right">ベット</th>
+                        <th className="py-1.5 px-2 text-right">的中</th>
+                        <th className="py-1.5 px-2 text-right">投資</th>
+                        <th className="py-1.5 px-2 text-right">払戻</th>
+                        <th className="py-1.5 px-2 text-right">収支</th>
+                        <th className="py-1.5 px-2 text-right">ROI</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {strategyData!.monthly.map((row) => (
+                        <tr key={row.month} className="border-b hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20">
+                          <td className="py-1.5 px-2 font-medium">{row.month}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{row.bets}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{row.hits}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(row.invested)}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(row.returned)}</td>
+                          <td className={`py-1.5 px-2 text-right font-mono ${getProfitColor(row.profit)}`}>
+                            {row.profit >= 0 ? '+' : '-'}{formatCurrency(row.profit)}
+                          </td>
+                          <td className={`py-1.5 px-2 text-right font-mono ${getRoiColor(row.roi)}`}>
+                            {row.roi.toFixed(1)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* 個別ベット履歴 */}
+              {strategyData!.bets.length > 0 && (
+                <details className="group">
+                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                    個別ベット履歴を表示 ({strategyData!.bets.length}件)
+                  </summary>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b text-muted-foreground">
+                          <th className="py-1 px-1 text-left">日付</th>
+                          <th className="py-1 px-1 text-left">馬名</th>
+                          <th className="py-1 px-1 text-right">Gap</th>
+                          <th className="py-1 px-1 text-right">EV</th>
+                          <th className="py-1 px-1 text-right">オッズ</th>
+                          <th className="py-1 px-1 text-right">投資</th>
+                          <th className="py-1 px-1 text-center">着順</th>
+                          <th className="py-1 px-1 text-right">払戻</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {strategyData!.bets.map((b) => (
+                          <tr key={`${b.race_id}-${b.umaban}`}
+                            className={`border-b ${b.is_win ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
+                            <td className="py-1 px-1 font-mono">{b.date.slice(5)}</td>
+                            <td className="py-1 px-1">{b.horse_name}</td>
+                            <td className="py-1 px-1 text-right font-mono">+{b.win_vb_gap}</td>
+                            <td className="py-1 px-1 text-right font-mono">{b.win_ev.toFixed(2)}</td>
+                            <td className="py-1 px-1 text-right font-mono">{b.odds.toFixed(1)}</td>
+                            <td className="py-1 px-1 text-right font-mono">¥{b.win_amount.toLocaleString()}</td>
+                            <td className="py-1 px-1 text-center">
+                              {b.finish_position === null ? '—' :
+                                b.finish_position === 0 ? '取消' :
+                                b.is_win ? (
+                                  <Badge className="bg-green-600 text-white text-xs px-1">1着</Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">{b.finish_position}着</span>
+                                )}
+                            </td>
+                            <td className={`py-1 px-1 text-right font-mono ${b.win_return > 0 ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+                              {b.win_return > 0 ? `¥${b.win_return.toLocaleString()}` : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ===== バックテスト vs ライブ比較 ===== */}
+      <Card>
+        <CardHeader className="py-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Target className="h-4 w-4 text-indigo-600" />
+            バックテスト vs ライブ
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div>
+              <div className="text-xs text-muted-foreground">ROI</div>
+              <div className="text-xs text-indigo-500">BT: 310.7%</div>
+              <div className={`text-lg font-bold ${sp ? getRoiColor(sp.roi) : 'text-muted-foreground'}`}>
+                {sp ? `${sp.roi.toFixed(1)}%` : '—'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">的中率</div>
+              <div className="text-xs text-indigo-500">BT: 19.6%</div>
+              <div className={`text-lg font-bold ${sp && sp.hitRate > 0 ? '' : 'text-muted-foreground'}`}>
+                {sp ? `${(sp.hitRate * 100).toFixed(1)}%` : '—'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">年間ベット数</div>
+              <div className="text-xs text-indigo-500">BT: ~46回</div>
+              <div className="text-lg font-bold">
+                {sp ? sp.bets : '—'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">許容MaxDD</div>
+              <div className="text-lg font-bold text-amber-600">30%</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ===== TARGET CSV 全体成績 ===== */}
+
+      {/* 全体KPIカード */}
       {yearTotal && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <Card>
             <CardContent className="pt-4 pb-3">
-              <div className="text-xs text-muted-foreground mb-1">年間ROI</div>
+              <div className="text-xs text-muted-foreground mb-1">年間ROI (全体)</div>
               <div className={`text-2xl font-bold ${getRoiColor(yearTotal.roi)}`}>
                 {yearTotal.roi.toFixed(1)}%
               </div>
@@ -148,7 +409,7 @@ export function PerformanceTab() {
           </Card>
           <Card>
             <CardContent className="pt-4 pb-3">
-              <div className="text-xs text-muted-foreground mb-1">年間収支</div>
+              <div className="text-xs text-muted-foreground mb-1">年間収支 (全体)</div>
               <div className={`text-2xl font-bold flex items-center gap-1 ${getProfitColor(yearTotal.profit)}`}>
                 {yearTotal.profit >= 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
                 {yearTotal.profit >= 0 ? '+' : '-'}{formatCurrency(yearTotal.profit)}
@@ -176,43 +437,13 @@ export function PerformanceTab() {
         </div>
       )}
 
-      {/* バックテスト vs ライブ比較 */}
-      <Card>
-        <CardHeader className="py-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Target className="h-4 w-4 text-indigo-600" />
-            Intersection Filter 目標値（バックテスト基準）
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="grid grid-cols-4 gap-4 text-center">
-            <div>
-              <div className="text-xs text-muted-foreground">目標ROI</div>
-              <div className="text-lg font-bold text-indigo-600">310.7%</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">目標的中率</div>
-              <div className="text-lg font-bold text-indigo-600">19.6%</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">月間ベット</div>
-              <div className="text-lg font-bold text-indigo-600">~4回</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">許容MaxDD</div>
-              <div className="text-lg font-bold text-amber-600">30%</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 年選択 + 月別テーブル */}
+      {/* 年選択 + 月別テーブル (TARGET全体) */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
-              月別収支
+              月別収支（TARGET全体）
             </CardTitle>
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -299,11 +530,11 @@ export function PerformanceTab() {
         </CardContent>
       </Card>
 
-      {/* 累積P&Lバーグラフ（シンプル版） */}
+      {/* 累積P&Lバーグラフ */}
       {monthlyData.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">累積収支推移</CardTitle>
+            <CardTitle className="text-lg">累積収支推移（TARGET全体）</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
