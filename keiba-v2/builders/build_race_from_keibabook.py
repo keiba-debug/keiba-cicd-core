@@ -30,6 +30,69 @@ from keibabook.scraper import KeibabookScraper
 from keibabook.parsers.syutuba_parser import parse_syutuba_html
 
 
+# ── JRDB インデックスキャッシュ ──
+_jrdb_kyi_index: dict = None
+_jrdb_sed_index: dict = None
+
+
+def _load_jrdb_indexes() -> tuple:
+    """JRDB KYI/SED インデックスを読み込み（キャッシュ付き）"""
+    global _jrdb_kyi_index, _jrdb_sed_index
+    if _jrdb_kyi_index is not None:
+        return _jrdb_kyi_index, _jrdb_sed_index
+
+    kyi_path = config.indexes_dir() / 'jrdb_kyi_index.json'
+    sed_path = config.indexes_dir() / 'jrdb_sed_index.json'
+
+    _jrdb_kyi_index = {}
+    _jrdb_sed_index = {}
+
+    if kyi_path.exists():
+        try:
+            _jrdb_kyi_index = json.loads(kyi_path.read_text(encoding='utf-8'))
+            print(f"[JRDB] KYI index loaded: {len(_jrdb_kyi_index):,} entries")
+        except Exception as e:
+            print(f"[JRDB] KYI index load error: {e}")
+
+    if sed_path.exists():
+        try:
+            _jrdb_sed_index = json.loads(sed_path.read_text(encoding='utf-8'))
+            print(f"[JRDB] SED index loaded: {len(_jrdb_sed_index):,} entries")
+        except Exception as e:
+            print(f"[JRDB] SED index load error: {e}")
+
+    return _jrdb_kyi_index, _jrdb_sed_index
+
+
+def enrich_entries_with_jrdb_dict(entries: list, race_date: str) -> int:
+    """dict形式のエントリにJRDB KYI/SED指標を付与。enriched件数を返す"""
+    kyi_index, sed_index = _load_jrdb_indexes()
+    if not kyi_index and not sed_index:
+        return 0
+
+    enriched = 0
+    for entry in entries:
+        ketto_num = entry.get("ketto_num", "")
+        if not ketto_num:
+            continue
+        key = f"{ketto_num}_{race_date}"
+        kyi = kyi_index.get(key)
+        sed = sed_index.get(key)
+
+        if kyi:
+            entry["jrdb_pre_idm"] = kyi.get('pre_idm')
+            entry["jrdb_sogo_idx"] = kyi.get('sogo_idx')
+            entry["jrdb_training_idx"] = kyi.get('training_idx')
+            entry["jrdb_stable_idx"] = kyi.get('stable_idx')
+            entry["jrdb_gekisou_idx"] = kyi.get('gekisou_idx')
+            enriched += 1
+
+        if sed:
+            entry["jrdb_idm"] = sed.get('idm')
+
+    return enriched
+
+
 def load_horse_name_index() -> dict:
     """horse_name_index.jsonから馬名→10桁ketto_numマッピングを読み込む"""
     path = config.indexes_dir() / "horse_name_index.json"
@@ -397,6 +460,11 @@ def main():
             if "障害" in race_name and race_json["track_type"] != "obstacle":
                 race_json["track_type"] = "obstacle"
 
+            # JRDB指標を付与
+            jrdb_count = enrich_entries_with_jrdb_dict(race_json["entries"], date)
+            if jrdb_count > 0:
+                race_json["meta"]["has_jrdb"] = True
+
             # ID解決状況
             resolved = sum(1 for e in race_json["entries"] if e["ketto_num"])
             total = len(race_json["entries"])
@@ -412,7 +480,8 @@ def main():
             id_status = f"ID:{resolved}/{total}"
             if unresolved_names:
                 id_status += f" (未解決: {', '.join(unresolved_names[:3])})"
-            print(f"    {race_no_str}R: {race_name} ({horse_count}頭) {id_status} → {filepath.name}")
+            jrdb_status = f" JRDB:{jrdb_count}" if jrdb_count > 0 else ""
+            print(f"    {race_no_str}R: {race_name} ({horse_count}頭) {id_status}{jrdb_status} → {filepath.name}")
             created += 1
             total_resolved += resolved
             total_horses += total

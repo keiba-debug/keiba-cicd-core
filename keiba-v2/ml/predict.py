@@ -226,11 +226,15 @@ def predict_obstacle_race(
     jockey_obstacle_tl: Optional[dict] = None,
     trainer_obstacle_tl: Optional[dict] = None,
     jrdb_sed_index: Optional[dict] = None,
+    db_place_odds: Optional[Dict[int, dict]] = None,
 ) -> dict:
     """障害レースの予測を実行（v2: P+Wデュアル、v1: P only フォールバック）"""
     from ml.features.pedigree_features import get_pedigree_features, build_sire_index
 
-    features = obstacle_meta.get('features', [])
+    # P/Wで異なる特徴量リストに対応 (Optuna最適化後)
+    features_p = obstacle_meta.get('features_p') or obstacle_meta.get('features', [])
+    features_w = obstacle_meta.get('features_w') or features_p
+    features = features_p  # 共通パス用フォールバック
     _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
 
     race_date = race['date']
@@ -399,14 +403,16 @@ def predict_obstacle_race(
         except (TypeError, ValueError):
             return np.nan
 
-    for p in predictions:
-        row = [_to_float(p['features'].get(f, np.nan)) for f in features]
-        feature_rows.append(row)
+    def _build_arr(feat_list):
+        rows = []
+        for p in predictions:
+            rows.append([_to_float(p['features'].get(f, np.nan)) for f in feat_list])
+        return np.array(rows, dtype=np.float64)
 
-    arr = np.array(feature_rows, dtype=np.float64)
+    arr_p = _build_arr(features_p)
 
     # P Model 予測
-    pred_p_raw = model_obstacle.predict(arr)
+    pred_p_raw = model_obstacle.predict(arr_p)
 
     # P キャリブレーション
     cal_p = None
@@ -423,12 +429,13 @@ def predict_obstacle_race(
     # P ランク計算
     rank_p_dict = {i: r for r, i in enumerate(np.argsort(-pred_p_norm), 1)}
 
-    # W Model 予測 (v2のみ)
+    # W Model 予測 (v2のみ、異なる特徴量リスト対応)
     pred_w_raw = None
     pred_w_cal = None
     rank_w_dict = {}
     if model_obstacle_w is not None:
-        pred_w_raw = model_obstacle_w.predict(arr)
+        arr_w = _build_arr(features_w)
+        pred_w_raw = model_obstacle_w.predict(arr_w)
         cal_w = obstacle_calibrators.get('cal_w') if obstacle_calibrators and isinstance(obstacle_calibrators, dict) else None
         pred_w_cal = cal_w.predict(pred_w_raw) if cal_w is not None else pred_w_raw
         rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w_cal), 1)}
@@ -452,13 +459,23 @@ def predict_obstacle_race(
         rank_p = rank_p_dict[i]
         odds_val = p['odds']
         odds_rank = odds_rank_dict.get(i, 0)
+        umaban = p['umaban']
 
         # W model 出力
         w_prob = round(float(pred_w_cal[i]), 6) if pred_w_cal is not None else None
         w_rank = rank_w_dict.get(i) if rank_w_dict else None
 
+        # 複勝オッズ取得
+        place_low = None
+        place_high = None
+        if db_place_odds and umaban in db_place_odds:
+            place_low = db_place_odds[umaban].get('odds_low')
+            place_high = db_place_odds[umaban].get('odds_high')
+
         # EV計算
         win_ev = round(w_prob * odds_val, 4) if w_prob and odds_val > 0 else None
+        # 複勝EV: raw確率(sum≈3.0) × 複勝最低オッズ
+        place_ev = round(float(pred_p_raw[i]) * place_low, 4) if place_low and place_low > 0 else None
 
         # VB gap
         vb_gap = odds_rank - rank_p if odds_rank > 0 else 0
@@ -479,8 +496,8 @@ def predict_obstacle_race(
             'rank_w': int(w_rank) if w_rank else None,
             'win_vb_gap': win_vb_gap,
             'dev_gap': round(float(_dev_gaps[i]), 4),
-            'place_odds_min': None, 'place_odds_max': None,
-            'win_ev': win_ev, 'place_ev': None,
+            'place_odds_min': place_low, 'place_odds_max': place_high,
+            'win_ev': win_ev, 'place_ev': place_ev,
             'predicted_margin': None, 'ar_deviation': None,
             'is_value_bet': bool(win_ev and win_ev >= 1.3 and w_rank and w_rank <= 2),
             'kb_mark': p['kb_mark'],
@@ -1601,6 +1618,7 @@ def main():
                 jockey_obstacle_tl=jockey_obstacle_tl,
                 trainer_obstacle_tl=trainer_obstacle_tl,
                 jrdb_sed_index=jrdb_sed_index,
+                db_place_odds=db_place_odds_index.get(race['race_id']),
             )
             obstacle_predictions.append(pred)
             all_predictions.append(pred)

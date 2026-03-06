@@ -288,20 +288,30 @@ export default function AdminPage() {
     }
   }, [addLog]);
 
-  // JRDBデータダウンロード
+  // JRDBデータダウンロード＆統合
   const downloadJrdb = useCallback(async () => {
     setIsDownloadingJrdb(true);
     setStatus('running');
-    setCurrentAction('JRDBダウンロード');
+    setCurrentAction('JRDB DL＆統合');
+
+    // 対象日: selectedDate + 翌日（週末レース両日対応）
+    const d = new Date(selectedDate + 'T00:00:00');
+    const d2 = new Date(d);
+    d2.setDate(d2.getDate() + 1);
+    const fmt = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    const dates = [fmt(d), fmt(d2)];
+
     addLog({
       timestamp: new Date().toISOString(),
       level: 'info',
-      message: 'JRDB データダウンロード 開始...',
+      message: `JRDB データ統合 開始 (DL → Index → Race JSON ${dates.join(', ')})...`,
     });
 
     try {
       const response = await fetch('/api/admin/jrdb-download', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dates }),
       });
 
       if (!response.ok) {
@@ -867,11 +877,11 @@ export default function AdminPage() {
                         <div className="flex items-center gap-2 w-full">
                           <span className={`text-lg ${isDownloadingJrdb ? 'animate-pulse' : ''}`}>📡</span>
                           <span className="font-semibold text-sm">
-                            {isDownloadingJrdb ? 'JRDBダウンロード中...' : 'JRDB最新データ取得'}
+                            {isDownloadingJrdb ? 'JRDB統合中...' : 'JRDB DL＆統合'}
                           </span>
                         </div>
                         <span className="text-xs text-muted-foreground mt-1">
-                          SED/KYI/KAAの最新20件をダウンロード（IDM・指数・馬場）
+                          DL → Index再構築 → 選択日+翌日のRace JSONにJRDB指標付与
                         </span>
                       </Button>
                     </div>

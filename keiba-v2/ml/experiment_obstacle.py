@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-障害レース専用ML実験パイプライン v2.0
+障害レース専用ML実験パイプライン v2.3b
 
 P/Wデュアルモデル（市場特徴量除外 = VALUE戦略）
 - P: is_top3分類 (Place)
 - W: is_win分類 (Win) → EV計算可能に
-- 障害固有特徴量7個追加（難易度、経験、騎手/調教師障害成績）
+- 障害固有特徴量: 難易度、経験、騎手/調教師障害成績(ベイズ平滑化)
+- v2.2: 障害走限定過去走統計7個追加、NaN化、ベイズ平滑化
+- v2.3: per-courseテーブル修正 + ハイレベル経験 + 平地プロフィール + avg_l3f
+- v2.3b: 3軸分類 + 障害数 + 直線路面 + 同系統コース成績
 
 Usage:
     python -m ml.experiment_obstacle
@@ -53,6 +56,11 @@ from ml.features.obstacle_features import (
     compute_course_attributes,
     compute_prev_obstacle_level_diff,
     compute_flat_idm_avg3,
+    compute_obstacle_only_past_stats,
+    compute_high_level_experience,
+    compute_flat_racing_profile,
+    compute_venue_skill_features,
+    compute_same_group_stats,
 )
 
 # === 障害レース用特徴量（市場特徴量を除外 = VALUE戦略） ===
@@ -79,7 +87,7 @@ OBSTACLE_ROTATION_FEATURES = [
     'jockey_change',
 ]
 
-# 障害レース専用特徴量（v2.0: 7個追加）
+# 障害レース専用特徴量
 OBSTACLE_SPECIFIC_FEATURES = [
     'obstacle_experience',          # 障害戦出走回数 (0=初障害)
     'obstacle_level',               # コース難易度 (10-53)
@@ -91,15 +99,34 @@ OBSTACLE_SPECIFIC_FEATURES = [
     'difficulty_exp_match',         # 当該難易度帯での経験度 (0-1)
     'jockey_selected',              # 騎手選択シグナル (+1/-1/0)
     'jockey_selected_count',        # 同一前走騎手の馬数
-    # --- 実験中（様子見）---
-    # 'weight_gain_last3',            # 近走3走の体重増加量 (kg)
-    # 'weight_gain_per_race',         # 近走5走の1走あたり体重変化 (kg/race)
     # --- v2.1: 予想理論 + IDM ---
     'flat_idm_avg3',                # 障害転向前の平地IDM 3走平均
     # 'is_placed_obstacle',         # 置き障害コースか → obstacle_levelで代替済み(imp=0)
-    # 'has_sash_course',            # 襷コースの有無 → imp=0
-    # 'straight_has_obstacle',      # 直線に障害があるか → imp=0
     'prev_obstacle_level_diff',     # 前走obstacle_level - 今走level
+    # --- v2.2: 障害走限定過去走統計 ---
+    'obs_win_rate',                 # 障害のみ勝率
+    'obs_top3_rate',                # 障害のみ好走率
+    'obs_avg_finish_last3',         # 障害直近3走の平均着順
+    'obs_last3f_avg_last3',         # 障害直近3走の上がり3F平均
+    'obs_best_finish_last5',        # 障害直近5走のベスト着順
+    'obs_days_since_last',          # 前走障害からの日数
+    'obs_distance_fitness',         # 障害走での距離適性
+    # --- v2.3: ハイレベル経験 + 平地プロフィール + コースL3F ---
+    'course_avg_l3f',               # コース別平均上がり3F
+    'obs_high_level_runs',          # ハイレベルコース出走数
+    'obs_high_level_top3_rate',     # ハイレベルコースでの好走率
+    'flat_turf_ratio',              # 平地走のうち芝の割合 (0-1)
+    'flat_avg_distance',            # 平地走の平均距離 (m)
+    # --- v2.3b: コースリンク ---
+    'obs_same_group_top3_rate',     # 同系統コースでの障害好走率 (W:1320)
+    # 'venue_skill_type',           # 3軸分類 → obstacle_levelで代替済み(P:23/W:52)
+    # 'obstacle_count',             # 障害数 → obstacle_levelで代替済み(P:51/W:72)
+    # 'straight_surface',           # 直線路面 → imp=0/13
+    # --- v2.3 低重要度で除外 ---
+    # 'has_sash_course',            # 襷コース (per-course修正済みだがimp<100)
+    # 'is_high_level',              # obstacle_levelで代替済み(imp=0)
+    # 'prev_was_high_level',        # imp<100
+    # 'high_to_low_transfer',       # imp<100
 ]
 
 # 市場特徴量は除外（VALUE戦略）
@@ -288,8 +315,8 @@ def build_obstacle_dataset(
                 wg = compute_weight_gain_trend(kn, race_date, history_cache)
                 row.update(wg)
 
-                # v2.1: コース属性
-                row.update(compute_course_attributes(venue_name))
+                # v2.3: コース属性（per-courseテーブル）
+                row.update(compute_course_attributes(venue_name, distance))
 
                 # v2.1: 前走レベル差
                 row['prev_obstacle_level_diff'] = compute_prev_obstacle_level_diff(
@@ -301,6 +328,32 @@ def build_obstacle_dataset(
                     kn, race_date, history_cache,
                     jrdb_sed_index or {}
                 )
+
+                # v2.2: 障害走限定過去走統計
+                obs_past = compute_obstacle_only_past_stats(
+                    kn, race_date, distance, history_cache
+                )
+                row.update(obs_past)
+
+                # v2.3: ハイレベルコース経験
+                hl_exp = compute_high_level_experience(
+                    kn, race_date, obs_level, history_cache
+                )
+                row.update(hl_exp)
+
+                # v2.3: 平地レースプロフィール
+                flat_prof = compute_flat_racing_profile(
+                    kn, race_date, history_cache
+                )
+                row.update(flat_prof)
+
+                # v2.3b: 3軸分類 + 障害数 + 直線路面
+                row.update(compute_venue_skill_features(venue_name))
+
+                # v2.3b: 同系統コースでの障害好走率
+                row.update(compute_same_group_stats(
+                    kn, race_date, venue_name, history_cache
+                ))
 
             all_rows.extend(rows)
             race_count += 1
@@ -326,7 +379,7 @@ def build_obstacle_dataset(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Obstacle Race ML Experiment v2.0 (P/W)')
+    parser = argparse.ArgumentParser(description='Obstacle Race ML Experiment v2.3b (P/W)')
     parser.add_argument('--train-years', default='2019-2024',
                         help='Training period (例: 2019-2024)')
     parser.add_argument('--val-years', default='2025.01-2025.06',
@@ -334,6 +387,8 @@ def main():
     parser.add_argument('--test-years', default='2025.07-2026.02',
                         help='Test period (例: 2025.07-2026.02)')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
+    parser.add_argument('--use-optuna', action='store_true',
+                        help='Optuna最適化パラメータを使用')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -341,14 +396,39 @@ def main():
     test_min, test_min_m, test_max, test_max_m = parse_period_range(args.test_years)
     use_db_odds = not args.no_db
 
+    # Optuna パラメータ読み込み
+    optuna_p_params = None
+    optuna_w_params = None
+    optuna_p_features = None
+    optuna_w_features = None
+    if args.use_optuna:
+        optuna_dir = config.ml_dir() / "optuna"
+        p_path = optuna_dir / "best_params_obstacle_p.json"
+        w_path = optuna_dir / "best_params_obstacle_w.json"
+        if p_path.exists():
+            p_data = json.loads(p_path.read_text(encoding='utf-8'))
+            optuna_p_params = p_data['params']
+            optuna_p_features = p_data['features']
+            print(f"[Optuna] P: loaded {len(optuna_p_features)} features, "
+                  f"val_auc={p_data['best_value']:.4f}")
+        if w_path.exists():
+            w_data = json.loads(w_path.read_text(encoding='utf-8'))
+            optuna_w_params = w_data['params']
+            optuna_w_features = w_data['features']
+            print(f"[Optuna] W: loaded {len(optuna_w_features)} features, "
+                  f"val_auc={w_data['best_value']:.4f}")
+
     train_label = f"{_format_period(train_min, train_min_m)} ~ {_format_period(train_max, train_max_m)}"
     val_label = f"{_format_period(val_min, val_min_m)} ~ {_format_period(val_max, val_max_m)}"
     test_label = f"{_format_period(test_min, test_min_m)} ~ {_format_period(test_max, test_max_m)}"
 
+    optuna_label = "ON" if args.use_optuna else "OFF"
+
     print(f"\n{'='*60}")
-    print(f"  KeibaCICD - Obstacle Race ML Experiment v2.0 (P/W)")
+    print(f"  KeibaCICD - Obstacle Race ML Experiment v2.3b (P/W)")
     print(f"  Train: {train_label}")
     print(f"  Val:   {val_label} (early stopping)")
+    print(f"  Optuna: {optuna_label}")
     print(f"  Test:  {test_label} (pure evaluation)")
     print(f"  DB Odds: {'ON' if use_db_odds else 'OFF'}")
     print(f"  Features: {len(OBSTACLE_FEATURE_COLS)} (market excluded)")
@@ -436,14 +516,25 @@ def main():
         print(f"\n[Warning] {len(missing)} features not in data: {sorted(missing)[:10]}...")
     print(f"[Features] Using {len(available_features)} of {len(OBSTACLE_FEATURE_COLS)} defined features")
 
+    # Optuna特徴量でオーバーライド
+    p_features = available_features
+    w_features = available_features
+    if optuna_p_features:
+        p_features = [f for f in optuna_p_features if f in df_train.columns]
+        print(f"[Optuna P] Using {len(p_features)} features (optuna selected)")
+    if optuna_w_features:
+        w_features = [f for f in optuna_w_features if f in df_train.columns]
+        print(f"[Optuna W] Using {len(w_features)} features (optuna selected)")
+
     # === P Model (Place: is_top3) ===
     print(f"\n{'='*60}")
     print(f"  Training P Model (Place: is_top3)")
     print(f"{'='*60}")
 
+    p_params = optuna_p_params if optuna_p_params else PARAMS_OBSTACLE_P
     model_p, metrics_p, importance_p, pred_p_cal, calibrator_p, pred_p_raw = train_model(
-        df_train, df_val, df_test, available_features,
-        PARAMS_OBSTACLE_P, 'is_top3', 'Obstacle_P'
+        df_train, df_val, df_test, p_features,
+        p_params, 'is_top3', 'Obstacle_P'
     )
 
     # === W Model (Win: is_win) ===
@@ -451,15 +542,19 @@ def main():
     print(f"  Training W Model (Win: is_win)")
     print(f"{'='*60}")
 
-    # scale_pos_weight自動計算
-    n_pos = int(df_train['is_win'].sum())
-    n_neg = len(df_train) - n_pos
-    spw = round(n_neg / n_pos, 1) if n_pos > 0 else 10.0
-    params_w = {**PARAMS_OBSTACLE_W, 'scale_pos_weight': spw}
-    print(f"[W] scale_pos_weight = {spw:.1f} ({n_neg}/{n_pos})")
+    if optuna_w_params:
+        params_w = optuna_w_params
+        print(f"[W] Using Optuna params (spw={params_w.get('scale_pos_weight', 'N/A')})")
+    else:
+        # scale_pos_weight自動計算
+        n_pos = int(df_train['is_win'].sum())
+        n_neg = len(df_train) - n_pos
+        spw = round(n_neg / n_pos, 1) if n_pos > 0 else 10.0
+        params_w = {**PARAMS_OBSTACLE_W, 'scale_pos_weight': spw}
+        print(f"[W] scale_pos_weight = {spw:.1f} ({n_neg}/{n_pos})")
 
     model_w, metrics_w, importance_w, pred_w_cal, calibrator_w, pred_w_raw = train_model(
-        df_train, df_val, df_test, available_features,
+        df_train, df_val, df_test, w_features,
         params_w, 'is_win', 'Obstacle_W'
     )
 
@@ -566,16 +661,19 @@ def main():
 
     # メタデータ保存
     meta = {
-        'version': 'obstacle-v2.0',
+        'version': 'obstacle-v2.3b',
         'model_type': 'obstacle_p_w',
         'has_win_model': True,
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'train_period': f"{_format_period(train_min, train_min_m)} ~ {_format_period(train_max, train_max_m)}",
         'val_period': f"{_format_period(val_min, val_min_m)} ~ {_format_period(val_max, val_max_m)}",
         'test_period': f"{_format_period(test_min, test_min_m)} ~ {_format_period(test_max, test_max_m)}",
-        'features': available_features,
-        'feature_count': len(available_features),
-        'params_p': PARAMS_OBSTACLE_P,
+        'use_optuna': args.use_optuna,
+        'features_p': p_features,
+        'features_w': w_features,
+        'feature_count_p': len(p_features),
+        'feature_count_w': len(w_features),
+        'params_p': p_params,
         'params_w': params_w,
         'metrics_p': metrics_p,
         'metrics_w': metrics_w,
@@ -605,7 +703,7 @@ def main():
 
     elapsed = time.time() - t0
     print(f"\n{'='*60}")
-    print(f"  Obstacle Experiment v2.0 Complete")
+    print(f"  Obstacle Experiment v2.3b Complete")
     print(f"  P AUC: {metrics_p['auc']:.4f}")
     print(f"  W AUC: {metrics_w['auc']:.4f}")
     print(f"  Top1 Win Rate (W): {hit_w['top1_win_rate']:.1%}")

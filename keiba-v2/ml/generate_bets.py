@@ -100,8 +100,9 @@ def apply_bet_engine(
             'summary': recommendations_summary(recs),
         }
         s = recommendations_summary(recs)
+        wide_str = f", Wide={s['wide_bets']}" if s.get('wide_bets') else ""
         print(f"  {preset_name}: {s['total_bets']} bets, "
-              f"Win={s['win_bets']}, Place={s['place_bets']}, "
+              f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}, "
               f"Amount={s['total_amount']:,}")
 
     # predictions_data に書き込み

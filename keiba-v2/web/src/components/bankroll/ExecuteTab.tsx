@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +31,11 @@ interface RecommendationEntry {
   win_amount: number;
   place_amount: number;
   strength: string;
+  track_type?: string;
+  bet_type?: string;
+  place_ev?: number | null;
+  vb_score?: number | null;
+  wide_pair?: number[] | null;
 }
 
 interface PredictionsData {
@@ -57,6 +62,7 @@ interface PredictionsData {
       vb_score?: number;
       predicted_margin?: number;
       win_ev?: number;
+      place_ev?: number | null;
       ar_deviation?: number;
       pred_proba_w_cal?: number;
     }>;
@@ -71,6 +77,7 @@ interface PredictionsData {
     race_id: string;
     venue_name: string;
     race_number: number;
+    track_type?: string;
     entries: Array<{
       umaban: number;
       horse_name: string;
@@ -134,6 +141,10 @@ interface OtherPresetData {
     win_amount: number;
     place_amount: number;
     strength: string;
+    track_type?: string;
+    bet_type?: string;
+    place_ev?: number | null;
+    vb_score?: number | null;
   }>;
 }
 
@@ -208,6 +219,14 @@ export function ExecuteTab() {
   const [otherPresets, setOtherPresets] = useState<OtherPresetData[]>([]);
   const [expandedPresets, setExpandedPresets] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+
+  // プリセット切替
+  const [activePreset, setActivePreset] = useState<string>('intersection');
+  const [allPresetsMap, setAllPresetsMap] = useState<Record<string, RecommendationEntry[]>>({});
+
+  // レース番号フィルタ（0=全レース）
+  const [raceRangeMin, setRaceRangeMin] = useState(0);
+  const [raceRangeMax, setRaceRangeMax] = useState(0);
 
   // 購入管理
   const [dailyPurchases, setDailyPurchases] = useState<DailyPurchases | null>(null);
@@ -373,40 +392,59 @@ export function ExecuteTab() {
       }
       setNearMisses(misses);
 
-      // 他プリセットの推奨を抽出
+      // 全プリセットの推奨をマップとして保持
+      const presetsMap: Record<string, RecommendationEntry[]> = {};
       const others: OtherPresetData[] = [];
+
       if (data.recommendations) {
         for (const [key, preset] of Object.entries(data.recommendations)) {
-          if (key === 'intersection') continue; // メイン表示で使用済み
           if (!preset || !preset.bets || preset.bets.length === 0) continue;
-          others.push({
-            key,
-            label: PRESET_LABELS[key] || key,
-            betCount: preset.bets.length,
-            totalAmount: preset.summary?.total_amount ?? preset.bets.reduce((s, b) => s + (b.win_amount || 0) + (b.place_amount || 0), 0),
-            bets: preset.bets.map((b) => {
-              const race = data.races?.find(r => r.race_id === b.race_id);
-              return {
-                race_id: b.race_id,
-                venue: b.venue || race?.venue_name || '',
-                race_number: b.race_number || race?.race_number || 0,
-                umaban: b.umaban,
-                horse_name: b.horse_name,
-                odds: b.odds,
-                win_vb_gap: b.win_gap ?? b.gap ?? 0,
-                win_ev: b.win_ev ?? 0,
-                predicted_margin: b.predicted_margin ?? null,
-                ar_deviation: b.ar_deviation ?? null,
-                win_amount: b.win_amount,
-                place_amount: b.place_amount,
-                strength: b.strength,
-              };
-            }),
+
+          const mappedBets = preset.bets.map((b) => {
+            const race = data.races?.find(r => r.race_id === b.race_id);
+            return {
+              race_id: b.race_id,
+              venue: b.venue || race?.venue_name || '',
+              race_number: b.race_number || race?.race_number || 0,
+              umaban: b.umaban,
+              horse_name: b.horse_name,
+              odds: b.odds,
+              rank_w: (key === 'intersection' ? 1 : 0),
+              win_vb_gap: b.win_gap ?? b.gap ?? 0,
+              win_ev: b.win_ev ?? 0,
+              predicted_margin: b.predicted_margin ?? null,
+              ar_deviation: b.ar_deviation ?? null,
+              pred_proba_w_cal: b.pred_proba_w_cal ?? null,
+              win_amount: b.win_amount,
+              place_amount: b.place_amount,
+              strength: b.strength,
+              track_type: race?.track_type,
+              bet_type: b.bet_type || '単勝',
+              place_ev: b.place_ev ?? null,
+              vb_score: b.vb_score ?? null,
+            } as RecommendationEntry;
           });
+
+          mappedBets.sort((a, b) => {
+            if (a.race_number !== b.race_number) return a.race_number - b.race_number;
+            if (a.venue !== b.venue) return a.venue.localeCompare(b.venue);
+            return a.umaban - b.umaban;
+          });
+          presetsMap[key] = mappedBets;
+
+          if (key !== 'intersection') {
+            others.push({
+              key,
+              label: PRESET_LABELS[key] || key,
+              betCount: preset.bets.length,
+              totalAmount: preset.summary?.total_amount ?? preset.bets.reduce((s, b) => s + (b.win_amount || 0) + (b.place_amount || 0), 0),
+              bets: mappedBets,
+            });
+          }
         }
-        // ベット数の多い順にソート
         others.sort((a, b) => b.betCount - a.betCount);
       }
+      setAllPresetsMap(presetsMap);
       setOtherPresets(others);
     } catch {
       setPredictions(null);
@@ -433,6 +471,40 @@ export function ExecuteTab() {
     }
   }, []);
 
+  // 全推奨マージ（union）
+  const allMergedRecs = useMemo((): RecommendationEntry[] => {
+    const seen = new Map<string, RecommendationEntry>();
+    for (const entries of Object.values(allPresetsMap)) {
+      for (const e of entries) {
+        const key = `${e.race_id}-${e.umaban}`;
+        const existing = seen.get(key);
+        if (!existing || (e.win_amount + e.place_amount) > (existing.win_amount + existing.place_amount)) {
+          seen.set(key, e);
+        }
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => {
+      if (a.race_number !== b.race_number) return a.race_number - b.race_number;
+      if (a.venue !== b.venue) return a.venue.localeCompare(b.venue);
+      return a.umaban - b.umaban;
+    });
+  }, [allPresetsMap]);
+
+  // 表示する推奨リスト（プリセット + レース番号フィルタ）
+  const displayRecs = useMemo(() => {
+    const base = activePreset === 'all'
+      ? allMergedRecs
+      : activePreset === 'intersection'
+        ? recommendations
+        : allPresetsMap[activePreset] || [];
+    if (raceRangeMin === 0 && raceRangeMax === 0) return base;
+    return base.filter(r => {
+      if (raceRangeMin > 0 && r.race_number < raceRangeMin) return false;
+      if (raceRangeMax > 0 && r.race_number > raceRangeMax) return false;
+      return true;
+    });
+  }, [activePreset, allMergedRecs, recommendations, allPresetsMap, raceRangeMin, raceRangeMax]);
+
   // 購入キー（推奨一覧と購入レコードのマッチング用）
   const getPurchaseKey = (raceId: string, umaban: number) => `${raceId}-${umaban}`;
 
@@ -450,7 +522,10 @@ export function ExecuteTab() {
     const key = getPurchaseKey(rec.race_id, rec.umaban);
     setSavingPurchase(key);
     try {
-      const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
+      // 単複の場合はwin_amount+place_amountの合計を使用
+      const amount = purchaseAmounts[key]
+        || (rec.bet_type === '単複' ? (rec.win_amount + rec.place_amount) || defaultBetAmount || 200
+          : defaultBetAmount || rec.win_amount || 100);
       const res = await fetch(`/api/purchases/${selectedDate}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -459,12 +534,12 @@ export function ExecuteTab() {
           race_name: `${rec.venue}${rec.race_number}R`,
           venue: rec.venue,
           race_number: rec.race_number,
-          bet_type: '単勝',
+          bet_type: rec.bet_type || '単勝',
           selection: `${rec.umaban}-${rec.horse_name}`,
           amount,
           odds: rec.odds,
           confidence: rec.strength === 'strong' ? '高' : '中',
-          reason: `Intersection Filter (Gap+${rec.win_vb_gap}, EV${rec.win_ev.toFixed(2)})`,
+          reason: `${activePreset === 'intersection' ? 'Intersection' : activePreset} (Gap+${rec.win_vb_gap}, EV${rec.win_ev.toFixed(2)})`,
           status: 'purchased',
         }),
       });
@@ -532,7 +607,7 @@ export function ExecuteTab() {
   // FF CSV出力（TARGET買い目取り込み用）
   const exportFfCsv = async () => {
     // 購入済みの推奨を対象にする（購入データがあればそれを、なければ推奨テーブルの全件を使う）
-    const bets: { raceId: string; umaban: number; betType: number; amount: number }[] = [];
+    const bets: { raceId: string; umaban: number; umaban2?: number; betType: number; amount: number }[] = [];
 
     if (dailyPurchases && dailyPurchases.items.length > 0) {
       // 購入済みの馬券からFF CSVを生成
@@ -540,26 +615,51 @@ export function ExecuteTab() {
         if (item.status === 'planned' || item.status === 'purchased') {
           const umaban = parseInt(item.selection.split('-')[0]);
           if (umaban >= 1 && umaban <= 18) {
-            bets.push({
-              raceId: item.race_id,
-              umaban,
-              betType: item.bet_type === '複勝' ? 1 : 0,
-              amount: item.amount,
-            });
+            if (item.bet_type === '単複') {
+              // 単複は単勝+複勝の2行に分割
+              const half = Math.round(item.amount / 2);
+              bets.push({ raceId: item.race_id, umaban, betType: 0, amount: half });
+              bets.push({ raceId: item.race_id, umaban, betType: 1, amount: item.amount - half });
+            } else {
+              bets.push({
+                raceId: item.race_id,
+                umaban,
+                betType: item.bet_type === '複勝' ? 1 : 0,
+                amount: item.amount,
+              });
+            }
           }
         }
       }
     } else {
       // 購入記録がない場合は推奨一覧からFF CSVを生成
-      for (const rec of recommendations) {
+      for (const rec of displayRecs) {
         const key = getPurchaseKey(rec.race_id, rec.umaban);
-        const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
-        bets.push({
-          raceId: rec.race_id,
-          umaban: rec.umaban,
-          betType: 0, // 単勝
-          amount,
-        });
+        if (rec.bet_type === 'ワイド' && rec.wide_pair && rec.wide_pair.length === 2) {
+          // ワイド: betType=4, umaban/umaban2でペア指定
+          const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
+          bets.push({
+            raceId: rec.race_id,
+            umaban: rec.wide_pair[0],
+            umaban2: rec.wide_pair[1],
+            betType: 4,
+            amount,
+          });
+        } else if (rec.bet_type === '単複') {
+          // 単複は単勝+複勝の2行に分割（各金額が分かればそれを使う）
+          const winAmt = purchaseAmounts[key] || rec.win_amount || defaultBetAmount || 100;
+          const placeAmt = rec.place_amount || winAmt;
+          bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 0, amount: winAmt });
+          bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 1, amount: placeAmt });
+        } else {
+          const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
+          bets.push({
+            raceId: rec.race_id,
+            umaban: rec.umaban,
+            betType: (rec.bet_type === '複勝') ? 1 : 0,
+            amount,
+          });
+        }
       }
     }
 
@@ -699,9 +799,21 @@ export function ExecuteTab() {
     }
   };
 
-  // intersection の summary
-  const intSummary = predictions?.recommendations?.intersection?.summary;
-  const totalInvest = recommendations.reduce((s, r) => s + r.win_amount + r.place_amount, 0);
+  // 表示中のsummary
+  const totalInvest = displayRecs.reduce((s, r) => s + r.win_amount + r.place_amount, 0);
+
+  // 全推奨サマリー計算
+  const allSummary = useMemo(() => {
+    const winCount = displayRecs.filter(r => r.bet_type === '単勝' || r.bet_type === '単複').length;
+    const placeCount = displayRecs.filter(r => r.bet_type === '複勝' || r.bet_type === '単複').length;
+    const obstacleCount = displayRecs.filter(r => r.track_type === 'obstacle').length;
+    const wideCount = displayRecs.filter(r => r.bet_type === 'ワイド').length;
+    return { winCount, placeCount, obstacleCount, wideCount };
+  }, [displayRecs]);
+
+  // プリセット選択肢
+  // 左=多い/緩い → 右=少ない/厳しい/高ROI
+  const PRESET_CHOICES = ['all', 'wide', 'standard', 'ev_focus', 'simple', 'aggressive', 'simple_ev2', 'intersection'] as const;
 
   return (
     <div className="space-y-6">
@@ -776,59 +888,109 @@ export function ExecuteTab() {
         </Card>
       )}
 
-      {/* サマリーカード */}
+      {/* プリセット切替 + サマリー */}
       {predictions && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <div className="text-xs text-muted-foreground mb-1">モデル</div>
-              <div className="text-xl font-bold">v{predictions.model_version}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <div className="text-xs text-muted-foreground mb-1">Intersection推奨</div>
-              <div className="text-xl font-bold text-indigo-600">{recommendations.length}件</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <div className="text-xs text-muted-foreground mb-1">他プリセット</div>
-              <div className="text-xl font-bold text-gray-500">
-                {otherPresets.reduce((s, p) => s + p.betCount, 0)}件
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <div className="text-xs text-muted-foreground mb-1">購入済</div>
-              {dailyPurchases && dailyPurchases.items.length > 0 ? (
-                <div>
-                  <div className="text-xl font-bold text-green-600">
-                    {dailyPurchases.items.length}件
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    ¥{dailyPurchases.total_purchased.toLocaleString()}
-                  </div>
+        <>
+          {/* プリセットセレクター */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {PRESET_CHOICES.map(key => {
+              const count = key === 'all' ? allMergedRecs.length : (allPresetsMap[key]?.length ?? 0);
+              return (
+                <button
+                  key={key}
+                  onClick={() => setActivePreset(key)}
+                  className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                    activePreset === key
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
+                  }`}
+                >
+                  {key === 'all' ? '全推奨' : (PRESET_LABELS[key] || key)}
+                  {count > 0 && <span className="ml-1 opacity-75">({count})</span>}
+                </button>
+              );
+            })}
+
+            {/* レース番号フィルタ */}
+            <div className="flex items-center gap-1.5 ml-auto">
+              <span className="text-xs text-muted-foreground">R:</span>
+              {[
+                { label: '全', min: 0, max: 0 },
+                { label: '1-4', min: 1, max: 4 },
+                { label: '5-8', min: 5, max: 8 },
+                { label: '9-12', min: 9, max: 12 },
+              ].map(({ label, min, max }) => {
+                const isActive = raceRangeMin === min && raceRangeMax === max;
+                return (
+                  <button
+                    key={label}
+                    onClick={() => { setRaceRangeMin(min); setRaceRangeMax(max); }}
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${
+                      isActive
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* サマリーカード */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground mb-1">モデル</div>
+                <div className="text-xl font-bold">v{predictions.model_version}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground mb-1">表示中の推奨</div>
+                <div className="text-xl font-bold text-indigo-600">{displayRecs.length}件</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground mb-1">全推奨(union)</div>
+                <div className="text-xl font-bold text-gray-500">
+                  {allMergedRecs.length}件
                 </div>
-              ) : (
-                <div className="text-xl font-bold text-muted-foreground">—</div>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <div className="text-xs text-muted-foreground mb-1">生成日時</div>
-              <div className="text-sm font-medium">
-                {predictions.bets_generated_at
-                  ? new Date(predictions.bets_generated_at).toLocaleString('ja-JP', {
-                      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
-                    })
-                  : predictions.predict_only ? '未生成' : '—'}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground mb-1">購入済</div>
+                {dailyPurchases && dailyPurchases.items.length > 0 ? (
+                  <div>
+                    <div className="text-xl font-bold text-green-600">
+                      {dailyPurchases.items.length}件
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      ¥{dailyPurchases.total_purchased.toLocaleString()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xl font-bold text-muted-foreground">—</div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground mb-1">生成日時</div>
+                <div className="text-sm font-medium">
+                  {predictions.bets_generated_at
+                    ? new Date(predictions.bets_generated_at).toLocaleString('ja-JP', {
+                        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                      })
+                    : predictions.predict_only ? '未生成' : '—'}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
 
       {/* バンクロール連動 */}
@@ -878,12 +1040,16 @@ export function ExecuteTab() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-indigo-600" />
-              Intersection Filter 推奨
-              <Badge variant="outline" className="ml-2 text-xs">
-                rank_w=1 / Gap{'\u2265'}4 / EV{'\u2265'}1.3 / R{'\u2264'}60
-              </Badge>
+              {activePreset === 'all' ? '全推奨 (All Presets)' :
+               activePreset === 'intersection' ? 'Intersection Filter 推奨' :
+               (PRESET_LABELS[activePreset] || activePreset) + ' 推奨'}
+              {activePreset === 'intersection' && (
+                <Badge variant="outline" className="ml-2 text-xs">
+                  rank_w=1 / Gap{'\u2265'}4 / EV{'\u2265'}1.3 / R{'\u2264'}60
+                </Badge>
+              )}
             </CardTitle>
-            {recommendations.length > 0 && (
+            {displayRecs.length > 0 && (
               <div className="flex items-center gap-2">
                 {csvResult && (
                   <span className="text-xs text-green-600">
@@ -919,15 +1085,21 @@ export function ExecuteTab() {
                 「買い目生成」を実行するか、predict.py を実行してください
               </p>
             </div>
-          ) : recommendations.length === 0 ? (
+          ) : displayRecs.length === 0 ? (
             <div className="py-6">
               <div className="text-center mb-6">
-                <p className="text-muted-foreground">この日は全3条件を満たす馬はいません</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Intersection Filter は月平均3.8回 — 0件の日が多いのは正常です
+                <p className="text-muted-foreground">
+                  {activePreset === 'intersection'
+                    ? 'この日は全3条件を満たす馬はいません'
+                    : `${PRESET_LABELS[activePreset] || activePreset} の推奨はありません`}
                 </p>
+                {activePreset === 'intersection' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Intersection Filter は月平均3.8回 — 0件の日が多いのは正常です
+                  </p>
+                )}
               </div>
-              {nearMisses.length > 0 && (
+              {activePreset === 'intersection' && nearMisses.length > 0 && (
                 <div>
                   <h4 className="text-sm font-medium text-muted-foreground mb-3">
                     惜しかった馬（2条件クリア、1条件不足）
@@ -969,6 +1141,34 @@ export function ExecuteTab() {
               )}
             </div>
           ) : (
+            <>
+            {/* 全推奨サマリー */}
+            {activePreset === 'all' && displayRecs.length > 0 && (
+              <div className="grid grid-cols-5 gap-3 mb-4">
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold">{displayRecs.length}</div>
+                  <div className="text-xs text-muted-foreground">推奨馬券</div>
+                </div>
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold">{allSummary.winCount}</div>
+                  <div className="text-xs text-muted-foreground">単勝</div>
+                </div>
+                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold">{allSummary.placeCount}</div>
+                  <div className="text-xs text-muted-foreground">複勝含</div>
+                </div>
+                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold">{allSummary.obstacleCount}</div>
+                  <div className="text-xs text-muted-foreground">障害</div>
+                </div>
+                {allSummary.wideCount > 0 && (
+                  <div className="bg-fuchsia-50 dark:bg-fuchsia-900/20 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold">{allSummary.wideCount}</div>
+                    <div className="text-xs text-muted-foreground">ワイド</div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -977,9 +1177,14 @@ export function ExecuteTab() {
                     <th className="py-2 px-1 text-center">R</th>
                     <th className="py-2 px-1 text-center">馬番</th>
                     <th className="py-2 px-2 text-left">馬名</th>
+                    <th className="py-2 px-1 text-center">券種</th>
                     <th className="py-2 px-1 text-center">強度</th>
                     <th className="py-2 px-1 text-right">Gap</th>
+                    {activePreset !== 'intersection' && (
+                      <th className="py-2 px-1 text-right">VBs</th>
+                    )}
                     <th className="py-2 px-1 text-right">EV</th>
+                    <th className="py-2 px-1 text-right">複EV</th>
                     <th className="py-2 px-1 text-right">AR</th>
                     <th className="py-2 px-1 text-right">ARd</th>
                     <th className="py-2 px-1 text-right">オッズ</th>
@@ -988,7 +1193,7 @@ export function ExecuteTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recommendations.map((rec) => {
+                  {displayRecs.map((rec) => {
                     const key = getPurchaseKey(rec.race_id, rec.umaban);
                     const existing = findPurchase(rec.race_id, rec.umaban);
                     const isSaving = savingPurchase === key || savingPurchase === existing?.id;
@@ -998,14 +1203,42 @@ export function ExecuteTab() {
                     return (
                       <tr key={key}
                         className={`border-b hover:bg-indigo-50 dark:hover:bg-indigo-950/30 ${getGapBg(rec.win_vb_gap)} ${existing ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
-                        <td className="py-2 px-2 font-medium">{rec.venue}</td>
+                        <td className="py-2 px-2 font-medium">
+                          {rec.venue}
+                          {rec.track_type === 'obstacle' && (
+                            <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                              障害
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 px-1 text-center">{rec.race_number}</td>
                         <td className="py-2 px-1 text-center">
-                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 font-bold text-sm">
-                            {rec.umaban}
-                          </span>
+                          {rec.bet_type === 'ワイド' && rec.wide_pair ? (
+                            <span className="inline-flex items-center gap-0.5">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900/30 font-bold text-xs text-purple-700">
+                                {rec.wide_pair[0]}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">-</span>
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900/30 font-bold text-xs text-purple-700">
+                                {rec.wide_pair[1]}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 font-bold text-sm">
+                              {rec.umaban}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-2 font-medium">{rec.horse_name}</td>
+                        <td className="py-2 px-1 text-center">
+                          {rec.bet_type === 'ワイド' ? (
+                            <Badge variant="outline" className="text-[10px] border-purple-400 text-purple-600 bg-purple-50">ワイド</Badge>
+                          ) : rec.bet_type && rec.bet_type !== '単勝' ? (
+                            <Badge variant="outline" className="text-[10px]">{rec.bet_type}</Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">単勝</span>
+                          )}
+                        </td>
                         <td className="py-2 px-1 text-center">
                           <Badge variant={rec.strength === 'strong' ? 'default' : 'secondary'}
                             className={rec.strength === 'strong' ? 'bg-indigo-600' : ''}>
@@ -1015,8 +1248,26 @@ export function ExecuteTab() {
                         <td className="py-2 px-1 text-right font-mono font-bold text-amber-600">
                           +{rec.win_vb_gap}
                         </td>
+                        {activePreset !== 'intersection' && (
+                          <td className="py-2 px-1 text-right font-mono">
+                            {rec.vb_score != null ? (
+                              <span className={rec.vb_score >= 7 ? 'text-indigo-600 font-bold' :
+                                rec.vb_score >= 5 ? 'text-blue-600 font-semibold' : ''}>
+                                {rec.vb_score.toFixed(1)}
+                              </span>
+                            ) : '—'}
+                          </td>
+                        )}
                         <td className={`py-2 px-1 text-right font-mono ${getEvColor(rec.win_ev)}`}>
                           {rec.win_ev.toFixed(2)}
+                        </td>
+                        <td className="py-2 px-1 text-right font-mono">
+                          {rec.place_ev != null && rec.place_ev > 0 ? (
+                            <span className={rec.place_ev >= 1.5 ? 'text-purple-600 font-semibold' :
+                              rec.place_ev >= 1.0 ? 'text-purple-500' : 'text-muted-foreground'}>
+                              {rec.place_ev.toFixed(2)}
+                            </span>
+                          ) : '—'}
                         </td>
                         <td className="py-2 px-1 text-right font-mono text-teal-600">
                           {rec.predicted_margin != null ? rec.predicted_margin.toFixed(1) : '—'}
@@ -1031,7 +1282,7 @@ export function ExecuteTab() {
                         </td>
                         <td className="py-2 px-1 text-right font-mono">{rec.odds.toFixed(1)}</td>
                         <td className="py-2 px-1 text-right font-mono font-bold text-red-600">
-                          {rec.win_amount > 0 ? `¥${rec.win_amount.toLocaleString()}` : '—'}
+                          {(rec.win_amount + rec.place_amount) > 0 ? `¥${(rec.win_amount + rec.place_amount).toLocaleString()}` : '—'}
                         </td>
                         <td className="py-2 px-2">
                           {existing ? (
@@ -1085,7 +1336,7 @@ export function ExecuteTab() {
                 {totalInvest > 0 && (
                   <tfoot>
                     <tr className="border-t-2 font-bold">
-                      <td colSpan={11} className="py-2 px-2 text-right">合計</td>
+                      <td colSpan={activePreset !== 'intersection' ? 14 : 13} className="py-2 px-2 text-right">合計</td>
                       <td className="py-2 px-1 text-right font-mono text-red-600">
                         ¥{totalInvest.toLocaleString()}
                       </td>
@@ -1094,6 +1345,7 @@ export function ExecuteTab() {
                 )}
               </table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -1197,8 +1449,8 @@ export function ExecuteTab() {
         </Card>
       )}
 
-      {/* ニアミス（推奨があっても表示） */}
-      {recommendations.length > 0 && nearMisses.length > 0 && (
+      {/* ニアミス（intersectionモードのみ表示） */}
+      {activePreset === 'intersection' && recommendations.length > 0 && nearMisses.length > 0 && (
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-sm text-muted-foreground">
@@ -1243,8 +1495,8 @@ export function ExecuteTab() {
         </Card>
       )}
 
-      {/* 他プリセット参考情報 */}
-      {otherPresets.length > 0 && (
+      {/* 他プリセット参考情報（intersectionモードのみ） */}
+      {activePreset === 'intersection' && otherPresets.length > 0 && (
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -1334,15 +1586,17 @@ export function ExecuteTab() {
       )}
 
       {/* 戦略の説明 */}
-      <Card>
-        <CardContent className="py-4">
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p><strong>Intersection Filter</strong> — v7.3バックテスト実証済み (2025-03〜2026-02, 3,364レース)</p>
-            <p>ROI 310.7% / 的中率 19.6% / 年間46ベット / 月平均3.8回</p>
-            <p>推奨配分: 資金の2%（MaxDD 14%, 年間+340%成長）</p>
-          </div>
-        </CardContent>
-      </Card>
+      {activePreset === 'intersection' && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-xs text-muted-foreground space-y-1">
+              <p><strong>Intersection Filter</strong> — v7.3バックテスト実証済み (2025-03〜2026-02, 3,364レース)</p>
+              <p>ROI 310.7% / 的中率 19.6% / 年間46ベット / 月平均3.8回</p>
+              <p>推奨配分: 資金の2%（MaxDD 14%, 年間+340%成長）</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
