@@ -216,8 +216,8 @@ export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelin
             tick={{ fontSize: 11 }}
           />
           <YAxis
-            domain={[0, 100]}
-            ticks={[20, 40, 50, 60, 80]}
+            domain={[30, 80]}
+            ticks={[30, 40, 50, 60, 70, 80]}
             tick={{ fontSize: 11 }}
             width={30}
           />

@@ -6,7 +6,7 @@
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, TrendingUp } from 'lucide-react';
 import {
   getIntegratedRaceData,
   hasRaceResults,
@@ -510,8 +510,16 @@ export default async function RaceDetailPage({ params }: PageParams) {
         </div>
       )}
 
-      {/* データ更新ボタン */}
-      <div className="flex justify-end mb-2">
+      {/* データ更新ボタン + IDM比較リンク */}
+      <div className="flex justify-end gap-2 mb-2">
+        <Link
+          href={`/races-v2/${date}/${encodeURIComponent(track)}/${id}/idm-compare`}
+          target="_blank"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-md hover:bg-muted transition-colors"
+        >
+          <TrendingUp className="w-3.5 h-3.5" />
+          IDM比較
+        </Link>
         <RefreshButton size="sm" />
       </div>
 
