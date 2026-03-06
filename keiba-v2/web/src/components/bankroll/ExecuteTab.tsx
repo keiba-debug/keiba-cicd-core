@@ -274,7 +274,7 @@ export function ExecuteTab() {
           const weekLater = new Date();
           weekLater.setDate(weekLater.getDate() + 7);
           const weekLaterStr = weekLater.toISOString().slice(0, 10);
-          const nearFuture = dates.find((d: string) => d >= todayStr && d <= weekLaterStr);
+          const nearFuture = dates.filter((d: string) => d >= todayStr && d <= weekLaterStr).pop();
           const defaultDate = nearFuture || dates.find((d: string) => d <= todayStr) || dates[0];
           setSelectedDate(defaultDate);
         }
