@@ -131,6 +131,7 @@ interface IDMComparisonChartProps {
 }
 
 type SortKey = 'horseNumber' | 'latestIdm' | 'maxIdm' | 'avg3' | 'avg5' | 'raceCount' | 'trend';
+type ChartTab = 'timeline' | 'range';
 
 // dateNum (エポック月) → 表示ラベル
 function formatDateNum(v: number): string {
@@ -140,6 +141,7 @@ function formatDateNum(v: number): string {
 }
 
 export function IDMComparisonChart({ horses, raceName }: IDMComparisonChartProps) {
+  const [chartTab, setChartTab] = useState<ChartTab>('timeline');
   const [startYear, setStartYear] = useState<number | null>(CURRENT_YEAR - 1); // デフォルト: 前年から
   const [visibleHorses, setVisibleHorses] = useState<Set<number>>(
     () => new Set(horses.map(h => h.horseNumber))
@@ -231,24 +233,46 @@ export function IDMComparisonChart({ horses, raceName }: IDMComparisonChartProps
 
   return (
     <div className="space-y-4">
-      {/* ヘッダー: 開始年セレクター */}
-      <div className="flex items-center justify-between">
+      {/* ヘッダー: タブ + コントロール */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
+          {/* チャートタブ */}
           <div className="flex items-center rounded-md border text-xs">
-            {START_YEAR_OPTIONS.map((opt, idx) => (
-              <button
-                key={opt.year ?? 'all'}
-                onClick={() => setStartYear(opt.year)}
-                className={`px-3 py-1.5 transition-colors ${
-                  startYear === opt.year
-                    ? 'bg-blue-500 text-white'
-                    : 'hover:bg-muted'
-                } ${idx === 0 ? 'rounded-l-md' : ''} ${idx === START_YEAR_OPTIONS.length - 1 ? 'rounded-r-md' : ''}`}
-              >
-                {opt.label}
-              </button>
-            ))}
+            <button
+              onClick={() => setChartTab('timeline')}
+              className={`px-3 py-1.5 rounded-l-md transition-colors ${
+                chartTab === 'timeline' ? 'bg-blue-500 text-white' : 'hover:bg-muted'
+              }`}
+            >
+              推移
+            </button>
+            <button
+              onClick={() => setChartTab('range')}
+              className={`px-3 py-1.5 rounded-r-md transition-colors ${
+                chartTab === 'range' ? 'bg-blue-500 text-white' : 'hover:bg-muted'
+              }`}
+            >
+              レンジ
+            </button>
           </div>
+          {/* 開始年セレクター（推移タブのみ表示） */}
+          {chartTab === 'timeline' && (
+            <div className="flex items-center rounded-md border text-xs">
+              {START_YEAR_OPTIONS.map((opt, idx) => (
+                <button
+                  key={opt.year ?? 'all'}
+                  onClick={() => setStartYear(opt.year)}
+                  className={`px-3 py-1.5 transition-colors ${
+                    startYear === opt.year
+                      ? 'bg-blue-500 text-white'
+                      : 'hover:bg-muted'
+                  } ${idx === 0 ? 'rounded-l-md' : ''} ${idx === START_YEAR_OPTIONS.length - 1 ? 'rounded-r-md' : ''}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
           <span className="text-xs text-muted-foreground">{raceName}</span>
         </div>
         <div className="flex items-center gap-2 text-xs">
@@ -295,61 +319,71 @@ export function IDMComparisonChart({ horses, raceName }: IDMComparisonChartProps
         })}
       </div>
 
-      {/* チャート */}
-      <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
-        <ResponsiveContainer width="100%" height={600}>
-          <LineChart data={chartData} margin={{ top: 10, right: 20, bottom: 5, left: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-            <XAxis
-              dataKey="dateNum"
-              type="number"
-              domain={[xMin, xMax]}
-              ticks={ticks}
-              tickFormatter={(v: number) => {
-                const y = Math.floor(v / 12);
-                const m = (v % 12) + 1;
-                return m === 1 ? `${y}` : `${m}月`;
-              }}
-              tick={{ fontSize: 11 }}
-            />
-            <YAxis
-              domain={[30, 80]}
-              ticks={[30, 40, 50, 60, 70, 80]}
-              tick={{ fontSize: 12 }}
-              width={35}
-            />
-            <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="4 4" opacity={0.6} />
-            <Tooltip
-              content={
-                <ComparisonTooltip
-                  horses={horses}
-                  visibleHorses={visibleHorses}
-                />
-              }
-            />
-            {horses.map(h => {
-              const color = colorMap[h.horseNumber];
-              const isVisible = visibleHorses.has(h.horseNumber);
-              const isHighlighted = highlightedHorse === h.horseNumber;
-              const isAnyHighlighted = highlightedHorse != null;
-              return (
-                <Line
-                  key={h.horseNumber}
-                  type="linear"
-                  dataKey={`idm_${h.horseNumber}`}
-                  stroke={color}
-                  strokeWidth={isHighlighted ? 3 : 1.5}
-                  strokeOpacity={!isVisible ? 0 : (isAnyHighlighted && !isHighlighted) ? 0.15 : 1}
-                  dot={isHighlighted ? { r: 4, fill: color, stroke: '#fff', strokeWidth: 1 } : { r: 2, fill: color }}
-                  activeDot={isVisible ? { r: 5 } : false}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              );
-            })}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      {/* チャート（タブ切替） */}
+      {chartTab === 'timeline' ? (
+        <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
+          <ResponsiveContainer width="100%" height={600}>
+            <LineChart data={chartData} margin={{ top: 10, right: 20, bottom: 5, left: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis
+                dataKey="dateNum"
+                type="number"
+                domain={[xMin, xMax]}
+                ticks={ticks}
+                tickFormatter={(v: number) => {
+                  const y = Math.floor(v / 12);
+                  const m = (v % 12) + 1;
+                  return m === 1 ? `${y}` : `${m}月`;
+                }}
+                tick={{ fontSize: 11 }}
+              />
+              <YAxis
+                domain={[30, 80]}
+                ticks={[30, 40, 50, 60, 70, 80]}
+                tick={{ fontSize: 12 }}
+                width={35}
+              />
+              <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="4 4" opacity={0.6} />
+              <Tooltip
+                content={
+                  <ComparisonTooltip
+                    horses={horses}
+                    visibleHorses={visibleHorses}
+                  />
+                }
+              />
+              {horses.map(h => {
+                const color = colorMap[h.horseNumber];
+                const isVisible = visibleHorses.has(h.horseNumber);
+                const isHighlighted = highlightedHorse === h.horseNumber;
+                const isAnyHighlighted = highlightedHorse != null;
+                return (
+                  <Line
+                    key={h.horseNumber}
+                    type="linear"
+                    dataKey={`idm_${h.horseNumber}`}
+                    stroke={color}
+                    strokeWidth={isHighlighted ? 3 : 1.5}
+                    strokeOpacity={!isVisible ? 0 : (isAnyHighlighted && !isHighlighted) ? 0.15 : 1}
+                    dot={isHighlighted ? { r: 4, fill: color, stroke: '#fff', strokeWidth: 1 } : { r: 2, fill: color }}
+                    activeDot={isVisible ? { r: 5 } : false}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                );
+              })}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <RecentSlopeChart
+          horses={horses}
+          colorMap={colorMap}
+          visibleHorses={visibleHorses}
+          highlightedHorse={highlightedHorse}
+          onHighlight={setHighlightedHorse}
+        />
+      )}
 
       {/* サマリーテーブル */}
       <SummaryTable
@@ -370,6 +404,162 @@ export function IDMComparisonChart({ horses, raceName }: IDMComparisonChartProps
         onToggle={toggleHorse}
         onHighlight={setHighlightedHorse}
       />
+    </div>
+  );
+}
+
+// ── 近5走 IDMレンジチャート（馬別） ──
+
+interface RecentSlopeChartProps {
+  horses: HorseIDMData[];
+  colorMap: Record<number, string>;
+  visibleHorses: Set<number>;
+  highlightedHorse: number | null;
+  onHighlight: (num: number | null) => void;
+}
+
+function RecentSlopeChart({
+  horses, colorMap, visibleHorses, highlightedHorse, onHighlight,
+}: RecentSlopeChartProps) {
+  // 表示馬を最高IDM降順でソート
+  const sorted = useMemo(() => {
+    return [...horses]
+      .filter(h => visibleHorses.has(h.horseNumber) && h.idmPoints.length > 0)
+      .sort((a, b) => (b.maxIdm ?? 0) - (a.maxIdm ?? 0));
+  }, [horses, visibleHorses]);
+
+  if (sorted.length === 0) return null;
+
+  const Y_MIN = 30, Y_MAX = 80;
+  const CHART_H = 360;
+  const toY = (v: number) => CHART_H * (1 - (v - Y_MIN) / (Y_MAX - Y_MIN));
+  const yTicks = [30, 40, 50, 60, 70, 80];
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
+      <h3 className="text-sm font-semibold mb-3">近5走 IDMレンジ（最高値順）</h3>
+      <div className="flex">
+        {/* Y軸 */}
+        <div className="relative flex-shrink-0" style={{ width: 32, height: CHART_H }}>
+          {yTicks.map(v => (
+            <span
+              key={v}
+              className="absolute right-1 text-[10px] text-muted-foreground"
+              style={{ top: toY(v), transform: 'translateY(-50%)' }}
+            >
+              {v}
+            </span>
+          ))}
+        </div>
+        {/* チャート本体 */}
+        <div className="flex-1 relative" style={{ height: CHART_H }}>
+          {/* グリッド線 */}
+          {yTicks.map(v => (
+            <div
+              key={v}
+              className="absolute w-full border-t"
+              style={{
+                top: toY(v),
+                borderColor: v === 50 ? '#94a3b8' : '#e2e8f0',
+                borderStyle: v === 50 ? 'solid' : 'dashed',
+                opacity: v === 50 ? 0.5 : 0.3,
+              }}
+            />
+          ))}
+          {/* 馬カラム */}
+          <div className="flex h-full">
+            {sorted.map(h => {
+              const color = colorMap[h.horseNumber];
+              const isHl = highlightedHorse === h.horseNumber;
+              const isAnyHl = highlightedHorse != null;
+              const recentIdms = h.idmPoints
+                .slice(-5)
+                .map(p => p.idm)
+                .filter((v): v is number => v != null);
+              if (recentIdms.length === 0) return null;
+              const maxV = Math.max(...recentIdms);
+              const minV = Math.min(...recentIdms);
+              const latest = recentIdms[recentIdms.length - 1];
+
+              return (
+                <div
+                  key={h.horseNumber}
+                  className="flex-1 relative cursor-pointer"
+                  style={{ opacity: isAnyHl && !isHl ? 0.15 : 1 }}
+                  onMouseEnter={() => onHighlight(h.horseNumber)}
+                  onMouseLeave={() => onHighlight(null)}
+                >
+                  {/* レンジライン（縦） */}
+                  <div
+                    className="absolute left-1/2 -translate-x-1/2 rounded-sm"
+                    style={{
+                      top: toY(maxV),
+                      height: Math.max(toY(minV) - toY(maxV), 2),
+                      width: isHl ? 4 : 2,
+                      backgroundColor: color,
+                    }}
+                  />
+                  {/* 個別ドット */}
+                  {recentIdms.map((v, i) => (
+                    <div
+                      key={i}
+                      className="absolute left-1/2 rounded-full"
+                      style={{
+                        top: toY(v),
+                        width: isHl ? 10 : 7,
+                        height: isHl ? 10 : 7,
+                        transform: 'translate(-50%, -50%)',
+                        backgroundColor: i === recentIdms.length - 1 ? color : 'white',
+                        border: `2px solid ${color}`,
+                      }}
+                    />
+                  ))}
+                  {/* 最高IDMラベル（上部） */}
+                  <div
+                    className="absolute left-1/2 -translate-x-1/2 text-[10px] font-bold whitespace-nowrap"
+                    style={{ top: toY(maxV) - 16, color }}
+                  >
+                    {maxV}
+                  </div>
+                  {/* 最新IDMラベル（最新が最高でない場合のみ） */}
+                  {latest !== maxV && (
+                    <div
+                      className="absolute left-1/2 -translate-x-1/2 text-[9px] whitespace-nowrap"
+                      style={{ top: toY(latest) + 10, color, opacity: 0.7 }}
+                    >
+                      {latest}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      {/* 馬名ラベル */}
+      <div className="flex" style={{ marginLeft: 32 }}>
+        {sorted.map(h => {
+          const color = colorMap[h.horseNumber];
+          const isHl = highlightedHorse === h.horseNumber;
+          const isAnyHl = highlightedHorse != null;
+          return (
+            <div
+              key={h.horseNumber}
+              className="flex-1 text-center pt-1"
+              style={{ opacity: isAnyHl && !isHl ? 0.15 : 1 }}
+            >
+              <div className="text-[11px] font-bold" style={{ color }}>{h.horseNumber}</div>
+              <div
+                className="text-[9px] truncate mx-auto"
+                style={{ color, fontWeight: isHl ? 700 : 400, maxWidth: 52 }}
+                title={h.horseName}
+              >
+                {h.horseName}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

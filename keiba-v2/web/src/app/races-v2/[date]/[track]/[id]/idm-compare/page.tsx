@@ -46,15 +46,14 @@ function calcDateNum(raceDate: string): number {
 // ── トレンド判定 ──
 
 function calcTrend(idmValues: number[]): 'up' | 'flat' | 'down' {
-  if (idmValues.length < 3) return 'flat';
-  const recent3 = idmValues.slice(-3);
-  const prior = idmValues.slice(-6, -3);
-  if (prior.length === 0) return 'flat';
-  const recentAvg = recent3.reduce((s, v) => s + v, 0) / recent3.length;
-  const priorAvg = prior.reduce((s, v) => s + v, 0) / prior.length;
-  const diff = recentAvg - priorAvg;
-  if (diff > 2) return 'up';
-  if (diff < -2) return 'down';
+  if (idmValues.length < 2) return 'flat';
+  const latest = idmValues[idmValues.length - 1];
+  // 直前2-3走の平均と最新値を比較
+  const prevSlice = idmValues.slice(-4, -1); // 最大3走
+  const prevAvg = prevSlice.reduce((s, v) => s + v, 0) / prevSlice.length;
+  const diff = latest - prevAvg;
+  if (diff > 3) return 'up';
+  if (diff < -3) return 'down';
   return 'flat';
 }
 
