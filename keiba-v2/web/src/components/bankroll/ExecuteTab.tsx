@@ -269,9 +269,13 @@ export function ExecuteTab() {
       .then(({ dates }) => {
         if (Array.isArray(dates) && dates.length > 0) {
           setAvailableDates(dates);
-          // 当日以前の最新日付をデフォルト
+          // 直近の日付をデフォルト（未来7日以内も含む＝前日準備対応）
           const todayStr = today;
-          const defaultDate = dates.find((d: string) => d <= todayStr) || dates[0];
+          const weekLater = new Date();
+          weekLater.setDate(weekLater.getDate() + 7);
+          const weekLaterStr = weekLater.toISOString().slice(0, 10);
+          const nearFuture = dates.find((d: string) => d >= todayStr && d <= weekLaterStr);
+          const defaultDate = nearFuture || dates.find((d: string) => d <= todayStr) || dates[0];
           setSelectedDate(defaultDate);
         }
       })
