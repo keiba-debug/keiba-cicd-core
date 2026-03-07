@@ -761,6 +761,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         case 'prob_p': va = a.entry.pred_proba_p; vb = b.entry.pred_proba_p; break;
         case 'win_gap': va = a.entry.win_vb_gap ?? -999; vb = b.entry.win_vb_gap ?? -999; break;
         case 'margin': va = a.entry.predicted_margin ?? -1; vb = b.entry.predicted_margin ?? -1; break;
+        case 'idm': va = a.entry.jrdb_idm ?? -1; vb = b.entry.jrdb_idm ?? -1; break;
         case 'ar_dev': va = a.entry.ar_deviation ?? -1; vb = b.entry.ar_deviation ?? -1; break;
         case 'rating': va = a.entry.kb_rating || 0; vb = b.entry.kb_rating || 0; break;
         case 'finish': {
