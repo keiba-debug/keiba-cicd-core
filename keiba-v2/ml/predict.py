@@ -1173,8 +1173,9 @@ def predict_race(
 
     # === ability_score → rating_display (Method A: グレードオフセット付き) ===
     # 符号反転: 高い=強い。RATING_BASE + ability * RATING_SCALE + grade_offset
-    RATING_SCALE = 14.7
-    RATING_BASE = 74.2
+    # IDMスケール（Session 90: 0.92*R-11.84 キャリブレーション適用）
+    RATING_SCALE = 13.5
+    RATING_BASE = 56.4
     ability_score = None
     rating_display = None
     if model_ar is not None:

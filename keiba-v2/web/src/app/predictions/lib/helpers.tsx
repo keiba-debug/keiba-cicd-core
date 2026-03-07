@@ -5,7 +5,7 @@ import type { OddsMap, DangerInfo, SortDir, SortState } from './types';
 
 /** winGap + rating から★スコアを算出 (3=★★★, 2=★★, 1=★, 0=条件外) */
 export function getStarScore(winGap: number, rating: number): number {
-  if (rating < 56.6) return 0;
+  if (rating < 40) return 0;  // IDMスケール (旧56.6)
   if (winGap >= 7) return 3;
   if (winGap >= 6) return 2;
   if (winGap >= 5) return 1;
@@ -28,12 +28,12 @@ export function getStarColor(score: number): string {
   return 'text-gray-300';
 }
 
-/** AR (Aura Rating) の色クラス (>=68 green, 58-68 normal, 56.6-58 yellow, <56.6 gray) */
+/** AR (Aura Rating) の色クラス — IDMスケール (>=51 green, 42-51 normal, 40-42 yellow, <40 gray) */
 export function getArColor(rating: number | null | undefined): string {
   if (rating == null) return 'text-gray-300';
-  if (rating >= 68) return 'text-green-600 font-bold';
-  if (rating >= 58) return '';
-  if (rating >= 56.6) return 'text-yellow-600';
+  if (rating >= 51) return 'text-green-600 font-bold';
+  if (rating >= 42) return '';
+  if (rating >= 40) return 'text-yellow-600';
   return 'text-gray-400';
 }
 

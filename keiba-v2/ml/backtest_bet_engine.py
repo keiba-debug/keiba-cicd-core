@@ -494,7 +494,7 @@ def main():
     print(f'  {"-" * 65}')
 
     for win_gap in [4, 5, 6]:
-        for min_rating in [50.0, 53.0, 56.6, 59.0, 62.0, 99.0]:
+        for min_rating in [34.0, 37.0, 40.0, 42.5, 45.0, 99.0]:  # IDMスケール
             params = BetStrategyParams(
                 win_min_gap=win_gap,
                 win_min_rating=min_rating,

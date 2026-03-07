@@ -666,6 +666,6 @@ class TestPresets:
         assert p.win_max_rank_w == 1
         assert p.win_min_win_gap == 4
         assert p.win_min_ev == 1.3
-        assert p.win_max_predicted_margin == 60.0
+        assert p.win_max_predicted_margin == 43.4  # IDMスケール
         assert p.max_win_per_race == 1
         assert p.place_addon is False

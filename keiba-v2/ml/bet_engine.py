@@ -30,11 +30,12 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# 能力R変換定数 (ability_score → rating)
+# 能力R変換定数 (ability_score → rating) — IDMスケール
 # ability_score = -pred_margin_ar (符号反転: 高い=強い)
 # rating = RATING_BASE + ability_score * RATING_SCALE
-RATING_SCALE = 14.7
-RATING_BASE = 74.2
+# Session 90: IDMキャリブレーション適用 (0.92*旧R-11.84)
+RATING_SCALE = 13.5
+RATING_BASE = 56.4
 
 # グレードオフセット（Method A: 相対R→絶対R変換）
 # offset = grade_mean_R - global_mean_R
@@ -346,7 +347,7 @@ PRESETS: Dict[str, BetStrategyParams] = {
         win_max_rank_w=1,               # rank_w=1のみ
         win_min_win_gap=4,              # win_vb_gap>=4
         win_min_ev=1.3,                 # EV>=1.3 (evaluate_win内で適用)
-        win_max_predicted_margin=60.0,  # R<=60 (接戦フィルタ)
+        win_max_predicted_margin=43.4,  # IDMスケール (旧R<=60, 接戦フィルタ)
         win_min_vb_score=0,             # Composite Score無効
         win_v_ratio_min=0,              # P%比率フィルタ無効
         win_max_rank=99,                # rank_pフィルタ無効
