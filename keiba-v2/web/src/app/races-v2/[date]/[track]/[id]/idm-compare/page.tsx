@@ -6,7 +6,7 @@
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { getIntegratedRaceData } from '@/lib/data/integrated-race-reader';
 import { getV4RaceData } from '@/lib/data/v4-race-reader';
 import { getKbExtData } from '@/lib/data/v4-keibabook-reader';
@@ -14,6 +14,7 @@ import { adaptV4ToIntegrated } from '@/lib/data/v4-race-adapter';
 import { getHorseFullData } from '@/lib/data/horse-data-reader';
 import { getPredictionsByDate } from '@/lib/data/predictions-reader';
 import { getIDMStandards, resolveIDMGradeKey, getWinnerIDMByRaceName } from '@/lib/data/idm-standards-reader';
+import { getRaceNavigation } from '@/lib/data';
 import { IDMComparisonChart, type HorseIDMData } from '@/components/race-v2/IDMComparisonChart';
 
 interface PageParams {
@@ -58,6 +59,19 @@ function calcTrend(idmValues: number[]): 'up' | 'flat' | 'down' {
   if (diff < -3) return 'down';
   return 'flat';
 }
+
+// ── 競馬場背景カラー（タブ用） ──
+
+const getTrackBgClass = (trackName: string) => {
+  const map: Record<string, string> = {
+    '中山': 'bg-[var(--color-venue-nakayama)]',
+    '京都': 'bg-[var(--color-venue-kyoto)]',
+    '小倉': 'bg-[var(--color-venue-kokura)]',
+    '東京': 'bg-[var(--color-venue-tokyo)]',
+    '阪神': 'bg-[var(--color-venue-hanshin)]',
+  };
+  return map[trackName] || 'bg-primary';
+};
 
 // ── レースID変換 ──
 
@@ -110,8 +124,11 @@ export default async function IDMComparePage({ params }: PageParams) {
 
   // レースデータ取得（既存パターン）
   const raceId16 = resolveRaceId16(date, track, id);
-  const [integratedData] = await Promise.all([
+  const currentRaceNumber = parseInt(id.slice(-2), 10);
+
+  const [integratedData, navigation] = await Promise.all([
     getIntegratedRaceData(date, track, id),
+    getRaceNavigation(date, track, currentRaceNumber),
   ]);
 
   let raceData: import('@/types/race-data').IntegratedRaceData | null = null;
@@ -303,9 +320,110 @@ export default async function IDMComparePage({ params }: PageParams) {
 
   const backUrl = `/races-v2/${date}/${encodeURIComponent(track)}/${id}`;
 
+  // 競馬場切り替え時に同じレース番号を維持するためのヘルパー
+  const getTrackRaceId = (targetTrack: string, raceNum: number): string => {
+    if (!navigation) return '';
+    const trackInfo = navigation.tracks.find((t) => t.name === targetTrack);
+    if (!trackInfo) return '';
+    const byNumber = trackInfo.raceByNumber?.[raceNum];
+    if (byNumber) return byNumber;
+    const raceByNumber = trackInfo.raceByNumber || {};
+    const availableNumbers = Object.keys(raceByNumber).map(Number).filter((n) => !Number.isNaN(n));
+    if (availableNumbers.length > 0) {
+      availableNumbers.sort((a, b) => a - b);
+      const closest = availableNumbers.reduce((prev, curr) =>
+        Math.abs(curr - raceNum) < Math.abs(prev - raceNum) ? curr : prev
+      );
+      return raceByNumber[closest] || trackInfo.firstRaceId;
+    }
+    return trackInfo.firstRaceId;
+  };
+
   return (
     <div className="container max-w-7xl mx-auto px-4 py-6">
-      {/* ヘッダー */}
+      {/* レースナビゲーション */}
+      {navigation && (
+        <div className="mb-4 p-3 bg-card rounded-xl border shadow-sm">
+          <div className="flex items-center gap-3">
+            {/* 前のレースボタン */}
+            {navigation.prevRace ? (
+              <Link
+                href={`/races-v2/${date}/${encodeURIComponent(navigation.prevRace.track)}/${navigation.prevRace.raceId}/idm-compare`}
+                className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 active:bg-gray-300 transition-all duration-150 flex items-center justify-center shadow-sm hover:shadow"
+                title={`前のレース (${navigation.prevRace.track})`}
+              >
+                <ChevronLeft className="w-5 h-5 text-gray-600" />
+              </Link>
+            ) : (
+              <span className="w-9 h-9 rounded-full bg-gray-50 text-gray-300 flex items-center justify-center cursor-not-allowed">
+                <ChevronLeft className="w-5 h-5" />
+              </span>
+            )}
+
+            {/* 競馬場タブ */}
+            <div className="flex gap-1.5 bg-gray-100 p-1 rounded-lg">
+              {navigation.tracks.map((t) => {
+                const isActive = t.name === track;
+                const targetRaceId = getTrackRaceId(t.name, currentRaceNumber);
+                return (
+                  <Link
+                    key={t.name}
+                    href={`/races-v2/${date}/${encodeURIComponent(t.name)}/${targetRaceId}/idm-compare`}
+                    className={`px-4 py-2 text-sm font-bold rounded-md transition-all duration-200 ${
+                      isActive
+                        ? `${getTrackBgClass(t.name)} text-white shadow-md scale-105`
+                        : 'bg-white hover:bg-gray-50 text-gray-600 hover:text-gray-900 shadow-sm hover:shadow'
+                    }`}
+                  >
+                    {t.name}
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* 区切り線 */}
+            <div className="w-px h-8 bg-gray-200" />
+
+            {/* レース番号タブ (1-12) */}
+            <div className="flex gap-1 flex-wrap bg-gray-50 p-1.5 rounded-lg">
+              {navigation.races.map((r) => {
+                const isActive = r.raceId === id;
+                return (
+                  <Link
+                    key={r.raceId}
+                    href={`/races-v2/${date}/${encodeURIComponent(track)}/${r.raceId}/idm-compare`}
+                    className={`w-8 h-8 text-xs font-bold rounded-md transition-all duration-150 flex items-center justify-center ${
+                      isActive
+                        ? 'bg-gray-800 text-white shadow-md scale-110'
+                        : 'bg-white hover:bg-gray-100 text-gray-600 hover:text-gray-900 shadow-sm hover:shadow'
+                    }`}
+                    title={`${r.raceName} (${r.startTime})`}
+                  >
+                    {r.raceNumber}
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* 次のレースボタン */}
+            {navigation.nextRace ? (
+              <Link
+                href={`/races-v2/${date}/${encodeURIComponent(navigation.nextRace.track)}/${navigation.nextRace.raceId}/idm-compare`}
+                className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 active:bg-gray-300 transition-all duration-150 flex items-center justify-center ml-auto shadow-sm hover:shadow"
+                title={`次のレース (${navigation.nextRace.track})`}
+              >
+                <ChevronRight className="w-5 h-5 text-gray-600" />
+              </Link>
+            ) : (
+              <span className="w-9 h-9 rounded-full bg-gray-50 text-gray-300 flex items-center justify-center cursor-not-allowed ml-auto">
+                <ChevronRight className="w-5 h-5" />
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* レース詳細に戻るリンク */}
       <div className="flex items-center gap-3 mb-6">
         <Link
           href={backUrl}
