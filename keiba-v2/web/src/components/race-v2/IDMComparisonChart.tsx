@@ -23,7 +23,7 @@ export interface HorseIDMData {
   birthDate: string; // YYYYMMDD
   idmPoints: Array<{
     ageMonths: number;
-    dateNum: number; // エポック月 (YYYY*12+MM) — X軸用
+    dateNum: number; // エポック日 (2000-01-01からの日数) — X軸用
     idm: number | null;
     date: string;
     track: string;
@@ -51,9 +51,10 @@ const HORSE_COLORS = [
   '#38bdf8', '#fb923c', '#a78bfa',
 ];
 
-// 現在の年月（エポック月）
+// 現在の日付（エポック日: 2000-01-01からの日数）
 const NOW_DATE = new Date();
-const NOW_DATENUM = NOW_DATE.getFullYear() * 12 + NOW_DATE.getMonth(); // month 0-indexed
+const EPOCH_BASE = Date.UTC(2000, 0, 1);
+const NOW_DATENUM = Math.round((Date.UTC(NOW_DATE.getFullYear(), NOW_DATE.getMonth(), NOW_DATE.getDate()) - EPOCH_BASE) / 86400000);
 
 // 開始年の選択肢を動的生成（現在年から遡って6年分 + 全期間）
 const CURRENT_YEAR = NOW_DATE.getFullYear();
@@ -138,10 +139,12 @@ interface IDMComparisonChartProps {
 type SortKey = 'horseNumber' | 'latestIdm' | 'maxIdm' | 'max5Idm' | 'avg3' | 'avg5' | 'raceCount' | 'trend' | 'odds' | 'arDeviation';
 type ChartTab = 'timeline' | 'range';
 
-// dateNum (エポック月) → 表示ラベル
+// dateNum (エポック日: 2000-01-01からの日数) → 表示ラベル
 function formatDateNum(v: number): string {
-  const y = Math.floor(v / 12);
-  const m = (v % 12) + 1;
+  const ms = EPOCH_BASE + v * 86400000;
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth() + 1;
   return `${y}/${String(m).padStart(2, '0')}`;
 }
 
@@ -168,7 +171,10 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
   }, [horses]);
 
   // 統一チャートデータ構築（dateNumベース、選択範囲内のみ）
-  const rangeMin = startYear != null ? startYear * 12 : -Infinity;
+  // startYearからのエポック日を計算 (e.g. 2025 → 2025-01-01からの日数)
+  const rangeMin = startYear != null
+    ? Math.round((Date.UTC(startYear, 0, 1) - Date.UTC(2000, 0, 1)) / 86400000)
+    : -Infinity;
   const chartData = useMemo(() => {
     const dateSet = new Set<number>();
     for (const h of horses) {
@@ -208,17 +214,18 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
     setVisibleHorses(new Set());
   }, []);
 
-  // X軸設定: 開始=選択年の1月、終了=現在月+1
-  const xMin = startYear != null ? startYear * 12 : globalMin - 1;
-  const xMax = NOW_DATENUM + 1;
+  // X軸設定: 開始=選択年の1/1、終了=現在日+30日
+  const yearToEpochDay = (y: number) => Math.round((Date.UTC(y, 0, 1) - EPOCH_BASE) / 86400000);
+  const xMin = startYear != null ? yearToEpochDay(startYear) : globalMin - 30;
+  const xMax = NOW_DATENUM + 30;
 
-  // ティック: 3月/6月/9月/12月の四半期境界
+  // ティック: 四半期境界 (1月/4月/7月/10月)
   const ticks: number[] = [];
-  const tickStartYear = startYear ?? Math.floor(globalMin / 12);
-  const tickEndYear = Math.floor(xMax / 12);
+  const tickStartYear = startYear ?? new Date(EPOCH_BASE + globalMin * 86400000).getUTCFullYear();
+  const tickEndYear = NOW_DATE.getUTCFullYear() + 1;
   for (let y = tickStartYear; y <= tickEndYear; y++) {
-    for (const m of [0, 2, 5, 8, 11]) { // 1月, 3月, 6月, 9月, 12月
-      const t = y * 12 + m;
+    for (const m of [0, 3, 6, 9]) { // 1月, 4月, 7月, 10月
+      const t = Math.round((Date.UTC(y, m, 1) - EPOCH_BASE) / 86400000);
       if (t >= xMin && t <= xMax) ticks.push(t);
     }
   }

@@ -38,12 +38,16 @@ function calcAgeMonths(birthDate: string, raceDate: string): number {
   return (ry - by) * 12 + (rm - bm) + (rd - bd) / 31;
 }
 
-// エポック月 (YYYY*12 + monthIndex) — X軸用
+// エポック日 (2000-01-01からの日数) — X軸用
+// 月単位だと同月2走が重なるため日単位にする
 function calcDateNum(raceDate: string): number {
   const clean = raceDate.replace(/[/-]/g, '');
   const y = parseInt(clean.slice(0, 4), 10);
-  const m = parseInt(clean.slice(4, 6), 10);
-  return y * 12 + (m - 1);
+  const m = parseInt(clean.slice(4, 6), 10) - 1;
+  const d = parseInt(clean.slice(6, 8), 10);
+  const ms = Date.UTC(y, m, d);
+  const epoch = Date.UTC(2000, 0, 1);
+  return Math.round((ms - epoch) / 86400000);
 }
 
 // ── トレンド判定 ──
