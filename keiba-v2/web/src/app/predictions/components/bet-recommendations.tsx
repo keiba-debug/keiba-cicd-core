@@ -251,7 +251,7 @@ export function BetRecommendations({
             <tbody>
               {sortedBetRecommendations.map((r) => {
                 const winOdds = getWinOdds(oddsMap, r.race.race_id, r.entry.umaban, r.entry.odds);
-                const headRatio = calcHeadRatio(r.entry.pred_proba_w, r.entry.pred_proba_p);
+                const headRatio = calcHeadRatio(r.entry.pred_proba_w_cal ?? r.entry.pred_proba_w, r.entry.pred_proba_p);
                 return (
                   <tr
                     key={`${r.race.race_id}-${r.entry.umaban}`}
