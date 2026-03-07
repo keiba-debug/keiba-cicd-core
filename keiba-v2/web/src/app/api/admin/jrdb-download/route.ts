@@ -104,7 +104,7 @@ export async function POST(request: Request) {
 
         for (let i = 0; i < JRDB_TYPES.length; i++) {
           const jrdbType = JRDB_TYPES[i];
-          const args = ['-m', 'jrdb.downloader', '--type', jrdbType, '--latest', '--latest-count', '20'];
+          const args = ['-m', 'jrdb.downloader', '--type', jrdbType, '--latest', '--latest-count', '20', '--force'];
 
           send({
             type: 'log',

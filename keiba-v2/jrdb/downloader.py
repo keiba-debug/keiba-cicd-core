@@ -142,9 +142,9 @@ def list_archive_links(session: requests.Session, data_type: str) -> List[dict]:
     return links
 
 
-def download_file(session: requests.Session, url: str, dest: Path) -> bool:
+def download_file(session: requests.Session, url: str, dest: Path, force: bool = False) -> bool:
     """ファイルをダウンロード"""
-    if dest.exists():
+    if dest.exists() and not force:
         print(f"  SKIP (exists): {dest.name}")
         return True
 
@@ -259,9 +259,9 @@ def download_yearly(session: requests.Session, data_type: str, years: List[int])
                 print(f"  Extracted: {n} files")
 
 
-def download_latest(session: requests.Session, data_type: str, count: int = 5):
+def download_latest(session: requests.Session, data_type: str, count: int = 5, force: bool = False):
     """最新の単体ファイルをダウンロード"""
-    print(f"\n[{data_type}] Downloading latest {count} files")
+    print(f"\n[{data_type}] Downloading latest {count} files{' (force)' if force else ''}")
 
     links = list_archive_links(session, data_type)
     singles = [l for l in links if not l['is_yearly']]
@@ -282,7 +282,13 @@ def download_latest(session: requests.Session, data_type: str, count: int = 5):
 
     for link in singles[:count]:
         dest = type_zip_dir / link['filename']
-        if download_file(session, link['url'], dest):
+        if force:
+            # force時はraw側の既存txtも削除して再解凍させる
+            raw_name = Path(link['filename']).stem + '.txt'
+            raw_path = type_raw_dir / raw_name
+            if raw_path.exists():
+                raw_path.unlink()
+        if download_file(session, link['url'], dest, force=force):
             n = extract_archive(dest, type_raw_dir)
             if n > 0:
                 print(f"  Extracted: {n} files")
@@ -300,6 +306,8 @@ def main():
                         help='最新の単体ファイルをダウンロード')
     parser.add_argument('--latest-count', type=int, default=10,
                         help='最新ファイルの取得数 (default: 10)')
+    parser.add_argument('--force', action='store_true',
+                        help='既存ファイルを再ダウンロード（パーシャルDL対策）')
     parser.add_argument('--list', action='store_true',
                         help='ダウンロード可能なファイル一覧を表示')
     args = parser.parse_args()
@@ -335,7 +343,7 @@ def main():
 
     for dt in types:
         if args.latest:
-            download_latest(session, dt, args.latest_count)
+            download_latest(session, dt, args.latest_count, force=args.force)
         else:
             download_yearly(session, dt, years)
 
