@@ -68,6 +68,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
         }
         case 'gap': va = getLiveGap(a); vb = getLiveGap(b); break;
         case 'margin': va = a.predicted_margin ?? 99; vb = b.predicted_margin ?? 99; break;
+        case 'idm': va = a.jrdb_idm ?? -1; vb = b.jrdb_idm ?? -1; break;
         case 'ar_dev': va = a.ar_deviation ?? -99; vb = b.ar_deviation ?? -99; break;
         case 'ev': {
           va = calcWinEv(a, getWinOdds(oddsMap, race.race_id, a.umaban, a.odds)) ?? -1;
@@ -152,7 +153,8 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-amber-50/50 dark:bg-amber-900/20 font-bold" title="Gap（主軸） = 人気順位 - VR。VB判定の主フィルター">Gap</SortTh>
                 <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝EV = calibrated P(win) × 単勝オッズ">EV</SortTh>
-                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数。高い=強い">AR</SortTh>
+                <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数（IDMスケール）">AR</SortTh>
+                <SortTh sortKey="idm" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/30 dark:bg-teal-900/10" title="JRDB IDM — 過去3走平均">IDM</SortTh>
                 <SortTh sortKey="ar_dev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-teal-50/30 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
                 <SortTh sortKey="prob_p" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走モデル(P)の3着内確率（%）">P%</SortTh>
                 <SortTh sortKey="prob_w" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利モデル(W)の勝率予測（%）">W%</SortTh>
@@ -217,6 +219,9 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                     </td>
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(entry.predicted_margin)}`}>
                       {entry.predicted_margin != null ? entry.predicted_margin.toFixed(1) : '-'}
+                    </td>
+                    <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/20 dark:bg-teal-900/5 ${getArColor(entry.jrdb_idm != null && entry.jrdb_idm > 0 ? entry.jrdb_idm : null)}`} title="JRDB IDM (過去3走平均)">
+                      {entry.jrdb_idm != null && entry.jrdb_idm > 0 ? entry.jrdb_idm.toFixed(1) : '-'}
                     </td>
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/20 dark:bg-teal-900/5 ${getArdColor(entry.ar_deviation)}`} title="AR偏差値">
                       {entry.ar_deviation != null ? entry.ar_deviation.toFixed(0) : '-'}
