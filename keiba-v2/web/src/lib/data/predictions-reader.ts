@@ -39,7 +39,7 @@ export interface PredictionEntry {
   ar_deviation?: number | null;      // AR偏差値 — レース内相対評価 (mean=50, std=10)
   dev_gap?: number;                  // 偏差値gap — z-score(model) - z-score(market)
   // JRDB IDM (Session 90)
-  jrdb_idm?: number;          // JRDB IDM 過去3走平均
+  jrdb_idm?: number;          // JRDB 事前IDM（今回レースのJRDB予測値）
   // keibabook
   kb_mark: string;
   kb_mark_point: number;

@@ -2,10 +2,11 @@
  * 管理画面用API: JRDBデータダウンロード＆統合
  * POST /api/admin/jrdb-download
  *
- * 3段階パイプライン:
+ * 4段階パイプライン:
  *   1. SED/KYI/KAAの最新データをJRDBからダウンロード
  *   2. JRDBインデックス再構築 (build_jrdb_index)
  *   3. 対象日のrace JSONにJRDB指標を付与 (build_race_from_keibabook --force)
+ *   4. predictions.json再生成 (ml.predict → ml.predict_closing → ml.generate_bets)
  *
  * SSE形式で進捗をストリーミング。
  */
@@ -83,12 +84,12 @@ export async function POST(request: Request) {
       };
 
       const startTime = Date.now();
-      const totalSteps = 2 + (dates.length > 0 ? 1 : 0);
+      const totalSteps = 2 + (dates.length > 0 ? 2 : 0);
       let currentStep = 0;
 
       send({
         type: 'start',
-        message: `JRDB データ統合開始 (${JRDB_TYPES.join('+')} DL → Index再構築${dates.length > 0 ? ` → Race JSON更新 ${dates.join(',')}` : ''})`,
+        message: `JRDB データ統合開始 (${JRDB_TYPES.join('+')} DL → Index再構築${dates.length > 0 ? ` → Race JSON更新 → Predictions再生成 ${dates.join(',')}` : ''})`,
       });
 
       try {
@@ -137,8 +138,9 @@ export async function POST(request: Request) {
           message: 'JRDBインデックス再構築 完了',
         });
 
-        // ── Step 3: Race JSON 再構築（日付指定時のみ）──
+        // ── Step 3-4: Race JSON 再構築 + Predictions再生成（日付指定時のみ）──
         if (dates.length > 0) {
+          // ── Step 3: Race JSON enrichment ──
           currentStep++;
           send({
             type: 'progress',
@@ -163,6 +165,44 @@ export async function POST(request: Request) {
               type: 'log',
               level: 'info',
               message: `  ${date} Race JSON 更新完了`,
+            });
+          }
+
+          // ── Step 4: Predictions再生成 ──
+          currentStep++;
+          send({
+            type: 'progress',
+            current: currentStep,
+            total: totalSteps,
+            message: `[Step ${currentStep}/${totalSteps}] Predictions再生成 (${dates.join(', ')})...`,
+          });
+
+          for (const date of dates) {
+            send({
+              type: 'log',
+              level: 'info',
+              message: `  ${date} ml.predict 実行中...`,
+            });
+            await runPython(['-m', 'ml.predict', '--date', date], send);
+
+            send({
+              type: 'log',
+              level: 'info',
+              message: `  ${date} ml.predict_closing 実行中...`,
+            });
+            await runPython(['-m', 'ml.predict_closing', '--date', date], send);
+
+            send({
+              type: 'log',
+              level: 'info',
+              message: `  ${date} ml.generate_bets 実行中...`,
+            });
+            await runPython(['-m', 'ml.generate_bets', '--date', date], send);
+
+            send({
+              type: 'log',
+              level: 'info',
+              message: `  ${date} predictions.json 更新完了`,
             });
           }
         }
