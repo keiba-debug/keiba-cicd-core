@@ -53,7 +53,8 @@ export interface MlPredictionEntry {
   horse_number: number;
   pred_proba_p: number;
   pred_proba_value?: number;  // legacy alias for pred_proba_p
-  pred_proba_w_cal?: number | null;  // P(win) calibrated
+  pred_proba_w?: number | null;      // P(win) raw (sum≈1.0)
+  pred_proba_w_cal?: number | null;  // P(win) calibrated (EV計算用)
   rank_w?: number | null;
   value_rank: number;
   odds_rank: number | null;
@@ -576,14 +577,14 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
       {/* W% (勝率) */}
       {mlPrediction !== undefined && (
         <td className="px-1 py-1.5 text-center border font-mono text-xs">
-          {mlPrediction.pred_proba_w_cal != null ? (
+          {(mlPrediction.pred_proba_w ?? mlPrediction.pred_proba_w_cal) != null ? (
             <span className={
-              mlPrediction.pred_proba_w_cal >= 0.15 ? 'text-red-600 font-bold' :
-              mlPrediction.pred_proba_w_cal >= 0.08 ? 'text-blue-600 font-bold' :
-              mlPrediction.pred_proba_w_cal >= 0.04 ? 'text-gray-700 dark:text-gray-300' :
+              (mlPrediction.pred_proba_w ?? mlPrediction.pred_proba_w_cal ?? 0) >= 0.15 ? 'text-red-600 font-bold' :
+              (mlPrediction.pred_proba_w ?? mlPrediction.pred_proba_w_cal ?? 0) >= 0.08 ? 'text-blue-600 font-bold' :
+              (mlPrediction.pred_proba_w ?? mlPrediction.pred_proba_w_cal ?? 0) >= 0.04 ? 'text-gray-700 dark:text-gray-300' :
               'text-gray-400'
             }>
-              {(mlPrediction.pred_proba_w_cal * 100).toFixed(1)}
+              {((mlPrediction.pred_proba_w ?? mlPrediction.pred_proba_w_cal)! * 100).toFixed(1)}
             </span>
           ) : <span className="text-gray-300">-</span>}
         </td>
@@ -966,8 +967,8 @@ export default function HorseEntryTable({
           break;
         }
         case 'ml_w': {
-          const wa = mlPredictions?.[a.horse_number]?.pred_proba_w_cal ?? -999;
-          const wb = mlPredictions?.[b.horse_number]?.pred_proba_w_cal ?? -999;
+          const wa = mlPredictions?.[a.horse_number]?.pred_proba_w ?? mlPredictions?.[a.horse_number]?.pred_proba_w_cal ?? -999;
+          const wb = mlPredictions?.[b.horse_number]?.pred_proba_w ?? mlPredictions?.[b.horse_number]?.pred_proba_w_cal ?? -999;
           cmp = wa - wb;
           break;
         }

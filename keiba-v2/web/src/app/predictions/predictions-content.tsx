@@ -649,8 +649,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           break;
         }
         case 'head': {
-          va = calcHeadRatio(a.entry.pred_proba_w_cal ?? a.entry.pred_proba_w, a.entry.pred_proba_p) ?? -1;
-          vb = calcHeadRatio(b.entry.pred_proba_w_cal ?? b.entry.pred_proba_w, b.entry.pred_proba_p) ?? -1;
+          va = calcHeadRatio(a.entry.pred_proba_w, a.entry.pred_proba_p) ?? -1;
+          vb = calcHeadRatio(b.entry.pred_proba_w, b.entry.pred_proba_p) ?? -1;
           break;
         }
         case 'margin': va = a.predictedMargin ?? -1; vb = b.predictedMargin ?? -1; break;
@@ -754,8 +754,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           break;
         }
         case 'head_ratio': {
-          va = calcHeadRatio(a.entry.pred_proba_w_cal ?? a.entry.pred_proba_w, a.entry.pred_proba_p) ?? -1;
-          vb = calcHeadRatio(b.entry.pred_proba_w_cal ?? b.entry.pred_proba_w, b.entry.pred_proba_p) ?? -1;
+          va = calcHeadRatio(a.entry.pred_proba_w, a.entry.pred_proba_p) ?? -1;
+          vb = calcHeadRatio(b.entry.pred_proba_w, b.entry.pred_proba_p) ?? -1;
           break;
         }
         case 'prob_p': va = a.entry.pred_proba_p; vb = b.entry.pred_proba_p; break;

@@ -75,7 +75,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
           break;
         }
         case 'prob_p': va = a.pred_proba_p; vb = b.pred_proba_p; break;
-        case 'prob_w': va = a.pred_proba_w_cal ?? a.pred_proba_w ?? -1; vb = b.pred_proba_w_cal ?? b.pred_proba_w ?? -1; break;
+        case 'prob_w': va = a.pred_proba_w ?? -1; vb = b.pred_proba_w ?? -1; break;
         case 'rating': va = a.kb_rating || 0; vb = b.kb_rating || 0; break;
         case 'finish': {
           const pa = dbRaceResult?.[a.umaban]?.finishPosition ?? jsonRaceResult?.[a.umaban]?.finish_position ?? 0;
@@ -223,7 +223,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                     </td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_p * 100).toFixed(1)}</td>
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-emerald-50/30 dark:bg-emerald-900/10 ${entry.rank_w != null && entry.rank_w <= 3 ? 'font-bold text-emerald-600' : ''}`}>
-                      {(entry.pred_proba_w_cal ?? entry.pred_proba_w) != null ? ((entry.pred_proba_w_cal ?? entry.pred_proba_w)! * 100).toFixed(1) : '-'}
+                      {entry.pred_proba_w != null ? (entry.pred_proba_w * 100).toFixed(1) : '-'}
                     </td>
                     <td className="px-2 py-1 text-center font-mono text-xs">{entry.kb_rating > 0 ? entry.kb_rating.toFixed(1) : '-'}</td>
                     <td className="px-2 py-1 text-center text-xs">{entry.kb_training_arrow}</td>

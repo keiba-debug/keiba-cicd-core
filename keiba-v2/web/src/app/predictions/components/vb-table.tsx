@@ -141,9 +141,8 @@ export function VBTable({
                           );
                         }
                         // VB候補全体: 単勝/複勝適性バッジ
-                        const wProb = entry.pred_proba_w_cal ?? entry.pred_proba_w;
-                        const headRatio = wProb && entry.pred_proba_p > 0
-                          ? wProb / entry.pred_proba_p : 0;
+                        const headRatio = entry.pred_proba_w && entry.pred_proba_p > 0
+                          ? entry.pred_proba_w / entry.pred_proba_p : 0;
                         const winSuited = (ev ?? 0) >= 1.0 && headRatio >= 0.30;
                         const placeSuited = (entry.place_ev ?? 0) >= 1.0;
                         if (winSuited && placeSuited) {
@@ -177,7 +176,7 @@ export function VBTable({
                       {(entry.pred_proba_p * 100).toFixed(1)}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono text-xs text-emerald-600">
-                      {(entry.pred_proba_w_cal ?? entry.pred_proba_w) != null ? ((entry.pred_proba_w_cal ?? entry.pred_proba_w)! * 100).toFixed(1) : '-'}
+                      {entry.pred_proba_w != null ? (entry.pred_proba_w * 100).toFixed(1) : '-'}
                     </td>
                     <td className="px-2 py-1.5 border text-center font-mono text-xs">{entry.kb_rating > 0 ? entry.kb_rating.toFixed(1) : '-'}</td>
                     <td className="px-2 py-1.5 border text-center">{entry.kb_training_arrow}</td>
