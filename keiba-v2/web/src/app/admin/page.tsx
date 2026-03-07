@@ -977,6 +977,12 @@ export default function AdminPage() {
                         📈 レイティング分析 →
                       </a>
                       <a
+                        href="/analysis/idm"
+                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        🎯 IDM分析 →
+                      </a>
+                      <a
                         href="/analysis/pedigree"
                         className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
                       >

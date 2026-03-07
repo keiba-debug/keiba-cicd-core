@@ -32,11 +32,14 @@ export interface HorseIDMData {
   }>;
   latestIdm: number | null;
   maxIdm: number | null;
+  max5Idm: number | null;  // 近5走最高
   avgIdm: number | null;
   avg3: number | null;   // 近3走平均
   avg5: number | null;   // 近5走平均
   raceCount: number;
   trend: 'up' | 'flat' | 'down';
+  odds: number | null;         // 単勝オッズ
+  arDeviation: number | null;  // AR偏差値
 }
 
 // ── 定数 ──
@@ -128,9 +131,11 @@ function ComparisonTooltip({ active, payload, label, horses, visibleHorses }: Co
 interface IDMComparisonChartProps {
   horses: HorseIDMData[];
   raceName: string;
+  winnerIdmStandard?: number | null; // クラス別勝ち馬IDM基準値
+  gradeLabel?: string;               // グレード表示ラベル
 }
 
-type SortKey = 'horseNumber' | 'latestIdm' | 'maxIdm' | 'avg3' | 'avg5' | 'raceCount' | 'trend';
+type SortKey = 'horseNumber' | 'latestIdm' | 'maxIdm' | 'max5Idm' | 'avg3' | 'avg5' | 'raceCount' | 'trend' | 'odds' | 'arDeviation';
 type ChartTab = 'timeline' | 'range';
 
 // dateNum (エポック月) → 表示ラベル
@@ -140,7 +145,7 @@ function formatDateNum(v: number): string {
   return `${y}/${String(m).padStart(2, '0')}`;
 }
 
-export function IDMComparisonChart({ horses, raceName }: IDMComparisonChartProps) {
+export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeLabel }: IDMComparisonChartProps) {
   const [chartTab, setChartTab] = useState<ChartTab>('timeline');
   const [startYear, setStartYear] = useState<number | null>(CURRENT_YEAR - 1); // デフォルト: 前年から
   const [visibleHorses, setVisibleHorses] = useState<Set<number>>(
@@ -344,6 +349,21 @@ export function IDMComparisonChart({ horses, raceName }: IDMComparisonChartProps
                 width={35}
               />
               <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="4 4" opacity={0.6} />
+              {winnerIdmStandard != null && (
+                <ReferenceLine
+                  y={winnerIdmStandard}
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  opacity={0.7}
+                  label={{
+                    value: `勝馬基準 ${winnerIdmStandard.toFixed(1)}${gradeLabel ? ` (${gradeLabel})` : ''}`,
+                    position: 'insideTopRight',
+                    fill: '#f59e0b',
+                    fontSize: 11,
+                    fontWeight: 'bold',
+                  }}
+                />
+              )}
               <Tooltip
                 content={
                   <ComparisonTooltip
@@ -382,6 +402,8 @@ export function IDMComparisonChart({ horses, raceName }: IDMComparisonChartProps
           visibleHorses={visibleHorses}
           highlightedHorse={highlightedHorse}
           onHighlight={setHighlightedHorse}
+          winnerIdmStandard={winnerIdmStandard}
+          gradeLabel={gradeLabel}
         />
       )}
 
@@ -416,28 +438,39 @@ interface RecentSlopeChartProps {
   visibleHorses: Set<number>;
   highlightedHorse: number | null;
   onHighlight: (num: number | null) => void;
+  winnerIdmStandard?: number | null;
+  gradeLabel?: string;
 }
 
 function RecentSlopeChart({
   horses, colorMap, visibleHorses, highlightedHorse, onHighlight,
+  winnerIdmStandard, gradeLabel,
 }: RecentSlopeChartProps) {
-  // 表示馬を最高IDM降順でソート
+  // 表示馬を近5走最高IDM降順でソート
   const sorted = useMemo(() => {
     return [...horses]
       .filter(h => visibleHorses.has(h.horseNumber) && h.idmPoints.length > 0)
-      .sort((a, b) => (b.maxIdm ?? 0) - (a.maxIdm ?? 0));
+      .sort((a, b) => (b.max5Idm ?? 0) - (a.max5Idm ?? 0));
   }, [horses, visibleHorses]);
 
   if (sorted.length === 0) return null;
 
-  const Y_MIN = 30, Y_MAX = 80;
-  const CHART_H = 360;
+  // データに合わせてY軸範囲を動的計算（10刻み、最低0）
+  const allRecentIdms = sorted.flatMap(h =>
+    h.idmPoints.slice(-5).map(p => p.idm).filter((v): v is number => v != null)
+  );
+  const dataMin = allRecentIdms.length > 0 ? Math.min(...allRecentIdms) : 30;
+  const Y_MIN = Math.max(0, Math.floor((dataMin - 5) / 10) * 10); // 最小値-5を10刻みに切り下げ
+  const Y_MAX = 80;
+  const CHART_H = 600; // 推移チャートと同じ高さ
   const toY = (v: number) => CHART_H * (1 - (v - Y_MIN) / (Y_MAX - Y_MIN));
-  const yTicks = [30, 40, 50, 60, 70, 80];
+  // Y軸ティック生成（Y_MINからY_MAXまで10刻み）
+  const yTicks: number[] = [];
+  for (let t = Y_MIN; t <= Y_MAX; t += 10) yTicks.push(t);
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
-      <h3 className="text-sm font-semibold mb-3">近5走 IDMレンジ（最高値順）</h3>
+      <h3 className="text-sm font-semibold mb-3">近5走 IDMレンジ（近5走最高順）</h3>
       <div className="flex">
         {/* Y軸 */}
         <div className="relative flex-shrink-0" style={{ width: 32, height: CHART_H }}>
@@ -466,6 +499,30 @@ function RecentSlopeChart({
               }}
             />
           ))}
+          {/* 勝ち馬IDM基準線 */}
+          {winnerIdmStandard != null && winnerIdmStandard >= Y_MIN && winnerIdmStandard <= Y_MAX && (
+            <>
+              <div
+                className="absolute w-full border-t-2 z-10 pointer-events-none"
+                style={{
+                  top: toY(winnerIdmStandard),
+                  borderColor: '#f59e0b',
+                  borderStyle: 'solid',
+                  opacity: 0.7,
+                }}
+              />
+              <div
+                className="absolute z-10 text-[10px] font-bold pointer-events-none"
+                style={{
+                  top: toY(winnerIdmStandard) - 16,
+                  right: 4,
+                  color: '#f59e0b',
+                }}
+              >
+                勝馬基準 {winnerIdmStandard.toFixed(1)} {gradeLabel ? `(${gradeLabel})` : ''}
+              </div>
+            </>
+          )}
           {/* 馬カラム */}
           <div className="flex h-full">
             {sorted.map(h => {
@@ -593,10 +650,13 @@ function SummaryTable({
         case 'horseNumber': va = a.horseNumber; vb = b.horseNumber; break;
         case 'latestIdm': va = a.latestIdm ?? -1; vb = b.latestIdm ?? -1; break;
         case 'maxIdm': va = a.maxIdm ?? -1; vb = b.maxIdm ?? -1; break;
+        case 'max5Idm': va = a.max5Idm ?? -1; vb = b.max5Idm ?? -1; break;
         case 'avg3': va = a.avg3 ?? -1; vb = b.avg3 ?? -1; break;
         case 'avg5': va = a.avg5 ?? -1; vb = b.avg5 ?? -1; break;
         case 'raceCount': va = a.raceCount; vb = b.raceCount; break;
         case 'trend': va = TREND_ORDER[a.trend] ?? 0; vb = TREND_ORDER[b.trend] ?? 0; break;
+        case 'odds': va = a.odds ?? 999; vb = b.odds ?? 999; break;
+        case 'arDeviation': va = a.arDeviation ?? -1; vb = b.arDeviation ?? -1; break;
         default: va = a.horseNumber; vb = b.horseNumber;
       }
       return sortDesc ? vb - va : va - vb;
@@ -608,9 +668,12 @@ function SummaryTable({
     { key: 'horseNumber', label: '番' },
     { key: 'latestIdm', label: '最新' },
     { key: 'maxIdm', label: '最高' },
+    { key: 'max5Idm', label: '近5最高' },
     { key: 'avg3', label: '近3走' },
     { key: 'avg5', label: '近5走' },
     { key: 'trend', label: '傾向' },
+    { key: 'odds', label: 'オッズ' },
+    { key: 'arDeviation', label: 'ARd' },
     { key: 'raceCount', label: '戦数' },
   ];
 
@@ -667,8 +730,11 @@ function SummaryTable({
                 <td className="px-3 py-1.5 text-center font-mono">
                   {h.latestIdm ?? '-'}
                 </td>
-                <td className="px-3 py-1.5 text-center font-mono font-bold">
+                <td className="px-3 py-1.5 text-center font-mono">
                   {h.maxIdm ?? '-'}
+                </td>
+                <td className="px-3 py-1.5 text-center font-mono font-bold">
+                  {h.max5Idm ?? '-'}
                 </td>
                 <td className="px-3 py-1.5 text-center font-mono">
                   {h.avg3 != null ? h.avg3.toFixed(1) : '-'}
@@ -678,6 +744,19 @@ function SummaryTable({
                 </td>
                 <td className={`px-3 py-1.5 text-center text-lg ${trendInfo?.color || ''}`}>
                   {trendInfo?.icon || '-'}
+                </td>
+                <td className="px-3 py-1.5 text-center font-mono text-muted-foreground">
+                  {h.odds != null ? h.odds.toFixed(1) : '-'}
+                </td>
+                <td className={`px-3 py-1.5 text-center font-mono font-bold ${
+                  h.arDeviation != null
+                    ? h.arDeviation >= 60 ? 'text-green-600 dark:text-green-400'
+                      : h.arDeviation >= 50 ? 'text-blue-600 dark:text-blue-400'
+                      : h.arDeviation >= 45 ? 'text-yellow-600 dark:text-yellow-400'
+                      : 'text-muted-foreground'
+                    : ''
+                }`}>
+                  {h.arDeviation != null ? h.arDeviation.toFixed(1) : '-'}
                 </td>
                 <td className="px-3 py-1.5 text-center text-muted-foreground">
                   {h.raceCount}

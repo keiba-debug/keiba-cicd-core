@@ -12,6 +12,8 @@ import { getV4RaceData } from '@/lib/data/v4-race-reader';
 import { getKbExtData } from '@/lib/data/v4-keibabook-reader';
 import { adaptV4ToIntegrated } from '@/lib/data/v4-race-adapter';
 import { getHorseFullData } from '@/lib/data/horse-data-reader';
+import { getPredictionsByDate } from '@/lib/data/predictions-reader';
+import { getIDMStandards, resolveIDMGradeKey, getWinnerIDMByRaceName } from '@/lib/data/idm-standards-reader';
 import { IDMComparisonChart, type HorseIDMData } from '@/components/race-v2/IDMComparisonChart';
 
 interface PageParams {
@@ -129,6 +131,16 @@ export default async function IDMComparePage({ params }: PageParams) {
   const raceName = raceData.race_info.race_name || raceData.race_info.race_condition || '';
   const raceTitle = `${track}${raceNumber}R ${raceName}`;
 
+  // predictions.json から ARd・オッズ取得
+  const predictions = getPredictionsByDate(date);
+  const predRace = predictions?.races.find(r => r.race_id === raceId16);
+  const predMap = new Map<number, { odds: number; arDeviation: number | null }>();
+  if (predRace) {
+    for (const e of predRace.entries) {
+      predMap.set(e.umaban, { odds: e.odds, arDeviation: e.ar_deviation ?? null });
+    }
+  }
+
   // 全馬の過去走データを並列取得
   const horseDataResults = await Promise.all(
     raceData.entries.map(async (entry) => {
@@ -147,6 +159,7 @@ export default async function IDMComparePage({ params }: PageParams) {
     const birthDate = data?.basic?.birthDate;
     if (!birthDate || birthDate.length < 8 || !data) {
       // IDMデータなしの馬もテーブルには表示
+      const pred0 = predMap.get(entry.horse_number);
       horses.push({
         horseId: entry.horse_id,
         horseName: entry.horse_name,
@@ -156,11 +169,14 @@ export default async function IDMComparePage({ params }: PageParams) {
         idmPoints: [],
         latestIdm: null,
         maxIdm: null,
+        max5Idm: null,
         avgIdm: null,
         avg3: null,
         avg5: null,
         raceCount: 0,
         trend: 'flat',
+        odds: pred0?.odds ?? null,
+        arDeviation: pred0?.arDeviation ?? null,
       });
       continue;
     }
@@ -190,6 +206,7 @@ export default async function IDMComparePage({ params }: PageParams) {
 
     const latestIdm = idmValues.length > 0 ? idmValues[idmValues.length - 1] : null;
     const maxIdm = idmValues.length > 0 ? Math.max(...idmValues) : null;
+    const max5Idm = idmValues.length > 0 ? Math.max(...idmValues.slice(-5)) : null;
     const avgIdm = idmValues.length > 0
       ? idmValues.reduce((s, v) => s + v, 0) / idmValues.length
       : null;
@@ -205,6 +222,7 @@ export default async function IDMComparePage({ params }: PageParams) {
         ? idmValues.reduce((s, v) => s + v, 0) / idmValues.length
         : null;
 
+    const pred = predMap.get(entry.horse_number);
     horses.push({
       horseId: entry.horse_id,
       horseName: entry.horse_name,
@@ -214,16 +232,74 @@ export default async function IDMComparePage({ params }: PageParams) {
       idmPoints,
       latestIdm,
       maxIdm,
+      max5Idm,
       avgIdm,
       avg3,
       avg5,
       raceCount: idmPoints.length,
       trend: calcTrend(idmValues),
+      odds: pred?.odds ?? null,
+      arDeviation: pred?.arDeviation ?? null,
     });
   }
 
   // 馬番順ソート
   horses.sort((a, b) => a.horseNumber - b.horseNumber);
+
+  // IDM基準値（勝ち馬平均）
+  // 1) 重賞は同一レース名基準を優先 → 2) クラス別基準にフォールバック
+  const idmStandards = getIDMStandards();
+  let winnerIdmStandard: number | null = null;
+  let gradeLabel = '';
+  if (idmStandards) {
+    // 同一レース名基準（重賞用）— race_name (例: "Ｇ２フィリーズＲ (牝)") で検索
+    const pureRaceName = raceData.race_info.race_name || '';
+    const raceNameStd = getWinnerIDMByRaceName(pureRaceName);
+    if (raceNameStd?.winner_mean != null) {
+      winnerIdmStandard = raceNameStd.winner_mean;
+      gradeLabel = `過去${raceNameStd.count}回`;
+    }
+
+    // フォールバック: クラス別基準
+    if (winnerIdmStandard == null) {
+      let grade = raceData.race_info.grade || '';
+      if (!grade) {
+        const text = `${raceData.race_info.race_name} ${raceData.race_info.race_condition || ''}`;
+        if (/Ｇ１|G1/i.test(text)) grade = 'G1';
+        else if (/Ｇ２|G2/i.test(text)) grade = 'G2';
+        else if (/Ｇ３|G3/i.test(text)) grade = 'G3';
+        else if (/Listed|リステッド/.test(text)) grade = 'Listed';
+        else if (/オープン|OP/.test(text)) grade = 'OP';
+        else if (/3勝|３勝/.test(text)) grade = '3勝クラス';
+        else if (/2勝|２勝/.test(text)) grade = '2勝クラス';
+        else if (/1勝|１勝/.test(text)) grade = '1勝クラス';
+        else if (/新馬/.test(text)) grade = '新馬';
+        else if (/未勝利/.test(text)) grade = '未勝利';
+      }
+      if (grade) {
+        const ages = raceData.entries
+          .map(e => {
+            const m = e.entry_data?.age?.match(/\d+/);
+            return m ? parseInt(m[0], 10) : 0;
+          })
+          .filter(a => a > 0);
+        let ageClass = '';
+        if (ages.length > 0) {
+          const maxAge = Math.max(...ages);
+          const minAge = Math.min(...ages);
+          if (maxAge === 2) ageClass = '2歳';
+          else if (minAge <= 3 && maxAge === 3) ageClass = '3歳';
+          else ageClass = '古馬';
+        }
+        const gradeKey = resolveIDMGradeKey(grade, ageClass);
+        const standard = idmStandards.by_grade[gradeKey];
+        if (standard?.winner) {
+          winnerIdmStandard = standard.winner.mean;
+          gradeLabel = gradeKey;
+        }
+      }
+    }
+  }
 
   const backUrl = `/races-v2/${date}/${encodeURIComponent(track)}/${id}`;
 
@@ -250,7 +326,12 @@ export default async function IDMComparePage({ params }: PageParams) {
       </div>
 
       {/* チャート + テーブル */}
-      <IDMComparisonChart horses={horses} raceName={raceTitle} />
+      <IDMComparisonChart
+        horses={horses}
+        raceName={raceTitle}
+        winnerIdmStandard={winnerIdmStandard}
+        gradeLabel={gradeLabel}
+      />
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { DateTabs } from '@/components/DateTabs';
 import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
 import { BabaInputForm } from '@/components/baba/BabaInputForm';
-import { ChevronLeft, ChevronRight, MessageCircle, TrendingUp } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MessageCircle, TrendingUp, BarChart3 } from 'lucide-react';
 import { RefreshButton } from '@/components/ui/refresh-button';
 
 // 日付を年月でグループ化
@@ -491,6 +491,16 @@ async function DateRaces({ date }: { date: string }) {
                               <TrendingUp className="w-4 h-4 text-emerald-500" />
                             </Link>
                           )}
+                          {/* IDM比較リンク */}
+                          <Link
+                            href={`/races-v2/${date}/${trackGroup.track}/${race.id}/idm-compare`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                            title="IDM比較"
+                          >
+                            <BarChart3 className="w-4 h-4 text-purple-500" />
+                          </Link>
                         </div>
                         {/* 2行目: JRAビュアーリンク */}
                         <JraViewerMiniLinks

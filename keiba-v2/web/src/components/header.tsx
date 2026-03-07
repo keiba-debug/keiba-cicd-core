@@ -245,6 +245,19 @@ export function Header() {
                   </span>
                 </Link>
                 <Link
+                  href="/analysis/idm"
+                  onClick={() => { if (analysisMenuRef.current) analysisMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🎯</span>
+                    <span>
+                      <span className="font-medium">IDM分析</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">クラス別JRDB IDM基準・勝ち馬基準</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
                   href="/analysis/obstacle"
                   onClick={() => { if (analysisMenuRef.current) analysisMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"

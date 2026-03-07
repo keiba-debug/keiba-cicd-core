@@ -9,7 +9,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { RaceInfo, RaceMeta, getTrackLabel } from '@/types/race-data';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, MapPin, Clock, MessageCircle, TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
+import { Calendar, MapPin, Clock, MessageCircle, TrendingUp, TrendingDown, Minus, Activity, BarChart3 } from 'lucide-react';
 import type { CourseRpciInfo, RpciTrend } from '@/lib/data/rpci-standards-reader';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import type { TrackBias } from '@/lib/data/jrdb-kaa-reader';
@@ -48,6 +48,8 @@ interface RaceHeaderProps {
   laps?: LapsData | null;
   /** 差し決着度（closing model） */
   closingRaceProba?: number | null;
+  /** IDM比較ページURL */
+  idmCompareUrl?: string;
 }
 
 // 競馬場テキストカラー
@@ -75,6 +77,7 @@ export default function RaceHeader({
   jraRaceId,
   laps,
   closingRaceProba,
+  idmCompareUrl,
 }: RaceHeaderProps) {
   // URLパラメータを優先、なければJSONデータを使用
   const displayDate = urlDate || raceInfo.date;
@@ -278,6 +281,18 @@ export default function RaceHeader({
                     title="オッズ分析"
                   >
                     <TrendingUp className="w-5 h-5 text-emerald-500" />
+                  </Link>
+                )}
+                {/* IDM比較リンク */}
+                {idmCompareUrl && (
+                  <Link
+                    href={idmCompareUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                    title="IDM比較"
+                  >
+                    <BarChart3 className="w-5 h-5 text-purple-500" />
                   </Link>
                 )}
               </div>
