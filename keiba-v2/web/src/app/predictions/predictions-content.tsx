@@ -20,7 +20,7 @@ import { FilterBar } from './components/filter-bar';
 import { SectionNav, type PageTab } from './components/section-nav';
 import { RoiSummary } from './components/roi-summary';
 import { BetRecommendations } from './components/bet-recommendations';
-import { VBTable } from './components/vb-table';
+import { VBTable, type FeaturedEntry } from './components/vb-table';
 import { RaceCard } from './components/race-card';
 import { DangerResults } from './components/danger-results';
 import { MultiLegRecommendations } from './components/multi-leg-recommendations';
@@ -317,6 +317,34 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     return entry.vb_gap;
   }, [liveRankingMap]);
 
+  // 注目馬リスト: 評価馬(Top1/race) + 穴注目(market_signal妙味/穴注目)
+  const featuredEntries = useMemo(() => {
+    const entries: FeaturedEntry[] = [];
+    const added = new Set<string>();
+    for (const race of races) {
+      // 評価馬: rank_p=1 の馬 (各レース1頭)
+      const top1 = race.entries.find(e => e.rank_p === 1);
+      if (top1) {
+        const key = `${race.race_id}-${top1.umaban}`;
+        entries.push({ race, entry: top1, category: 'pick' });
+        added.add(key);
+      }
+    }
+    for (const race of races) {
+      for (const entry of race.entries) {
+        const key = `${race.race_id}-${entry.umaban}`;
+        if (added.has(key)) continue;
+        // 穴注目: market_signal が 穴注目 or 妙味
+        if (entry.market_signal === '穴注目' || entry.market_signal === '妙味') {
+          entries.push({ race, entry, category: 'value' });
+          added.add(key);
+        }
+      }
+    }
+    return entries;
+  }, [races]);
+
+  // 旧VBエントリ（互換用: フィルタ/印同期で使用）
   const allVBEntries = useMemo(() => {
     const entries: Array<{ race: PredictionRace; entry: PredictionEntry }> = [];
     for (const race of races) {
@@ -324,9 +352,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         if (entry.is_value_bet) entries.push({ race, entry });
       }
     }
-    entries.sort((a, b) => getLiveGap(b.race.race_id, b.entry) - getLiveGap(a.race.race_id, a.entry));
     return entries;
-  }, [races, getLiveGap]);
+  }, [races]);
 
   const filteredVenueGroups = useMemo(() => {
     let filtered = races;
@@ -528,6 +555,19 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     }
     return entries;
   }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minEv, minArd, betOnly, oddsMap, getLiveGap, betRecMap]);
+
+  // 注目馬リストもフィルタ適用
+  const filteredFeaturedEntries = useMemo(() => {
+    let entries: FeaturedEntry[] = featuredEntries;
+    if (venueFilter !== 'all') entries = entries.filter(e => e.race.venue_name === venueFilter);
+    if (trackFilter !== 'all') {
+      entries = entries.filter(e =>
+        trackFilter === 'turf' ? isTurf(e.race.track_type) : isDirt(e.race.track_type)
+      );
+    }
+    if (raceNumFilter > 0) entries = entries.filter(e => e.race.race_number === raceNumFilter);
+    return entries;
+  }, [featuredEntries, venueFilter, trackFilter, raceNumFilter]);
 
   const betSummary = useMemo(() => {
     let winCount = 0, placeCount = 0, winTotal = 0, placeTotal = 0;
@@ -913,15 +953,15 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         setMinArd={setMinArd}
         betOnly={betOnly}
         setBetOnly={setBetOnly}
-        filteredCount={filteredVBEntries.length}
-        totalCount={allVBEntries.length}
+        filteredCount={filteredFeaturedEntries.length}
+        totalCount={featuredEntries.length}
       />
 
       {/* セクションナビ + タブ切替 */}
       <SectionNav
         hasResults={hasResults && roiStats != null}
         hasBets={betRecommendations.length > 0}
-        hasVB={filteredVBEntries.length > 0}
+        hasVB={filteredFeaturedEntries.length > 0}
         hasDanger={filteredDangerHorses.length > 0}
         hasMultiLeg={(data.multi_leg_recommendations?.length ?? 0) > 0}
         activeTab={activeTab}
@@ -981,23 +1021,18 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
             />
           )}
 
-          {/* VB候補 */}
+          {/* 注目馬リスト */}
           <VBTable
-            sortedVBEntries={sortedVBEntries}
-            filteredVBEntries={filteredVBEntries}
+            featuredEntries={filteredFeaturedEntries}
             oddsMap={oddsMap}
             dbResults={dbResults}
             results={results}
             hasResults={hasResults}
             getFinishPos={getFinishPos}
-            getLiveGap={getLiveGap}
-            vbSort={vbSort}
-            setVbSort={setVbSort}
             syncVbMarks={syncVbMarks}
             markSyncing={markSyncing}
             markResult={markResult}
             betRecMap={betRecMap}
-            targetMarks={targetMarks}
           />
 
           {/* 危険馬結果一覧 */}
