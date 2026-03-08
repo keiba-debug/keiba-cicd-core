@@ -137,10 +137,9 @@ export function DangerResults({ dangerHorses, getFinishPos, syncDangerMarks, dan
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-orange-50/60 dark:bg-orange-900/20 text-xs">
-                  <SortTh sortKey="race" sort={sort} setSort={setSort} className="px-2 py-2 text-left border">場</SortTh>
-                  <SortTh sortKey="race_number" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">R</SortTh>
+                  <SortTh sortKey="race_number" sort={sort} setSort={setSort} className="px-2 py-2 text-left border">場R</SortTh>
                   <th className="px-2 py-2 text-center border">馬場</th>
-                  <SortTh sortKey="umaban" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">馬番</SortTh>
+                  <SortTh sortKey="umaban" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">番</SortTh>
                   <th className="px-2 py-2 text-left border">馬名</th>
                   <SortTh sortKey="odds_rank" sort={sort} setSort={setSort} className="px-2 py-2 text-center border">人気</SortTh>
                   <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-2 text-center border bg-amber-50/50 dark:bg-amber-900/20" title="単勝オッズ (≤8.0)">オッズ</SortTh>
@@ -166,12 +165,11 @@ export function DangerResults({ dangerHorses, getFinishPos, syncDangerMarks, dan
                             : ''
                       }`}
                     >
-                      <td className="px-2 py-1.5 border text-xs">
+                      <td className="px-2 py-1.5 border text-xs whitespace-nowrap">
                         <Link href={getRaceLink(dh.race)} target="_blank" className="hover:text-blue-600 hover:underline">
-                          {dh.race.venue_name}
+                          {dh.race.venue_name}{dh.race.race_number}R
                         </Link>
                       </td>
-                      <td className="px-2 py-1.5 border text-center font-bold">{dh.race.race_number}</td>
                       <td className="px-2 py-1.5 border text-center">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] ${getTrackBadgeClass(dh.race.track_type)}`}>
                           {getTrackLabel(dh.race.track_type)}{dh.race.distance}
