@@ -30,6 +30,7 @@ export interface RaceSearchEntry {
   weather: string;
   paceType: string;
   rpci: number | null;
+  raceTrendV2?: string;
 }
 
 export interface RaceSearchFilters {

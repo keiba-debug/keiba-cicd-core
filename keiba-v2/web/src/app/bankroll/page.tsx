@@ -64,7 +64,7 @@ export default function BankrollPage() {
       {/* ヘッダー */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2">
-          💰 収支・実行
+          💰 馬券
         </h1>
         <div className="flex items-center gap-2">
           <RefreshButton onRefresh={() => setRefreshKey(k => k + 1)} />

@@ -72,6 +72,9 @@ export default function AdminPage() {
   // 特別登録データ生成
   const [isGeneratingRegistration, setIsGeneratingRegistration] = useState(false);
 
+  // TARGET印一括反映
+  const [isWritingMarks, setIsWritingMarks] = useState(false);
+
   // データ品質リフレッシュ用
   const [dataQualityRefreshKey, setDataQualityRefreshKey] = useState(0);
 
@@ -288,18 +291,72 @@ export default function AdminPage() {
     }
   }, [addLog]);
 
+  // TARGET印一括反映（馬印2:VB / 馬印3:ARd / 馬印4:IDM / 馬印5:パドック印）
+  const writeTargetMarks = useCallback(async () => {
+    setIsWritingMarks(true);
+    setStatus('running');
+    setCurrentAction('TARGET印一括反映');
+
+    const apis = [
+      { url: '/api/target-marks/auto-vb', label: 'VB→馬印2', key: 'vb' },
+      { url: '/api/target-marks/auto-ard', label: 'ARd→馬印3', key: 'ard' },
+      { url: '/api/target-marks/auto-idm', label: 'IDM→馬印4', key: 'idm' },
+      { url: '/api/target-marks/auto-paddock', label: 'パドック→馬印5', key: 'paddock' },
+    ];
+
+    try {
+      for (const api of apis) {
+        addLog({
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          message: `  ${api.label} 書込み中...`,
+        });
+
+        const res = await fetch(api.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: selectedDate }),
+        });
+
+        const result = await res.json();
+        if (result.success) {
+          const s = result.summary;
+          const note = s.note ? ` (${s.note})` : '';
+          addLog({
+            timestamp: new Date().toISOString(),
+            level: 'success',
+            message: `  ${api.label}: ${s.totalRaces}R ${s.markedHorses}頭${note}`,
+          });
+        } else {
+          addLog({
+            timestamp: new Date().toISOString(),
+            level: 'error',
+            message: `  ${api.label} エラー: ${result.error}`,
+          });
+        }
+      }
+      setStatus('success');
+    } catch (error) {
+      addLog({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        message: `TARGET印反映エラー: ${error}`,
+      });
+      setStatus('error');
+    } finally {
+      setIsWritingMarks(false);
+      setCurrentAction(null);
+    }
+  }, [addLog, selectedDate]);
+
   // JRDBデータダウンロード＆統合
   const downloadJrdb = useCallback(async () => {
     setIsDownloadingJrdb(true);
     setStatus('running');
     setCurrentAction('JRDB DL＆統合');
 
-    // 対象日: selectedDate + 翌日（週末レース両日対応）
-    const d = new Date(selectedDate + 'T00:00:00');
-    const d2 = new Date(d);
-    d2.setDate(d2.getDate() + 1);
-    const fmt = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-    const dates = [fmt(d), fmt(d2)];
+    // 対象日: selectedDateのみ（翌日分は別途日付選択して実行）
+    const dates = [selectedDate];
 
     addLog({
       timestamp: new Date().toISOString(),
@@ -672,13 +729,13 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-      {/* データ準備 */}
+      {/* 取り込み */}
       <Card className="mb-6 border-2 border-indigo-200 dark:border-indigo-800 shadow-lg">
         <CardHeader className="pb-3 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
           <CardTitle className="text-xl flex items-center gap-2">
             <span className="text-2xl">📋</span>
-            <span>データ準備</span>
-            <span className="ml-auto text-xs font-normal text-muted-foreground">スクレイプ→JSON構築</span>
+            <span>取り込み</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">スクレイプ→JSON構築→JRDB統合</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-6 space-y-4">
@@ -705,8 +762,24 @@ export default function AdminPage() {
 
           <Separator />
 
-          {/* 補助アクション */}
-          <div className="grid grid-cols-1 gap-3">
+          {/* JRDB + 補助 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Button
+              variant="outline"
+              className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
+              onClick={downloadJrdb}
+              disabled={isDownloadingJrdb || isRunning}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <span className={`text-lg ${isDownloadingJrdb ? 'animate-pulse' : ''}`}>📡</span>
+                <span className="font-semibold text-sm">
+                  {isDownloadingJrdb ? 'JRDB統合中...' : 'JRDB DL＆統合'}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground mt-1">
+                DL → Index再構築 → 選択日のRace JSONにJRDB指標付与
+              </span>
+            </Button>
             {dataPrepSecondary.map((action) => (
               <ActionButton
                 key={action.id}
@@ -722,16 +795,16 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-      {/* AI分析 */}
+      {/* 予測・反映 */}
       <Card className="mb-6 border-2 border-emerald-200 dark:border-emerald-800 shadow-lg">
         <CardHeader className="pb-3 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950 dark:to-teal-950">
           <CardTitle className="text-xl flex items-center gap-2">
             <span className="text-2xl">🤖</span>
-            <span>AI分析</span>
-            <span className="ml-auto text-xs font-normal text-muted-foreground">前処理→予測→買い目</span>
+            <span>予測・反映</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">前処理→予測→買い目→TARGET印</span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-6">
+        <CardContent className="pt-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {aiAnalysisActions.map((action) => {
               const override = labelOverrides[action.id];
@@ -750,6 +823,28 @@ export default function AdminPage() {
                 />
               );
             })}
+          </div>
+
+          <Separator />
+
+          {/* TARGET印 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Button
+              variant="outline"
+              className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
+              onClick={writeTargetMarks}
+              disabled={isWritingMarks || isRunning}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <span className={`text-lg ${isWritingMarks ? 'animate-pulse' : ''}`}>🏷️</span>
+                <span className="font-semibold text-sm">
+                  {isWritingMarks ? 'TARGET印反映中...' : 'TARGET印一括反映'}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground mt-1">
+                馬印2:VB / 馬印3:ARd / 馬印4:IDM / 馬印5:パドック印（7R以降）
+              </span>
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -855,33 +950,6 @@ export default function AdminPage() {
                         </div>
                         <span className="text-xs text-muted-foreground mt-1">
                           新しい日程データを登録した後に実行
-                        </span>
-                      </Button>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* JRDBデータ */}
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground mb-3">
-                      JRDB データ
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <Button
-                        variant="outline"
-                        className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
-                        onClick={downloadJrdb}
-                        disabled={isDownloadingJrdb || isRunning}
-                      >
-                        <div className="flex items-center gap-2 w-full">
-                          <span className={`text-lg ${isDownloadingJrdb ? 'animate-pulse' : ''}`}>📡</span>
-                          <span className="font-semibold text-sm">
-                            {isDownloadingJrdb ? 'JRDB統合中...' : 'JRDB DL＆統合'}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground mt-1">
-                          DL → Index再構築 → 選択日+翌日のRace JSONにJRDB指標付与
                         </span>
                       </Button>
                     </div>

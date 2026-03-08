@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'オッズ分析',
+  title: 'オッズ表',
 };
 
 export default function OddsRaceLayout({

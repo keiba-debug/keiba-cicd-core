@@ -132,6 +132,10 @@ def load_race_json_data():
                         weather = data.get("weather", "")
 
                         # race_name, grade, distance, num_runners
+                        # ペースv2分類（pace.race_trend_v2）
+                        pace_data = data.get("pace") or {}
+                        race_trend_v2 = pace_data.get("race_trend_v2", "")
+
                         result[race_id] = {
                             "raceName": data.get("race_name", ""),
                             "grade": data.get("grade", ""),
@@ -143,6 +147,7 @@ def load_race_json_data():
                             "winnerTime": winner_time,
                             "winnerLast3f": winner_last3f,
                             "weather": weather,
+                            "raceTrendV2": race_trend_v2,
                         }
                         count += 1
                     except Exception:
@@ -209,6 +214,9 @@ def main():
         if grade:
             grade_stats[grade] += 1
 
+        # ペース分類: race_trend_v2 があればそちら優先、なければ paceType フォールバック
+        race_trend_v2 = rj.get("raceTrendV2", "")
+
         output_races.append({
             "raceId": race_id,
             "date": race["date"],
@@ -226,6 +234,7 @@ def main():
             "weather": weather,
             "paceType": race["paceType"],
             "rpci": race["rpci"],
+            "raceTrendV2": race_trend_v2,
         })
 
     # ソート（日付降順）

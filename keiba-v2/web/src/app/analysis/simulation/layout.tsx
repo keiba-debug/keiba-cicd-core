@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Bankroll Simulation | KeibaCICD',
+  title: 'シミュレーション',
 };
 
 export default function SimulationLayout({ children }: { children: React.ReactNode }) {

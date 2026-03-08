@@ -284,8 +284,8 @@ VENUE_MAP = {
 
 
 def race_id_to_venue_race(race_id: str) -> tuple:
-    """race_idから場名とR番号を取得"""
-    venue_code = race_id[12:14]
+    """race_idから場名とR番号を取得 (race_id: YYYYMMDDJJKKNNRR)"""
+    venue_code = race_id[8:10]
     race_num = int(race_id[14:16])
     venue_name = VENUE_MAP.get(venue_code, f'場{venue_code}')
     return venue_name, race_num

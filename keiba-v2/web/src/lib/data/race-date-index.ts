@@ -262,8 +262,9 @@ function buildRaceEntryFromV4(raceData: {
 
   if (raceData.pace?.rpci != null) {
     rpci = raceData.pace.rpci;
-    if (rpci >= 51) paceType = 'sprint';
-    else if (rpci <= 48) paceType = 'stamina';
+    // 高RPCI = 後半遅い = 持続戦、低RPCI = 後半速い = 瞬発戦
+    if (rpci >= 51) paceType = 'stamina';
+    else if (rpci <= 48) paceType = 'sprint';
     else paceType = 'average';
 
     if (raceData.pace.s3 != null && raceData.pace.l3 != null) {

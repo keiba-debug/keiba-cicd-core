@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { RACE_TREND_V2_LABELS, RACE_TREND_V2_COLORS, type RaceTrendV2Type } from '@/lib/data/rpci-utils';
 
 // ── 型定義 ──
 
@@ -25,6 +26,7 @@ interface RaceSearchEntry {
   weather: string;
   paceType: string;
   rpci: number | null;
+  raceTrendV2?: string;
 }
 
 // ── 定数 ──
@@ -389,11 +391,15 @@ function RaceCard({ race }: { race: RaceSearchEntry }) {
               RPCI {race.rpci}
             </span>
           )}
-          {pace && (
+          {race.raceTrendV2 && RACE_TREND_V2_LABELS[race.raceTrendV2 as RaceTrendV2Type] ? (
+            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', RACE_TREND_V2_COLORS[race.raceTrendV2 as RaceTrendV2Type])}>
+              {RACE_TREND_V2_LABELS[race.raceTrendV2 as RaceTrendV2Type]}
+            </span>
+          ) : pace ? (
             <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', pace.className)}>
               {pace.label}
             </span>
-          )}
+          ) : null}
         </div>
       </div>
     </Link>

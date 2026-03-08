@@ -479,25 +479,25 @@ async function DateRaces({ date }: { date: string }) {
                               </a>
                             </>
                           )}
-                          {/* オッズ分析リンク */}
+                          {/* オッズ表リンク */}
                           {jraRaceId(race) && (
                             <Link
                               href={`/odds-race/${jraRaceId(race)}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
-                              title="オッズ分析"
+                              title="オッズ表"
                             >
                               <TrendingUp className="w-4 h-4 text-emerald-500" />
                             </Link>
                           )}
-                          {/* IDM比較リンク */}
+                          {/* 指数表リンク */}
                           <Link
                             href={`/races-v2/${date}/${trackGroup.track}/${race.id}/idm-compare`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
-                            title="IDM比較"
+                            title="指数表"
                           >
                             <BarChart3 className="w-4 h-4 text-purple-500" />
                           </Link>

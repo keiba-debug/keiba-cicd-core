@@ -224,7 +224,7 @@ export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelin
           <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="4 4" opacity={0.6} />
           <Tooltip content={<CustomTooltip />} />
           <Line
-            type="monotone"
+            type="linear"
             dataKey="preIdm"
             stroke="#9ca3af"
             strokeDasharray="4 4"
@@ -233,7 +233,7 @@ export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelin
             connectNulls
           />
           <Line
-            type="monotone"
+            type="linear"
             dataKey="idm"
             stroke="#3b82f6"
             strokeWidth={2}
@@ -242,7 +242,7 @@ export function IDMTimelineChart({ pastRaces, birthDate, horseName }: IDMTimelin
             connectNulls
           />
           <Line
-            type="monotone"
+            type="linear"
             dataKey="idm"
             stroke="none"
             dot={<MaxDot />}

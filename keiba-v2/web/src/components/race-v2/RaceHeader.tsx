@@ -42,13 +42,13 @@ interface RaceHeaderProps {
   babaInfo?: BabaCondition | null;
   /** JRDB KAA トラックバイアス */
   trackBias?: TrackBias | null;
-  /** JRA-VAN形式のレースID（オッズ分析用） */
+  /** JRA-VAN形式のレースID（オッズ表用） */
   jraRaceId?: string | null;
   /** ラップデータ（ペース傾向バッジ表示用） */
   laps?: LapsData | null;
   /** 差し決着度（closing model） */
   closingRaceProba?: number | null;
-  /** IDM比較ページURL */
+  /** 指数表ページURL */
   idmCompareUrl?: string;
 }
 
@@ -271,26 +271,26 @@ export default function RaceHeader({
                     <MessageCircle className="w-5 h-5" />
                   </a>
                 )}
-                {/* オッズ分析リンク */}
+                {/* オッズ表リンク */}
                 {jraRaceId && (
                   <Link
                     href={`/odds-race/${jraRaceId}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
-                    title="オッズ分析"
+                    title="オッズ表"
                   >
                     <TrendingUp className="w-5 h-5 text-emerald-500" />
                   </Link>
                 )}
-                {/* IDM比較リンク */}
+                {/* 指数表リンク */}
                 {idmCompareUrl && (
                   <Link
                     href={idmCompareUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
-                    title="IDM比較"
+                    title="指数表"
                   >
                     <BarChart3 className="w-5 h-5 text-purple-500" />
                   </Link>

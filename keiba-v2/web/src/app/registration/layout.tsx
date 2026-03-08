@@ -1,10 +1,10 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'MLレポート',
+  title: '登録馬',
 };
 
-export default function MlAnalysisLayout({
+export default function RegistrationLayout({
   children,
 }: {
   children: React.ReactNode;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -95,6 +95,18 @@ function markBadge(mark: string) {
   return <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border ${cls}`}>{mark}</span>;
 }
 
+function buildFormationText(strategy: Strategy, races: RaceInfo[]): string {
+  const lines = [`${strategy.label} (${strategy.total_tickets.toLocaleString()}点 / ¥${strategy.cost.toLocaleString()})`];
+  strategy.legs.forEach((leg, i) => {
+    const race = races[i];
+    const nums = leg.picks.map(p => p.umaban).join(',');
+    lines.push(`Leg${leg.leg} ${race?.venue}${race?.race_number}R: ${nums || '(なし)'}`);
+  });
+  const formation = strategy.legs.map(leg => leg.picks.map(p => p.umaban).join(',')).join(' × ');
+  lines.push(`Formation: ${formation} = ${strategy.total_tickets.toLocaleString()}点`);
+  return lines.join('\n');
+}
+
 function StrategyCard({ name, strategy, races, results, strategyResult }: {
   name: string;
   strategy: Strategy;
@@ -103,14 +115,26 @@ function StrategyCard({ name, strategy, races, results, strategyResult }: {
   strategyResult?: StrategyResult;
 }) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const text = buildFormationText(strategy, races);
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
   const resultMap = new Map(results.map(r => [r.leg, r]));
   const hasResults = results.length > 0;
 
   return (
     <div className="border rounded-xl overflow-hidden">
-      <button
+      <div
         onClick={() => setOpen(!open)}
-        className="w-full px-4 py-3 flex items-center justify-between bg-muted/30 hover:bg-muted/50 transition-colors"
+        className="w-full px-4 py-3 flex items-center justify-between bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open); } }}
       >
         <div className="flex items-center gap-3">
           <span className="text-lg">{name === 'w2_ar1_p1' ? 'D' : name === 'w_floor50_gap' ? '\u2B50' : name.startsWith('wp_gap') ? '\uD83C\uDFAF' : name === 'p_fixed_2' ? '\uD83D\uDCB0' : '\u25C6'}</span>
@@ -125,14 +149,30 @@ function StrategyCard({ name, strategy, races, results, strategyResult }: {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+            className="p-1.5 rounded-md hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground"
+            title="フォーメーションをコピー"
+          >
+            {copied ? (
+              <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="9" y="9" width="13" height="13" rx="2" strokeWidth={2} />
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" strokeWidth={2} />
+              </svg>
+            )}
+          </button>
           <div className="text-right">
             <div className="text-lg font-bold">{strategy.total_tickets.toLocaleString()}点</div>
             <div className="text-xs text-muted-foreground">&yen;{strategy.cost.toLocaleString()}</div>
           </div>
           <span className={`text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}>&darr;</span>
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className="divide-y">
@@ -238,6 +278,7 @@ export default function Win5Page() {
   const [genMsg, setGenMsg] = useState<string | null>(null);
   const [fetchKey, setFetchKey] = useState(0);
   const [availDates, setAvailDates] = useState<string[]>([]);
+  const [pendingDates, setPendingDates] = useState<string[]>([]);
 
   const fetchDate = searchParams.get('date') || '';
 
@@ -245,14 +286,24 @@ export default function Win5Page() {
   useEffect(() => {
     fetch('/api/win5/dates')
       .then(res => res.json())
-      .then(d => setAvailDates(d.dates || []))
+      .then(d => {
+        setAvailDates(d.dates || []);
+        setPendingDates(d.pendingDates || []);
+      })
       .catch(() => {});
-  }, []);
+  }, [fetchKey]);
+
+  // 全日付を統合（新しい順）: pendingDates + availDates を日付降順でマージ
+  const allDates = useMemo(
+    () => [...new Set([...pendingDates, ...availDates])].sort().reverse(),
+    [pendingDates, availDates]
+  );
+  const pendingSet = useMemo(() => new Set(pendingDates), [pendingDates]);
 
   useEffect(() => {
     // No date param but we have available dates → navigate to latest
-    if (!fetchDate && availDates.length > 0) {
-      router.replace(`/win5?date=${availDates[0]}`);
+    if (!fetchDate && allDates.length > 0) {
+      router.replace(`/win5?date=${allDates[0]}`);
       return;
     }
     if (!fetchDate) {
@@ -275,21 +326,22 @@ export default function Win5Page() {
         setData(null);
         setLoading(false);
       });
-  }, [fetchDate, fetchKey, availDates, router]);
+  }, [fetchDate, fetchKey, allDates, router]);
 
-  const currentIndex = availDates.indexOf(fetchDate);
+  const currentIndex = allDates.indexOf(fetchDate);
   const isLatest = currentIndex === 0;
-  const isOldest = currentIndex >= availDates.length - 1;
+  const isOldest = currentIndex >= allDates.length - 1;
+  const isPending = pendingSet.has(fetchDate);
 
   const goToPrev = useCallback(() => {
-    if (currentIndex < 0 || currentIndex >= availDates.length - 1) return;
-    router.push(`/win5?date=${availDates[currentIndex + 1]}`);
-  }, [currentIndex, availDates, router]);
+    if (currentIndex < 0 || currentIndex >= allDates.length - 1) return;
+    router.push(`/win5?date=${allDates[currentIndex + 1]}`);
+  }, [currentIndex, allDates, router]);
 
   const goToNext = useCallback(() => {
     if (currentIndex <= 0) return;
-    router.push(`/win5?date=${availDates[currentIndex - 1]}`);
-  }, [currentIndex, availDates, router]);
+    router.push(`/win5?date=${allDates[currentIndex - 1]}`);
+  }, [currentIndex, allDates, router]);
 
   const onSelectChange = (value: string) => {
     router.push(`/win5?date=${value}`);
@@ -363,12 +415,12 @@ export default function Win5Page() {
             onChange={(e) => onSelectChange(e.target.value)}
             className="rounded-md border bg-background px-3 py-2 text-lg font-bold min-w-[220px]"
           >
-            {availDates.length === 0 && fetchDate && (
+            {allDates.length === 0 && fetchDate && (
               <option value={fetchDate}>{formatDateDisplay(fetchDate)}</option>
             )}
-            {availDates.map(date => (
+            {allDates.map(date => (
               <option key={date} value={date}>
-                {formatDateDisplay(date)}
+                {formatDateDisplay(date)}{pendingSet.has(date) ? ' [未生成]' : ''}
               </option>
             ))}
           </select>
@@ -404,7 +456,16 @@ export default function Win5Page() {
 
       {error && !loading && (
         <div className="text-center py-12">
-          <div className="text-muted-foreground whitespace-pre-line">{error}</div>
+          <div className="text-muted-foreground whitespace-pre-line mb-4">{error}</div>
+          {isPending && (
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40"
+            >
+              {generating ? '生成中...' : `${fetchDate} のWIN5推奨を生成`}
+            </button>
+          )}
         </div>
       )}
 

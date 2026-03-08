@@ -1064,7 +1064,7 @@ export default function OddsRacePage() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <TrendingUp className="h-6 w-6" />
-              {trackName} {raceNum}R オッズ分析
+              {trackName} {raceNum}R オッズ表
             </h1>
             {raceConditionLabel && (
               <p className="text-sm text-muted-foreground mt-1">{raceConditionLabel}</p>

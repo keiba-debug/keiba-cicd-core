@@ -10,11 +10,10 @@ export function Header() {
   const pathname = usePathname();
   const raceMenuRef = useRef<HTMLDetailsElement | null>(null);
   const vbMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const bakenMenuRef = useRef<HTMLDetailsElement | null>(null);
   const analysisMenuRef = useRef<HTMLDetailsElement | null>(null);
   const searchMenuRef = useRef<HTMLDetailsElement | null>(null);
-  const adminMenuRef = useRef<HTMLDetailsElement | null>(null);
-
-  const allMenuRefs = [raceMenuRef, vbMenuRef, analysisMenuRef, searchMenuRef, adminMenuRef];
+  const allMenuRefs = [raceMenuRef, vbMenuRef, bakenMenuRef, analysisMenuRef, searchMenuRef];
 
   const closeMenus = () => {
     for (const ref of allMenuRefs) {
@@ -48,9 +47,7 @@ export function Header() {
     };
   }, []);
 
-  const navItemsRight = [
-    { href: '/bankroll', label: 'Bank', icon: Wallet },
-  ];
+  // 馬券メニューはドロップダウンに移行（bakenMenuRef）
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-gradient-to-b from-background/95 to-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -175,41 +172,44 @@ export function Header() {
                     </span>
                   </span>
                 </Link>
+              </div>
+            </details>
+
+            {/* 馬券 ドロップダウン */}
+            <details className="relative group" ref={bakenMenuRef}>
+              <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
+                <Wallet className="h-4 w-4" />
+                <span className="hidden sm:inline whitespace-nowrap">馬券</span>
+              </summary>
+              <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
+                <Link
+                  href="/bankroll"
+                  onClick={() => { if (bakenMenuRef.current) bakenMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>💰</span>
+                    <span>
+                      <span className="font-medium">馬券</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">購入推奨・収支管理</span>
+                    </span>
+                  </span>
+                </Link>
                 <Link
                   href="/win5"
-                  onClick={() => { if (vbMenuRef.current) vbMenuRef.current.open = false; }}
+                  onClick={() => { if (bakenMenuRef.current) bakenMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   <span className="flex items-center gap-2">
                     <span>5</span>
                     <span>
                       <span className="font-medium">WIN5</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">推奨馬・可変点数戦略</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">推奨フォーメーション</span>
                     </span>
                   </span>
                 </Link>
               </div>
             </details>
-
-            {/* 収支 */}
-            {navItemsRight.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname.startsWith(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors ${
-                    isActive
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{item.label}</span>
-                </Link>
-              );
-            })}
 
             {/* 分析 ドロップダウン */}
             <details className="relative group" ref={analysisMenuRef}>
@@ -252,8 +252,8 @@ export function Header() {
                   <span className="flex items-center gap-2">
                     <span>🎯</span>
                     <span>
-                      <span className="font-medium">IDM分析</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">クラス別JRDB IDM基準・勝ち馬基準</span>
+                      <span className="font-medium">指数表</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">JRDB IDMのクラス別基準・推移</span>
                     </span>
                   </span>
                 </Link>
@@ -325,11 +325,11 @@ export function Header() {
               </div>
             </details>
 
-            {/* データ検索 ドロップダウン */}
+            {/* 検索 ドロップダウン */}
             <details className="relative group" ref={searchMenuRef}>
               <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
                 <Search className="h-4 w-4" />
-                <span className="hidden sm:inline whitespace-nowrap">データ検索</span>
+                <span className="hidden sm:inline whitespace-nowrap">検索</span>
               </summary>
               <div className="absolute left-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
                 <Link
@@ -376,28 +376,14 @@ export function Header() {
               </div>
             </details>
 
-            {/* 管理 ドロップダウン */}
-            <details className="relative group" ref={adminMenuRef}>
-              <summary className="list-none cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60">
-                <ShieldCheck className="h-4 w-4" />
-                <span className="hidden sm:inline whitespace-nowrap">管理</span>
-              </summary>
-              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-background shadow-lg overflow-hidden">
-                <Link
-                  href="/admin"
-                  onClick={() => { if (adminMenuRef.current) adminMenuRef.current.open = false; }}
-                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <span>⚙️</span>
-                    <span>
-                      <span className="font-medium">データ登録</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">スクレイプ・構築・ML実行</span>
-                    </span>
-                  </span>
-                </Link>
-              </div>
-            </details>
+            {/* データ登録（直リンク） */}
+            <Link
+              href="/admin"
+              className="text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span className="hidden sm:inline whitespace-nowrap">データ登録</span>
+            </Link>
           </nav>
 
           {/* Status */}

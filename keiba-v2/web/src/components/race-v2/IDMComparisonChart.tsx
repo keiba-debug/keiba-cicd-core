@@ -44,12 +44,18 @@ export interface HorseIDMData {
 
 // ── 定数 ──
 
-const HORSE_COLORS = [
-  '#ef4444', '#3b82f6', '#22c55e', '#f97316', '#8b5cf6',
-  '#06b6d4', '#ec4899', '#eab308', '#14b8a6', '#6366f1',
-  '#f43f5e', '#84cc16', '#0ea5e9', '#d946ef', '#a3e635',
-  '#38bdf8', '#fb923c', '#a78bfa',
-];
+// JRA枠色 (1枠=白→グレー表示, 2=黒, 3=赤, 4=青, 5=黄, 6=緑, 7=橙, 8=桃)
+const WAKU_COLORS: Record<number, string> = {
+  1: '#9ca3af', // 白枠 → グレーで視認性確保
+  2: '#374151', // 黒枠
+  3: '#ef4444', // 赤枠
+  4: '#3b82f6', // 青枠
+  5: '#eab308', // 黄枠
+  6: '#22c55e', // 緑枠
+  7: '#f97316', // 橙枠
+  8: '#ec4899', // 桃枠
+};
+const WAKU_FALLBACK = '#6b7280';
 
 // 現在の日付（エポック日: 2000-01-01からの日数）
 const NOW_DATE = new Date();
@@ -230,13 +236,19 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
     }
   }
 
-  // 色マップ（馬番順にインデックスアサイン）
-  const colorMap = useMemo(() => {
-    const map: Record<number, string> = {};
-    horses.forEach((h, idx) => {
-      map[h.horseNumber] = HORSE_COLORS[idx % HORSE_COLORS.length];
-    });
-    return map;
+  // 枠色マップ + 同枠2頭目は破線
+  const { colorMap, dashMap } = useMemo(() => {
+    const cMap: Record<number, string> = {};
+    const dMap: Record<number, boolean> = {}; // true = 破線（同枠2頭目）
+    const wakuSeen = new Set<number>();
+    // 馬番順にソートしてから処理
+    const sorted = [...horses].sort((a, b) => a.horseNumber - b.horseNumber);
+    for (const h of sorted) {
+      cMap[h.horseNumber] = WAKU_COLORS[h.waku] ?? WAKU_FALLBACK;
+      dMap[h.horseNumber] = wakuSeen.has(h.waku);
+      wakuSeen.add(h.waku);
+    }
+    return { colorMap: cMap, dashMap: dMap };
   }, [horses]);
 
   if (horses.length === 0) {
@@ -301,6 +313,7 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
       <div className="flex flex-wrap gap-1.5">
         {horses.map(h => {
           const color = colorMap[h.horseNumber];
+          const isDashed = dashMap[h.horseNumber];
           const isVisible = visibleHorses.has(h.horseNumber);
           const isHighlighted = highlightedHorse === h.horseNumber;
           return (
@@ -309,7 +322,7 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
               onClick={() => toggleHorse(h.horseNumber)}
               onMouseEnter={() => setHighlightedHorse(h.horseNumber)}
               onMouseLeave={() => setHighlightedHorse(null)}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border transition-all ${
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium border transition-all ${
                 !isVisible ? 'opacity-30 line-through' : isHighlighted ? 'ring-2 ring-offset-1' : ''
               }`}
               style={{
@@ -318,10 +331,15 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
                 ...(isHighlighted ? { ringColor: color } : {}),
               }}
             >
-              <span
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: isVisible ? color : '#ccc' }}
-              />
+              {/* 枠色ライン（実線/破線） */}
+              <svg width="16" height="10" className="flex-shrink-0">
+                <line
+                  x1="0" y1="5" x2="16" y2="5"
+                  stroke={isVisible ? color : '#ccc'}
+                  strokeWidth="2.5"
+                  strokeDasharray={isDashed ? '4 2' : undefined}
+                />
+              </svg>
               {h.horseNumber} {h.horseName}
               {h.latestIdm != null && (
                 <span className="ml-0.5 opacity-70">{h.latestIdm}</span>
@@ -342,11 +360,7 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
                 type="number"
                 domain={[xMin, xMax]}
                 ticks={ticks}
-                tickFormatter={(v: number) => {
-                  const y = Math.floor(v / 12);
-                  const m = (v % 12) + 1;
-                  return m === 1 ? `${y}` : `${m}月`;
-                }}
+                tickFormatter={formatDateNum}
                 tick={{ fontSize: 11 }}
               />
               <YAxis
@@ -384,6 +398,7 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
                 const isVisible = visibleHorses.has(h.horseNumber);
                 const isHighlighted = highlightedHorse === h.horseNumber;
                 const isAnyHighlighted = highlightedHorse != null;
+                const isDashed = dashMap[h.horseNumber];
                 return (
                   <Line
                     key={h.horseNumber}
@@ -391,6 +406,7 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
                     dataKey={`idm_${h.horseNumber}`}
                     stroke={color}
                     strokeWidth={isHighlighted ? 3 : 1.5}
+                    strokeDasharray={isDashed ? '6 3' : undefined}
                     strokeOpacity={!isVisible ? 0 : (isAnyHighlighted && !isHighlighted) ? 0.15 : 1}
                     dot={isHighlighted ? { r: 4, fill: color, stroke: '#fff', strokeWidth: 1 } : { r: 2, fill: color }}
                     activeDot={isVisible ? { r: 5 } : false}
@@ -632,6 +648,24 @@ function RecentSlopeChart({
 
 const TREND_ORDER: Record<string, number> = { up: 2, flat: 1, down: 0 };
 
+// 相対順位で色クラスを返す（1位=緑, 2-3位=青, 4-5位=黄, 以降=デフォルト）
+// higher=true: 値が大きいほど上位, higher=false: 値が小さいほど上位(オッズ用)
+function rankColorClass(
+  value: number | null | undefined,
+  allValues: (number | null | undefined)[],
+  higher: boolean = true,
+): string {
+  if (value == null) return '';
+  const valid = allValues.filter((v): v is number => v != null);
+  if (valid.length === 0) return '';
+  const sorted = [...new Set(valid)].sort((a, b) => higher ? b - a : a - b);
+  const rank = sorted.indexOf(value) + 1;
+  if (rank === 1) return 'text-green-600 dark:text-green-400';
+  if (rank <= 3) return 'text-blue-600 dark:text-blue-400';
+  if (rank <= 5) return 'text-yellow-600 dark:text-yellow-400';
+  return 'text-muted-foreground';
+}
+
 interface SummaryTableProps {
   horses: HorseIDMData[];
   colorMap: Record<number, string>;
@@ -670,6 +704,15 @@ function SummaryTable({
     });
     return arr;
   }, [horses, sortKey, sortDesc]);
+
+  // 相対順位用の値配列を事前計算
+  const allLatestIdm = horses.map(h => h.latestIdm);
+  const allMaxIdm = horses.map(h => h.maxIdm);
+  const allMax5Idm = horses.map(h => h.max5Idm);
+  const allAvg3 = horses.map(h => h.avg3);
+  const allAvg5 = horses.map(h => h.avg5);
+  const allOdds = horses.map(h => h.odds);
+  const allArd = horses.map(h => h.arDeviation);
 
   const columns: Array<{ key: SortKey; label: string }> = [
     { key: 'horseNumber', label: '番' },
@@ -734,35 +777,28 @@ function SummaryTable({
                 <td className="px-3 py-1.5 text-center font-mono font-bold" style={{ color }}>
                   {h.horseNumber}
                 </td>
-                <td className="px-3 py-1.5 text-center font-mono">
+                <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.latestIdm, allLatestIdm)}`}>
                   {h.latestIdm ?? '-'}
                 </td>
-                <td className="px-3 py-1.5 text-center font-mono">
+                <td className={`px-3 py-1.5 text-center font-mono ${rankColorClass(h.maxIdm, allMaxIdm)}`}>
                   {h.maxIdm ?? '-'}
                 </td>
-                <td className="px-3 py-1.5 text-center font-mono font-bold">
+                <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.max5Idm, allMax5Idm)}`}>
                   {h.max5Idm ?? '-'}
                 </td>
-                <td className="px-3 py-1.5 text-center font-mono">
+                <td className={`px-3 py-1.5 text-center font-mono ${rankColorClass(h.avg3, allAvg3)}`}>
                   {h.avg3 != null ? h.avg3.toFixed(1) : '-'}
                 </td>
-                <td className="px-3 py-1.5 text-center font-mono">
+                <td className={`px-3 py-1.5 text-center font-mono ${rankColorClass(h.avg5, allAvg5)}`}>
                   {h.avg5 != null ? h.avg5.toFixed(1) : '-'}
                 </td>
                 <td className={`px-3 py-1.5 text-center text-lg ${trendInfo?.color || ''}`}>
                   {trendInfo?.icon || '-'}
                 </td>
-                <td className="px-3 py-1.5 text-center font-mono text-muted-foreground">
+                <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.odds, allOdds, false)}`}>
                   {h.odds != null ? h.odds.toFixed(1) : '-'}
                 </td>
-                <td className={`px-3 py-1.5 text-center font-mono font-bold ${
-                  h.arDeviation != null
-                    ? h.arDeviation >= 60 ? 'text-green-600 dark:text-green-400'
-                      : h.arDeviation >= 50 ? 'text-blue-600 dark:text-blue-400'
-                      : h.arDeviation >= 45 ? 'text-yellow-600 dark:text-yellow-400'
-                      : 'text-muted-foreground'
-                    : ''
-                }`}>
+                <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.arDeviation, allArd)}`}>
                   {h.arDeviation != null ? h.arDeviation.toFixed(1) : '-'}
                 </td>
                 <td className="px-3 py-1.5 text-center text-muted-foreground">

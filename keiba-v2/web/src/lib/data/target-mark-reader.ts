@@ -31,6 +31,11 @@ const SYMBOL_TO_MARK_BYTES: Record<string, Buffer> = {
   '△': Buffer.from([0x81, 0xa2]),
   '★': Buffer.from([0x87, 0x56]),
   '穴': Buffer.from([0x8c, 0x8a]),
+  '危': Buffer.from([0x8a, 0xeb]),
+  'Ａ': Buffer.from([0x82, 0x60]),
+  'Ｂ': Buffer.from([0x82, 0x61]),
+  'Ｃ': Buffer.from([0x82, 0x62]),
+  'Ｓ': Buffer.from([0x82, 0x72]),
   '': Buffer.from([0x20, 0x20]),
 };
 

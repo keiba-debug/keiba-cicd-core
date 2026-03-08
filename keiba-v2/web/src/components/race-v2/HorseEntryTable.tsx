@@ -487,6 +487,13 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   const displayOdds = dbOdds?.winOdds != null ? String(dbOdds.winOdds.toFixed(1)) : entry_data.odds;
   const displayNinki = dbOdds?.ninki ?? parseInt(entry_data.odds_rank, 10);
   const oddsRankRaw = dbOdds?.ninki ?? parseInt(entry_data.odds_rank, 10);
+
+  // 過剰人気(Danger Alert): odds<=8 & ARd<53 & P%<15%
+  const dangerOdds = dbOdds?.winOdds ?? parseFloat(entry_data.odds || '0');
+  const isDanger = mlPrediction != null
+    && dangerOdds > 0 && dangerOdds <= 8.0
+    && (mlPrediction.ar_deviation ?? 999) < 53
+    && (mlPrediction.pred_proba_p ?? 0) < 0.15;
   const oddsRank = isNaN(oddsRankRaw) ? 0 : oddsRankRaw;
   const rowBgClass = oddsRank === 1
     ? 'bg-amber-50 dark:bg-amber-900/10'
@@ -551,6 +558,14 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
             {mlPrediction.value_rank <= 3 && (
               <span className="text-[9px] text-gray-500 dark:text-gray-400">
                 VR{mlPrediction.value_rank}
+              </span>
+            )}
+            {isDanger && (
+              <span
+                className="inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-300 dark:border-red-700"
+                title={`過剰人気: オッズ${dangerOdds.toFixed(1)} / ARd${mlPrediction.ar_deviation?.toFixed(0) ?? '-'} / P${((mlPrediction.pred_proba_p ?? 0) * 100).toFixed(1)}%`}
+              >
+                危
               </span>
             )}
           </div>

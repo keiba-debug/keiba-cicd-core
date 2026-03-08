@@ -1,5 +1,5 @@
 /**
- * IDM比較ページ
+ * 指数表ページ
  * レース全出走馬のIDM成長曲線を重ねて比較
  */
 
@@ -116,7 +116,7 @@ export async function generateMetadata({ params }: PageParams): Promise<Metadata
   }
 
   return {
-    title: `IDM比較 ${displayTrack}${raceNumber}R ${raceName} (${shortDate})`,
+    title: `指数表 ${displayTrack}${raceNumber}R ${raceName} (${shortDate})`,
   };
 }
 
@@ -440,7 +440,7 @@ export default async function IDMComparePage({ params }: PageParams) {
 
       <div className="mb-6">
         <h1 className="text-xl font-bold">
-          📊 IDM比較 — {raceTitle}
+          📊 指数表 — {raceTitle}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           {date} ・ {horses.filter(h => h.idmPoints.length > 0).length}/{horses.length}頭のIDMデータあり
