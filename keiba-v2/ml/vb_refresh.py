@@ -27,6 +27,7 @@ from ml.bet_engine import (
     VB_FLOOR_ARD_VB_MIN_ARD, VB_FLOOR_ARD_VB_MIN_ODDS,
 )
 from ml.generate_bets import apply_bet_engine
+from ml.predict import compute_market_signal
 
 
 def load_predictions(date: str) -> dict:
@@ -120,6 +121,19 @@ def refresh_race_vb(race: dict, db_odds: Dict[int, dict],
         entry['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok)
         if entry['is_value_bet']:
             vb_count += 1
+
+        # odds_move + market_signal 再計算（base_oddsがpredict時に保存済み）
+        base_odds = entry.get('base_odds')
+        if base_odds and base_odds > 0 and odds > 0:
+            entry['odds_move'] = round(odds / base_odds, 3)
+        else:
+            entry['odds_move'] = None
+
+        entry['market_signal'] = compute_market_signal(
+            entry.get('odds_move'),
+            entry.get('ar_deviation'),
+            entry.get('rank_p'),
+        )
 
     return vb_count
 

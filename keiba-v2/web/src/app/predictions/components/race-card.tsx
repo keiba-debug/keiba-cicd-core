@@ -162,6 +162,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                 <SortTh sortKey="odds" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝オッズ（DB最新）">オッズ</SortTh>
                 <SortTh sortKey="gap" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-amber-50/50 dark:bg-amber-900/20 font-bold" title="Gap（主軸） = 人気順位 - VR。VB判定の主フィルター">Gap</SortTh>
                 <SortTh sortKey="ev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="単勝EV = calibrated P(win) × 単勝オッズ">EV</SortTh>
+                <th className="px-1 py-1.5 text-center border-b w-12 text-[10px]" title="市場シグナル — 基準オッズ vs 実オッズの乖離判定">市場</th>
                 <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数（IDMスケール）">AR</SortTh>
                 <SortTh sortKey="idm" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/30 dark:bg-teal-900/10" title="JRDB 事前IDM — 今回レースのJRDB予測値">IDM</SortTh>
                 <SortTh sortKey="ar_dev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-teal-50/30 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
@@ -225,6 +226,23 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                     })()}
                     <td className={`px-2 py-1 text-center font-mono text-xs ${getEvColor(ev)}`}>
                       {ev !== null ? ev.toFixed(2) : '-'}
+                    </td>
+                    <td className="px-1 py-1 text-center text-[10px]"
+                        title={entry.odds_move != null ? `基準${entry.base_odds?.toFixed(1) ?? '?'}倍 → 実${winOdds?.toFixed(1) ?? entry.odds?.toFixed(1) ?? '?'}倍 (${entry.odds_move.toFixed(2)}x)` : ''}>
+                      {entry.market_signal ? (
+                        <span className={`inline-flex items-center justify-center px-1 py-0 rounded font-bold whitespace-nowrap ${
+                          entry.market_signal === '鉄板' ? 'bg-red-500 text-white' :
+                          entry.market_signal === '軸向き' ? 'bg-orange-500 text-white' :
+                          entry.market_signal === '妙味' ? 'bg-blue-600 text-white' :
+                          entry.market_signal === 'やや妙味' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
+                          entry.market_signal === '想定通り' ? 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400' :
+                          entry.market_signal === '人気しすぎ' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300' :
+                          entry.market_signal === '穴注目' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' :
+                          'bg-gray-100 text-gray-500'
+                        }`}>
+                          {entry.market_signal}
+                        </span>
+                      ) : '-'}
                     </td>
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/30 dark:bg-teal-900/10 ${getArColor(entry.predicted_margin)}`}>
                       {entry.predicted_margin != null ? entry.predicted_margin.toFixed(1) : '-'}

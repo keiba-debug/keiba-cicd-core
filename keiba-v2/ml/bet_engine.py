@@ -443,6 +443,7 @@ class BetRecommendation:
     place_odds_min: Optional[float] = None
     ar_deviation: Optional[float] = None  # AR偏差値 (strength判定の根拠表示用)
     wide_pair: Optional[List[int]] = None  # ワイド対象ペア [umaban1, umaban2]
+    market_signal: Optional[str] = None   # 基準オッズ市場シグナル (鉄板/軸向き/妙味/etc.)
 
 
 # =====================================================================
@@ -959,6 +960,7 @@ def generate_recommendations(
                 odds=odds,
                 place_odds_min=place_odds,
                 ar_deviation=round(ar_dev, 1) if ar_dev is not None else None,
+                market_signal=e.get('market_signal'),
             )
             # --- Place上乗せ: 単勝候補に条件付きで複勝追加 ---
             # 障害レースはARd不要、PlaceEVのみで判定

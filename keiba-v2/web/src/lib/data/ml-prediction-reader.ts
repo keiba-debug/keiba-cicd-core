@@ -29,6 +29,10 @@ export interface MlHorsePrediction {
   win_ev: number | null;
   predicted_margin: number | null;  // AR (Aura Rating)
   ar_deviation: number | null;      // ARd (AR偏差値)
+  // 基準オッズ比較 (Session 92)
+  base_odds: number | null;
+  odds_move: number | null;         // 実オッズ/基準オッズ (>1=不人気化, <1=人気化)
+  market_signal: string | null;     // 市場シグナル (鉄板/軸向き/妙味/etc.)
 }
 
 export interface MlRacePrediction {
@@ -76,6 +80,10 @@ interface V4Entry {
   kb_comment: string;
   predicted_margin?: number | null;
   ar_deviation?: number | null;
+  // 基準オッズ比較 (Session 92)
+  base_odds?: number | null;
+  odds_move?: number | null;
+  market_signal?: string | null;
 }
 
 interface V4Race {
@@ -137,6 +145,9 @@ function convertV4Entry(e: V4Entry): MlHorsePrediction {
     win_ev: e.win_ev ?? null,
     predicted_margin: e.predicted_margin ?? null,
     ar_deviation: e.ar_deviation ?? null,
+    base_odds: e.base_odds ?? null,
+    odds_move: e.odds_move ?? null,
+    market_signal: e.market_signal ?? null,
   };
 }
 

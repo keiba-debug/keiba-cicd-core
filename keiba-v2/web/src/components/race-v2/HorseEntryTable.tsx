@@ -63,6 +63,10 @@ export interface MlPredictionEntry {
   win_ev: number | null;
   predicted_margin: number | null;  // AR
   ar_deviation: number | null;      // ARd
+  // 基準オッズ比較 (Session 92)
+  base_odds?: number | null;
+  odds_move?: number | null;
+  market_signal?: string | null;
 }
 
 /** DB odds レスポンス型 */
@@ -569,6 +573,33 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
               </span>
             )}
           </div>
+        </td>
+      )}
+
+      {/* 市場シグナル (Session 92: 基準オッズ vs 実オッズ) */}
+      {mlPrediction !== undefined && (
+        <td className="px-1 py-1.5 text-center border text-xs">
+          {mlPrediction.market_signal ? (
+            <span
+              className={cn(
+                "inline-flex items-center justify-center px-1 py-0.5 rounded text-[10px] font-bold whitespace-nowrap",
+                mlPrediction.market_signal === '鉄板' && "bg-gradient-to-r from-red-600 to-red-500 text-white",
+                mlPrediction.market_signal === '軸向き' && "bg-gradient-to-r from-orange-500 to-orange-400 text-white",
+                mlPrediction.market_signal === '妙味' && "bg-gradient-to-r from-blue-600 to-blue-500 text-white",
+                mlPrediction.market_signal === 'やや妙味' && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+                mlPrediction.market_signal === '想定通り' && "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
+                mlPrediction.market_signal === '人気しすぎ' && "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+                mlPrediction.market_signal === '穴注目' && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+              )}
+              title={mlPrediction.odds_move != null
+                ? `基準${mlPrediction.base_odds?.toFixed(1) ?? '?'}倍 (変動率: ${mlPrediction.odds_move.toFixed(2)}x)`
+                : '基準オッズデータなし'}
+            >
+              {mlPrediction.market_signal}
+            </span>
+          ) : (
+            <span className="text-gray-400 text-[10px]">-</span>
+          )}
         </td>
       )}
 
@@ -1091,6 +1122,7 @@ export default function HorseEntryTable({
             {hasMlPredictions && (
               <>
                 <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
+                <th className="px-1 py-2 text-center border w-12 text-xs" title="市場シグナル — 基準オッズ vs 実オッズ">市場</th>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ard')} title="AR偏差値 — レース内相対能力 (50=平均)">ARd{sortIndicator('ard')}</th>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200 text-xs" onClick={() => handleSort('ml_w')} title="勝率(Win) — キャリブレーション済み">W%{sortIndicator('ml_w')}</th>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200 text-xs" onClick={() => handleSort('ml_p')} title="好走率(Place) — Top3確率">P%{sortIndicator('ml_p')}</th>

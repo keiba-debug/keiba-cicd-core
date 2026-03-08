@@ -61,6 +61,45 @@ from ml.bet_engine import (
 VALUE_BET_MIN_GAP = 3  # experiment_v3.pyと統一
 
 
+def compute_market_signal(odds_move, ar_deviation, rank_p):
+    """基準オッズ vs 実オッズの乖離 × モデル評価から市場シグナルを判定
+
+    Returns:
+        str: market_signal label
+        - "鉄板": ARd65+ & smart money → 複勝率84%
+        - "軸向き": ARd55+ & rank_p<=3 & smart money → 複勝率69%
+        - "妙味": モデル推奨 & odds上昇（市場が過小評価） → 単回収140%
+        - "想定通り": モデル推奨 & オッズ変動なし
+        - "人気しすぎ": モデル推奨だがオッズ大幅下落
+        - None: odds_moveデータなし or モデル評価低い
+    """
+    if odds_move is None:
+        return None
+
+    ard = ar_deviation or 0
+    rp = rank_p or 99
+
+    # モデル推奨馬 (ARd>=55 & rank_p<=3) の場合
+    if ard >= 55 and rp <= 3:
+        if odds_move > 1.5:
+            return "妙味"
+        if odds_move > 1.15:
+            return "やや妙味"
+        if ard >= 65 and odds_move <= 0.85:
+            return "鉄板"         # ARd高い + smart money = 信頼度最高
+        if ard >= 55 and odds_move <= 0.6:
+            return "人気しすぎ"    # ARd中位なのにオッズ大幅下落
+        if odds_move <= 0.85:
+            return "軸向き"       # smart money入り
+        return "想定通り"
+
+    # rank_p 4-6 & strong smart money → 穴馬候補
+    if 4 <= rp <= 6 and odds_move <= 0.7:
+        return "穴注目"
+
+    return None
+
+
 def load_model_and_meta(model_version: Optional[str] = None):
     """学習済みモデルとメタ情報をロード
 
@@ -1315,6 +1354,29 @@ def predict_race(
         market_z = (implied[i] - imp_mean) / imp_std
         e['dev_gap'] = round(model_z - market_z, 3)
 
+    # ── 基準オッズ比較 (market_signal) ──────────────────────
+    # JRDB KYI base_odds vs 実オッズで市場シグナルを判定
+    for e in result_entries:
+        ketto = next(
+            (p['ketto_num'] for p in predictions if p['umaban'] == e['umaban']),
+            None,
+        )
+        kyi_data = (
+            (jrdb_kyi_index or {}).get(f"{ketto}_{race_date}") if ketto else None
+        )
+        base_odds = kyi_data.get('base_odds') if kyi_data else None
+
+        e['base_odds'] = base_odds
+        actual = e.get('odds', 0)
+        if base_odds and base_odds > 0 and actual and actual > 0:
+            e['odds_move'] = round(actual / base_odds, 3)
+        else:
+            e['odds_move'] = None
+
+        e['market_signal'] = compute_market_signal(
+            e.get('odds_move'), e.get('ar_deviation'), e.get('rank_p'),
+        )
+
     # VBフラグ更新: VB Floor条件（購入プラン⊆VB候補 を保証）
     # 条件A: EV >= 1.0 AND ARd >= 50（期待値＋能力）
     # 条件B: ARd >= 65 AND odds >= 10（ARd VBルート: 能力 vs 市場乖離）
@@ -1805,7 +1867,6 @@ def main():
             snap_path = archive_dir / "feature_snapshot.json"
             # 既存スナップショットをタイムスタンプ付きでアーカイブ
             if snap_path.exists():
-                import time
                 existing_ts = time.strftime('%Y%m%dT%H%M%S', time.localtime(snap_path.stat().st_mtime))
                 archive_snap = archive_dir / f"feature_snapshot_{existing_ts}.json"
                 if not archive_snap.exists():

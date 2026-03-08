@@ -155,10 +155,22 @@ export default async function IDMComparePage({ params }: PageParams) {
   // predictions.json から ARd・オッズ取得
   const predictions = getPredictionsByDate(date);
   const predRace = predictions?.races.find(r => r.race_id === raceId16);
-  const predMap = new Map<number, { odds: number; arDeviation: number | null }>();
+  const predMap = new Map<number, {
+    odds: number;
+    arDeviation: number | null;
+    predProbaP: number | null;
+    predProbaW: number | null;
+    marketSignal: string | null;
+  }>();
   if (predRace) {
     for (const e of predRace.entries) {
-      predMap.set(e.umaban, { odds: e.odds, arDeviation: e.ar_deviation ?? null });
+      predMap.set(e.umaban, {
+        odds: e.odds,
+        arDeviation: e.ar_deviation ?? null,
+        predProbaP: e.pred_proba_p != null ? Math.round(e.pred_proba_p * 1000) / 10 : null,
+        predProbaW: e.pred_proba_w != null ? Math.round(e.pred_proba_w * 1000) / 10 : null,
+        marketSignal: e.market_signal ?? null,
+      });
     }
   }
 
@@ -198,6 +210,9 @@ export default async function IDMComparePage({ params }: PageParams) {
         trend: 'flat',
         odds: pred0?.odds ?? null,
         arDeviation: pred0?.arDeviation ?? null,
+        predProbaP: pred0?.predProbaP ?? null,
+        predProbaW: pred0?.predProbaW ?? null,
+        marketSignal: pred0?.marketSignal ?? null,
       });
       continue;
     }
@@ -261,6 +276,9 @@ export default async function IDMComparePage({ params }: PageParams) {
       trend: calcTrend(idmValues),
       odds: pred?.odds ?? null,
       arDeviation: pred?.arDeviation ?? null,
+      predProbaP: pred?.predProbaP ?? null,
+      predProbaW: pred?.predProbaW ?? null,
+      marketSignal: pred?.marketSignal ?? null,
     });
   }
 

@@ -40,6 +40,9 @@ export interface HorseIDMData {
   trend: 'up' | 'flat' | 'down';
   odds: number | null;         // 単勝オッズ
   arDeviation: number | null;  // AR偏差値
+  predProbaP: number | null;   // P% (好走確率)
+  predProbaW: number | null;   // W% (勝率)
+  marketSignal: string | null; // 市場シグナル
 }
 
 // ── 定数 ──
@@ -142,7 +145,7 @@ interface IDMComparisonChartProps {
   gradeLabel?: string;               // グレード表示ラベル
 }
 
-type SortKey = 'horseNumber' | 'latestIdm' | 'maxIdm' | 'max5Idm' | 'avg3' | 'avg5' | 'raceCount' | 'trend' | 'odds' | 'arDeviation';
+type SortKey = 'horseNumber' | 'latestIdm' | 'maxIdm' | 'max5Idm' | 'avg3' | 'avg5' | 'raceCount' | 'trend' | 'odds' | 'arDeviation' | 'predProbaP' | 'predProbaW';
 type ChartTab = 'timeline' | 'range';
 
 // dateNum (エポック日: 2000-01-01からの日数) → 表示ラベル
@@ -698,6 +701,8 @@ function SummaryTable({
         case 'trend': va = TREND_ORDER[a.trend] ?? 0; vb = TREND_ORDER[b.trend] ?? 0; break;
         case 'odds': va = a.odds ?? 999; vb = b.odds ?? 999; break;
         case 'arDeviation': va = a.arDeviation ?? -1; vb = b.arDeviation ?? -1; break;
+        case 'predProbaP': va = a.predProbaP ?? -1; vb = b.predProbaP ?? -1; break;
+        case 'predProbaW': va = a.predProbaW ?? -1; vb = b.predProbaW ?? -1; break;
         default: va = a.horseNumber; vb = b.horseNumber;
       }
       return sortDesc ? vb - va : va - vb;
@@ -713,6 +718,8 @@ function SummaryTable({
   const allAvg5 = horses.map(h => h.avg5);
   const allOdds = horses.map(h => h.odds);
   const allArd = horses.map(h => h.arDeviation);
+  const allPredP = horses.map(h => h.predProbaP);
+  const allPredW = horses.map(h => h.predProbaW);
 
   const columns: Array<{ key: SortKey; label: string }> = [
     { key: 'horseNumber', label: '番' },
@@ -722,6 +729,8 @@ function SummaryTable({
     { key: 'avg3', label: '近3走' },
     { key: 'avg5', label: '近5走' },
     { key: 'trend', label: '傾向' },
+    { key: 'predProbaP', label: 'P%' },
+    { key: 'predProbaW', label: 'W%' },
     { key: 'odds', label: 'オッズ' },
     { key: 'arDeviation', label: 'ARd' },
     { key: 'raceCount', label: '戦数' },
@@ -738,18 +747,26 @@ function SummaryTable({
         <thead>
           <tr className="border-b bg-muted/30">
             <th className="px-3 py-2 text-left w-8"></th>
-            {columns.map(col => (
+            {columns.slice(0, 1).map(col => (
               <th
                 key={col.key}
                 onClick={() => onSort(col.key)}
-                className={`px-3 py-2 text-center cursor-pointer hover:bg-muted/50 transition-colors select-none ${
-                  col.key === 'horseNumber' ? 'w-10' : ''
-                }`}
+                className="px-3 py-2 text-center cursor-pointer hover:bg-muted/50 transition-colors select-none w-10"
               >
                 {col.label}{sortArrow(col.key)}
               </th>
             ))}
             <th className="px-3 py-2 text-left">馬名</th>
+            {columns.slice(1).map(col => (
+              <th
+                key={col.key}
+                onClick={() => onSort(col.key)}
+                className="px-3 py-2 text-center cursor-pointer hover:bg-muted/50 transition-colors select-none"
+              >
+                {col.label}{sortArrow(col.key)}
+              </th>
+            ))}
+            <th className="px-3 py-2 text-center">市場</th>
           </tr>
         </thead>
         <tbody>
@@ -777,6 +794,16 @@ function SummaryTable({
                 <td className="px-3 py-1.5 text-center font-mono font-bold" style={{ color }}>
                   {h.horseNumber}
                 </td>
+                <td className="px-3 py-1.5 font-medium">
+                  <Link
+                    href={`/horses/${h.horseId}`}
+                    target="_blank"
+                    onClick={(e) => e.stopPropagation()}
+                    className="hover:underline hover:text-blue-600 dark:hover:text-blue-400"
+                  >
+                    {h.horseName}
+                  </Link>
+                </td>
                 <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.latestIdm, allLatestIdm)}`}>
                   {h.latestIdm ?? '-'}
                 </td>
@@ -795,6 +822,12 @@ function SummaryTable({
                 <td className={`px-3 py-1.5 text-center text-lg ${trendInfo?.color || ''}`}>
                   {trendInfo?.icon || '-'}
                 </td>
+                <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.predProbaP, allPredP)}`}>
+                  {h.predProbaP != null ? h.predProbaP.toFixed(1) : '-'}
+                </td>
+                <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.predProbaW, allPredW)}`}>
+                  {h.predProbaW != null ? h.predProbaW.toFixed(1) : '-'}
+                </td>
                 <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.odds, allOdds, false)}`}>
                   {h.odds != null ? h.odds.toFixed(1) : '-'}
                 </td>
@@ -804,15 +837,22 @@ function SummaryTable({
                 <td className="px-3 py-1.5 text-center text-muted-foreground">
                   {h.raceCount}
                 </td>
-                <td className="px-3 py-1.5 font-medium">
-                  <Link
-                    href={`/horses/${h.horseId}`}
-                    target="_blank"
-                    onClick={(e) => e.stopPropagation()}
-                    className="hover:underline hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    {h.horseName}
-                  </Link>
+                {/* 市場シグナル */}
+                <td className="px-3 py-1.5 text-center">
+                  {h.marketSignal && (
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-bold whitespace-nowrap ${
+                      h.marketSignal === '鉄板' ? 'bg-gradient-to-r from-red-600 to-red-500 text-white' :
+                      h.marketSignal === '軸向き' ? 'bg-gradient-to-r from-orange-500 to-orange-400 text-white' :
+                      h.marketSignal === '妙味' ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white' :
+                      h.marketSignal === 'やや妙味' ? 'bg-blue-100 text-blue-800' :
+                      h.marketSignal === '想定通り' ? 'bg-gray-100 text-gray-600' :
+                      h.marketSignal === '人気しすぎ' ? 'bg-yellow-100 text-yellow-800' :
+                      h.marketSignal === '穴注目' ? 'bg-purple-100 text-purple-800' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {h.marketSignal}
+                    </span>
+                  )}
                 </td>
               </tr>
             );

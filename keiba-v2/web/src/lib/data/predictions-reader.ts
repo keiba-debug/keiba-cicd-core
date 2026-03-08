@@ -62,6 +62,10 @@ export interface PredictionEntry {
   comment_memo_trouble_score?: number; // 次走メモ トラブル/ポジティブ (-3〜+3)
   comment_has_stable?: number;         // 厩舎談話 データ有無 (0/1)
   comment_has_interview?: number;      // インタビュー データ有無 (0/1)
+  // 基準オッズ比較 (Session 92)
+  base_odds?: number;                  // JRDB基準オッズ（朝オッズ推定）
+  odds_move?: number;                  // 実オッズ/基準オッズ (>1=人気落ち, <1=人気上昇)
+  market_signal?: string;              // 市場シグナル (鉄板/軸向き/妙味/想定通り/人気しすぎ/穴注目)
 }
 
 export interface PredictionRace {

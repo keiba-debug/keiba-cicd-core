@@ -151,7 +151,7 @@ function StrategyCard({ name, strategy, races, results, strategyResult }: {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+            onClick={(e) => { e.stopPropagation(); handleCopy(e); }}
             className="p-1.5 rounded-md hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground"
             title="フォーメーションをコピー"
           >
