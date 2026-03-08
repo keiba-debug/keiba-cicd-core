@@ -27,7 +27,7 @@ import { getRaceTrendIndex, lookupRaceTrend } from '@/lib/data/race-trend-reader
 import { loadTrainerPatterns, evaluatePatternMatch, type TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
 import { getTrainerInfo } from '@/lib/data/trainer-index';
 import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
-import { getMlPredictions, getClosingRaceProba } from '@/lib/data/ml-prediction-reader';
+import { getMlPredictions, getClosingRaceProba, getRaceConfidence } from '@/lib/data/ml-prediction-reader';
 import { getTrackBias } from '@/lib/data/jrdb-kaa-reader';
 import {
   RaceHeader,
@@ -138,7 +138,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
   }
 
   // データ取得（並列取得: 依存関係のないデータを全て同時に取得）
-  const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions, closingRaceProba] = await Promise.all([
+  const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions, closingRaceProba, raceConfidence] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
@@ -147,6 +147,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
     loadTrainerPatterns(),
     getMlPredictions(id, raceId16, date),
     getClosingRaceProba(id, raceId16, date),
+    getRaceConfidence(id, raceId16, date),
   ]);
 
   // v4(data3)優先 → data2でエンリッチ → data2フォールバック
@@ -583,6 +584,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
           recentFormMap={recentFormMap}
           trainerPatternMatchMap={trainerPatternMatchMap}
           mlPredictions={mlPredictions ?? undefined}
+          raceConfidence={raceConfidence ?? undefined}
         />
 
         {/* データ情報（フッター） */}

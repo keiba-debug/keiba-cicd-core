@@ -87,6 +87,20 @@ interface V4Race {
   track_type: string;
   num_runners: number;
   entries: V4Entry[];
+  // レース確信度（Phase 1）
+  race_confidence?: number;
+  p_top1_gap?: number;
+  p_top3_concentration?: number;
+  ard_spread?: number;
+  ard_std?: number;
+}
+
+export interface RaceConfidence {
+  race_confidence: number;
+  p_top1_gap: number;
+  p_top3_concentration: number;
+  ard_spread: number;
+  ard_std: number;
 }
 
 interface V4PredictionsLive {
@@ -246,4 +260,29 @@ export async function getClosingRaceProba(
   if (!race) return null;
 
   return (race as V4Race & { closing_race_proba?: number }).closing_race_proba ?? null;
+}
+
+/**
+ * 指定レースの確信度（race_confidence）を取得
+ */
+export async function getRaceConfidence(
+  raceId: string,
+  raceId16?: string,
+  date?: string,
+): Promise<RaceConfidence | null> {
+  if (!date) return null;
+
+  const archive = await loadV4Archive(date);
+  if (!archive) return null;
+
+  const race = findRaceInV4(archive, raceId, raceId16);
+  if (!race || race.race_confidence == null) return null;
+
+  return {
+    race_confidence: race.race_confidence,
+    p_top1_gap: race.p_top1_gap ?? 0,
+    p_top3_concentration: race.p_top3_concentration ?? 0,
+    ard_spread: race.ard_spread ?? 0,
+    ard_std: race.ard_std ?? 0,
+  };
 }

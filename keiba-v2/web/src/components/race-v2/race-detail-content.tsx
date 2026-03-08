@@ -43,6 +43,7 @@ import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-r
 import type { TargetMarksMap, MlPredictionEntry } from './HorseEntryTable';
 import type { RecentFormData } from '@/lib/data/target-race-result-reader';
 import type { TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
+import type { RaceConfidence } from '@/lib/data/ml-prediction-reader';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
 import { POSITIVE_BG } from '@/lib/positive-colors';
 
@@ -89,11 +90,13 @@ interface RaceDetailContentProps {
   trainerPatternMatchMap?: Record<string, TrainerPatternMatch | null>;
   /** ML予測（馬番→予測データ） */
   mlPredictions?: Record<number, MlPredictionEntry>;
+  /** レース確信度 */
+  raceConfidence?: RaceConfidence;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -214,7 +217,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
           <TabsContent value="entries" className="mt-4 space-y-4">
             {/* レイティング分析カード */}
             {ratingAnalysis && (
-              <RatingAnalysisCard analysis={ratingAnalysis} grade={raceData.race_info.grade} />
+              <RatingAnalysisCard analysis={ratingAnalysis} grade={raceData.race_info.grade} raceConfidence={raceConfidence} />
             )}
             
             <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
@@ -331,7 +334,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
         <div className="space-y-6">
           {/* レイティング分析カード */}
           {ratingAnalysis && (
-            <RatingAnalysisCard analysis={ratingAnalysis} grade={raceData.race_info.grade} />
+            <RatingAnalysisCard analysis={ratingAnalysis} grade={raceData.race_info.grade} raceConfidence={raceConfidence} />
           )}
           
           {/* 出走表 */}
@@ -451,9 +454,10 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
 interface RatingAnalysisCardProps {
   analysis: ReturnType<typeof analyzeRaceRatings>;
   grade?: string;
+  raceConfidence?: RaceConfidence;
 }
 
-function RatingAnalysisCard({ analysis, grade }: RatingAnalysisCardProps) {
+function RatingAnalysisCard({ analysis, grade, raceConfidence }: RatingAnalysisCardProps) {
   if (!analysis) return null;
   
   // レベルアイコン
@@ -515,6 +519,28 @@ function RatingAnalysisCard({ analysis, grade }: RatingAnalysisCardProps) {
         </div>
       </div>
       
+      {/* ML確信度 */}
+      {raceConfidence && (
+        <div className="mt-3 pt-3 border-t">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-medium text-muted-foreground">ML確信度</span>
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+              raceConfidence.race_confidence >= 70
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : raceConfidence.race_confidence >= 45
+                  ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                  : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+            }`}>
+              {raceConfidence.race_confidence >= 70 ? '◎' : raceConfidence.race_confidence >= 45 ? '△' : '✕'}
+              {raceConfidence.race_confidence.toFixed(0)}
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              P%差: {(raceConfidence.p_top1_gap * 100).toFixed(1)}pt / ARd幅: {raceConfidence.ard_spread.toFixed(1)}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 補足情報 */}
       <div className="mt-3 pt-3 border-t flex flex-wrap gap-4 text-xs text-muted-foreground">
         <span>レンジ: {analysis.min} - {analysis.max}</span>

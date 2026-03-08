@@ -77,6 +77,9 @@ export interface PredictionRace {
   is_handicap?: boolean;
   is_female_only?: boolean;
   closing_race_proba?: number;
+  race_confidence?: number;
+  p_top1_gap?: number;
+  ard_spread?: number;
   entries: PredictionEntry[];
 }
 

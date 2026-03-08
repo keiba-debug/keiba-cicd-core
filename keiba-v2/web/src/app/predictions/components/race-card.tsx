@@ -115,6 +115,15 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
             <span className="text-sm text-muted-foreground">{race.num_runners}頭</span>
           </div>
           <div className="flex items-center gap-2">
+            {race.race_confidence != null && (
+              <Badge variant="outline" className={`text-[10px] ${
+                race.race_confidence >= 70 ? 'text-green-600 border-green-400 bg-green-50/50 dark:bg-green-900/20' :
+                race.race_confidence >= 45 ? 'text-yellow-600 border-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/20' :
+                'text-red-600 border-red-400 bg-red-50/50 dark:bg-red-900/20'
+              }`} title={`確信度: ${race.race_confidence.toFixed(1)} (P%差: ${((race.p_top1_gap ?? 0) * 100).toFixed(1)}pt, ARd幅: ${(race.ard_spread ?? 0).toFixed(1)})`}>
+                {race.race_confidence >= 70 ? '◎' : race.race_confidence >= 45 ? '△' : '✕'}{race.race_confidence.toFixed(0)}
+              </Badge>
+            )}
             {race.closing_race_proba != null && race.closing_race_proba >= 0.10 && (
               <Badge variant="outline" className={`text-[10px] ${
                 race.closing_race_proba >= 0.18 ? 'text-red-600 border-red-400 bg-red-50/50 dark:bg-red-900/20' :

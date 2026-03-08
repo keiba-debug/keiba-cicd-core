@@ -539,6 +539,12 @@ def predict_obstacle_race(
         'age_class': '',
         'is_handicap': current_is_handicap,
         'is_female_only': current_is_female_only,
+        # 障害レースの確信度（簡易計算: P%ベースのみ）
+        'race_confidence': 0,
+        'p_top1_gap': 0,
+        'p_top3_concentration': 0,
+        'ard_spread': 0,
+        'ard_std': 0,
         'entries': result_entries,
         '_feature_snapshot': feature_snapshot,
     }
@@ -1322,6 +1328,26 @@ def predict_race(
                   and (e.get('ar_deviation') or 0) >= VB_FLOOR_DEV_MIN_ARD)
         e['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok or dev_ok)
 
+    # ── レース確信度 (race confidence) ──────────────────────
+    # Phase 1: シンプルな指標でモデルがどれだけ差別化できているかを数値化
+    # 確信度が高い＝軸馬が明確＝購入判断しやすい
+    sorted_p = sorted([e['pred_proba_p'] for e in result_entries], reverse=True)
+    p_top1_gap = round(sorted_p[0] - sorted_p[1], 4) if len(sorted_p) >= 2 else 0
+    p_top3_concentration = round(sum(sorted_p[:3]), 4) if len(sorted_p) >= 3 else 0
+
+    ard_values = [e['ar_deviation'] for e in result_entries
+                  if e.get('ar_deviation') is not None]
+    ard_spread = round(max(ard_values) - min(ard_values), 1) if len(ard_values) >= 2 else 0
+    ard_std_val = round(float(np.std(ard_values)), 2) if len(ard_values) >= 2 else 0
+
+    # race_confidence: 0-100スケール
+    # - p_top1_gap: 0.05で50pt, 0.10で100pt (clamp)
+    # - ard_spread: 15で50pt, 30で100pt (clamp)
+    # 均等加重で合算
+    conf_p = min(p_top1_gap / 0.10, 1.0) * 100
+    conf_ar = min(ard_spread / 30.0, 1.0) * 100
+    race_confidence = round((conf_p + conf_ar) / 2, 1)
+
     # PIT特徴量スナップショット（リーク検証用）
     feature_snapshot = []
     for p in predictions:
@@ -1345,6 +1371,12 @@ def predict_race(
         'age_class': current_age_class,
         'is_handicap': current_is_handicap,
         'is_female_only': current_is_female_only,
+        # レース確信度 (Phase 1)
+        'race_confidence': race_confidence,
+        'p_top1_gap': p_top1_gap,
+        'p_top3_concentration': p_top3_concentration,
+        'ard_spread': ard_spread,
+        'ard_std': ard_std_val,
         'entries': result_entries,
         '_feature_snapshot': feature_snapshot,
     }
@@ -1771,11 +1803,37 @@ def main():
         # 特徴量スナップショット保存（PIT/リーク検証用）
         if feature_snapshot_data:
             snap_path = archive_dir / "feature_snapshot.json"
+            # 既存スナップショットをタイムスタンプ付きでアーカイブ
+            if snap_path.exists():
+                import time
+                existing_ts = time.strftime('%Y%m%dT%H%M%S', time.localtime(snap_path.stat().st_mtime))
+                archive_snap = archive_dir / f"feature_snapshot_{existing_ts}.json"
+                if not archive_snap.exists():
+                    shutil.copy2(str(snap_path), str(archive_snap))
+                    print(f"  Archived snapshot: {archive_snap.name}")
+            # race JSONの状態を記録（train/serve skew検証用）
+            race_json_meta = []
+            for rp in sorted(archive_dir.glob("race_[0-9]*.json")):
+                try:
+                    with open(rp, encoding='utf-8') as rf:
+                        rj = json.load(rf)
+                    meta = rj.get('meta', {})
+                    entries = rj.get('entries', [])
+                    has_results = any(e.get('finish_position') is not None for e in entries)
+                    race_json_meta.append({
+                        'file': rp.name,
+                        'created_at': meta.get('created_at', ''),
+                        'has_results': has_results,
+                        'num_entries': len(entries),
+                    })
+                except Exception:
+                    pass
             snap_output = {
                 'created_at': datetime.now().isoformat(timespec='seconds'),
                 'model_version': actual_model_version,
                 'pit_mode': True,
                 'prediction_date': date,
+                'race_json_state': race_json_meta,
                 'races': feature_snapshot_data,
             }
             snap_path.write_text(
