@@ -864,6 +864,7 @@ def predict_race(
     jrdb_sed_index: Optional[dict] = None,
     jrdb_kyi_index: Optional[dict] = None,
     jrdb_kaa_index: Optional[dict] = None,
+    verbose: bool = False,
 ) -> dict:
     """1レースの予測を実行
 
@@ -886,6 +887,10 @@ def predict_race(
     features_value = meta['features_value']
     # Optunaモデル別特徴量（異なるグループON/OFF時に使用）
     features_per_model = meta.get('features_per_model')  # {'p': [...], 'w': [...], 'ar': [...]}
+
+    venue_name_disp = race.get('venue_name', '?')
+    race_number_disp = race.get('race_number', '?')
+    race_label = f"{venue_name_disp}{race_number_disp}R"
 
     # Sire/Dam/BMS index (build once per predict_race call)
     _sire_idx, _dam_idx, _bms_idx = build_sire_index(sire_stats_index or {})
@@ -945,6 +950,12 @@ def predict_race(
     current_month = int(race_date.split('-')[1]) if len(race_date.split('-')) >= 2 else 0
 
     kb_entries = kb_ext.get('entries', {}) if kb_ext else {}
+
+    if verbose:
+        print(f"\n{'─'*60}")
+        print(f"  {race_label}  {race.get('race_name', '')}  {track_type}{distance}m  {current_grade}")
+        print(f"  {entry_count}頭  race_id={race_id}")
+        print(f"{'─'*60}")
 
     predictions = []
     feature_rows_v = []
@@ -1126,6 +1137,42 @@ def predict_race(
             'kb_comment': kb_e.get('short_comment', '') if kb_e else '',
         })
 
+    if verbose:
+        # 特徴量グループ別のカウント表示
+        feat_groups = {
+            'base': ['age', 'sex', 'futan', 'odds', 'popularity', 'horse_weight'],
+            'past': ['avg_finish', 'win_rate', 'place_rate', 'days_since_last_race'],
+            'trainer': ['trainer_win_rate', 'trainer_venue_win_rate'],
+            'jockey': ['jockey_win_rate', 'jockey_venue_win_rate'],
+            'running_style': ['running_style', 'avg_first_corner_ratio'],
+            'rotation': ['koukaku_rote_count', 'is_koukaku_venue'],
+            'pace': ['pace_avg_last3f', 'pace_avg_first3f'],
+            'training': ['kb_training_score', 'ck_training_type'],
+            'speed': ['kb_speed_index'],
+            'comment': ['comment_stable_condition', 'comment_memo_condition'],
+            'pedigree': ['sire_win_rate', 'dam_win_rate'],
+            'jrdb': ['jrdb_pre_idm', 'jrdb_speed_idx', 'jrdb_info_idx'],
+            'baba': ['baba_moisture'],
+            'track_bias': ['race_bias_inner_adv'],
+        }
+        sample = predictions[0]['features'] if predictions else {}
+        total_feat = len(features_value)
+        non_nan = sum(1 for f in features_value if sample.get(f) is not None
+                      and not (isinstance(sample.get(f), float) and np.isnan(sample.get(f))))
+        print(f"\n  [特徴量] {total_feat}個 (有効: {non_nan}, NaN: {total_feat - non_nan})")
+        for gname, sample_keys in feat_groups.items():
+            matched = [f for f in features_value if any(f.startswith(sk) or f == sk for sk in sample_keys)]
+            if matched:
+                vals = [sample.get(matched[0])]
+                val_str = f"{vals[0]:.3f}" if isinstance(vals[0], (int, float)) and vals[0] is not None else str(vals[0])
+                print(f"    {gname:15s}: {len(matched):2d}個  (例: {matched[0]}={val_str})")
+
+        # 各馬のオッズ一覧
+        print(f"\n  [オッズ]")
+        for p in predictions:
+            odds_v = p['features'].get('odds', 0)
+            print(f"    {p['umaban']:2d} {p['horse_name']:8s}  odds={odds_v:6.1f}")
+
     # odds_rank計算（有効なオッズがある場合のみ）
     has_real_odds = any(p['features'].get('odds', 0) > 0 for p in predictions)
     if has_real_odds:
@@ -1231,6 +1278,28 @@ def predict_race(
         grade_offset = (grade_offsets or {}).get(grade_key, 0.0)
         if grade_offset != 0.0:
             rating_display = rating_display + grade_offset
+
+    if verbose:
+        print(f"\n  [モデル推論]")
+        print(f"    Pモデル (is_top3): {len(pred_p)}頭推論完了")
+        if has_win_model:
+            print(f"    Wモデル (is_win):  {len(pred_w)}頭推論完了")
+        if model_ar is not None:
+            print(f"    ARモデル (着差):   {len(ability_score)}頭推論完了")
+
+        # 各馬の推論結果テーブル
+        print(f"\n  [推論結果]")
+        print(f"    {'番':>2s} {'馬名':8s}  {'P%':>5s}  {'W%':>5s}  {'AR':>5s}  {'odds':>5s}")
+        print(f"    {'─'*45}")
+        indices = np.argsort(-pred_p)
+        for idx in indices:
+            p_val = pred_p[idx] * 100
+            w_val = (pred_w[idx] * 100) if has_win_model else 0
+            ar_val = rating_display[idx] if rating_display is not None else 0
+            odds_val = predictions[idx]['features'].get('odds', 0)
+            name = predictions[idx]['horse_name'][:8]
+            ub = predictions[idx]['umaban']
+            print(f"    {ub:2d} {name:8s}  {p_val:5.1f}  {w_val:5.1f}  {ar_val:5.1f}  {odds_val:5.1f}")
 
     # ランク計算
     rank_p_dict = {i: r for r, i in enumerate(np.argsort(-pred_p), 1)}
@@ -1390,6 +1459,24 @@ def predict_race(
                   and (e.get('ar_deviation') or 0) >= VB_FLOOR_DEV_MIN_ARD)
         e['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok or dev_ok)
 
+    if verbose:
+        print(f"\n  [最終評価]")
+        print(f"    {'番':>2s} {'馬名':8s}  {'rank_p':>6s}  {'ARd':>5s}  {'EV':>5s}  {'odds_move':>9s}  {'市場':6s}  {'VB':>2s}")
+        print(f"    {'─'*60}")
+        for e in result_entries:
+            ub = e['umaban']
+            name = e['horse_name'][:8]
+            rp = e['rank_p']
+            ard = e.get('ar_deviation')
+            ev = e.get('win_ev')
+            om = e.get('odds_move')
+            ms = e.get('market_signal') or ''
+            vb = 'Y' if e['is_value_bet'] else ''
+            ard_s = f"{ard:5.1f}" if ard is not None else "    -"
+            ev_s = f"{ev:5.2f}" if ev is not None else "    -"
+            om_s = f"{om:9.3f}" if om is not None else "        -"
+            print(f"    {ub:2d} {name:8s}  {rp:6d}  {ard_s}  {ev_s}  {om_s}  {ms:6s}  {vb:>2s}")
+
     # ── レース確信度 (race confidence) ──────────────────────
     # Phase 1: シンプルな指標でモデルがどれだけ差別化できているかを数値化
     # 確信度が高い＝軸馬が明確＝購入判断しやすい
@@ -1483,6 +1570,8 @@ def main():
                         help='(deprecated: デフォルト動作が推論のみになりました)')
     parser.add_argument('--with-bets', action='store_true',
                         help='推論+買い目を一括実行（従来互換）')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help='詳細出力: 特徴量・推論過程を可視化')
     args = parser.parse_args()
 
     # バージョン一覧表示
@@ -1502,6 +1591,7 @@ def main():
 
     use_db_odds = not args.no_db
     model_version = args.model_version
+    verbose = args.verbose
 
     t0 = time.time()
 
@@ -1514,6 +1604,20 @@ def main():
     # モデルロード
     print("[Load] Loading models...")
     model_p, model_w, meta, calibrators, model_ar = load_model_and_meta(model_version)
+
+    if verbose:
+        feat_count = len(meta.get('features_value', []))
+        per_model = meta.get('features_per_model')
+        print(f"  Models: P({feat_count}f)")
+        if per_model:
+            for mk, mf in per_model.items():
+                print(f"          {mk.upper()}({len(mf)}f)")
+        if model_w is not None:
+            print(f"  Win model: loaded")
+        if model_ar is not None:
+            print(f"  AR model: loaded")
+        if calibrators:
+            print(f"  Calibrators: {list(calibrators.keys())}")
 
     # 障害モデルロード (v2: P+W, v1: single model)
     model_obstacle, model_obstacle_w, obstacle_meta, obstacle_calibrators = load_obstacle_model()
@@ -1666,6 +1770,7 @@ def main():
             jrdb_sed_index=jrdb_sed_index,
             jrdb_kyi_index=jrdb_kyi_index,
             jrdb_kaa_index=jrdb_kaa_index,
+            verbose=verbose,
         )
         all_predictions.append(pred)
 
