@@ -28,6 +28,7 @@ import json
 import math
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from itertools import combinations
 from typing import Dict, List, Optional, Tuple
 
 # 能力R変換定数 (ability_score → rating) — IDMスケール
@@ -57,11 +58,15 @@ OBSTACLE_VB_FLOOR_MIN_WIN_EV = 1.0   # 単勝EV下限
 OBSTACLE_VB_FLOOR_MIN_DEV_GAP = 0.5  # 偏差値gapルート: dev_gap下限 (平地より緩い)
 OBSTACLE_VB_FLOOR_MAX_RANK_W = 3     # rank_wルート: Wモデル3位以内
 # 障害複勝ルート (単勝EVが低くても複勝EVが高ければ通過)
-OBSTACLE_VB_FLOOR_MIN_PLACE_EV = 1.1  # 複勝EV下限
-OBSTACLE_VB_FLOOR_MAX_RANK_P = 5      # Pモデル5位以内（障害は少頭数）
+OBSTACLE_VB_FLOOR_MIN_PLACE_EV = 1.5  # 複勝EV下限 (1.1→1.5に引き上げ: 1レース複勝5頭問題対策)
+OBSTACLE_VB_FLOOR_MAX_RANK_P = 3      # Pモデル3位以内（5→3に絞り込み）
 # 障害ワイドルート (Pモデル Top1-2 ペア, 9頭以上)
 OBSTACLE_WIDE_MIN_RUNNERS = 9         # 少頭数は配当妙味なし(<=8: ROI 58%)
 OBSTACLE_WIDE_MAX_RANK_P = 2          # Pモデル Top1-2ペア
+
+# 激戦ワイド (Intense Wide - hit-focused)
+GEKISEN_WIDE_MAX_ENTRIES = 14
+GEKISEN_WIDE_MIN_PAIR_AGREE = 3
 
 
 def load_grade_offsets(path: str = None) -> Dict[str, float]:
@@ -423,7 +428,7 @@ class BetRecommendation:
     race_id: str
     umaban: int
     horse_name: str
-    bet_type: str               # '単勝' | '複勝' | '単複' | 'ワイド'
+    bet_type: str               # '単勝' | '複勝' | '単複' | 'ワイド' | '馬連'
     strength: str               # 'strong' | 'normal'
     win_amount: int = 0         # 単勝購入額 (100円単位)
     place_amount: int = 0       # 複勝購入額 (100円単位)
@@ -443,6 +448,7 @@ class BetRecommendation:
     place_odds_min: Optional[float] = None
     ar_deviation: Optional[float] = None  # AR偏差値 (strength判定の根拠表示用)
     wide_pair: Optional[List[int]] = None  # ワイド対象ペア [umaban1, umaban2]
+    wide_source: Optional[str] = None     # ワイド出所: '障害' | '激戦'
     market_signal: Optional[str] = None   # 基準オッズ市場シグナル (鉄板/軸向き/妙味/etc.)
 
 
@@ -813,18 +819,8 @@ def generate_recommendations(
 
             # === VB Floor Gate: 購入プラン⊆VB候補 ===
             if is_obstacle:
-                # 障害レース: ARモデルなし → 単勝ルート or 複勝ルートで判定
-                # 単勝ルート: win_ev >= 1.0 + (dev_gap >= 0.5 or rank_w <= 3 or rank_p <= 3)
-                obs_ev_ok = (win_ev or 0) >= OBSTACLE_VB_FLOOR_MIN_WIN_EV
-                obs_dev_ok = entry_dev_gap >= OBSTACLE_VB_FLOOR_MIN_DEV_GAP
-                obs_rank_ok = (rank_w or 99) <= OBSTACLE_VB_FLOOR_MAX_RANK_W
-                obs_rankp_sub = rank_p <= 3  # Pモデルtop3はEVあれば通過
-                win_route = obs_ev_ok and (obs_dev_ok or obs_rank_ok or obs_rankp_sub)
-                # 複勝ルート: place_ev >= 1.1 (障害はランダム性高→穴馬の複勝EVに注目)
-                obs_pev_ok = (place_ev or 0) >= OBSTACLE_VB_FLOOR_MIN_PLACE_EV
-                place_route = obs_pev_ok
-                if not (win_route or place_route):
-                    continue
+                # 障害レース: ワイド/馬連のみ（後段で生成）→ 単勝/複勝/単複はスキップ
+                continue
             else:
                 vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV
                 vb_ard_ok = (ar_dev or 0) >= VB_FLOOR_MIN_ARD
@@ -998,8 +994,62 @@ def generate_recommendations(
                         place_amount=0,
                         odds=0.0,
                         wide_pair=sorted([u1, u2]),
+                        wide_source='障害',
                     )
                     all_recs.append(wide_rec)
+
+                    # 障害馬連: 同じTop1-2ペア (rank_p 1位→2位の順)
+                    umaren_rec = BetRecommendation(
+                        race_id=race_id,
+                        umaban=e1['umaban'],
+                        horse_name=f"{n1}-{n2}",
+                        bet_type='馬連',
+                        strength='strong',
+                        win_amount=params.bet_unit,
+                        place_amount=0,
+                        odds=0.0,
+                        wide_pair=sorted([u1, u2]),
+                        wide_source='障害',
+                    )
+                    all_recs.append(umaren_rec)
+
+        # --- 激戦ワイド: pair_agree フィルタ (非障害, 14頭以下) ---
+        if not is_obstacle and len(entries) <= GEKISEN_WIDE_MAX_ENTRIES:
+            # pair_agree: rank_p, rank_w, ar_deviation, odds_rankのtop2が何個一致するか
+            sorted_by_rp = sorted(entries, key=lambda x: x.get('rank_p', 99))
+            sorted_by_rw = sorted(entries, key=lambda x: x.get('rank_w', 99))
+            sorted_by_ard = sorted(entries, key=lambda x: -float(x.get('ar_deviation', 0) or 0))
+            sorted_by_odds = sorted(entries, key=lambda x: float(x.get('odds', 999) or 999))
+
+            top2_sets = []
+            for ranking in [sorted_by_rp, sorted_by_rw, sorted_by_ard, sorted_by_odds]:
+                if len(ranking) >= 2:
+                    top2_sets.append(frozenset([ranking[0]['umaban'], ranking[1]['umaban']]))
+
+            if top2_sets:
+                # Count how many rankings agree with rank_p's top2
+                rp_top2 = top2_sets[0]
+                pair_agree = sum(1 for s in top2_sets[1:] if s == rp_top2)
+
+                if pair_agree >= GEKISEN_WIDE_MIN_PAIR_AGREE:
+                    # Generate wide bets: P top3 combo (3 tickets)
+                    p_top3 = sorted_by_rp[:3]
+                    for h1, h2 in combinations(p_top3, 2):
+                        u1, u2 = h1['umaban'], h2['umaban']
+                        n1, n2 = h1.get('horse_name', '?'), h2.get('horse_name', '?')
+                        wide_rec = BetRecommendation(
+                            race_id=race_id,
+                            umaban=min(u1, u2),
+                            horse_name=f"{n1}-{n2}",
+                            bet_type='ワイド',
+                            strength='strong',
+                            win_amount=params.bet_unit,
+                            place_amount=0,
+                            odds=0.0,
+                            wide_pair=sorted([u1, u2]),
+                            wide_source='激戦',
+                        )
+                        all_recs.append(wide_rec)
 
     # 予算スケーリング
     all_recs = apply_budget(all_recs, budget, params)
@@ -1172,6 +1222,7 @@ def recommendations_summary(recs: List[BetRecommendation]) -> dict:
     win_bets = [r for r in recs if r.bet_type in ('単勝', '単複')]
     place_bets = [r for r in recs if r.bet_type in ('複勝', '単複')]
     wide_bets = [r for r in recs if r.bet_type == 'ワイド']
+    umaren_bets = [r for r in recs if r.bet_type == '馬連']
 
     return {
         'total_bets': len(recs),
@@ -1179,6 +1230,7 @@ def recommendations_summary(recs: List[BetRecommendation]) -> dict:
         'win_bets': len(win_bets),
         'place_bets': len(place_bets),
         'wide_bets': len(wide_bets),
+        'umaren_bets': len(umaren_bets),
         'win_amount': sum(r.win_amount for r in recs),
         'place_amount': sum(r.place_amount for r in recs),
         'strong_count': sum(1 for r in recs if r.strength == 'strong'),

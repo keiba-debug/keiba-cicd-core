@@ -25,6 +25,7 @@ interface PurchaseItem {
   selection: string;
   amount: number;
   odds: number | null;
+  wide_pair?: number[] | null;
   expected_value: number | null;
   status: 'planned' | 'purchased' | 'result_win' | 'result_lose';
   payout: number;
@@ -142,6 +143,7 @@ export async function POST(
       selection,
       amount,
       odds = null,
+      wide_pair = null,
       confidence = '中',
       reason = '',
       status = 'planned',
@@ -170,6 +172,7 @@ export async function POST(
       selection,
       amount: Number(amount),
       odds,
+      wide_pair: wide_pair || null,
       expected_value,
       status,
       payout: 0,
