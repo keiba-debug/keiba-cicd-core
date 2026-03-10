@@ -33,6 +33,30 @@ export async function GET(request: NextRequest) {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     const data = JSON.parse(content);
+
+    // race JSONから着順データを補完
+    const dayDir = path.join(DATA3_ROOT, 'races', parts[0], parts[1], parts[2]);
+    const finishMap: Record<string, Record<number, number>> = {}; // race_id -> {umaban: finish_position}
+    try {
+      const raceFiles = fs.readdirSync(dayDir).filter((f: string) => /^race_\d+\.json$/.test(f));
+      for (const rf of raceFiles) {
+        const rc = JSON.parse(fs.readFileSync(path.join(dayDir, rf), 'utf-8'));
+        const raceId = rc.race_id;
+        if (raceId && rc.entries) {
+          const map: Record<number, number> = {};
+          for (const e of rc.entries) {
+            if (e.umaban != null && e.finish_position != null) {
+              map[e.umaban] = e.finish_position;
+            }
+          }
+          if (Object.keys(map).length > 0) {
+            finishMap[raceId] = map;
+          }
+        }
+      }
+    } catch { /* 着順取得失敗は無視 */ }
+    data.finish_positions = finishMap;
+
     return NextResponse.json(data);
   } catch (err) {
     return NextResponse.json(

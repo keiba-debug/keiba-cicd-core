@@ -8,7 +8,7 @@ import {
   Zap, Play, Loader2, CheckCircle2, XCircle,
   ChevronLeft, ChevronRight, Calendar, RefreshCw,
   ArrowRight, TrendingUp, ChevronDown, ChevronUp, Layers,
-  ShoppingCart, Check, X, Download, Trophy,
+  Download,
 } from 'lucide-react';
 
 // =====================================================================
@@ -37,6 +37,7 @@ interface RecommendationEntry {
   vb_score?: number | null;
   wide_pair?: number[] | null;
   wide_source?: string | null;  // '障害' | '激戦'
+  kelly_amount?: number | null;
 }
 
 interface PredictionsData {
@@ -69,6 +70,8 @@ interface PredictionsData {
       wide_pair?: number[] | null;
       wide_source?: string | null;
       track_type?: string;
+      kelly_win_frac?: number;
+      kelly_amount?: number;
     }>;
     summary: {
       total_bets: number;
@@ -94,37 +97,7 @@ interface PredictionsData {
       pred_proba_w_cal?: number;
     }>;
   }>;
-}
-
-// 購入レコード（API側の PurchaseItem に対応）
-interface PurchaseItem {
-  id: string;
-  race_id: string;
-  race_name: string;
-  venue: string;
-  race_number: number;
-  bet_type: string;
-  selection: string;  // "馬番-馬名" 形式
-  amount: number;
-  odds: number | null;
-  expected_value: number | null;
-  status: 'planned' | 'purchased' | 'result_win' | 'result_lose';
-  payout: number;
-  confidence: '高' | '中' | '低';
-  reason: string;
-  wide_pair?: number[] | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface DailyPurchases {
-  date: string;
-  budget: number;
-  total_planned: number;
-  total_purchased: number;
-  total_payout: number;
-  items: PurchaseItem[];
-  updated_at: string;
+  finish_positions?: Record<string, Record<number, number>>; // race_id -> {umaban: finish_position}
 }
 
 interface OtherPresetData {
@@ -233,12 +206,6 @@ export function ExecuteTab() {
   const [raceRangeMin, setRaceRangeMin] = useState(0);
   const [raceRangeMax, setRaceRangeMax] = useState(0);
 
-  // 購入管理
-  const [dailyPurchases, setDailyPurchases] = useState<DailyPurchases | null>(null);
-  // 推奨ごとの購入金額入力（キー: "race_id-umaban"）
-  const [purchaseAmounts, setPurchaseAmounts] = useState<Record<string, number>>({});
-  const [savingPurchase, setSavingPurchase] = useState<string | null>(null);
-
   // バンクロール残高 & 推奨購入額
   const [bankrollBalance, setBankrollBalance] = useState<number | null>(null);
   const [betPct, setBetPct] = useState(2); // 資金の何%をベットするか（デフォルト2%）
@@ -329,6 +296,7 @@ export function ExecuteTab() {
             track_type: b.track_type ?? race?.track_type,
             vb_score: b.vb_score ?? null,
             place_ev: b.place_ev ?? null,
+            kelly_amount: b.kelly_amount ?? null,
           };
         });
         setRecommendations(entries);
@@ -439,6 +407,7 @@ export function ExecuteTab() {
               wide_source: b.wide_source ?? null,
               place_ev: b.place_ev ?? null,
               vb_score: b.vb_score ?? null,
+              kelly_amount: b.kelly_amount ?? null,
             } as RecommendationEntry;
           });
 
@@ -470,21 +439,6 @@ export function ExecuteTab() {
       setOtherPresets([]);
     } finally {
       setLoading(false);
-    }
-  }, []);
-
-  // 購入データのロード
-  const loadPurchases = useCallback(async (date: string) => {
-    try {
-      const res = await fetch(`/api/purchases/${date}`);
-      if (res.ok) {
-        const data: DailyPurchases = await res.json();
-        setDailyPurchases(data);
-      } else {
-        setDailyPurchases(null);
-      }
-    } catch {
-      setDailyPurchases(null);
     }
   }, []);
 
@@ -525,212 +479,46 @@ export function ExecuteTab() {
     });
   }, [activePreset, allMergedRecs, recommendations, allPresetsMap, raceRangeMin, raceRangeMax]);
 
-  // 購入キー（推奨一覧と購入レコードのマッチング用）
-  const getPurchaseKey = (raceId: string, umaban: number, widePair?: number[] | null) =>
-    widePair ? `${raceId}-W${widePair[0]}-${widePair[1]}` : `${raceId}-${umaban}`;
-
-  // 推奨がすでに購入済みかチェック
-  const findPurchase = (raceId: string, umaban: number): PurchaseItem | undefined => {
-    if (!dailyPurchases) return undefined;
-    const selection = `${umaban}`;
-    return dailyPurchases.items.find(
-      (p) => p.race_id === raceId && p.selection.startsWith(selection + '-')
-    );
-  };
-
-  // 購入を記録
-  const recordPurchase = async (rec: RecommendationEntry) => {
-    const key = getPurchaseKey(rec.race_id, rec.umaban, rec.wide_pair);
-    setSavingPurchase(key);
-    try {
-      // 単複の場合はwin_amount+place_amountの合計を使用
-      const amount = purchaseAmounts[key]
-        || (rec.bet_type === '単複' ? (rec.win_amount + rec.place_amount) || defaultBetAmount || 200
-          : defaultBetAmount || rec.win_amount || 100);
-      const res = await fetch(`/api/purchases/${selectedDate}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          race_id: rec.race_id,
-          race_name: `${rec.venue}${rec.race_number}R`,
-          venue: rec.venue,
-          race_number: rec.race_number,
-          bet_type: rec.bet_type || '単勝',
-          selection: `${rec.umaban}-${rec.horse_name}`,
-          amount,
-          odds: rec.odds,
-          wide_pair: rec.wide_pair || null,
-          confidence: rec.strength === 'strong' ? '高' : '中',
-          reason: `${activePreset === 'intersection' ? 'Intersection' : activePreset} (Gap+${rec.win_vb_gap}, EV${rec.win_ev.toFixed(2)})`,
-          status: 'purchased',
-        }),
-      });
-      if (res.ok) {
-        await loadPurchases(selectedDate);
-      }
-    } catch (err) {
-      console.error('Purchase save error:', err);
-    } finally {
-      setSavingPurchase(null);
-    }
-  };
-
-  // 購入を取り消し
-  const cancelPurchase = async (purchaseId: string) => {
-    setSavingPurchase(purchaseId);
-    try {
-      const res = await fetch(`/api/purchases/${selectedDate}?id=${purchaseId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        await loadPurchases(selectedDate);
-      }
-    } catch (err) {
-      console.error('Purchase cancel error:', err);
-    } finally {
-      setSavingPurchase(null);
-    }
-  };
-
-  // 結果反映
-  const [settling, setSettling] = useState(false);
-  const [settleResult, setSettleResult] = useState<{ settled: number; wins: number; totalPayout: number; profit: number } | null>(null);
-
-  const settleResults = async () => {
-    setSettling(true);
-    setSettleResult(null);
-    try {
-      const res = await fetch(`/api/purchases/${selectedDate}/settle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: true }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSettleResult({
-          settled: data.settled,
-          wins: data.wins,
-          totalPayout: data.totalPayout,
-          profit: data.profit,
-        });
-        await loadPurchases(selectedDate);
-        // バンクロール残高もリフレッシュ
-        fetch('/api/bankroll/fund')
-          .then(r => r.ok ? r.json() : null)
-          .then(d => { if (d?.current_balance != null) setBankrollBalance(d.current_balance); })
-          .catch(() => {});
-      } else {
-        const err = await res.json().catch(() => ({ error: 'Unknown' }));
-        alert(`結果反映失敗: ${err.error || res.statusText}`);
-      }
-    } catch (err) {
-      alert(`結果反映エラー: ${err}`);
-    } finally {
-      setSettling(false);
-    }
-  };
-
   // FF CSV出力（TARGET買い目取り込み用）
+  // 常に画面の推奨リスト(displayRecs)から生成 — 画面=CSVを保証
   const exportFfCsv = async () => {
-    // 購入済みの推奨を対象にする（購入データがあればそれを、なければ推奨テーブルの全件を使う）
     const bets: { raceId: string; umaban: number; umaban2?: number; betType: number; amount: number }[] = [];
 
-    // 推奨データからwide_pairを引くためのマップ（購入レコードにwide_pairがない場合の補完用）
-    const widePairMap = new Map<string, number[]>();
     for (const rec of displayRecs) {
-      if (rec.wide_pair && rec.wide_pair.length === 2) {
-        // key: race_id + umaban(小さい方) + bet_type
-        const k = `${rec.race_id}-${rec.bet_type}-${rec.umaban}`;
-        widePairMap.set(k, rec.wide_pair);
-      }
-    }
+      const amount = getRecAmount(rec);
 
-    if (dailyPurchases && dailyPurchases.items.length > 0) {
-      // 購入済みの馬券からFF CSVを生成（未確定 or 確定済み両方対象）
-      for (const item of dailyPurchases.items) {
-        if (item.status === 'planned' || item.status === 'purchased'
-            || item.status === 'result_win' || item.status === 'result_lose') {
-          const umaban = parseInt(item.selection.split('-')[0]);
-          if (umaban >= 1 && umaban <= 18) {
-            // ワイド/馬連: wide_pairを購入レコード→推奨データの順で探す
-            const resolveWidePair = (): number[] | null => {
-              if (item.wide_pair && item.wide_pair.length === 2) return item.wide_pair;
-              const k = `${item.race_id}-${item.bet_type}-${umaban}`;
-              return widePairMap.get(k) || null;
-            };
-
-            if (item.bet_type === 'ワイド') {
-              const wp = resolveWidePair();
-              if (wp) {
-                bets.push({ raceId: item.race_id, umaban: wp[0], umaban2: wp[1], betType: 4, amount: item.amount });
-              } else {
-                console.warn(`[FF CSV] ワイドのペア不明、スキップ: ${item.race_id} sel=${item.selection}`);
-              }
-            } else if (item.bet_type === '馬連') {
-              const wp = resolveWidePair();
-              if (wp) {
-                bets.push({ raceId: item.race_id, umaban: wp[0], umaban2: wp[1], betType: 3, amount: item.amount });
-              } else {
-                console.warn(`[FF CSV] 馬連のペア不明、スキップ: ${item.race_id} sel=${item.selection}`);
-              }
-            } else if (item.bet_type === '単複') {
-              const half = Math.floor(item.amount / 200) * 100;
-              const remainder = item.amount - half;
-              bets.push({ raceId: item.race_id, umaban, betType: 0, amount: Math.max(half, 100) });
-              bets.push({ raceId: item.race_id, umaban, betType: 1, amount: Math.max(remainder, 100) });
-            } else {
-              bets.push({
-                raceId: item.race_id,
-                umaban,
-                betType: item.bet_type === '複勝' ? 1 : 0,
-                amount: item.amount,
-              });
-            }
-          }
-        }
-      }
-    } else {
-      // 購入記録がない場合は推奨一覧からFF CSVを生成
-      for (const rec of displayRecs) {
-        const key = getPurchaseKey(rec.race_id, rec.umaban, rec.wide_pair);
-        if (rec.bet_type === 'ワイド' && rec.wide_pair && rec.wide_pair.length === 2) {
-          // ワイド: betType=4, umaban/umaban2でペア指定
-          const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
-          bets.push({
-            raceId: rec.race_id,
-            umaban: rec.wide_pair[0],
-            umaban2: rec.wide_pair[1],
-            betType: 4,
-            amount,
-          });
-        } else if (rec.bet_type === '馬連' && rec.wide_pair && rec.wide_pair.length === 2) {
-          // 馬連: betType=3, umaban/umaban2でペア指定
-          const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
-          bets.push({
-            raceId: rec.race_id,
-            umaban: rec.wide_pair[0],
-            umaban2: rec.wide_pair[1],
-            betType: 3,
-            amount,
-          });
-        } else if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連') {
-          // wide_pairがない場合はスキップ（通常ありえない）
-          console.warn(`[FF CSV] ${rec.bet_type}にwide_pairなし、スキップ: ${rec.race_id}`);
-        } else if (rec.bet_type === '単複') {
-          // 単複は単勝+複勝の2行に分割（各金額が分かればそれを使う）
-          const winAmt = purchaseAmounts[key] || rec.win_amount || defaultBetAmount || 100;
-          const placeAmt = rec.place_amount || winAmt;
-          bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 0, amount: winAmt });
-          bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 1, amount: placeAmt });
-        } else {
-          const amount = purchaseAmounts[key] || defaultBetAmount || rec.win_amount || 100;
-          bets.push({
-            raceId: rec.race_id,
-            umaban: rec.umaban,
-            betType: (rec.bet_type === '複勝') ? 1 : 0,
-            amount,
-          });
-        }
+      if (rec.bet_type === 'ワイド' && rec.wide_pair && rec.wide_pair.length === 2) {
+        bets.push({
+          raceId: rec.race_id,
+          umaban: rec.wide_pair[0],
+          umaban2: rec.wide_pair[1],
+          betType: 4,
+          amount,
+        });
+      } else if (rec.bet_type === '馬連' && rec.wide_pair && rec.wide_pair.length === 2) {
+        bets.push({
+          raceId: rec.race_id,
+          umaban: rec.wide_pair[0],
+          umaban2: rec.wide_pair[1],
+          betType: 3,
+          amount,
+        });
+      } else if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連') {
+        console.warn(`[FF CSV] ${rec.bet_type}にwide_pairなし、スキップ: ${rec.race_id}`);
+      } else if (rec.bet_type === '単複') {
+        // 単複 → 単勝+複勝の2行。金額を半分ずつ
+        const halfAmt = Math.max(Math.floor(amount / 2 / 100) * 100, 100);
+        const winAmt = halfAmt;
+        const placeAmt = halfAmt;
+        bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 0, amount: winAmt });
+        bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 1, amount: placeAmt });
+      } else {
+        bets.push({
+          raceId: rec.race_id,
+          umaban: rec.umaban,
+          betType: (rec.bet_type === '複勝') ? 1 : 0,
+          amount,
+        });
       }
     }
 
@@ -769,10 +557,9 @@ export function ExecuteTab() {
   useEffect(() => {
     if (selectedDate) {
       loadPredictions(selectedDate);
-      loadPurchases(selectedDate);
       setCsvResult(null);
     }
-  }, [selectedDate, loadPredictions, loadPurchases]);
+  }, [selectedDate, loadPredictions]);
 
   // 買い目生成の実行（SSE経由）
   const executeGenerateBets = async () => {
@@ -840,7 +627,6 @@ export function ExecuteTab() {
       }
       setTimeout(() => {
         loadPredictions(selectedDate);
-        loadPurchases(selectedDate);
       }, 1000);
     } catch (err) {
       setExecStatus('error');
@@ -870,8 +656,15 @@ export function ExecuteTab() {
     }
   };
 
-  // 表示中のsummary
-  const totalInvest = displayRecs.reduce((s, r) => s + r.win_amount + r.place_amount, 0);
+  // 推奨1件あたりの実投資額を計算（Kelly額 vs デフォルト均等額の大きい方）
+  const getRecAmount = (r: RecommendationEntry): number => {
+    const kellyAmt = r.kelly_amount || 0;
+    const defAmt = defaultBetAmount || r.win_amount || 100;
+    return Math.max(kellyAmt, defAmt);
+  };
+
+  // 表示中の合計投資額
+  const totalInvest = displayRecs.reduce((s, r) => s + getRecAmount(r), 0);
 
   // 全推奨サマリー計算
   const allSummary = useMemo(() => {
@@ -1035,23 +828,6 @@ export function ExecuteTab() {
             </Card>
             <Card>
               <CardContent className="pt-4 pb-3">
-                <div className="text-xs text-muted-foreground mb-1">購入済</div>
-                {dailyPurchases && dailyPurchases.items.length > 0 ? (
-                  <div>
-                    <div className="text-xl font-bold text-green-600">
-                      {dailyPurchases.items.length}件
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      ¥{dailyPurchases.total_purchased.toLocaleString()}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-xl font-bold text-muted-foreground">—</div>
-                )}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4 pb-3">
                 <div className="text-xs text-muted-foreground mb-1">生成日時</div>
                 <div className="text-sm font-medium">
                   {predictions.bets_generated_at
@@ -1078,8 +854,9 @@ export function ExecuteTab() {
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
                 <div>
-                  <div className="text-xs text-muted-foreground">1ベット推奨額（{betPct}%）</div>
+                  <div className="text-xs text-muted-foreground">均等{betPct}% / Kelly 1/4</div>
                   <div className="text-lg font-bold text-indigo-600">¥{defaultBetAmount.toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground">Kelly額はEV×オッズから自動計算</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1090,7 +867,6 @@ export function ExecuteTab() {
                     onClick={() => {
                       setBetPct(pct);
                       localStorage.setItem('keiba_execute_bet_pct', String(pct));
-                      setPurchaseAmounts({}); // 金額入力をリセット
                     }}
                     className={`px-2.5 py-1 text-xs rounded border transition-colors ${
                       betPct === pct
@@ -1126,7 +902,7 @@ export function ExecuteTab() {
               <div className="flex items-center gap-2">
                 {csvResult && (
                   <span className="text-xs text-green-600">
-                    {csvResult.totalBets}件 / ¥{csvResult.totalAmount.toLocaleString()} → CSV出力済
+                    {displayRecs.length}推奨({csvResult.totalBets}行) / ¥{csvResult.totalAmount.toLocaleString()} → CSV出力済
                   </span>
                 )}
                 <Button
@@ -1274,20 +1050,43 @@ export function ExecuteTab() {
                     <th className="py-2 px-1 text-right">ARd</th>
                     <th className="py-2 px-1 text-right">オッズ</th>
                     <th className="py-2 px-1 text-right">金額</th>
-                    <th className="py-2 px-2 text-center">購入</th>
+                    <th className="py-2 px-1 text-center">着順</th>
+                    <th className="py-2 px-1 text-center">結果</th>
                   </tr>
                 </thead>
                 <tbody>
                   {displayRecs.map((rec, idx) => {
-                    const key = getPurchaseKey(rec.race_id, rec.umaban, rec.wide_pair);
-                    const existing = findPurchase(rec.race_id, rec.umaban);
-                    const isSaving = savingPurchase === key || savingPurchase === existing?.id;
-                    const defaultAmount = defaultBetAmount || rec.win_amount || 100;
-                    const currentAmount = purchaseAmounts[key] ?? defaultAmount;
+                    const recAmount = getRecAmount(rec);
+                    const fp = predictions?.finish_positions;
+                    // 着順取得
+                    const finish1 = fp?.[rec.race_id]?.[rec.umaban] ?? null;
+                    const finish2 = rec.wide_pair ? fp?.[rec.race_id]?.[rec.wide_pair[1]] ?? null : null;
+                    // 的中判定
+                    let isHit: boolean | null = null;
+                    if (fp?.[rec.race_id]) {
+                      if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連') {
+                        const f1 = rec.wide_pair ? fp[rec.race_id]?.[rec.wide_pair[0]] : null;
+                        const f2 = rec.wide_pair ? fp[rec.race_id]?.[rec.wide_pair[1]] : null;
+                        if (f1 != null && f2 != null && f1 > 0 && f2 > 0) {
+                          if (rec.bet_type === 'ワイド') {
+                            isHit = f1 <= 3 && f2 <= 3;
+                          } else {
+                            isHit = (f1 === 1 && f2 === 2) || (f1 === 2 && f2 === 1);
+                          }
+                        }
+                      } else if (rec.bet_type === '単勝' || rec.bet_type === '単複') {
+                        if (finish1 != null && finish1 > 0) isHit = finish1 === 1;
+                      } else if (rec.bet_type === '複勝') {
+                        if (finish1 != null && finish1 > 0) isHit = finish1 <= 3;
+                      }
+                    }
+                    const rowKey = rec.wide_pair
+                      ? `${rec.race_id}-${rec.bet_type}-W${rec.wide_pair[0]}-${rec.wide_pair[1]}`
+                      : `${rec.race_id}-${rec.umaban}`;
 
                     return (
-                      <tr key={`${key}-${idx}`}
-                        className={`border-b hover:bg-indigo-50 dark:hover:bg-indigo-950/30 ${getGapBg(rec.win_vb_gap)} ${existing ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
+                      <tr key={`${rowKey}-${idx}`}
+                        className={`border-b hover:bg-indigo-50 dark:hover:bg-indigo-950/30 ${isHit === true ? 'bg-green-50 dark:bg-green-950/20' : ''} ${getGapBg(rec.win_vb_gap)}`}>
                         <td className="py-2 px-2 font-medium">
                           {rec.venue}
                           {rec.track_type === 'obstacle' && (
@@ -1372,173 +1171,83 @@ export function ExecuteTab() {
                           ) : '—'}
                         </td>
                         <td className="py-2 px-1 text-right font-mono">{rec.odds.toFixed(1)}</td>
-                        <td className="py-2 px-1 text-right font-mono font-bold text-red-600">
-                          {(rec.win_amount + rec.place_amount) > 0 ? `¥${(rec.win_amount + rec.place_amount).toLocaleString()}` : '—'}
+                        <td className="py-2 px-1 text-right font-mono font-bold text-orange-600">
+                          ¥{recAmount.toLocaleString()}
                         </td>
-                        <td className="py-2 px-2">
-                          {existing ? (
-                            <div className="flex items-center gap-1">
-                              <Badge className="bg-green-600 text-white text-xs whitespace-nowrap">
-                                <Check className="h-3 w-3 mr-0.5" />
-                                ¥{existing.amount.toLocaleString()}
-                              </Badge>
-                              <button
-                                onClick={() => cancelPurchase(existing.id)}
-                                disabled={isSaving}
-                                className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-400 hover:text-red-600 transition-colors"
-                                title="購入取消"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
+                        <td className="py-2 px-1 text-center font-mono text-xs">
+                          {(rec.bet_type === 'ワイド' || rec.bet_type === '馬連') && rec.wide_pair ? (
+                            fp?.[rec.race_id] ? (
+                              <span>
+                                <span className={fp[rec.race_id]?.[rec.wide_pair[0]] != null && fp[rec.race_id][rec.wide_pair[0]] <= 3 ? 'text-green-600 font-bold' : ''}>
+                                  {fp[rec.race_id]?.[rec.wide_pair[0]] || '—'}
+                                </span>
+                                <span className="text-muted-foreground">-</span>
+                                <span className={fp[rec.race_id]?.[rec.wide_pair[1]] != null && fp[rec.race_id][rec.wide_pair[1]] <= 3 ? 'text-green-600 font-bold' : ''}>
+                                  {fp[rec.race_id]?.[rec.wide_pair[1]] || '—'}
+                                </span>
+                              </span>
+                            ) : '—'
                           ) : (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="number"
-                                value={currentAmount}
-                                onChange={(e) => setPurchaseAmounts(prev => ({
-                                  ...prev,
-                                  [key]: parseInt(e.target.value) || 100,
-                                }))}
-                                className="w-16 rounded border bg-background px-1.5 py-0.5 text-xs text-right font-mono"
-                                step={100}
-                                min={100}
-                              />
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => recordPurchase(rec)}
-                                disabled={isSaving}
-                                className="h-7 px-2 text-xs border-green-300 text-green-700 hover:bg-green-50 hover:border-green-500 dark:text-green-400 dark:hover:bg-green-950/30"
-                              >
-                                {isSaving ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <><ShoppingCart className="h-3 w-3 mr-0.5" />購入</>
-                                )}
-                              </Button>
-                            </div>
+                            finish1 != null && finish1 > 0 ? (
+                              <span className={finish1 <= 3 ? 'text-green-600 font-bold' : ''}>
+                                {finish1}着
+                              </span>
+                            ) : '—'
                           )}
+                        </td>
+                        <td className="py-2 px-1 text-center">
+                          {isHit === true && <Badge className="bg-green-600 text-white text-[10px]">的中</Badge>}
+                          {isHit === false && <Badge variant="secondary" className="text-[10px]">外れ</Badge>}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
-                {totalInvest > 0 && (
-                  <tfoot>
-                    <tr className="border-t-2 font-bold">
-                      <td colSpan={activePreset !== 'intersection' ? 14 : 13} className="py-2 px-2 text-right">合計</td>
-                      <td className="py-2 px-1 text-right font-mono text-red-600">
-                        ¥{totalInvest.toLocaleString()}
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
+                {totalInvest > 0 && (() => {
+                  const fp = predictions?.finish_positions;
+                  const hitCount = fp ? displayRecs.filter(rec => {
+                    const raceFinish = fp[rec.race_id];
+                    if (!raceFinish) return false;
+                    if ((rec.bet_type === 'ワイド') && rec.wide_pair) {
+                      const f1 = raceFinish[rec.wide_pair[0]];
+                      const f2 = raceFinish[rec.wide_pair[1]];
+                      return f1 > 0 && f2 > 0 && f1 <= 3 && f2 <= 3;
+                    } else if (rec.bet_type === '馬連' && rec.wide_pair) {
+                      const f1 = raceFinish[rec.wide_pair[0]];
+                      const f2 = raceFinish[rec.wide_pair[1]];
+                      return (f1 === 1 && f2 === 2) || (f1 === 2 && f2 === 1);
+                    } else if (rec.bet_type === '単勝' || rec.bet_type === '単複') {
+                      return raceFinish[rec.umaban] === 1;
+                    } else if (rec.bet_type === '複勝') {
+                      return raceFinish[rec.umaban] > 0 && raceFinish[rec.umaban] <= 3;
+                    }
+                    return false;
+                  }).length : 0;
+                  const hasResults = fp && Object.keys(fp).length > 0;
+                  return (
+                    <tfoot>
+                      <tr className="border-t-2 font-bold">
+                        <td colSpan={activePreset !== 'intersection' ? 15 : 14} className="py-2 px-2 text-right">
+                          合計
+                          {hasResults && (
+                            <span className={`ml-3 text-xs font-normal ${hitCount > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                              的中 {hitCount}/{displayRecs.length}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-1 text-right font-mono text-red-600">
+                          ¥{totalInvest.toLocaleString()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  );
+                })()}
               </table>
             </div>
             </>
           )}
         </CardContent>
       </Card>
-
-      {/* 購入サマリー */}
-      {dailyPurchases && dailyPurchases.items.length > 0 && (
-        <Card className="border-green-200 dark:border-green-800">
-          <CardHeader className="py-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
-                <ShoppingCart className="h-4 w-4" />
-                本日の購入記録
-                <Badge className="bg-green-600 text-white text-xs">{dailyPurchases.items.length}件</Badge>
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                {settleResult && (
-                  <span className="text-xs">
-                    {settleResult.settled > 0 ? (
-                      <span className={settleResult.profit >= 0 ? 'text-green-600' : 'text-red-600'}>
-                        {settleResult.settled}件確定 / 的中{settleResult.wins} /
-                        {settleResult.profit >= 0 ? ' +' : ' '}¥{settleResult.profit.toLocaleString()}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">確定対象なし</span>
-                    )}
-                  </span>
-                )}
-                {dailyPurchases.items.some(i => i.status === 'purchased') && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={settleResults}
-                    disabled={settling}
-                    className="text-xs border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-500 dark:text-amber-400 dark:hover:bg-amber-950/30"
-                  >
-                    {settling ? (
-                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                    ) : (
-                      <Trophy className="h-3.5 w-3.5 mr-1" />
-                    )}
-                    結果反映
-                  </Button>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="grid grid-cols-3 gap-4 mb-3">
-              <div>
-                <div className="text-xs text-muted-foreground">投資額</div>
-                <div className="text-lg font-bold text-red-600">
-                  ¥{dailyPurchases.total_purchased.toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">払戻</div>
-                <div className="text-lg font-bold text-green-600">
-                  ¥{dailyPurchases.total_payout.toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">損益</div>
-                <div className={`text-lg font-bold ${dailyPurchases.total_payout - dailyPurchases.total_purchased >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {dailyPurchases.total_payout - dailyPurchases.total_purchased >= 0 ? '+' : ''}
-                  ¥{(dailyPurchases.total_payout - dailyPurchases.total_purchased).toLocaleString()}
-                </div>
-              </div>
-            </div>
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b text-muted-foreground">
-                  <th className="py-1 px-1 text-left">レース</th>
-                  <th className="py-1 px-1 text-left">馬券</th>
-                  <th className="py-1 px-1 text-right">金額</th>
-                  <th className="py-1 px-1 text-right">オッズ</th>
-                  <th className="py-1 px-1 text-center">結果</th>
-                  <th className="py-1 px-1 text-right">払戻</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dailyPurchases.items.map((item) => (
-                  <tr key={item.id} className="border-b last:border-0">
-                    <td className="py-1 px-1">{item.race_name}</td>
-                    <td className="py-1 px-1">{item.bet_type} {item.selection}</td>
-                    <td className="py-1 px-1 text-right font-mono">¥{item.amount.toLocaleString()}</td>
-                    <td className="py-1 px-1 text-right font-mono">{item.odds?.toFixed(1) ?? '—'}</td>
-                    <td className="py-1 px-1 text-center">
-                      {item.status === 'result_win' && <Badge className="bg-green-600 text-white text-xs">的中</Badge>}
-                      {item.status === 'result_lose' && <Badge variant="secondary" className="text-xs">不的中</Badge>}
-                      {item.status === 'purchased' && <Badge variant="outline" className="text-xs">未確定</Badge>}
-                      {item.status === 'planned' && <Badge variant="outline" className="text-xs text-gray-400">予定</Badge>}
-                    </td>
-                    <td className="py-1 px-1 text-right font-mono">
-                      {item.payout > 0 ? `¥${item.payout.toLocaleString()}` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
 
       {/* ニアミス（intersectionモードのみ表示） */}
       {activePreset === 'intersection' && recommendations.length > 0 && nearMisses.length > 0 && (

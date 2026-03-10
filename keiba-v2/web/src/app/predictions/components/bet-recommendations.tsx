@@ -249,12 +249,12 @@ export function BetRecommendations({
               </tr>
             </thead>
             <tbody>
-              {sortedBetRecommendations.map((r) => {
+              {sortedBetRecommendations.map((r, idx) => {
                 const winOdds = getWinOdds(oddsMap, r.race.race_id, r.entry.umaban, r.entry.odds);
                 const headRatio = calcHeadRatio(r.entry.pred_proba_w, r.entry.pred_proba_p);
                 return (
                   <tr
-                    key={`${r.race.race_id}-${r.entry.umaban}`}
+                    key={`${r.race.race_id}-${r.entry.umaban}-${r.betType}-${idx}`}
                     className={`border-b hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 ${
                       r.danger?.isDanger
                         ? 'bg-orange-50/40 dark:bg-orange-900/10'

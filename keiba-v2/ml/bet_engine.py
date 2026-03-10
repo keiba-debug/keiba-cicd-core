@@ -442,6 +442,8 @@ class BetRecommendation:
     place_ev: Optional[float] = None
     kelly_raw: float = 0.0
     kelly_capped: float = 0.0
+    kelly_win_frac: float = 0.0     # Kelly fraction for win bet (raw f*)
+    kelly_amount: int = 0           # Kelly推奨合計額 (bankroll * f* * fraction, 100円丸め)
     is_danger: bool = False
     danger_score: float = 0.0
     odds: float = 0.0
@@ -720,6 +722,53 @@ def detect_danger(
 
 
 # =====================================================================
+# ワイド/馬連オッズ取得
+# =====================================================================
+
+def _make_kumiban(u1: int, u2: int) -> str:
+    """馬番ペアからKUMIBAN文字列を生成 (例: (3, 14) -> '0314')"""
+    a, b = sorted([u1, u2])
+    return f"{a:02d}{b:02d}"
+
+
+def _fetch_wide_odds_for_race(race_id: str) -> Dict[str, dict]:
+    """レースのワイドオッズをDBから取得。DB未接続時は空dictを返す。
+    race_id = race_code (同じ16桁フォーマット)。"""
+    try:
+        from core.odds_db import get_final_wide_odds
+        return get_final_wide_odds(race_id)
+    except Exception:
+        return {}
+
+
+def _fetch_umaren_odds_for_race(race_id: str) -> Dict[str, dict]:
+    """レースの馬連オッズをDBから取得。DB未接続時は空dictを返す。"""
+    try:
+        from core.odds_db import get_final_quinella_odds
+        return get_final_quinella_odds(race_id)
+    except Exception:
+        return {}
+
+
+def _lookup_wide_odds(wide_odds: Dict[str, dict], u1: int, u2: int) -> float:
+    """ワイドオッズのルックアップ。odds_lowを返す（保守的）。なければ0.0。"""
+    kumiban = _make_kumiban(u1, u2)
+    entry = wide_odds.get(kumiban)
+    if entry:
+        return entry.get('odds_low', 0.0) or 0.0
+    return 0.0
+
+
+def _lookup_umaren_odds(umaren_odds: Dict[str, dict], u1: int, u2: int) -> float:
+    """馬連オッズのルックアップ。なければ0.0。"""
+    kumiban = _make_kumiban(u1, u2)
+    entry = umaren_odds.get(kumiban)
+    if entry:
+        return entry.get('odds', 0.0) or 0.0
+    return 0.0
+
+
+# =====================================================================
 # パイプライン
 # =====================================================================
 
@@ -934,6 +983,12 @@ def generate_recommendations(
                 bet_type = '複勝'
                 strength = 'strong' if gap >= params.place_min_gap + 2 else 'normal'
 
+            # Kelly fraction for win bet
+            win_kelly_f = 0.0
+            if win_ok and odds > 1 and (win_ev or 0) > 0:
+                p_win = (win_ev or 0) / odds
+                win_kelly_f = calc_kelly_fraction(p_win, odds)
+
             rec = BetRecommendation(
                 race_id=race_id,
                 umaban=umaban,
@@ -951,6 +1006,7 @@ def generate_recommendations(
                 place_ev=round(place_ev, 4) if place_ev is not None else None,
                 kelly_raw=round(kelly_frac / params.kelly_fraction, 4) if kelly_frac > 0 and params.kelly_fraction > 0 else 0.0,
                 kelly_capped=round(kelly_frac, 4),
+                kelly_win_frac=round(win_kelly_f, 4),
                 is_danger=is_danger,
                 danger_score=danger_score,
                 odds=odds,
@@ -975,6 +1031,10 @@ def generate_recommendations(
         race_recs = apply_win_per_race_limit(race_recs, max_win=params.max_win_per_race)
         all_recs.extend(race_recs)
 
+        # --- ワイド/馬連オッズの事前取得 ---
+        _wide_odds_cache: Dict[str, dict] = {}
+        _umaren_odds_cache: Dict[str, dict] = {}
+
         # --- 障害ワイド: Pモデル Top1-2 ペア (9頭以上) ---
         if is_obstacle and len(entries) >= OBSTACLE_WIDE_MIN_RUNNERS:
             sorted_by_rp = sorted(entries, key=lambda x: x.get('rank_p', 99))
@@ -984,6 +1044,11 @@ def generate_recommendations(
                         and e2.get('rank_p', 99) <= OBSTACLE_WIDE_MAX_RANK_P):
                     u1, u2 = e1['umaban'], e2['umaban']
                     n1, n2 = e1.get('horse_name', '?'), e2.get('horse_name', '?')
+                    # ワイド/馬連オッズ取得 (初回のみDB問い合わせ)
+                    if not _wide_odds_cache:
+                        _wide_odds_cache = _fetch_wide_odds_for_race(race_id)
+                    if not _umaren_odds_cache:
+                        _umaren_odds_cache = _fetch_umaren_odds_for_race(race_id)
                     wide_rec = BetRecommendation(
                         race_id=race_id,
                         umaban=min(u1, u2),
@@ -992,7 +1057,7 @@ def generate_recommendations(
                         strength='strong',
                         win_amount=params.bet_unit,
                         place_amount=0,
-                        odds=0.0,
+                        odds=_lookup_wide_odds(_wide_odds_cache, u1, u2),
                         wide_pair=sorted([u1, u2]),
                         wide_source='障害',
                     )
@@ -1007,7 +1072,7 @@ def generate_recommendations(
                         strength='strong',
                         win_amount=params.bet_unit,
                         place_amount=0,
-                        odds=0.0,
+                        odds=_lookup_umaren_odds(_umaren_odds_cache, u1, u2),
                         wide_pair=sorted([u1, u2]),
                         wide_source='障害',
                     )
@@ -1032,6 +1097,9 @@ def generate_recommendations(
                 pair_agree = sum(1 for s in top2_sets[1:] if s == rp_top2)
 
                 if pair_agree >= GEKISEN_WIDE_MIN_PAIR_AGREE:
+                    # ワイドオッズ取得 (初回のみDB問い合わせ)
+                    if not _wide_odds_cache:
+                        _wide_odds_cache = _fetch_wide_odds_for_race(race_id)
                     # Generate wide bets: P top3 combo (3 tickets)
                     p_top3 = sorted_by_rp[:3]
                     for h1, h2 in combinations(p_top3, 2):
@@ -1045,7 +1113,7 @@ def generate_recommendations(
                             strength='strong',
                             win_amount=params.bet_unit,
                             place_amount=0,
-                            odds=0.0,
+                            odds=_lookup_wide_odds(_wide_odds_cache, u1, u2),
                             wide_pair=sorted([u1, u2]),
                             wide_source='激戦',
                         )
@@ -1156,6 +1224,72 @@ def apply_budget(
 def round_to_unit(amount: float, unit: int = 100) -> int:
     """金額を unit 単位に丸める (切り捨て)"""
     return int(amount // unit) * unit
+
+
+def apply_kelly_sizing(
+    recs: List[BetRecommendation],
+    bankroll: int,
+    kelly_fraction: float = 0.25,
+    kelly_cap: float = 0.05,
+) -> List[BetRecommendation]:
+    """Kelly Criterion でベット額を計算し kelly_amount にセット
+
+    松風 Themis 方式: 確率 × オッズ → Kelly → bankroll × f* × fraction
+
+    Args:
+        recs: 推奨リスト (kelly_win_frac が計算済み)
+        bankroll: 現在のバンクロール (円)
+        kelly_fraction: フラクショナルKelly (1/4=0.25が推奨)
+        kelly_cap: 1ベットの最大bankroll比率 (5%=0.05)
+    """
+    for r in recs:
+        if r.bet_type in ('単勝', '単複'):
+            raw_f = r.kelly_win_frac
+            f = min(raw_f * kelly_fraction, kelly_cap)
+            win_kelly = max(100, round_to_unit(bankroll * f))
+            # 単複の場合: 複勝分はplace Kelly or place_addonベース
+            if r.bet_type == '単複':
+                place_kelly = max(100, round_to_unit(bankroll * min(r.kelly_capped * kelly_fraction, kelly_cap))) if r.kelly_capped > 0 else r.place_amount
+                r.kelly_amount = win_kelly + max(place_kelly, r.place_amount)
+            else:
+                r.kelly_amount = win_kelly
+        elif r.bet_type == '複勝':
+            if r.kelly_capped > 0:
+                f = min(r.kelly_capped * kelly_fraction, kelly_cap)
+                r.kelly_amount = max(100, round_to_unit(bankroll * f))
+            else:
+                r.kelly_amount = r.place_amount or 100
+        elif r.bet_type == 'ワイド':
+            # ワイド: オッズがあればKelly計算、なければ固定比率
+            if r.odds > 1.0:
+                # バックテスト的中率ベース: 障害47%, 激戦は保守的に35%
+                p_wide = 0.47 if r.wide_source == '障害' else 0.35
+                b = r.odds - 1
+                raw_f = (b * p_wide - (1 - p_wide)) / b if b > 0 else 0
+                if raw_f > 0:
+                    f = min(raw_f * kelly_fraction, kelly_cap)
+                    r.kelly_amount = max(100, round_to_unit(bankroll * f))
+                else:
+                    r.kelly_amount = 100  # EV<1 → 最低額
+            else:
+                r.kelly_amount = max(100, round_to_unit(bankroll * 0.005))
+        elif r.bet_type == '馬連':
+            # 馬連: オッズがあればKelly計算、なければ固定比率
+            if r.odds > 1.0:
+                p_umaren = 0.30  # 障害馬連の保守的な的中率推定
+                b = r.odds - 1
+                raw_f = (b * p_umaren - (1 - p_umaren)) / b if b > 0 else 0
+                if raw_f > 0:
+                    f = min(raw_f * kelly_fraction, kelly_cap)
+                    r.kelly_amount = max(100, round_to_unit(bankroll * f))
+                else:
+                    r.kelly_amount = 100
+            else:
+                r.kelly_amount = max(100, round_to_unit(bankroll * 0.003))
+        else:
+            r.kelly_amount = r.win_amount + r.place_amount
+
+    return recs
 
 
 def apply_cross_allocation(

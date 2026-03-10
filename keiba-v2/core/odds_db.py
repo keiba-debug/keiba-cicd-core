@@ -185,6 +185,29 @@ def get_final_quinella_odds(race_code: str) -> Dict[str, dict]:
     return result
 
 
+# === ワイドオッズ ===
+
+def get_final_wide_odds(race_code: str) -> Dict[str, dict]:
+    """確定ワイドオッズを取得
+
+    Returns:
+        {'0102': {'odds_low': 7.7, 'odds_high': 8.5, 'ninki': 10}, ...}
+        KUMIBANは4桁 (例: '0102' = 馬番1-2)
+    """
+    rows = query(
+        "SELECT KUMIBAN, ODDS_SAITEI, ODDS_SAIKOU, NINKI FROM odds3_wide WHERE RACE_CODE = %s",
+        (race_code,)
+    )
+    result = {}
+    for r in rows:
+        low = parse_odds_value(r.get('ODDS_SAITEI', ''))
+        high = parse_odds_value(r.get('ODDS_SAIKOU', ''))
+        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        if low is not None:
+            result[r['KUMIBAN']] = {'odds_low': low, 'odds_high': high, 'ninki': ninki}
+    return result
+
+
 # === バッチローダー（ML学習用） ===
 
 def batch_get_pre_race_odds(

@@ -349,8 +349,8 @@ export function PerformanceTab() {
                         </tr>
                       </thead>
                       <tbody>
-                        {strategyData!.bets.map((b) => (
-                          <tr key={`${b.race_id}-${b.umaban}`}
+                        {strategyData!.bets.map((b, idx) => (
+                          <tr key={`${b.race_id}-${b.umaban}-${idx}`}
                             className={`border-b ${b.is_win ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
                             <td className="py-1 px-1 font-mono">{b.date.slice(5)}</td>
                             <td className="py-1 px-1">{b.horse_name}</td>
