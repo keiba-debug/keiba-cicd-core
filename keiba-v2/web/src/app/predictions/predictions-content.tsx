@@ -152,11 +152,11 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   // ページタブ（馬券 / 出走表）
   const [activeTab, setActiveTab] = useState<PageTab>('bets');
 
-  // 推奨買い目 プリセット選択（デフォルト: intersection）
-  const [preset, setPreset] = useState<ServerPresetKey>('intersection');
+  // 推奨買い目 プリセット選択（デフォルト: adaptive — Sim最高ROI）
+  const [preset, setPreset] = useState<ServerPresetKey>('adaptive');
   useEffect(() => {
     const saved = localStorage.getItem('keiba_bet_preset');
-    if (saved && ['intersection', 'relaxed', 'ev_focus', 'simple', 'simple_ev2', 'simple_wide'].includes(saved)) {
+    if (saved && ['adaptive', 'relaxed', 'intersection'].includes(saved)) {
       setPreset(saved as ServerPresetKey);
     }
   }, []);

@@ -38,6 +38,8 @@ interface RecommendationEntry {
   wide_pair?: number[] | null;
   wide_source?: string | null;  // '障害' | '激戦'
   kelly_amount?: number | null;
+  kelly_capped?: number | null; // adaptive Kelly fraction (0.33/0.25/0.125)
+  adaptive_rule?: string | null; // 'danger_sniper' | 'high_ev_win' | 'relaxed_base'
 }
 
 interface PredictionsData {
@@ -72,6 +74,8 @@ interface PredictionsData {
       track_type?: string;
       kelly_win_frac?: number;
       kelly_amount?: number;
+      kelly_capped?: number;
+      market_signal?: string;
     }>;
     summary: {
       total_bets: number;
@@ -131,12 +135,12 @@ const PRESET_LABELS: Record<string, string> = {
   standard: 'Standard (VBスコア)',
   wide: 'Wide (緩め)',
   aggressive: 'Aggressive (攻め)',
+  adaptive: 'Adaptive (傾斜Kelly)',
   intersection: 'Intersection',
+  relaxed: 'Relaxed (Gap≥3×EV≥1)',
   simple: 'Simple (1位×Gap≥4)',
   simple_ev2: 'Simple EV2 (1位×EV≥2)',
   simple_wide: 'Simple Wide (1位×Gap≥3)',
-  relaxed: 'Relaxed (Gap≥3×EV≥1)',
-  ev_focus: 'EV重視 (Gap≥1×EV≥1.3)',
 };
 
 // =====================================================================
@@ -199,7 +203,7 @@ export function ExecuteTab() {
   const [loading, setLoading] = useState(false);
 
   // プリセット切替
-  const [activePreset, setActivePreset] = useState<string>('intersection');
+  const [activePreset, setActivePreset] = useState<string>('adaptive');
   const [allPresetsMap, setAllPresetsMap] = useState<Record<string, RecommendationEntry[]>>({});
 
   // レース番号フィルタ（0=全レース）
@@ -408,6 +412,8 @@ export function ExecuteTab() {
               place_ev: b.place_ev ?? null,
               vb_score: b.vb_score ?? null,
               kelly_amount: b.kelly_amount ?? null,
+              kelly_capped: b.kelly_capped ?? null,
+              adaptive_rule: b.market_signal?.startsWith('rule:') ? b.market_signal.slice(5) : null,
             } as RecommendationEntry;
           });
 
@@ -466,11 +472,7 @@ export function ExecuteTab() {
 
   // 表示する推奨リスト（プリセット + レース番号フィルタ）
   const displayRecs = useMemo(() => {
-    const base = activePreset === 'all'
-      ? allMergedRecs
-      : activePreset === 'intersection'
-        ? recommendations
-        : allPresetsMap[activePreset] || [];
+    const base = allPresetsMap[activePreset] || [];
     if (raceRangeMin === 0 && raceRangeMax === 0) return base;
     return base.filter(r => {
       if (raceRangeMin > 0 && r.race_number < raceRangeMin) return false;
@@ -656,12 +658,24 @@ export function ExecuteTab() {
     }
   };
 
-  // 推奨1件あたりの実投資額を計算（Kelly額 vs デフォルト均等額の大きい方）
-  const getRecAmount = (r: RecommendationEntry): number => {
+  // adaptive: Kelly率ベースの傾斜配分 (K1/3の馬に2.6倍、K1/4に2倍)
+  // 非adaptive: Kelly額 vs デフォルト均等額の大きい方
+  const getRecAmount = useCallback((r: RecommendationEntry): number => {
+    if (activePreset === 'adaptive' && bankrollBalance != null && bankrollBalance > 0) {
+      const kc = r.kelly_capped ?? 0;
+      // Kelly率がある単勝: bankroll × betPct% × kelly_capped で計算
+      if (kc > 0) {
+        const amt = Math.floor(bankrollBalance * (betPct / 100) * kc / 100) * 100;
+        return Math.max(100, amt);
+      }
+      // ワイド/馬連等(kelly_capped=0): 均等配分
+      const defAmt = defaultBetAmount || r.win_amount || 100;
+      return Math.max(100, defAmt);
+    }
     const kellyAmt = r.kelly_amount || 0;
     const defAmt = defaultBetAmount || r.win_amount || 100;
     return Math.max(kellyAmt, defAmt);
-  };
+  }, [activePreset, bankrollBalance, betPct, defaultBetAmount]);
 
   // 表示中の合計投資額
   const totalInvest = displayRecs.reduce((s, r) => s + getRecAmount(r), 0);
@@ -677,9 +691,11 @@ export function ExecuteTab() {
     return { winCount, placeCount, obstacleCount, wideCount, umarenCount, gekisenWideCount };
   }, [displayRecs]);
 
-  // プリセット選択肢
-  // 左=多い/緩い → 右=少ない/厳しい/高ROI
-  const PRESET_CHOICES = ['all', 'wide', 'standard', 'ev_focus', 'simple', 'aggressive', 'simple_ev2', 'intersection'] as const;
+  // プリセット選択肢: シミュレーションで黒字確認済みのみ
+  // adaptive: K1/8 ROI+99%, K1/4 ROI+134% (Kelly率傾斜配分)
+  // relaxed: K1/8 ROI+53%, K1/4 ROI+128% (均等Kelly)
+  // intersection: K1/8 ROI+42%, K1/4 ROI+98%
+  const PRESET_CHOICES = ['adaptive', 'relaxed', 'intersection'] as const;
 
   return (
     <div className="space-y-6">
@@ -760,7 +776,7 @@ export function ExecuteTab() {
           {/* プリセットセレクター */}
           <div className="flex items-center gap-2 flex-wrap">
             {PRESET_CHOICES.map(key => {
-              const count = key === 'all' ? allMergedRecs.length : (allPresetsMap[key]?.length ?? 0);
+              const count = allPresetsMap[key]?.length ?? 0;
               return (
                 <button
                   key={key}
@@ -771,7 +787,7 @@ export function ExecuteTab() {
                       : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
                   }`}
                 >
-                  {key === 'all' ? '全推奨' : (PRESET_LABELS[key] || key)}
+                  {PRESET_LABELS[key] || key}
                   {count > 0 && <span className="ml-1 opacity-75">({count})</span>}
                 </button>
               );
@@ -889,14 +905,7 @@ export function ExecuteTab() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-indigo-600" />
-              {activePreset === 'all' ? '全推奨 (All Presets)' :
-               activePreset === 'intersection' ? 'Intersection Filter 推奨' :
-               (PRESET_LABELS[activePreset] || activePreset) + ' 推奨'}
-              {activePreset === 'intersection' && (
-                <Badge variant="outline" className="ml-2 text-xs">
-                  rank_w=1 / Gap{'\u2265'}4 / EV{'\u2265'}1.3 / R{'\u2264'}60
-                </Badge>
-              )}
+              {(PRESET_LABELS[activePreset] || activePreset) + ' 推奨'}
             </CardTitle>
             {displayRecs.length > 0 && (
               <div className="flex items-center gap-2">
@@ -938,15 +947,11 @@ export function ExecuteTab() {
             <div className="py-6">
               <div className="text-center mb-6">
                 <p className="text-muted-foreground">
-                  {activePreset === 'intersection'
-                    ? 'この日は全3条件を満たす馬はいません'
-                    : `${PRESET_LABELS[activePreset] || activePreset} の推奨はありません`}
+                  {`${PRESET_LABELS[activePreset] || activePreset} の推奨はありません`}
                 </p>
-                {activePreset === 'intersection' && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Intersection Filter は月平均3.8回 — 0件の日が多いのは正常です
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground mt-1">
+                  厳選プリセットは月数回 — 0件の日が多いのは正常です
+                </p>
               </div>
               {activePreset === 'intersection' && nearMisses.length > 0 && (
                 <div>
@@ -1125,6 +1130,15 @@ export function ExecuteTab() {
                             </Badge>
                           ) : rec.bet_type && rec.bet_type !== '単勝' ? (
                             <Badge variant="outline" className="text-[10px]">{rec.bet_type}</Badge>
+                          ) : rec.adaptive_rule ? (
+                            <Badge variant="outline" className={`text-[10px] ${
+                              rec.adaptive_rule === 'danger_sniper' ? 'border-red-400 text-red-600 bg-red-50' :
+                              rec.adaptive_rule === 'high_ev_win' ? 'border-amber-400 text-amber-600 bg-amber-50' :
+                              'border-gray-300 text-muted-foreground'
+                            }`}>
+                              {rec.adaptive_rule === 'danger_sniper' ? '狙撃' :
+                               rec.adaptive_rule === 'high_ev_win' ? '高EV' : '単勝'}
+                            </Badge>
                           ) : (
                             <span className="text-xs text-muted-foreground">単勝</span>
                           )}

@@ -5,6 +5,10 @@
  * rank_w=1 の馬に対して win_vb_gap × win_ev × predicted_margin の
  * 3条件交差でフィルタ。複勝は買わない（全条件マイナスROI）。
  *
+ * v8.0: Adaptive Rules — 条件別Kelly率。
+ * relaxed条件の買い目に対し、マッチしたルールでKelly率を変える。
+ * danger_sniper(K1/3) > high_ev_win(K1/4) > relaxed_base(K1/8)
+ *
  * ML出力（rank_w, pred_proba_w_cal, predicted_margin等）は predictions.json から取得し、
  * オッズのみ mykeibadb の最新値で上書きして再計算する。
  */
@@ -29,64 +33,102 @@ interface IntersectionParams {
 }
 
 // --- プリセット ---
-// v7.3バックテスト実証済み: Intersection Filter (ROI 310%)
+// ライブ margin 補正: バックテスト最適値 43.4 + 16pt = 59.4
+// ライブ予測の predicted_margin はバックテスト(確定データ)より平均+15.3pt高い
+// 回帰式: BT_margin = 0.876 × PJ_margin - 8.6
+const LIVE_MARGIN_OFFSET = 16;
 
 const ENGINE_PRESETS: Record<ServerPresetKey, IntersectionParams> = {
-  intersection: {
+  adaptive: {
     maxRankW: 1,
-    minWinGap: 4,
+    minWinGap: 2,
     minWinEv: 1.3,
-    maxMargin: 60,
+    maxMargin: 43.4 + LIVE_MARGIN_OFFSET,
     maxWinPerRace: 1,
     minBet: 100,
     betUnit: 100,
   },
   relaxed: {
     maxRankW: 1,
-    minWinGap: 3,
-    minWinEv: 1.0,
-    maxMargin: 60,
-    maxWinPerRace: 1,
-    minBet: 100,
-    betUnit: 100,
-  },
-  ev_focus: {
-    maxRankW: 1,
-    minWinGap: 1,
+    minWinGap: 2,
     minWinEv: 1.3,
-    maxMargin: 60,
+    maxMargin: 43.4 + LIVE_MARGIN_OFFSET,
     maxWinPerRace: 1,
     minBet: 100,
     betUnit: 100,
   },
-  simple: {
+  intersection: {
     maxRankW: 1,
     minWinGap: 4,
-    minWinEv: 0,
-    maxMargin: 999,
-    maxWinPerRace: 1,
-    minBet: 100,
-    betUnit: 100,
-  },
-  simple_ev2: {
-    maxRankW: 1,
-    minWinGap: 0,
-    minWinEv: 2.0,
-    maxMargin: 999,
-    maxWinPerRace: 1,
-    minBet: 100,
-    betUnit: 100,
-  },
-  simple_wide: {
-    maxRankW: 1,
-    minWinGap: 3,
-    minWinEv: 0,
-    maxMargin: 999,
+    minWinEv: 1.3,
+    maxMargin: 43.4 + LIVE_MARGIN_OFFSET,
     maxWinPerRace: 1,
     minBet: 100,
     betUnit: 100,
   },
 };
+
+// =====================================================================
+// 危険馬検出 (Python bet_engine.py detect_danger と同一基準)
+// =====================================================================
+
+/** 危険馬: odds<=8 & ARd<53 & P%<15% */
+function detectDanger(entries: LiveEntry[]): Set<number> {
+  const danger = new Set<number>();
+  for (const e of entries) {
+    if (e.liveOdds > 0 && e.liveOdds <= 8
+        && (e.arDeviation ?? 100) < 53
+        && (e.predProbaPRaw ?? 1) < 0.15) {
+      danger.add(e.umaban);
+    }
+  }
+  return danger;
+}
+
+// =====================================================================
+// Adaptive Rules — ルール別Kelly率
+// =====================================================================
+
+interface AdaptiveRule {
+  name: string;
+  description: string;
+  requireDanger?: boolean;    // true=危険馬あり必須
+  minWinGap: number;
+  minWinEv: number;
+  kellyFraction: number;      // K1/3=0.33, K1/4=0.25, K1/8=0.125
+}
+
+const ADAPTIVE_RULES: AdaptiveRule[] = [
+  {
+    name: 'danger_sniper',
+    description: '危険馬レース狙い撃ち (K1/3)',
+    requireDanger: true,
+    minWinGap: 4,
+    minWinEv: 1.3,
+    kellyFraction: 0.33,
+  },
+  {
+    name: 'high_ev_win',
+    description: '高EV単勝 (K1/4)',
+    minWinGap: 2,
+    minWinEv: 1.3,
+    kellyFraction: 0.25,
+  },
+];
+
+/** 馬にマッチする最初のルールを返す */
+function matchAdaptiveRule(
+  entry: LiveEntry,
+  hasDanger: boolean,
+): AdaptiveRule | null {
+  for (const rule of ADAPTIVE_RULES) {
+    if (rule.requireDanger && !hasDanger) continue;
+    if (entry.winGap < rule.minWinGap) continue;
+    if ((entry.winEv ?? 0) < rule.minWinEv) continue;
+    return rule;
+  }
+  return null;
+}
 
 // =====================================================================
 // ライブエントリ (オッズ差し替え済みの中間型)
@@ -126,6 +168,7 @@ interface LiveRec {
   kellyCapped: number;
   isDanger: boolean;
   dangerScore: number;
+  adaptiveRule?: string;
 }
 
 // =====================================================================
@@ -164,6 +207,15 @@ function computeVbScore(
   return score;
 }
 
+/** Kelly Criterion: f* = (b*p - q) / b */
+function calcKellyFraction(prob: number, odds: number): number {
+  const b = odds - 1.0;
+  if (b <= 0 || prob <= 0) return 0.0;
+  const q = 1.0 - prob;
+  const f = (b * prob - q) / b;
+  return Math.max(0.0, f);
+}
+
 // =====================================================================
 // パイプライン
 // =====================================================================
@@ -173,6 +225,9 @@ function computeVbScore(
  *
  * Intersection Filter: rank_w=1 × winGap × winEv × margin
  * 単勝のみ（複勝は全条件でマイナスROI）
+ *
+ * adaptive プリセット: relaxed と同じフィルタだが、
+ * ルール別Kelly率でベット額を変える。
  */
 export function generateLiveRecommendations(
   races: PredictionRace[],
@@ -184,12 +239,17 @@ export function generateLiveRecommendations(
   const params = ENGINE_PRESETS[presetKey];
   if (!params) return [];
 
+  const isAdaptive = presetKey === 'adaptive';
   const allRecs: LiveRec[] = [];
 
   for (const race of races) {
     const raceOdds = oddsMap[race.race_id];
     const liveEntries = buildLiveEntries(race.entries, race.race_id, raceOdds);
     if (liveEntries.length === 0) continue;
+
+    // 危険馬検出 (adaptive用)
+    const dangerSet = isAdaptive ? detectDanger(liveEntries) : new Set<number>();
+    const hasDanger = dangerSet.size > 0;
 
     const raceRecs: LiveRec[] = [];
 
@@ -200,6 +260,22 @@ export function generateLiveRecommendations(
       if ((e.winEv ?? 0) < params.minWinEv) continue;
       if ((e.predictedMargin ?? 100) > params.maxMargin) continue;
 
+      // adaptive: ルールマッチング
+      let adaptiveRule: string | undefined;
+      let kellyCapped = 0;
+      if (isAdaptive) {
+        const rule = matchAdaptiveRule(e, hasDanger);
+        if (rule) {
+          adaptiveRule = rule.name;
+          // Kelly計算: raw f* × rule.kellyFraction
+          const winProb = e.predProbaW ?? ((e.winEv ?? 0) / Math.max(e.liveOdds, 1));
+          if (winProb > 0 && e.liveOdds > 1) {
+            const rawF = calcKellyFraction(winProb, e.liveOdds);
+            kellyCapped = rawF * rule.kellyFraction;
+          }
+        }
+      }
+
       raceRecs.push({
         raceId: race.race_id,
         entry: e,
@@ -208,9 +284,10 @@ export function generateLiveRecommendations(
         winAmount: params.betUnit,
         placeAmount: 0,
         kellyRaw: 0,
-        kellyCapped: 0,
-        isDanger: false,
-        dangerScore: 0,
+        kellyCapped,
+        isDanger: dangerSet.has(e.umaban),
+        dangerScore: dangerSet.has(e.umaban) ? 1 : 0,
+        adaptiveRule,
       });
     }
 
@@ -223,11 +300,22 @@ export function generateLiveRecommendations(
     allRecs.push(...raceRecs);
   }
 
-  // 予算スケーリング: 均等配分
+  // 予算スケーリング
   if (allRecs.length > 0) {
-    const perBet = Math.max(params.minBet, roundToUnit(budget / allRecs.length, params.betUnit));
-    for (const r of allRecs) {
-      r.winAmount = perBet;
+    if (isAdaptive) {
+      // adaptive: Kelly率ベースで配分
+      // kellyCapped > 0 の比率で予算を按分
+      const totalKelly = allRecs.reduce((s, r) => s + Math.max(r.kellyCapped, 0.01), 0);
+      for (const r of allRecs) {
+        const share = Math.max(r.kellyCapped, 0.01) / totalKelly;
+        r.winAmount = Math.max(params.minBet, roundToUnit(budget * share, params.betUnit));
+      }
+    } else {
+      // 均等配分
+      const perBet = Math.max(params.minBet, roundToUnit(budget / allRecs.length, params.betUnit));
+      for (const r of allRecs) {
+        r.winAmount = perBet;
+      }
     }
   }
 
@@ -258,9 +346,14 @@ export function generateLiveRecommendations(
     ar_deviation: r.entry.arDeviation != null
       ? Math.round(r.entry.arDeviation * 10) / 10
       : null,
+    adaptive_rule: r.adaptiveRule,
   }));
 
   // allocMode に応じた配分
+  if (isAdaptive) {
+    // adaptive は Kelly率ベース配分済み → そのまま返す
+    return serverRecs;
+  }
   if (allocMode === 'equal') {
     return equalDistribute(serverRecs, budget);
   }

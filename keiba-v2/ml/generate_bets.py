@@ -25,7 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
 from ml.bet_engine import (
     PRESETS, generate_recommendations,
+    generate_adaptive_recommendations, ADAPTIVE_RULES, apply_adaptive_kelly,
     recommendations_to_dict, recommendations_summary,
+    apply_kelly_sizing,
 )
 
 
@@ -46,6 +48,7 @@ def apply_bet_engine(
     predictions_data: dict,
     budget: int = 30000,
     preset_filter: Optional[str] = None,
+    bankroll: int = 50000,
 ) -> dict:
     """predictions_data に recommendations を生成して書き込む
 
@@ -63,16 +66,45 @@ def apply_bet_engine(
         return {}
 
     all_recommendations = {}
-    presets = PRESETS
+
+    # ── ライブ margin 補正 ──
+    # バックテスト(確定データ)とライブ(予測時データ)でpredicted_marginに
+    # 系統的な差がある (ライブは平均+15.3pt高い)。
+    # 回帰式: BT_margin = 0.876 × PJ_margin - 8.6
+    # バックテスト最適値 43.4 → ライブ換算 59.4
+    # プリセットの margin フィルタをライブスケールに補正する
+    LIVE_MARGIN_OFFSET = 16  # ライブ margin は BT より約16pt高い
+    import copy as _copy
+    live_presets = {}
+    for k, v in PRESETS.items():
+        p = _copy.copy(v)
+        if p.win_max_predicted_margin > 0 and p.win_max_predicted_margin < 900:
+            p.win_max_predicted_margin += LIVE_MARGIN_OFFSET
+        live_presets[k] = p
+    live_adaptive_rules = []
+    for r in ADAPTIVE_RULES:
+        r2 = _copy.copy(r)
+        if r2.max_predicted_margin < 900:
+            r2.max_predicted_margin += LIVE_MARGIN_OFFSET
+        live_adaptive_rules.append(r2)
+
+    # adaptive 以外のプリセット名リスト
+    available_presets = list(PRESETS.keys()) + ['adaptive']
+
+    presets = live_presets
     if preset_filter:
-        if preset_filter not in PRESETS:
+        if preset_filter not in available_presets:
             print(f"[Error] Unknown preset: {preset_filter}. "
-                  f"Available: {', '.join(PRESETS.keys())}")
+                  f"Available: {', '.join(available_presets)}")
             return {}
-        presets = {preset_filter: PRESETS[preset_filter]}
+        if preset_filter == 'adaptive':
+            presets = {}  # adaptive のみ（下で別処理）
+        else:
+            presets = {preset_filter: live_presets[preset_filter]}
 
     for preset_name, preset_params in presets.items():
         recs = generate_recommendations(races, preset_params, budget=budget)
+        recs = apply_kelly_sizing(recs, bankroll=bankroll)
         all_recommendations[preset_name] = {
             'params': {
                 'win_min_ev': preset_params.win_min_ev,
@@ -103,6 +135,30 @@ def apply_bet_engine(
         wide_str = f", Wide={s['wide_bets']}" if s.get('wide_bets') else ""
         umaren_str = f", Umaren={s['umaren_bets']}" if s.get('umaren_bets') else ""
         print(f"  {preset_name}: {s['total_bets']} bets, "
+              f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}, "
+              f"Amount={s['total_amount']:,}")
+
+    # --- adaptive プリセット ---
+    # relaxed ベースのベットを生成し、adaptive ルールで Kelly 率を上書き
+    if not preset_filter or preset_filter == 'adaptive':
+        relaxed_params = live_presets['relaxed']
+        adaptive_recs = generate_recommendations(races, relaxed_params, budget=budget)
+        # adaptive ルールマッチでkelly_cappedを上書き（単勝のみ）
+        adaptive_recs = apply_adaptive_kelly(adaptive_recs, races, live_adaptive_rules)
+        adaptive_recs = apply_kelly_sizing(adaptive_recs, bankroll=bankroll)
+        all_recommendations['adaptive'] = {
+            'params': {
+                'type': 'adaptive',
+                'base_preset': 'relaxed',
+                'rules': [r.name for r in live_adaptive_rules],
+            },
+            'bets': recommendations_to_dict(adaptive_recs),
+            'summary': recommendations_summary(adaptive_recs),
+        }
+        s = recommendations_summary(adaptive_recs)
+        wide_str = f", Wide={s['wide_bets']}" if s.get('wide_bets') else ""
+        umaren_str = f", Umaren={s['umaren_bets']}" if s.get('umaren_bets') else ""
+        print(f"  adaptive: {s['total_bets']} bets, "
               f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}, "
               f"Amount={s['total_amount']:,}")
 
@@ -145,8 +201,10 @@ def main():
     parser.add_argument('--date', help='対象日 (YYYY-MM-DD)')
     parser.add_argument('--today', action='store_true', help='今日の日付を使用')
     parser.add_argument('--budget', type=int, default=30000, help='予算 (default: 30000)')
-    parser.add_argument('--preset', choices=list(PRESETS.keys()),
+    parser.add_argument('--preset', choices=list(PRESETS.keys()) + ['adaptive'],
                         help='特定プリセットのみ生成')
+    parser.add_argument('--bankroll', type=int, default=50000,
+                        help='バンクロール (Kelly推奨額計算用, default: 50000)')
     args = parser.parse_args()
 
     if args.today:
@@ -160,6 +218,7 @@ def main():
     print(f"  Generate Bets - 買い目生成")
     print(f"  Date:   {args.date}")
     print(f"  Budget: {args.budget:,}")
+    print(f"  Bankroll: {args.bankroll:,} (Kelly sizing)")
     if args.preset:
         print(f"  Preset: {args.preset}")
     print(f"{'='*60}\n")
@@ -172,7 +231,8 @@ def main():
 
     # 買い目生成
     print(f"\n[BetEngine] Generating recommendations...")
-    apply_bet_engine(predictions_data, budget=args.budget, preset_filter=args.preset)
+    apply_bet_engine(predictions_data, budget=args.budget,
+                     preset_filter=args.preset, bankroll=args.bankroll)
 
     # 保存
     out_json = json.dumps(predictions_data, ensure_ascii=False, indent=2)

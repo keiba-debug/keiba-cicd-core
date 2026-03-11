@@ -21,6 +21,15 @@ export interface SimulationResult {
   max_loss_streak: number;
   max_win_streak: number;
   history: SimulationHistoryPoint[];
+  // Bet type breakdown
+  win_bets?: number;
+  place_bets?: number;
+  wide_bets?: number;
+  umaren_bets?: number;
+  win_hit_rate?: number;
+  place_hit_rate?: number;
+  wide_hit_rate?: number;
+  umaren_hit_rate?: number;
 }
 
 export interface BudgetConfig {

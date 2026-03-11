@@ -364,6 +364,28 @@ PRESETS: Dict[str, BetStrategyParams] = {
         max_win_per_race=1,             # 1レース1買い
         closing_boost_threshold=0,      # Closing boost無効
     ),
+    # --- Relaxed Intersection (intersection の緩和版) ---
+    # rank_w=1 + gap>=2 + EV>=1.5 + predicted_margin<=43.4
+    # gap=2&EV>=1.5のバイパスルール追加 (14件, ROI 150%)
+    # バンクロールSim (v7.3.1, 2025-03~2026-02):
+    #   adaptive K1/4 で ROI+182%, K1/8 で ROI+151% (Sharpe 0.096)
+    #   単勝56件(的中率16%) + ワイド419件(的中率49.6%)
+    'relaxed': BetStrategyParams(
+        win_max_rank_w=1,               # rank_w=1のみ
+        win_min_win_gap=2,              # win_vb_gap>=2 (旧: 3, バイパスルール)
+        win_min_ev=1.3,                 # EV>=1.3 (gap=2バイパス, 1.5→1.3緩和)
+        win_max_predicted_margin=43.4,  # IDMスケール (接戦フィルタ)
+        win_min_vb_score=0,             # Composite Score無効
+        win_v_ratio_min=0,              # P%比率フィルタ無効
+        win_max_rank=99,                # rank_pフィルタ無効
+        win_min_gap=0,                  # place gapフィルタ無効
+        ard_vb_min_ard=0,              # ARd VBルート無効
+        ard_vb_min_odds=0,
+        place_addon=False,              # 複勝なし: 単勝一本
+        place_min_gap=99,               # 複勝単独無効
+        max_win_per_race=1,             # 1レース1買い
+        closing_boost_threshold=0,      # Closing boost無効
+    ),
     # --- シンプル戦略 ---
     # rank_w=1（Winモデル1位）の単勝のみ。複雑なVBスコアを使わず、
     # win_vb_gap（市場ランクとの乖離）でフィルタする超シンプル戦略。
@@ -1100,24 +1122,25 @@ def generate_recommendations(
                     # ワイドオッズ取得 (初回のみDB問い合わせ)
                     if not _wide_odds_cache:
                         _wide_odds_cache = _fetch_wide_odds_for_race(race_id)
-                    # Generate wide bets: P top3 combo (3 tickets)
-                    p_top3 = sorted_by_rp[:3]
-                    for h1, h2 in combinations(p_top3, 2):
-                        u1, u2 = h1['umaban'], h2['umaban']
-                        n1, n2 = h1.get('horse_name', '?'), h2.get('horse_name', '?')
-                        wide_rec = BetRecommendation(
-                            race_id=race_id,
-                            umaban=min(u1, u2),
-                            horse_name=f"{n1}-{n2}",
-                            bet_type='ワイド',
-                            strength='strong',
-                            win_amount=params.bet_unit,
-                            place_amount=0,
-                            odds=_lookup_wide_odds(_wide_odds_cache, u1, u2),
-                            wide_pair=sorted([u1, u2]),
-                            wide_source='激戦',
-                        )
-                        all_recs.append(wide_rec)
+                    # Generate wide bet: P top1-2 pair (1 ticket)
+                    # v4: top3 combo(3組)→top2(1組)に変更。バックテストで
+                    # 3組は的中率31%でROI赤字、1組は的中率50%で黒字。
+                    p_top2 = sorted_by_rp[:2]
+                    u1, u2 = p_top2[0]['umaban'], p_top2[1]['umaban']
+                    n1, n2 = p_top2[0].get('horse_name', '?'), p_top2[1].get('horse_name', '?')
+                    wide_rec = BetRecommendation(
+                        race_id=race_id,
+                        umaban=min(u1, u2),
+                        horse_name=f"{n1}-{n2}",
+                        bet_type='ワイド',
+                        strength='strong',
+                        win_amount=params.bet_unit,
+                        place_amount=0,
+                        odds=_lookup_wide_odds(_wide_odds_cache, u1, u2),
+                        wide_pair=sorted([u1, u2]),
+                        wide_source='激戦',
+                    )
+                    all_recs.append(wide_rec)
 
     # 予算スケーリング
     all_recs = apply_budget(all_recs, budget, params)
@@ -1565,4 +1588,472 @@ def rescale_budget(recs: List[dict], new_budget: int, unit: int = 100) -> List[d
         if pa > 0:
             r2['place_amount'] = max(unit, int(pa * scale // unit) * unit)
         result.append(r2)
+    return result
+
+
+# =====================================================================
+# Adaptive Rules System (適応型作戦)
+# =====================================================================
+#
+# レース状況（自信度・危険馬・頭数等）に応じて買い方を変える。
+# 各ルールは優先順に評価し、最初にマッチしたルールで買い目を生成。
+# 1レースで複数ルールが異なる馬にマッチすることもある。
+#
+# バックテスト結果 (3,364平地, 2025-03~2026-02):
+#   danger_sniper: 13 bets, ROI 240% (危険馬レース×gap>=4×EV>=1.3)
+#   ard_head:      ARd>=70×rank_w=1 → 高確信単勝
+#   low_conf_ev:   73 bets, ROI 116% (低自信度×EV>=2.0)
+#   gekisen_wide:  419 bets, ROI ~100% (激戦ワイド)
+#   relaxed_base:  55 bets, ROI ~143% (relaxed条件)
+
+@dataclass
+class AdaptiveRule:
+    """1つの適応型ルール"""
+    name: str
+    description: str
+    # レース条件
+    require_danger: Optional[bool] = None     # True=危険馬あり, False=なし, None=不問
+    min_confidence: Optional[float] = None     # レース自信度下限 (0-100)
+    max_confidence: Optional[float] = None     # レース自信度上限 (0-100)
+    min_entries: int = 0                       # 最低頭数
+    max_entries: int = 99                      # 最大頭数
+    # 馬条件
+    max_rank_w: int = 99                       # rank_w上限
+    min_win_gap: int = 0                       # win_vb_gap下限
+    min_win_ev: float = 0.0                    # win EV下限
+    max_predicted_margin: float = 999.0        # predicted_margin上限
+    min_ar_deviation: float = 0.0              # AR偏差値下限
+    # VB Floor Gate (デフォルトTrue: 安全弁)
+    apply_vb_floor: bool = True
+    # 買い方
+    bet_type: str = '単勝'                     # '単勝' | 'ワイド'
+    kelly_fraction: float = 0.125              # Kelly fraction (1/8)
+    max_per_race: int = 1                      # 1レースmax件数
+
+
+@dataclass
+class RaceContext:
+    """レース状況の分析結果"""
+    race_id: str
+    confidence: float         # 0-100
+    has_danger: bool
+    danger_umabans: Dict[int, bool]
+    num_entries: int
+    p_gap: float              # P% top1-top2 gap
+    pw_agree: bool            # rank_p top1 == rank_w top1
+    ard_top1: float           # rank_p=1のARd
+
+
+def compute_race_context(entries: List[dict]) -> RaceContext:
+    """レースのエントリーから状況指標を計算
+
+    Args:
+        entries: generate_recommendations形式のentries
+            (rank_p, rank_w, ar_deviation, pred_proba_p_raw, odds等)
+
+    Returns:
+        RaceContext with confidence score, danger detection, etc.
+    """
+    if not entries:
+        return RaceContext(
+            race_id='', confidence=0, has_danger=False,
+            danger_umabans={}, num_entries=0,
+            p_gap=0, pw_agree=False, ard_top1=50,
+        )
+
+    race_id = entries[0].get('race_id', '') if entries else ''
+
+    # rank_p top1, top2
+    sorted_by_rp = sorted(entries, key=lambda x: x.get('rank_p', 99))
+    sorted_by_rw = sorted(entries, key=lambda x: x.get('rank_w', 99))
+
+    top1_p = sorted_by_rp[0] if sorted_by_rp else {}
+    top2_p = sorted_by_rp[1] if len(sorted_by_rp) >= 2 else {}
+
+    # P% gap (top1 - top2)
+    p1 = top1_p.get('pred_proba_p_raw') or 0
+    p2 = top2_p.get('pred_proba_p_raw') or 0
+    p_gap = p1 - p2
+
+    # PW agreement
+    top1_rp_uma = top1_p.get('umaban', -1)
+    top1_rw_uma = sorted_by_rw[0].get('umaban', -2) if sorted_by_rw else -2
+    pw_agree = top1_rp_uma == top1_rw_uma
+
+    # ARd top1
+    ard_top1 = top1_p.get('ar_deviation') or 50.0
+
+    # Confidence score (0-100)
+    #   p_gap: 差が大きい = 自信あり (0-0.15 → 0-40点)
+    #   pw_agree: 一致 = 自信あり (0 or 30点)
+    #   ard_top1: 高い = 自信あり (40-70 → 0-30点)
+    p_gap_score = min(40.0, p_gap / 0.15 * 40.0) if p_gap > 0 else 0
+    pw_score = 30.0 if pw_agree else 0.0
+    ard_score = min(30.0, max(0.0, (ard_top1 - 40.0) / 30.0 * 30.0))
+    confidence = round(p_gap_score + pw_score + ard_score, 1)
+
+    # 危険馬検出
+    danger_map = detect_danger(entries)
+
+    return RaceContext(
+        race_id=race_id,
+        confidence=confidence,
+        has_danger=len(danger_map) > 0,
+        danger_umabans=danger_map,
+        num_entries=len(entries),
+        p_gap=p_gap,
+        pw_agree=pw_agree,
+        ard_top1=ard_top1,
+    )
+
+
+# --- デフォルト適応型ルール (バックテスト検証済み) ---
+# 優先順に評価。先のルールが優先。同一馬×同一券種は先ルール採用。
+#
+# 設計思想:
+#   relaxed_baseと同じ55件を買うが、ルールのKelly fractionを変える。
+#   高確信ベット(danger_sniper, high_ev)は厚く、低確信は薄く。
+#
+# バックテスト結果 (3,364平地, v2_nowide):
+#   danger_sniper:  16 bets, Kelly=K1/3 (危険馬レースx高gap高EV)
+#   high_ev_win:    27 bets, Kelly=K1/4 (EV>=1.5の高期待値)
+#   relaxed_base:   12 bets, Kelly=K1/8 (残りのrelaxed条件)
+#   合計55件 (=relaxedと同一銘柄)
+#
+#   K1/8: Final 103,240 / ROI +106.5% / DD 19% (relaxed K1/8: +52.6%)
+#   K1/4: Final 115,790 / ROI +131.6% / DD 20% (relaxed K1/4: +128.2%)
+#   Flat:  ROI 179% (relaxed: 103%)
+#
+# NOTE: gekisen_wide(ROI 93%)は足を引っ張るため外した。
+# NOTE: ARd>=65単体は ROI 78% (赤字)。gap交差でのみ価値あり。
+# NOTE: relaxed_base(ROI 98%)は実質±0。外すとK1/4で+1.4pt改善。
+#   → v5: danger_sniper + high_ev_win の2ルールが最高効率。
+#   K1/8: +126.6%, K1/4: +135.2%
+ADAPTIVE_RULES: List[AdaptiveRule] = [
+    AdaptiveRule(
+        name='danger_sniper',
+        description='危険馬レースで狙い撃ち (K1/3)',
+        require_danger=True,
+        max_rank_w=1,
+        min_win_gap=4,
+        min_win_ev=1.3,
+        max_predicted_margin=43.4,
+        bet_type='単勝',
+        kelly_fraction=0.33,       # K1/3 (最高確信)
+        max_per_race=1,
+    ),
+    AdaptiveRule(
+        name='high_ev_win',
+        description='高EV単勝 (K1/4)',
+        max_rank_w=1,
+        min_win_gap=2,
+        min_win_ev=1.3,
+        max_predicted_margin=43.4,
+        bet_type='単勝',
+        kelly_fraction=0.25,       # K1/4
+        max_per_race=1,
+    ),
+]
+
+
+def _check_gekisen_wide(entries: List[dict]) -> Optional[Tuple[dict, dict]]:
+    """激戦ワイド条件チェック: pair_agree >= 3 なら top2ペアを返す"""
+    sorted_by_rp = sorted(entries, key=lambda x: x.get('rank_p', 99))
+    sorted_by_rw = sorted(entries, key=lambda x: x.get('rank_w', 99))
+    sorted_by_ard = sorted(entries, key=lambda x: -float(x.get('ar_deviation', 0) or 0))
+    sorted_by_odds = sorted(entries, key=lambda x: float(x.get('odds', 999) or 999))
+
+    top2_sets = []
+    for ranking in [sorted_by_rp, sorted_by_rw, sorted_by_ard, sorted_by_odds]:
+        if len(ranking) >= 2:
+            top2_sets.append(frozenset([ranking[0]['umaban'], ranking[1]['umaban']]))
+
+    if not top2_sets:
+        return None
+
+    rp_top2 = top2_sets[0]
+    pair_agree = sum(1 for s in top2_sets[1:] if s == rp_top2)
+
+    if pair_agree >= GEKISEN_WIDE_MIN_PAIR_AGREE:
+        return (sorted_by_rp[0], sorted_by_rp[1])
+    return None
+
+
+def generate_adaptive_recommendations(
+    race_predictions: List[dict],
+    rules: List[AdaptiveRule] = None,
+    budget: int = 30000,
+) -> List[BetRecommendation]:
+    """適応型ルールで全レースの買い目を生成
+
+    各レースのコンテキスト（自信度・危険馬等）を分析し、
+    ルールを優先順に評価して買い目を生成する。
+
+    Args:
+        race_predictions: predict_race() / df_to_race_predictions() の出力
+        rules: AdaptiveRuleリスト (None=ADAPTIVE_RULES)
+        budget: 総予算 (円)
+
+    Returns:
+        BetRecommendation のリスト
+    """
+    if rules is None:
+        rules = ADAPTIVE_RULES
+
+    all_recs: List[BetRecommendation] = []
+
+    for race in race_predictions:
+        race_id = race['race_id']
+        entries = race.get('entries', [])
+        is_obstacle = race.get('track_type') == 'obstacle'
+
+        if not entries or is_obstacle:
+            # 障害レースは従来ロジック（別途generate_recommendationsで対応）
+            continue
+
+        # レース状況分析
+        ctx = compute_race_context(entries)
+
+        # ワイドオッズキャッシュ (遅延取得)
+        _wide_odds_cache: Dict[str, dict] = {}
+
+        # 各ルールをレースに適用
+        race_recs: List[BetRecommendation] = []
+
+        for rule in rules:
+            # === レース条件チェック ===
+            if rule.require_danger is not None:
+                if rule.require_danger and not ctx.has_danger:
+                    continue
+                if not rule.require_danger and ctx.has_danger:
+                    continue
+
+            if rule.min_confidence is not None and ctx.confidence < rule.min_confidence:
+                continue
+            if rule.max_confidence is not None and ctx.confidence > rule.max_confidence:
+                continue
+            if ctx.num_entries < rule.min_entries or ctx.num_entries > rule.max_entries:
+                continue
+
+            # === ワイド特殊処理 ===
+            if rule.bet_type == 'ワイド':
+                pair = _check_gekisen_wide(entries)
+                if pair is None:
+                    continue
+                e1, e2 = pair
+                u1, u2 = e1['umaban'], e2['umaban']
+                n1, n2 = e1.get('horse_name', '?'), e2.get('horse_name', '?')
+                if not _wide_odds_cache:
+                    _wide_odds_cache = _fetch_wide_odds_for_race(race_id)
+                wide_rec = BetRecommendation(
+                    race_id=race_id,
+                    umaban=min(u1, u2),
+                    horse_name=f"{n1}-{n2}",
+                    bet_type='ワイド',
+                    strength='strong',
+                    win_amount=100,
+                    place_amount=0,
+                    kelly_capped=rule.kelly_fraction,  # ルール固有のKelly fraction
+                    odds=_lookup_wide_odds(_wide_odds_cache, u1, u2),
+                    wide_pair=sorted([u1, u2]),
+                    wide_source='激戦',
+                    market_signal=f'rule:{rule.name}',
+                )
+                race_recs.append(wide_rec)
+                continue
+
+            # === 単勝: 馬レベルの条件チェック ===
+            rule_hits: List[BetRecommendation] = []
+
+            for e in entries:
+                umaban = e['umaban']
+                rank_w = e.get('rank_w') or 99
+                win_gap = e.get('win_vb_gap', 0) or 0
+                win_ev = e.get('win_ev')
+                margin = e.get('predicted_margin')
+                ar_dev = e.get('ar_deviation')
+                odds = e.get('odds', 0) or 0
+                gap = e.get('vb_gap', 0) or 0
+                dev_gap_val = e.get('dev_gap', 0) or 0
+
+                # rank_w
+                if rank_w > rule.max_rank_w:
+                    continue
+                # win_gap
+                if win_gap < rule.min_win_gap:
+                    continue
+                # win_ev
+                if rule.min_win_ev > 0 and (win_ev is None or win_ev < rule.min_win_ev):
+                    continue
+                # predicted_margin
+                if rule.max_predicted_margin < 999 and margin is not None:
+                    if margin > rule.max_predicted_margin:
+                        continue
+                # ar_deviation
+                if rule.min_ar_deviation > 0:
+                    if ar_dev is None or ar_dev < rule.min_ar_deviation:
+                        continue
+
+                # VB Floor Gate
+                if rule.apply_vb_floor:
+                    vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV
+                    vb_ard_ok = (ar_dev or 0) >= VB_FLOOR_MIN_ARD
+                    vb_ard_route = ((ar_dev or 0) >= VB_FLOOR_ARD_VB_MIN_ARD
+                                    and odds >= VB_FLOOR_ARD_VB_MIN_ODDS)
+                    vb_dev_route = (dev_gap_val >= VB_FLOOR_MIN_DEV_GAP
+                                    and (ar_dev or 0) >= VB_FLOOR_DEV_MIN_ARD)
+                    if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route and not vb_dev_route:
+                        continue
+
+                # Composite score (表示用)
+                vb_score = compute_vb_score(dev_gap_val, gap, win_ev, ar_dev)
+
+                is_danger = umaban in ctx.danger_umabans
+                # Kelly fraction for win
+                win_kelly_f = 0.0
+                if odds > 1 and (win_ev or 0) > 0:
+                    p_win = (win_ev or 0) / odds
+                    win_kelly_f = calc_kelly_fraction(p_win, odds)
+
+                rec = BetRecommendation(
+                    race_id=race_id,
+                    umaban=umaban,
+                    horse_name=e.get('horse_name', ''),
+                    bet_type='単勝',
+                    strength='strong' if win_gap >= 6 or (ar_dev or 0) >= 65 else 'normal',
+                    win_amount=100,
+                    place_amount=0,
+                    gap=gap,
+                    dev_gap=dev_gap_val,
+                    vb_score=round(vb_score, 1),
+                    win_gap=win_gap,
+                    predicted_margin=round(margin, 1) if margin is not None else 0.0,
+                    win_ev=round(win_ev, 4) if win_ev is not None else None,
+                    place_ev=round(e.get('place_ev', 0), 4) if e.get('place_ev') is not None else None,
+                    kelly_win_frac=round(win_kelly_f, 4),
+                    kelly_capped=rule.kelly_fraction,  # ルール固有のKelly fraction
+                    is_danger=is_danger,
+                    danger_score=1.0 if is_danger else 0.0,
+                    odds=odds,
+                    place_odds_min=e.get('place_odds_min'),
+                    ar_deviation=round(ar_dev, 1) if ar_dev is not None else None,
+                    market_signal=f'rule:{rule.name}',
+                )
+                rule_hits.append(rec)
+
+            # max_per_race制約 (win_ev順で優先)
+            if rule.max_per_race > 0 and len(rule_hits) > rule.max_per_race:
+                rule_hits.sort(key=lambda r: -(r.win_ev or 0))
+                rule_hits = rule_hits[:rule.max_per_race]
+
+            race_recs.extend(rule_hits)
+
+        # 重複排除: 同じ馬に複数ルールがマッチした場合、先のルール(優先)を採用
+        seen_umabans: set = set()
+        deduped: List[BetRecommendation] = []
+        for rec in race_recs:
+            key = (rec.umaban, rec.bet_type)
+            if key not in seen_umabans:
+                seen_umabans.add(key)
+                deduped.append(rec)
+        all_recs.extend(deduped)
+
+    return all_recs
+
+
+def apply_adaptive_kelly(
+    recs: List[BetRecommendation],
+    race_predictions: List[dict],
+    rules: List[AdaptiveRule] = None,
+) -> List[BetRecommendation]:
+    """既存ベットリストに adaptive Kelly 率を上書き
+
+    relaxed 等のプリセットで生成されたベットに対して、
+    adaptive ルールをマッチングし kelly_capped を上書きする。
+    ワイド/馬連等の非単勝ベットはそのまま維持（kelly_capped変更なし）。
+
+    Args:
+        recs: generate_recommendations() の出力
+        race_predictions: predict出力 (races リスト)
+        rules: AdaptiveRuleリスト (None=ADAPTIVE_RULES)
+
+    Returns:
+        kelly_capped 上書き済みの BetRecommendation リスト
+    """
+    if rules is None:
+        rules = ADAPTIVE_RULES
+
+    # race_id -> entries マップ
+    race_map: Dict[str, List[dict]] = {}
+    for race in race_predictions:
+        race_map[race['race_id']] = race.get('entries', [])
+
+    # race_id -> context キャッシュ
+    ctx_cache: Dict[str, RaceContext] = {}
+
+    result: List[BetRecommendation] = []
+    for rec in recs:
+        # 単勝以外はそのまま
+        if rec.bet_type != '\u5358\u52dd':
+            result.append(rec)
+            continue
+
+        entries = race_map.get(rec.race_id, [])
+        if not entries:
+            result.append(rec)
+            continue
+
+        # コンテキスト取得
+        if rec.race_id not in ctx_cache:
+            ctx_cache[rec.race_id] = compute_race_context(entries)
+        ctx = ctx_cache[rec.race_id]
+
+        # エントリデータ取得
+        entry = next((e for e in entries if e['umaban'] == rec.umaban), None)
+        if not entry:
+            result.append(rec)
+            continue
+
+        # ルールマッチ（優先順）
+        matched_rule = None
+        rank_w = entry.get('rank_w') or 99
+        win_gap = entry.get('win_vb_gap', 0) or 0
+        win_ev = entry.get('win_ev')
+        margin = entry.get('predicted_margin')
+        ar_dev = entry.get('ar_deviation')
+
+        for rule in rules:
+            if rule.bet_type != '\u5358\u52dd':
+                continue
+            # レース条件
+            if rule.require_danger is not None:
+                if rule.require_danger and not ctx.has_danger:
+                    continue
+                if not rule.require_danger and ctx.has_danger:
+                    continue
+            if rule.min_confidence is not None and ctx.confidence < rule.min_confidence:
+                continue
+            if rule.max_confidence is not None and ctx.confidence > rule.max_confidence:
+                continue
+            # 馬条件
+            if rank_w > rule.max_rank_w:
+                continue
+            if win_gap < rule.min_win_gap:
+                continue
+            if rule.min_win_ev > 0 and (win_ev is None or win_ev < rule.min_win_ev):
+                continue
+            if rule.max_predicted_margin < 999 and margin is not None and margin > rule.max_predicted_margin:
+                continue
+            if rule.min_ar_deviation > 0 and (ar_dev is None or ar_dev < rule.min_ar_deviation):
+                continue
+            matched_rule = rule
+            break
+
+        if matched_rule:
+            rec = BetRecommendation(
+                **{**rec.__dict__, 'kelly_capped': matched_rule.kelly_fraction,
+                   'market_signal': f'rule:{matched_rule.name}'}
+            )
+        result.append(rec)
+
     return result

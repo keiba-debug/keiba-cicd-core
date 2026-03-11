@@ -8,16 +8,13 @@ export const BET_CONFIG = {
 } as const;
 
 /** サーバー側プリセットキー */
-export type ServerPresetKey = 'intersection' | 'relaxed' | 'ev_focus' | 'simple' | 'simple_ev2' | 'simple_wide';
+export type ServerPresetKey = 'adaptive' | 'relaxed' | 'intersection';
 
-/** プリセット表示オプション */
+/** プリセット表示オプション (Sim黒字確認済みのみ) */
 export const PRESET_OPTIONS: { key: ServerPresetKey; label: string; description: string }[] = [
-  { key: 'intersection', label: 'Intersection', description: 'Gap≥4 × EV≥1.3 × m≤60（推奨, ROI 310%）' },
-  { key: 'relaxed', label: 'Relaxed', description: 'Gap≥3 × EV≥1.0 × m≤60（月~8回, ROI 200%）' },
-  { key: 'ev_focus', label: 'EV重視', description: 'Gap≥1 × EV≥1.3 × m≤60（月~10回, ROI 157%）' },
-  { key: 'simple', label: 'Simple', description: '1位 × Gap≥4 単勝（月~11回, ROI 175%）' },
-  { key: 'simple_ev2', label: 'Simple EV2', description: '1位 × EV≥2.0 単勝（月~9回, ROI 182%）' },
-  { key: 'simple_wide', label: 'Simple Wide', description: '1位 × Gap≥3 単勝（月~22回, ROI 127%）' },
+  { key: 'adaptive', label: 'Adaptive', description: 'relaxed + 傾斜Kelly (Gap≥2 × EV≥1.3, K1/4で+172%)' },
+  { key: 'relaxed', label: 'Relaxed', description: 'Gap≥2 × EV≥1.3 × m≤43（均等配分, K1/4で+142%）' },
+  { key: 'intersection', label: 'Intersection', description: 'Gap≥4 × EV≥1.3 × m≤43（厳選, K1/4で+98%）' },
 ];
 
 /** 配分モード */

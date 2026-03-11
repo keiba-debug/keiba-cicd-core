@@ -111,6 +111,7 @@ export interface ServerBetRecommendation {
   odds: number;
   place_odds_min: number | null;
   ar_deviation: number | null;
+  adaptive_rule?: string;     // adaptive: マッチしたルール名 (danger_sniper/high_ev_win/relaxed_base)
 }
 
 export interface ServerBetPreset {
