@@ -105,51 +105,41 @@ def load_predictions(date: str) -> dict:
 # ============================================================
 
 STRATEGIES = {
-    'w_floor50_gap': {
-        'label': '★1 ARd>=50 + Gap制御 (ROI 224%)',
+    'w_top2': {
+        'label': 'W Top2 固定32点 (ROI 126%, 3200円/週)',
         'rank_key': 'rank_w',
-        'ard_floor': 50,
-        'gap_rules': [(12, 1), (6, 2), (3, 3)],
-        'default_n': 5,
-    },
-    'wp_gap_f48': {
-        'label': 'WP合算 ARd>=48 + Gap制御 (ROI 110%, 的中8回)',
-        'rank_key': 'wp_sum',
-        'ard_floor': 48,
-        'gap_rules': [(12, 1), (6, 2), (3, 3)],
-        'default_n': 5,
-    },
-    'wp_gap_f50': {
-        'label': 'WP合算 ARd>=50 + Gap制御 (ROI 106%, 的中8回)',
-        'rank_key': 'wp_sum',
-        'ard_floor': 50,
-        'gap_rules': [(12, 1), (6, 2), (3, 3)],
-        'default_n': 5,
-    },
-    'w_floor48_gap': {
-        'label': '★2 ARd>=48 + Gap制御 (ROI 200%)',
-        'rank_key': 'rank_w',
-        'ard_floor': 48,
-        'gap_rules': [(12, 1), (6, 2), (3, 3)],
-        'default_n': 5,
-    },
-    'w_floor45_gap': {
-        'label': '★3 ARd>=45 + Gap制御 (ROI 182%)',
-        'rank_key': 'rank_w',
-        'ard_floor': 45,
-        'gap_rules': [(12, 1), (6, 2), (3, 3)],
-        'default_n': 5,
-    },
-    'p_fixed_2': {
-        'label': '低予算 P-Top2固定 32点 (ROI 113%)',
-        'rank_key': 'rank_p',
         'ard_floor': 0,
         'gap_rules': [],
         'default_n': 2,
     },
+    'w_top5': {
+        'label': 'W Top5 固定3125点 (ROI 200%, 312500円/週)',
+        'rank_key': 'rank_w',
+        'ard_floor': 0,
+        'gap_rules': [],
+        'default_n': 5,
+    },
+    'w_floor50_gap': {
+        'label': 'W ARd>=50 + Gap制御 (可変点数)',
+        'rank_key': 'rank_w',
+        'ard_floor': 50,
+        'gap_rules': [(12, 1), (6, 2), (3, 3)],
+        'default_n': 5,
+    },
     'w2_ar1_p1': {
-        'label': 'Plan D: W2∪AR1∪P1 (ROI 163%, 的中4回)',
+        'label': 'Plan D: W2+AR1+P1 (ROI 163%)',
         'custom': 'plan_d',
+    },
+    'w_adaptive': {
+        'label': 'W Adaptive (ard_gap可変, コスト半減)',
+        'custom': 'adaptive',
+    },
+    'p_fixed_2': {
+        'label': 'P Top2 固定32点 (ROI 21%)',
+        'rank_key': 'rank_p',
+        'ard_floor': 0,
+        'gap_rules': [],
+        'default_n': 2,
     },
 }
 
@@ -193,6 +183,61 @@ def apply_plan_d(race_data: dict) -> list:
             kb_rating=float(e.get('kb_rating', 0) or 0),
         ))
     return sorted(picks, key=lambda p: p.rank_w if p.rank_w > 0 else 999)
+
+
+def apply_adaptive(race_data: dict) -> list:
+    """W Adaptive: ard_gap と entry_count に応じてピック数を可変"""
+    entries = race_data.get('entries', [])
+    if not entries:
+        return []
+
+    # rank_w順にソート
+    sorted_entries = sorted(
+        [e for e in entries if (e.get('rank_w') or 0) > 0],
+        key=lambda e: e['rank_w']
+    )
+    if not sorted_entries:
+        return []
+
+    # ard_gap計算
+    ard_1st = float(sorted_entries[0].get('ar_deviation', 0) or 0)
+    ard_2nd = float(sorted_entries[1].get('ar_deviation', 0) or 0) if len(sorted_entries) > 1 else 0
+    ard_gap = ard_1st - ard_2nd
+    entry_count = len(entries)
+
+    # ピック数決定
+    if ard_gap >= 10 and entry_count <= 12:
+        n = 2
+    elif ard_gap >= 10:
+        n = 3
+    elif ard_gap >= 5:
+        n = 3
+    elif ard_gap >= 3:
+        n = 4
+    else:
+        n = 5
+
+    selected = sorted_entries[:n]
+
+    # PickEntryに変換
+    picks = []
+    for e in selected:
+        picks.append(PickEntry(
+            umaban=int(e.get('umaban', 0)),
+            horse_name=e.get('horse_name', ''),
+            odds=float(e.get('odds', 0) or 0),
+            odds_rank=int(e.get('odds_rank', 0) or 0),
+            rank_w=int(e.get('rank_w', 0) or 0),
+            rank_p=int(e.get('rank_p', 0) or 0),
+            ar_deviation=float(e.get('ar_deviation', 0) or 0),
+            win_ev=float(e.get('win_ev', 0) or 0),
+            place_ev=float(e.get('place_ev', 0) or 0),
+            pred_proba_w_cal=float(e.get('pred_proba_w_cal', 0) or 0),
+            pred_proba_p_raw=float(e.get('pred_proba_p_raw', 0) or 0),
+            kb_mark=e.get('kb_mark', ''),
+            kb_rating=float(e.get('kb_rating', 0) or 0),
+        ))
+    return picks
 
 
 def apply_strategy(race_data: dict, strategy: dict) -> list:
@@ -326,6 +371,8 @@ def print_picks(date: str, win5_races: list, pred_index: dict, race_infos: dict)
 
             if strat.get('custom') == 'plan_d':
                 picks = apply_plan_d(race_data)
+            elif strat.get('custom') == 'adaptive':
+                picks = apply_adaptive(race_data)
             else:
                 picks = apply_strategy(race_data, strat)
             race_picks.append(picks)
@@ -429,6 +476,8 @@ def save_json(date: str, win5_races: list, pred_index: dict, race_infos: dict):
 
             if strat.get('custom') == 'plan_d':
                 picks = apply_plan_d(race_data)
+            elif strat.get('custom') == 'adaptive':
+                picks = apply_adaptive(race_data)
             else:
                 picks = apply_strategy(race_data, strat)
             n = len(picks) if picks else 0

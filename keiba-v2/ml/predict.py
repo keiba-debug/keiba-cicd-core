@@ -1570,6 +1570,8 @@ def main():
                         help='(deprecated: デフォルト動作が推論のみになりました)')
     parser.add_argument('--with-bets', action='store_true',
                         help='推論+買い目を一括実行（従来互換）')
+    parser.add_argument('--bankroll', type=int, default=50000,
+                        help='バンクロール (Kelly推奨額の計算用, default: 50000)')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='詳細出力: 特徴量・推論過程を可視化')
     args = parser.parse_args()
@@ -1842,10 +1844,13 @@ def main():
         from ml.bet_engine import (
             PRESETS, generate_recommendations,
             recommendations_to_dict, recommendations_summary,
+            apply_kelly_sizing,
         )
-        print(f"\n[BetEngine] Generating recommendations (--with-bets)...")
+        bankroll = getattr(args, 'bankroll', 50000) or 50000
+        print(f"\n[BetEngine] Generating recommendations (--with-bets, bankroll={bankroll:,})...")
         for preset_name, preset_params in PRESETS.items():
             recs = generate_recommendations(all_predictions, preset_params, budget=30000)
+            recs = apply_kelly_sizing(recs, bankroll=bankroll)
             all_recommendations[preset_name] = {
                 'params': {
                     'win_min_ev': preset_params.win_min_ev,

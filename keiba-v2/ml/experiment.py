@@ -2440,6 +2440,8 @@ def main():
                         help='特徴量スナップショットをdata3/features/に保存')
     parser.add_argument('--sire-cutoff', type=str, default=None,
                         help='血統統計カットオフ日 (YYYY-MM-DD)。cutoff付きインデックスを使用')
+    parser.add_argument('--perf-stack', action='store_true',
+                        help='Perfモデル予測をスタッキング特徴量として追加')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -2680,6 +2682,153 @@ def main():
     features_p = optuna_feature_cols.get('p', feature_cols_value)
     features_w = optuna_feature_cols.get('w', feature_cols_value)
     features_ar = optuna_feature_cols.get('ar', feature_cols_value)
+
+    # === Perf Stacking (パフォ変動予測のスタッキング) ===
+    if args.perf_stack:
+        perf_model_path = config.ml_dir() / "model_perf.txt"
+        perf_meta_path = config.ml_dir() / "model_perf_meta.json"
+        if not perf_model_path.exists() or not perf_meta_path.exists():
+            print("\n[PerfStack] ERROR: model_perf.txt or model_perf_meta.json not found")
+            print("  Run: python -m ml.experiment_performance --three-class --no-db --save-model")
+            sys.exit(1)
+
+        import lightgbm as lgb
+        from sklearn.model_selection import KFold
+        from ml.features.career_features import compute_career_features, CAREER_FEATURE_COLS
+        from ml.experiment_performance import (
+            augment_career_features, add_idm_diff_target,
+            idm_diff_to_label_3, LABEL_NAMES_3,
+        )
+
+        perf_meta = json.loads(perf_meta_path.read_text(encoding='utf-8'))
+        perf_feature_cols = perf_meta['feature_cols']
+        perf_label_names = perf_meta['label_names']  # ['up', 'stable', 'down']
+        n_perf_cls = perf_meta['num_classes']
+
+        print(f"\n[PerfStack] K-fold OOF stacking: {n_perf_cls}-class, "
+              f"{len(perf_feature_cols)} features")
+
+        # --- Step 1: キャリア特徴量を全splitに追加 ---
+        from ml.experiment_performance import augment_career_features
+        for split_name, df_split in [('Train', df_train), ('Val', df_val), ('Test', df_test)]:
+            t_ps = time.time()
+            career_cols_present = [c for c in CAREER_FEATURE_COLS if c in df_split.columns]
+            if not career_cols_present:
+                df_aug = augment_career_features(df_split, history_cache, jrdb_sed_index)
+                for col in CAREER_FEATURE_COLS:
+                    if col in df_aug.columns:
+                        df_split[col] = df_aug[col].values
+            # 欠損特徴量はNaNで埋める
+            for f in perf_feature_cols:
+                if f not in df_split.columns:
+                    df_split[f] = np.nan
+            print(f"  [PerfStack] {split_name}: career features ready ({time.time()-t_ps:.0f}s)")
+
+        # --- Step 2: Perfターゲット(perf_label)を訓練データに追加 ---
+        import ml.experiment_performance as exp_perf
+        exp_perf.idm_diff_to_label = idm_diff_to_label_3
+        exp_perf.NUM_CLASSES = n_perf_cls
+        exp_perf.LABEL_NAMES = perf_label_names
+        exp_perf.LABEL_JP = perf_meta.get('label_jp', ['上昇', '平行線', '下降'])
+
+        df_train_perf = add_idm_diff_target(df_train, jrdb_sed_index, history_cache)
+        n_valid = len(df_train_perf)
+        n_total = len(df_train)
+        print(f"  [PerfStack] Train perf labels: {n_valid:,}/{n_total:,} valid "
+              f"({n_valid/n_total*100:.1f}%)")
+
+        # --- Step 3: K-fold OOF for Train ---
+        N_FOLDS = 5
+        kf = KFold(n_splits=N_FOLDS, shuffle=True, random_state=42)
+        oof_preds = np.full((len(df_train), n_perf_cls), np.nan)
+
+        # df_train_perfのインデックスからdf_trainの位置への逆マップ
+        train_idx_map = {orig_idx: pos for pos, orig_idx in enumerate(df_train.index)}
+        perf_valid_positions = np.array([train_idx_map[idx] for idx in df_train_perf.index])
+
+        perf_params = {
+            'objective': 'multiclass',
+            'num_class': n_perf_cls,
+            'metric': 'multi_logloss',
+            'num_leaves': 127,
+            'learning_rate': 0.03,
+            'feature_fraction': 0.8,
+            'bagging_fraction': 0.8,
+            'bagging_freq': 5,
+            'min_child_samples': 50,
+            'reg_alpha': 0.1,
+            'reg_lambda': 1.5,
+            'max_depth': 8,
+            'verbose': -1,
+            'seed': 42,
+            'is_unbalance': True,
+        }
+
+        t_oof = time.time()
+        for fold_i, (fold_train_idx, fold_val_idx) in enumerate(kf.split(df_train_perf)):
+            df_fold_train = df_train_perf.iloc[fold_train_idx]
+            df_fold_val = df_train_perf.iloc[fold_val_idx]
+
+            X_ft = df_fold_train[perf_feature_cols]
+            y_ft = df_fold_train['perf_label']
+            X_fv = df_fold_val[perf_feature_cols]
+            y_fv = df_fold_val['perf_label']
+
+            ds_ft = lgb.Dataset(X_ft, label=y_ft)
+            ds_fv = lgb.Dataset(X_fv, label=y_fv, reference=ds_ft)
+
+            fold_model = lgb.train(
+                perf_params, ds_ft, num_boost_round=1500,
+                valid_sets=[ds_fv],
+                callbacks=[
+                    lgb.early_stopping(stopping_rounds=50),
+                    lgb.log_evaluation(period=0),  # silent
+                ],
+            )
+
+            fold_proba = fold_model.predict(X_fv)  # (n_val, 3)
+
+            # OOF予測を正しい位置に格納
+            for j, perf_idx in enumerate(df_fold_val.index):
+                pos = train_idx_map[perf_idx]
+                oof_preds[pos] = fold_proba[j]
+
+            from sklearn.metrics import accuracy_score
+            fold_acc = accuracy_score(y_fv, np.argmax(fold_proba, axis=1))
+            print(f"  [PerfStack] Fold {fold_i+1}/{N_FOLDS}: "
+                  f"acc={fold_acc:.4f}, best_iter={fold_model.best_iteration}")
+
+        # perf_labelが無い行（前走IDMが取れなかった行）はNaN → 全体Perfモデルで埋める
+        nan_mask = np.isnan(oof_preds[:, 0])
+        n_nan = nan_mask.sum()
+        if n_nan > 0:
+            perf_model_full = lgb.Booster(model_file=str(perf_model_path))
+            X_nan = df_train.loc[df_train.index[nan_mask], perf_feature_cols]
+            oof_preds[nan_mask] = perf_model_full.predict(X_nan)
+            print(f"  [PerfStack] Filled {n_nan:,} rows without perf_label using full model")
+
+        # OOF予測をdf_trainに追加
+        for i, name in enumerate(perf_label_names):
+            df_train[f'perf_pred_{name}'] = oof_preds[:, i]
+
+        elapsed_oof = time.time() - t_oof
+        print(f"  [PerfStack] OOF done: {elapsed_oof:.0f}s")
+
+        # --- Step 4: Val/Testは既存のfull Perfモデルで予測 ---
+        perf_model_full = lgb.Booster(model_file=str(perf_model_path))
+        for split_name, df_split in [('Val', df_val), ('Test', df_test)]:
+            X_perf = df_split[perf_feature_cols]
+            perf_proba = perf_model_full.predict(X_perf)  # (n, 3)
+            for i, name in enumerate(perf_label_names):
+                df_split[f'perf_pred_{name}'] = perf_proba[:, i]
+            print(f"  [PerfStack] {split_name}: predicted with full model")
+
+        # スタッキング特徴量をfeature_colsに追加
+        perf_stack_cols = [f'perf_pred_{name}' for name in perf_label_names]
+        features_p = list(features_p) + perf_stack_cols
+        features_w = list(features_w) + perf_stack_cols
+        features_ar = list(features_ar) + perf_stack_cols
+        print(f"  [PerfStack] Added {len(perf_stack_cols)} stacking features: {perf_stack_cols}")
 
     # === Place モデル P (is_top3) ===
     model_p, metrics_p, importance_p, pred_p, cal_p, pred_p_raw = train_model(

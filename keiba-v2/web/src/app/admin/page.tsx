@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -81,6 +81,39 @@ export default function AdminPage() {
   // 折りたたみ状態
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [isSystemStatusOpen, setIsSystemStatusOpen] = useState(false);
+
+  // パイプラインステータス
+  interface StepStatus {
+    done: boolean;
+    timestamp: string | null;
+    detail?: string;
+  }
+  interface PipelineStatus {
+    batch_prepare: StepStatus;
+    batch_morning: StepStatus;
+    batch_after_race: StepStatus;
+    jrdb_download: StepStatus;
+    v4_predict: StepStatus;
+    vb_refresh: StepStatus;
+  }
+  const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus | null>(null);
+
+  const fetchPipelineStatus = useCallback(async (date: string) => {
+    try {
+      const res = await fetch(`/api/admin/pipeline-status?date=${date}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPipelineStatus(data);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // 日付変更時・初期表示時にステータス取得
+  useEffect(() => {
+    fetchPipelineStatus(selectedDate);
+  }, [selectedDate, fetchPipelineStatus]);
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
     setLogs((prev) => [
@@ -431,8 +464,9 @@ export default function AdminPage() {
     } finally {
       setIsDownloadingJrdb(false);
       setCurrentAction(null);
+      fetchPipelineStatus(selectedDate);
     }
-  }, [addLog]);
+  }, [addLog, selectedDate, fetchPipelineStatus]);
 
   const executeAction = async (action: ActionType) => {
     const actionConfig = ACTIONS.find((a) => a.id === action);
@@ -549,6 +583,7 @@ export default function AdminPage() {
         setStatus('success');
         if (dataRefreshActions.includes(actionId)) {
           refreshDataQuality();
+          fetchPipelineStatus(selectedDate);
         }
         break;
 
@@ -569,6 +604,23 @@ export default function AdminPage() {
   };
 
   const isRunning = status === 'running';
+
+  // アクションID → パイプラインステータスキーのマッピング
+  const actionStatusMap: Record<string, keyof PipelineStatus> = {
+    batch_prepare: 'batch_prepare',
+    batch_morning: 'batch_morning',
+    batch_after_race: 'batch_after_race',
+    v4_pipeline: 'batch_prepare', // データ前処理 = race JSON再構築
+    v4_predict: 'v4_predict',
+    vb_refresh: 'vb_refresh',
+  };
+
+  const getStepStatus = (actionId: string): StepStatus | null => {
+    if (!pipelineStatus) return null;
+    const key = actionStatusMap[actionId];
+    if (!key) return null;
+    return pipelineStatus[key] ?? null;
+  };
 
   // カテゴリ別にアクションを分類
 
@@ -755,6 +807,7 @@ export default function AdminPage() {
                   disabled={isRunning}
                   loading={isRunning && currentAction === action.label}
                   variant="batch"
+                  stepStatus={getStepStatus(action.id)}
                 />
               );
             })}
@@ -775,10 +828,28 @@ export default function AdminPage() {
                 <span className="font-semibold text-sm">
                   {isDownloadingJrdb ? 'JRDB統合中...' : 'JRDB DL＆統合'}
                 </span>
+                {!isDownloadingJrdb && pipelineStatus?.jrdb_download && (
+                  <span className="ml-auto">
+                    {pipelineStatus.jrdb_download.done ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                        OK
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                        --
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
               <span className="text-xs text-muted-foreground mt-1">
                 DL → Index再構築 → 選択日のRace JSONにJRDB指標付与
               </span>
+              {pipelineStatus?.jrdb_download?.detail && (
+                <span className="text-[10px] text-muted-foreground mt-1">
+                  {pipelineStatus.jrdb_download.detail}
+                </span>
+              )}
             </Button>
             {dataPrepSecondary.map((action) => (
               <ActionButton
@@ -820,6 +891,7 @@ export default function AdminPage() {
                   disabled={isRunning}
                   loading={isRunning && currentAction === action.label}
                   variant="batch"
+                  stepStatus={getStepStatus(action.id)}
                 />
               );
             })}

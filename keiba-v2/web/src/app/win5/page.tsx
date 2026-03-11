@@ -137,7 +137,7 @@ function StrategyCard({ name, strategy, races, results, strategyResult }: {
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open); } }}
       >
         <div className="flex items-center gap-3">
-          <span className="text-lg">{name === 'w2_ar1_p1' ? 'D' : name === 'w_floor50_gap' ? '\u2B50' : name.startsWith('wp_gap') ? '\uD83C\uDFAF' : name === 'p_fixed_2' ? '\uD83D\uDCB0' : '\u25C6'}</span>
+          <span className="text-lg">{name === 'w_top2' ? 'W2' : name === 'w_top5' ? 'W5' : name === 'w_adaptive' ? 'WA' : name === 'w_floor50_gap' ? '\u2B50' : name === 'w2_ar1_p1' ? 'D' : name === 'p_fixed_2' ? 'P2' : '\u25C6'}</span>
           <div className="text-left">
             <div className="font-semibold text-sm flex items-center gap-2">
               {strategy.label}
@@ -370,7 +370,7 @@ export default function Win5Page() {
     }
   };
 
-  const strategyOrder = ['w2_ar1_p1', 'w_floor50_gap', 'wp_gap_f48', 'wp_gap_f50', 'w_floor48_gap', 'w_floor45_gap', 'p_fixed_2'];
+  const strategyOrder = ['w_top2', 'w_top5', 'w_adaptive', 'w_floor50_gap', 'w2_ar1_p1', 'p_fixed_2'];
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-6">
@@ -380,7 +380,7 @@ export default function Win5Page() {
           <span className="text-3xl">5</span>
           <div>
             <h1 className="text-2xl font-bold">WIN5 推奨馬</h1>
-            <p className="text-sm text-muted-foreground">可変点数戦略 (backtest ROI 224%)</p>
+            <p className="text-sm text-muted-foreground">v7.3.1 W Top5 ROI 200% / W Top2 ROI 126%</p>
           </div>
         </div>
         <Link
@@ -538,13 +538,13 @@ export default function Win5Page() {
             <div><span className="font-medium">ARd</span>: AR偏差値（レース内相対評価）  <span className="font-medium">W</span>: 単勝EV  <span className="font-medium">P</span>: 複勝EV</div>
             <div><span className="font-medium">Rw</span>: Wモデルランク  <span className="font-medium">Rp</span>: Pモデルランク</div>
             <div>
+              <span className="font-medium">W Top2</span>: rank_w上位2頭×5R=32点(3,200円)。低予算で高ROI。
+              <span className="font-medium">W Top5</span>: rank_w上位5頭×5R=3,125点(312,500円)。高的中率。
+            </div>
+            <div>
               <span className="font-medium">gap制御</span>:
               ARd 1位-2位差 &ge;12&rarr;1頭, &ge;6&rarr;2頭, &ge;3&rarr;3頭, 他&rarr;5頭。
               ARdフロア未満の馬はカット。
-            </div>
-            <div>
-              <span className="font-medium">WP合算</span>:
-              rank_w + rank_p の合計が小さい順（W/P両モデルで高評価の馬を優先）。的中安定型。
             </div>
           </div>
         </>
