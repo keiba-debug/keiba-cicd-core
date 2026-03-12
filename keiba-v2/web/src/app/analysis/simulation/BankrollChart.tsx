@@ -24,30 +24,47 @@ export default function BankrollChart({ results, initialBankroll, modeColors }: 
   const chartData = useMemo(() => {
     if (!results.length) return [];
 
-    // Use first result's history as the date spine
-    const ref = results[0];
-    if (!ref?.history) return [];
+    // Collect all unique dates across all presets (date-based merge)
+    const allDatesSet = new Set<string>();
+    for (const r of results) {
+      if (!r.history) continue;
+      for (const h of r.history) {
+        if (h.date) allDatesSet.add(h.date);
+      }
+    }
+    const allDates = [...allDatesSet].sort();
+    if (!allDates.length) return [];
 
-    const dates = ref.history
-      .filter(h => h.date !== null)
-      .map(h => h.date as string);
+    // Build date→bankroll maps for each result
+    const dateMaps = results.map(r => {
+      const m = new Map<string, number>();
+      if (!r.history) return m;
+      for (const h of r.history) {
+        if (h.date) m.set(h.date, h.bankroll);
+      }
+      return m;
+    });
 
-    return dates.map((date, i) => {
+    // For each date, carry forward the last known bankroll
+    const lastKnown = results.map(() => initialBankroll);
+
+    return allDates.map((date) => {
       const point: Record<string, string | number> = {
         date,
         label: `${date.slice(4, 6)}/${date.slice(6, 8)}`,
       };
 
-      for (const r of results) {
-        const h = r.history.filter(h => h.date !== null);
-        if (h[i]) {
-          point[r.mode] = h[i].bankroll;
+      for (let ri = 0; ri < results.length; ri++) {
+        const val = dateMaps[ri].get(date);
+        if (val !== undefined) {
+          lastKnown[ri] = val;
         }
+        point[results[ri].mode] = lastKnown[ri];
       }
 
       return point;
     });
-  }, [results]);
+  }, [results, initialBankroll]);
 
   if (!chartData.length) {
     return <div className="flex h-64 items-center justify-center text-muted-foreground">No data</div>;

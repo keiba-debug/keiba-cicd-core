@@ -1,14 +1,14 @@
-"""Bankroll simulation v4 — bet_engine.generate_recommendations() 統合
+"""Bankroll simulation v5 — bet_engine.generate_recommendations() 統合
 
 backtest_cache.json の全レースデータに bet_engine の各プリセットを適用し、
 複利バンクロールシミュレーションを実行。
 
-★ v4: simulate_bankroll独自のフィルタロジックを全廃し、
+★ v5: ワイド・馬連を haraimodoshi 実配当で精算（近似値廃止）。
   bet_engine.generate_recommendations() を直接呼び出す。
   馬券画面(ExecuteTab)と完全に同一の買い目で検証。
 
-対応券種: 単勝, 複勝, 単複, ワイド(激戦), 馬連(障害)
-精算: 単勝=is_win*odds, 複勝=is_top3*place_odds_min, ワイド/馬連=finish_position判定
+対応券種: 単勝, 複勝, 単複, ワイド(激戦/障害), 馬連(激戦/障害)
+精算: 単勝=is_win*odds, 複勝=is_top3*place_odds_min, ワイド/馬連=haraimodoshi実配当
 
 Usage:
     python -m ml.simulate_bankroll
@@ -29,9 +29,10 @@ from ml.bet_engine import (
     PRESETS, BetRecommendation, generate_recommendations,
     generate_adaptive_recommendations, ADAPTIVE_RULES, apply_adaptive_kelly,
 )
+from core.db import get_connection
 
 # ── Config ──────────────────────────────────────────────
-INITIAL_BANKROLL = 50_000
+INITIAL_BANKROLL = 100_000
 
 # Sizing modes:
 #   pct > 0: equal sizing (daily budget = bankroll * pct, divided equally)
@@ -55,7 +56,182 @@ BUDGET_CONFIGS = [
 def load_cache():
     path = Path("C:/KEIBA-CICD/data3/ml/backtest_cache.json")
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        cache = json.load(f)
+    # 障害レースをpredictions.jsonアーカイブから追加
+    obstacle_races = _load_obstacle_races(cache)
+    if obstacle_races:
+        cache.extend(obstacle_races)
+        print(f"  + {len(obstacle_races)} obstacle races from predictions archives")
+    return cache
+
+
+def _load_obstacle_races(cache: list) -> list:
+    """predictions.jsonアーカイブから障害レースを読み込み、backtest_cache形式に変換"""
+    existing_ids = {r["race_id"] for r in cache}
+    # backtest_cacheのdate rangeを取得
+    dates = sorted(set(r["race_id"][:8] for r in cache))
+    if not dates:
+        return []
+    date_min, date_max = dates[0], dates[-1]
+
+    races_dir = Path("C:/KEIBA-CICD/data3/races")
+    obstacle_races = []
+
+    for year_dir in sorted(races_dir.iterdir()):
+        if not year_dir.is_dir():
+            continue
+        for month_dir in sorted(year_dir.iterdir()):
+            if not month_dir.is_dir():
+                continue
+            for day_dir in sorted(month_dir.iterdir()):
+                if not day_dir.is_dir():
+                    continue
+                date_str = f"{year_dir.name}{month_dir.name}{day_dir.name}"
+                if date_str < date_min or date_str > date_max:
+                    continue
+                pred_path = day_dir / "predictions.json"
+                if not pred_path.exists():
+                    continue
+                try:
+                    with open(pred_path, encoding="utf-8") as f:
+                        pred_data = json.load(f)
+                except Exception:
+                    continue
+
+                for race in pred_data.get("races", []):
+                    rid = race.get("race_id", "")
+                    if rid in existing_ids:
+                        continue
+                    tt = race.get("track_type", "")
+                    if tt != "obstacle":
+                        continue
+                    # race JSONから結果データを取得
+                    race_json_path = day_dir / f"race_{rid}.json"
+                    result_entries = {}
+                    if race_json_path.exists():
+                        try:
+                            with open(race_json_path, encoding="utf-8") as f:
+                                rj = json.load(f)
+                            for e in rj.get("entries", []):
+                                result_entries[e.get("umaban")] = e
+                        except Exception:
+                            pass
+
+                    # backtest_cache形式に変換
+                    entries = []
+                    for e in race.get("entries", []):
+                        uma = e.get("umaban")
+                        re_ = result_entries.get(uma, {})
+                        fp = re_.get("finish_position") or e.get("finish_position")
+                        entries.append({
+                            "umaban": uma,
+                            "horse_name": e.get("horse_name", ""),
+                            "odds": e.get("odds", 0),
+                            "rank_p": e.get("rank_p", 99),
+                            "rank_w": e.get("rank_w", 99),
+                            "odds_rank": e.get("odds_rank", 99),
+                            "finish_position": fp,
+                            "is_win": fp == 1 if fp else False,
+                            "is_top3": fp is not None and fp <= 3,
+                            "place_odds_min": re_.get("place_odds_min") or e.get("place_odds_min"),
+                            "pred_proba_p_raw": e.get("pred_proba_p_raw") or e.get("pred_proba_p", 0),
+                            "predicted_margin": e.get("predicted_margin"),
+                            "ar_deviation": e.get("ar_deviation"),
+                            "vb_gap": e.get("vb_gap", 0),
+                            "win_vb_gap": e.get("win_vb_gap", 0),
+                            "win_ev": e.get("win_ev", 0),
+                            "place_ev": e.get("place_ev", 0),
+                            "dev_gap": e.get("dev_gap", 0),
+                            "closing_strength": 0,
+                            "comment_memo_trouble_score": e.get("comment_memo_trouble_score", 0),
+                            "horse_slow_start_rate": 0,
+                            "last_race_corner1_ratio": 0,
+                        })
+                    if entries:
+                        obstacle_races.append({
+                            "race_id": rid,
+                            "track_type": "obstacle",
+                            "grade": race.get("grade", ""),
+                            "age_class": race.get("age_class", ""),
+                            "grade_offset": 0,
+                            "closing_race_proba": 0,
+                            "entries": entries,
+                        })
+                        existing_ids.add(rid)
+
+    return obstacle_races
+
+
+# ── haraimodoshi 実配当ロード ──
+_haraimodoshi_cache: Dict[str, dict] = {}
+
+
+def _pi(s) -> int:
+    if not s:
+        return 0
+    try:
+        return int(str(s).strip())
+    except (ValueError, TypeError):
+        return 0
+
+
+def load_haraimodoshi(race_codes: List[str]):
+    """haraimodoshiテーブルからワイド・馬連の実配当を一括ロード"""
+    global _haraimodoshi_cache
+
+    cols = ["RACE_CODE"]
+    # ワイド 1-7
+    for i in range(1, 8):
+        cols.extend([f"WIDE{i}_KUMIBAN1", f"WIDE{i}_KUMIBAN2",
+                     f"WIDE{i}_HARAIMODOSHIKIN"])
+    # 馬連 1-3
+    for i in range(1, 4):
+        cols.extend([f"UMAREN{i}_KUMIBAN1", f"UMAREN{i}_KUMIBAN2",
+                     f"UMAREN{i}_HARAIMODOSHIKIN"])
+
+    col_str = ", ".join(cols)
+    batch_size = 500
+
+    with get_connection() as conn:
+        cur = conn.cursor(dictionary=True)
+        for start in range(0, len(race_codes), batch_size):
+            batch = race_codes[start:start + batch_size]
+            placeholders = ",".join(["%s"] * len(batch))
+            sql = f"SELECT {col_str} FROM haraimodoshi WHERE RACE_CODE IN ({placeholders})"
+            cur.execute(sql, batch)
+            for row in cur.fetchall():
+                rc = row["RACE_CODE"].strip()
+                payouts = {"wide": [], "umaren": []}
+
+                for i in range(1, 8):
+                    k1 = _pi(row.get(f"WIDE{i}_KUMIBAN1", ""))
+                    k2 = _pi(row.get(f"WIDE{i}_KUMIBAN2", ""))
+                    pay = _pi(row.get(f"WIDE{i}_HARAIMODOSHIKIN", ""))
+                    if k1 and k2 and pay:
+                        payouts["wide"].append((frozenset({k1, k2}), pay))
+
+                for i in range(1, 4):
+                    k1 = _pi(row.get(f"UMAREN{i}_KUMIBAN1", ""))
+                    k2 = _pi(row.get(f"UMAREN{i}_KUMIBAN2", ""))
+                    pay = _pi(row.get(f"UMAREN{i}_HARAIMODOSHIKIN", ""))
+                    if k1 and k2 and pay:
+                        payouts["umaren"].append((frozenset({k1, k2}), pay))
+
+                _haraimodoshi_cache[rc] = payouts
+        cur.close()
+
+    print(f"  haraimodoshi: {len(_haraimodoshi_cache):,} races loaded")
+
+
+def _lookup_haraimodoshi(race_id: str, bet_type: str, pair: list) -> int:
+    """実配当を検索。Returns 100円あたりの払戻金（0=ハズレ）"""
+    payouts = _haraimodoshi_cache.get(race_id, {})
+    entries = payouts.get(bet_type, [])
+    target = frozenset({pair[0], pair[1]})
+    for combo, pay in entries:
+        if combo == target:
+            return pay  # 100円あたりの払戻金
+    return 0
 
 
 def group_by_date(cache_races):
@@ -91,6 +267,7 @@ def _rec_to_sim_bet(rec: BetRecommendation, race_entries: dict) -> dict:
             "pair": pair,
             "entries": [e1, e2],
             "num_runners": len(race_entries),
+            "race_id": rec.race_id,
             "rec": rec,
         }
     return {"bet_type": "unknown", "rec": rec}
@@ -131,29 +308,19 @@ def settle_bet(bet: dict) -> Tuple[int, float]:
         return (2, win_ret + place_ret)
 
     elif bt == "wide":
-        entries = bet["entries"]
-        e1, e2 = entries[0], entries[1]
-        fp1 = e1.get("finish_position", 99)
-        fp2 = e2.get("finish_position", 99)
-        num_runners = bet.get("num_runners", 18)
-        place_limit = 3 if num_runners >= 8 else (2 if num_runners >= 5 else 1)
-        if fp1 <= place_limit and fp2 <= place_limit:
-            o1 = e1.get("place_odds_min") or 1.0
-            o2 = e2.get("place_odds_min") or 1.0
-            payout = (o1 + o2) * 0.8  # ワイド払い戻し近似
-            return (1, max(payout, 1.0))
+        race_id = bet.get("race_id", "")
+        pair = bet["pair"]
+        pay = _lookup_haraimodoshi(race_id, "wide", pair)
+        if pay > 0:
+            return (1, pay / 100)  # 100円あたり倍率
         return (1, 0)
 
     elif bt == "umaren":
-        entries = bet["entries"]
-        e1, e2 = entries[0], entries[1]
-        fp1 = e1.get("finish_position", 99)
-        fp2 = e2.get("finish_position", 99)
-        if {fp1, fp2} == {1, 2}:
-            o1 = e1.get("odds") or 1.0
-            o2 = e2.get("odds") or 1.0
-            payout = o1 * o2 * 0.15
-            return (1, max(payout, 1.0))
+        race_id = bet.get("race_id", "")
+        pair = bet["pair"]
+        pay = _lookup_haraimodoshi(race_id, "umaren", pair)
+        if pay > 0:
+            return (1, pay / 100)  # 100円あたり倍率
         return (1, 0)
 
     return (0, 0)
@@ -306,19 +473,24 @@ def run_simulation(dates_races: dict, preset_name: str, budget_cfg: dict):
 
         if is_kelly:
             for b in day_bets:
-                raw_f = calc_bet_kelly_fraction(b)
-                # adaptive: ルール固有のKelly fractionを使用
-                rec_obj: BetRecommendation = b["rec"]
-                if is_adaptive and rec_obj.kelly_capped > 0:
-                    rule_kf = rec_obj.kelly_capped  # rule.kelly_fraction
-                    f = min(raw_f * rule_kf, kelly_cap)
+                bt = b["bet_type"]
+                # ワイド/馬連は補助券種のため固定比率(bankroll×1%)
+                if bt in ("wide", "umaren"):
+                    amount = max(100, int(bankroll * 0.01 / 100) * 100)
                 else:
-                    f = min(raw_f * kelly_frac, kelly_cap)
-                amount = int(bankroll * f / 100) * 100
-                if b["bet_type"] == "win_place":
-                    amount = max(200, amount)
-                else:
-                    amount = max(100, amount)
+                    raw_f = calc_bet_kelly_fraction(b)
+                    # adaptive: ルール固有のKelly fractionを使用
+                    rec_obj: BetRecommendation = b["rec"]
+                    if is_adaptive and rec_obj.kelly_capped > 0:
+                        rule_kf = rec_obj.kelly_capped  # rule.kelly_fraction
+                        f = min(raw_f * rule_kf, kelly_cap)
+                    else:
+                        f = min(raw_f * kelly_frac, kelly_cap)
+                    amount = int(bankroll * f / 100) * 100
+                    if bt == "win_place":
+                        amount = max(200, amount)
+                    else:
+                        amount = max(100, amount)
                 bet_amounts.append(amount)
             total_exposure = sum(bet_amounts)
             if total_exposure > bankroll * 0.3:
@@ -338,6 +510,15 @@ def run_simulation(dates_races: dict, preset_name: str, budget_cfg: dict):
             if daily_budget < 100:
                 history.append({"date": date, "bankroll": round(bankroll)})
                 continue
+            # ワイド/馬連は固定比率で先に確定、残りをEV配分
+            wide_umaren_total = 0
+            wide_umaren_indices = set()
+            for i, b in enumerate(day_bets):
+                if b["bet_type"] in ("wide", "umaren"):
+                    wide_umaren_indices.add(i)
+                    amt = max(100, int(bankroll * 0.01 / 100) * 100)
+                    wide_umaren_total += amt
+            remaining_budget = max(0, daily_budget - wide_umaren_total)
             # adaptive: ルール固有Kelly fractionをEVの重みに反映
             evs = []
             for b in day_bets:
@@ -347,14 +528,21 @@ def run_simulation(dates_races: dict, preset_name: str, budget_cfg: dict):
                     kf = rec_obj_ev.kelly_capped if rec_obj_ev.kelly_capped > 0 else 0.125
                     ev *= kf / 0.125  # K1/4ルールはEVウェイト2倍
                 evs.append(ev)
-            ev_total = sum(evs)
-            if ev_total <= 0:
+            # 単勝/複勝のみEV配分
+            win_evs = [evs[i] if i not in wide_umaren_indices else 0 for i in range(len(day_bets))]
+            ev_total = sum(win_evs)
+            if ev_total <= 0 and not wide_umaren_indices:
                 continue
             for i, b in enumerate(day_bets):
-                units = 2 if b["bet_type"] == "win_place" else 1
-                share = evs[i] / ev_total
-                amount = max(100 * units, int(daily_budget * share / 100) * 100)
-                bet_amounts.append(amount)
+                if i in wide_umaren_indices:
+                    bet_amounts.append(max(100, int(bankroll * 0.01 / 100) * 100))
+                elif ev_total > 0:
+                    units = 2 if b["bet_type"] == "win_place" else 1
+                    share = win_evs[i] / ev_total
+                    amount = max(100 * units, int(remaining_budget * share / 100) * 100)
+                    bet_amounts.append(amount)
+                else:
+                    bet_amounts.append(100)
             total_alloc = sum(bet_amounts)
             if total_alloc > daily_budget:
                 scale = daily_budget / total_alloc
@@ -368,16 +556,27 @@ def run_simulation(dates_races: dict, preset_name: str, budget_cfg: dict):
             if daily_budget < 100:
                 history.append({"date": date, "bankroll": round(bankroll)})
                 continue
+            # ワイド/馬連は固定比率
+            wide_umaren_indices_eq = set()
+            for i, b in enumerate(day_bets):
+                if b["bet_type"] in ("wide", "umaren"):
+                    wide_umaren_indices_eq.add(i)
+            non_wide_bets = [b for i, b in enumerate(day_bets) if i not in wide_umaren_indices_eq]
             total_units = sum(
                 2 if b["bet_type"] == "win_place" else 1
-                for b in day_bets
+                for b in non_wide_bets
             )
-            if total_units == 0:
+            if total_units == 0 and not wide_umaren_indices_eq:
                 continue
-            bet_unit = max(100, int(daily_budget / total_units / 100) * 100)
+            remaining_eq = daily_budget - sum(
+                max(100, int(bankroll * 0.01 / 100) * 100)
+                for i in wide_umaren_indices_eq
+            )
+            bet_unit = max(100, int(remaining_eq / max(total_units, 1) / 100) * 100) if total_units > 0 else 100
             bet_amounts = [
-                bet_unit * (2 if b["bet_type"] == "win_place" else 1)
-                for b in day_bets
+                max(100, int(bankroll * 0.01 / 100) * 100) if i in wide_umaren_indices_eq
+                else bet_unit * (2 if b["bet_type"] == "win_place" else 1)
+                for i, b in enumerate(day_bets)
             ]
 
         # ── Settle ──
@@ -506,6 +705,11 @@ def main():
 
     cache = load_cache()
     print(f"  Cache: {len(cache)} races")
+
+    # haraimodoshi実配当ロード
+    race_codes = [r["race_id"] for r in cache]
+    print(f"\n[Load] haraimodoshi (ワイド・馬連実配当)...")
+    load_haraimodoshi(race_codes)
 
     dates_races = group_by_date(cache)
     print(f"  Dates: {len(dates_races)} days ({min(dates_races)}~{max(dates_races)})")

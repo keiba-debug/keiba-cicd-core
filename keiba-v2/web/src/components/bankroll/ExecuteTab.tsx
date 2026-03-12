@@ -668,7 +668,13 @@ export function ExecuteTab() {
         const amt = Math.floor(bankrollBalance * (betPct / 100) * kc / 100) * 100;
         return Math.max(100, amt);
       }
-      // ワイド/馬連等(kelly_capped=0): 均等配分
+      // ワイド/馬連等(kelly_capped=0): Python bet_engine計算済みkelly_amountをバンクロール比率でスケール
+      const kellyAmt = r.kelly_amount || 0;
+      if (kellyAmt > 0) {
+        // Python側はbankroll=100,000で計算 → 実バンクロールに比例スケール
+        const scaledAmt = Math.floor(kellyAmt * (bankrollBalance / 100000) / 100) * 100;
+        return Math.max(100, scaledAmt);
+      }
       const defAmt = defaultBetAmount || r.win_amount || 100;
       return Math.max(100, defAmt);
     }

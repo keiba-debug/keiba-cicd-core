@@ -67,6 +67,7 @@ OBSTACLE_WIDE_MAX_RANK_P = 2          # Pモデル Top1-2ペア
 # 激戦ワイド (Intense Wide - hit-focused)
 GEKISEN_WIDE_MAX_ENTRIES = 14
 GEKISEN_WIDE_MIN_PAIR_AGREE = 3
+GEKISEN_WIDE_MIN_ODDS = 2.0  # ワイドオッズフロア (BT: <2.0→ROI 72%, >=2.0→ROI 103%)
 
 
 def load_grade_offsets(path: str = None) -> Dict[str, float]:
@@ -369,7 +370,7 @@ PRESETS: Dict[str, BetStrategyParams] = {
     # gap=2&EV>=1.5のバイパスルール追加 (14件, ROI 150%)
     # バンクロールSim (v7.3.1, 2025-03~2026-02):
     #   adaptive K1/4 で ROI+182%, K1/8 で ROI+151% (Sharpe 0.096)
-    #   単勝56件(的中率16%) + ワイド419件(的中率49.6%)
+    #   単勝56件(的中率16%) + ワイド139件(odds>=2.0, ROI 103%) + 馬連139件(ROI 110%)
     'relaxed': BetStrategyParams(
         win_max_rank_w=1,               # rank_w=1のみ
         win_min_win_gap=2,              # win_vb_gap>=2 (旧: 3, バイパスルール)
@@ -1101,6 +1102,8 @@ def generate_recommendations(
                     all_recs.append(umaren_rec)
 
         # --- 激戦ワイド: pair_agree フィルタ (非障害, 14頭以下) ---
+        # v5: ワイドオッズフロア>=2.0追加 + 馬連同時生成
+        # BT: 全件ROI 85%→odds>=2.0でROI 103%, +馬連でROI 107%
         if not is_obstacle and len(entries) <= GEKISEN_WIDE_MAX_ENTRIES:
             # pair_agree: rank_p, rank_w, ar_deviation, odds_rankのtop2が何個一致するか
             sorted_by_rp = sorted(entries, key=lambda x: x.get('rank_p', 99))
@@ -1119,28 +1122,49 @@ def generate_recommendations(
                 pair_agree = sum(1 for s in top2_sets[1:] if s == rp_top2)
 
                 if pair_agree >= GEKISEN_WIDE_MIN_PAIR_AGREE:
-                    # ワイドオッズ取得 (初回のみDB問い合わせ)
-                    if not _wide_odds_cache:
-                        _wide_odds_cache = _fetch_wide_odds_for_race(race_id)
-                    # Generate wide bet: P top1-2 pair (1 ticket)
-                    # v4: top3 combo(3組)→top2(1組)に変更。バックテストで
-                    # 3組は的中率31%でROI赤字、1組は的中率50%で黒字。
                     p_top2 = sorted_by_rp[:2]
                     u1, u2 = p_top2[0]['umaban'], p_top2[1]['umaban']
                     n1, n2 = p_top2[0].get('horse_name', '?'), p_top2[1].get('horse_name', '?')
-                    wide_rec = BetRecommendation(
-                        race_id=race_id,
-                        umaban=min(u1, u2),
-                        horse_name=f"{n1}-{n2}",
-                        bet_type='ワイド',
-                        strength='strong',
-                        win_amount=params.bet_unit,
-                        place_amount=0,
-                        odds=_lookup_wide_odds(_wide_odds_cache, u1, u2),
-                        wide_pair=sorted([u1, u2]),
-                        wide_source='激戦',
-                    )
-                    all_recs.append(wide_rec)
+
+                    # ワイド/馬連オッズ取得 (初回のみDB問い合わせ)
+                    if not _wide_odds_cache:
+                        _wide_odds_cache = _fetch_wide_odds_for_race(race_id)
+                    if not _umaren_odds_cache:
+                        _umaren_odds_cache = _fetch_umaren_odds_for_race(race_id)
+
+                    wide_odds = _lookup_wide_odds(_wide_odds_cache, u1, u2)
+
+                    # ワイドオッズフロア: <2.0は配当妙味なし (BT: ROI 72%)
+                    if wide_odds >= GEKISEN_WIDE_MIN_ODDS:
+                        wide_rec = BetRecommendation(
+                            race_id=race_id,
+                            umaban=min(u1, u2),
+                            horse_name=f"{n1}-{n2}",
+                            bet_type='ワイド',
+                            strength='strong',
+                            win_amount=params.bet_unit,
+                            place_amount=0,
+                            odds=wide_odds,
+                            wide_pair=sorted([u1, u2]),
+                            wide_source='激戦',
+                        )
+                        all_recs.append(wide_rec)
+
+                        # 激戦馬連: 同じTop1-2ペア (ワイドオッズフロア通過時のみ)
+                        # BT: ワイド+馬連両方でROI 107% (odds_w>=2.0時)
+                        umaren_rec = BetRecommendation(
+                            race_id=race_id,
+                            umaban=p_top2[0]['umaban'],
+                            horse_name=f"{n1}-{n2}",
+                            bet_type='馬連',
+                            strength='strong',
+                            win_amount=params.bet_unit,
+                            place_amount=0,
+                            odds=_lookup_umaren_odds(_umaren_odds_cache, u1, u2),
+                            wide_pair=sorted([u1, u2]),
+                            wide_source='激戦',
+                        )
+                        all_recs.append(umaren_rec)
 
     # 予算スケーリング
     all_recs = apply_budget(all_recs, budget, params)
@@ -1283,34 +1307,28 @@ def apply_kelly_sizing(
             else:
                 r.kelly_amount = r.place_amount or 100
         elif r.bet_type == 'ワイド':
-            # ワイド: オッズがあればKelly計算、なければ固定比率
-            if r.odds > 1.0:
-                # バックテスト的中率ベース: 障害47%, 激戦は保守的に35%
-                p_wide = 0.47 if r.wide_source == '障害' else 0.35
-                b = r.odds - 1
-                raw_f = (b * p_wide - (1 - p_wide)) / b if b > 0 else 0
-                if raw_f > 0:
-                    f = min(raw_f * kelly_fraction, kelly_cap)
-                    r.kelly_amount = max(100, round_to_unit(bankroll * f))
-                else:
-                    r.kelly_amount = 100  # EV<1 → 最低額
-            else:
-                r.kelly_amount = max(100, round_to_unit(bankroll * 0.005))
+            # ワイド: 補助券種のため固定比率（bankroll × 1%）
+            r.kelly_amount = max(100, round_to_unit(bankroll * 0.01))
         elif r.bet_type == '馬連':
-            # 馬連: オッズがあればKelly計算、なければ固定比率
-            if r.odds > 1.0:
-                p_umaren = 0.30  # 障害馬連の保守的な的中率推定
-                b = r.odds - 1
-                raw_f = (b * p_umaren - (1 - p_umaren)) / b if b > 0 else 0
-                if raw_f > 0:
-                    f = min(raw_f * kelly_fraction, kelly_cap)
-                    r.kelly_amount = max(100, round_to_unit(bankroll * f))
-                else:
-                    r.kelly_amount = 100
-            else:
-                r.kelly_amount = max(100, round_to_unit(bankroll * 0.003))
+            # 馬連: 補助券種のため固定比率（bankroll × 1%、ペア調整でワイド以下に制限）
+            r.kelly_amount = max(100, round_to_unit(bankroll * 0.01))
         else:
             r.kelly_amount = r.win_amount + r.place_amount
+
+    # ペア調整: 同じペアのワイド≥馬連を保証（ワイドは当たりやすいので多く）
+    pair_wide_map: Dict[str, BetRecommendation] = {}
+    for r in recs:
+        if r.bet_type == 'ワイド' and r.wide_pair:
+            key = f"{r.race_id}_{sorted(r.wide_pair)}"
+            pair_wide_map[key] = r
+    for r in recs:
+        if r.bet_type == '馬連' and r.wide_pair:
+            key = f"{r.race_id}_{sorted(r.wide_pair)}"
+            wide_rec = pair_wide_map.get(key)
+            if wide_rec:
+                # 馬連 <= ワイド を保証。ワイドのほうが小さい場合はワイドに合わせる
+                if r.kelly_amount > wide_rec.kelly_amount:
+                    r.kelly_amount = wide_rec.kelly_amount
 
     return recs
 
@@ -1523,8 +1541,43 @@ def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[di
     total_place_return = 0
     win_hits = 0
     place_hits = 0
+    # ワイド/馬連 別集計
+    wide_bet = 0
+    wide_return = 0
+    wide_hits = 0
+    umaren_bet = 0
+    umaren_return = 0
+    umaren_hits = 0
 
     for r in recs:
+        # --- ワイド/馬連: ペア判定 ---
+        if r.bet_type in ('ワイド', '馬連') and r.wide_pair:
+            bet_amt = r.win_amount
+            u1, u2 = r.wide_pair[0], r.wide_pair[1]
+            e1 = entry_lookup.get((r.race_id, u1))
+            e2 = entry_lookup.get((r.race_id, u2))
+            if e1 is None or e2 is None:
+                continue
+
+            if r.bet_type == 'ワイド':
+                wide_bet += bet_amt
+                # ワイドヒット: 両方3着内
+                if e1.get('is_top3', 0) and e2.get('is_top3', 0):
+                    ret = r.odds * bet_amt if r.odds > 0 else 0
+                    wide_return += ret
+                    wide_hits += 1
+            else:  # 馬連
+                umaren_bet += bet_amt
+                # 馬連ヒット: 両方2着内
+                fp1 = e1.get('finish_position', 99)
+                fp2 = e2.get('finish_position', 99)
+                if fp1 <= 2 and fp2 <= 2:
+                    ret = r.odds * bet_amt if r.odds > 0 else 0
+                    umaren_return += ret
+                    umaren_hits += 1
+            continue
+
+        # --- 単勝/複勝/単複 ---
         entry = entry_lookup.get((r.race_id, r.umaban))
         if entry is None:
             continue
@@ -1545,8 +1598,8 @@ def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[di
                     total_place_return += max(entry['odds'] / 3.5, 1.1) * r.place_amount
                 place_hits += 1
 
-    total_bet = total_win_bet + total_place_bet
-    total_return = total_win_return + total_place_return
+    total_bet = total_win_bet + total_place_bet + wide_bet + umaren_bet
+    total_return = total_win_return + total_place_return + wide_return + umaren_return
 
     return {
         'total_bet': total_bet,
@@ -1560,6 +1613,14 @@ def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[di
         'place_return': round(total_place_return),
         'place_roi': round(total_place_return / total_place_bet * 100, 1) if total_place_bet > 0 else 0,
         'place_hits': place_hits,
+        'wide_bet': wide_bet,
+        'wide_return': round(wide_return),
+        'wide_roi': round(wide_return / wide_bet * 100, 1) if wide_bet > 0 else 0,
+        'wide_hits': wide_hits,
+        'umaren_bet': umaren_bet,
+        'umaren_return': round(umaren_return),
+        'umaren_roi': round(umaren_return / umaren_bet * 100, 1) if umaren_bet > 0 else 0,
+        'umaren_hits': umaren_hits,
         'num_bets': len(recs),
     }
 

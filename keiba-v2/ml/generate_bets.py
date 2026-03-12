@@ -48,7 +48,7 @@ def apply_bet_engine(
     predictions_data: dict,
     budget: int = 30000,
     preset_filter: Optional[str] = None,
-    bankroll: int = 50000,
+    bankroll: int = 100000,
 ) -> dict:
     """predictions_data に recommendations を生成して書き込む
 
@@ -203,8 +203,8 @@ def main():
     parser.add_argument('--budget', type=int, default=30000, help='予算 (default: 30000)')
     parser.add_argument('--preset', choices=list(PRESETS.keys()) + ['adaptive'],
                         help='特定プリセットのみ生成')
-    parser.add_argument('--bankroll', type=int, default=50000,
-                        help='バンクロール (Kelly推奨額計算用, default: 50000)')
+    parser.add_argument('--bankroll', type=int, default=100000,
+                        help='バンクロール (Kelly推奨額計算用, default: 100000)')
     args = parser.parse_args()
 
     if args.today:
