@@ -981,6 +981,7 @@ export default function TrainingAnalysisPage() {
               <RefreshCw className="h-4 w-4" />
               更新
             </Button>
+            <RecalcButton actionId="analyze_trainer_patterns" onComplete={fetchData} label="KB再分析" />
             <RecalcButton actionId="analyze_training" onComplete={fetchData} />
           </div>
         </div>

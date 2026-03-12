@@ -648,14 +648,13 @@ export default function AdminPage() {
     .map((id) => ACTIONS.find((a) => a.id === id))
     .filter((a): a is NonNullable<typeof a> => a != null);
 
-  const scrapeActions = ACTIONS.filter((a) => a.category === 'fetch');
-  const stepActions = ACTIONS.filter((a) =>
-    ['v4_build_race', 'v4_predict'].includes(a.id)
+  const debugActions = ACTIONS.filter((a) =>
+    a.category === 'fetch' || ['v4_build_race', 'v4_predict'].includes(a.id)
   );
   const indexActions = ACTIONS.filter((a) =>
     ['build_horse_name_index', 'build_trainer_index'].includes(a.id)
   );
-  const analysisActions = ACTIONS.filter((a) => a.category === 'analysis');
+  // analysisActions は各分析ページのRecalcButtonに移行済み
   // データリフレッシュが必要なアクション
   const dataRefreshActions: ActionType[] = [
     'batch_prepare', 'batch_morning', 'batch_after_race',
@@ -862,20 +861,59 @@ export default function AdminPage() {
                 loading={isRunning && currentAction === action.label}
               />
             ))}
+            <Button
+              variant="outline"
+              className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
+              onClick={generateRegistration}
+              disabled={isGeneratingRegistration || isRunning}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <span className={`text-lg ${isGeneratingRegistration ? 'animate-pulse' : ''}`}>📝</span>
+                <span className="font-semibold text-sm">
+                  {isGeneratingRegistration ? '特別登録データ生成中...' : '特別登録データ生成'}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground mt-1">
+                MyKeibaDBから今週の特別登録馬データを取得・JSON生成
+              </span>
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* 予測・反映 */}
+      {/* 分析・反映 */}
       <Card className="mb-6 border-2 border-emerald-200 dark:border-emerald-800 shadow-lg">
         <CardHeader className="pb-3 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950 dark:to-teal-950">
           <CardTitle className="text-xl flex items-center gap-2">
             <span className="text-2xl">🤖</span>
-            <span>予測・反映</span>
-            <span className="ml-auto text-xs font-normal text-muted-foreground">前処理→予測→買い目→TARGET印</span>
+            <span>分析・反映</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">調教サマリー→前処理→予測→買い目→TARGET印</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-6 space-y-4">
+          {/* 調教サマリー */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Button
+              variant="outline"
+              className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
+              onClick={batchGenerateTraining}
+              disabled={isGeneratingTraining || isRunning}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <span className={`text-lg ${isGeneratingTraining ? 'animate-pulse' : ''}`}>🏋️</span>
+                <span className="font-semibold text-sm">
+                  {isGeneratingTraining ? '調教サマリー生成中...' : '調教サマリー一括生成'}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground mt-1">
+                全レース日付のtraining_summary.jsonを一括生成（前走調教表示に必要）
+              </span>
+            </Button>
+          </div>
+
+          <Separator />
+
+          {/* データ前処理→予測→買い目 */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {aiAnalysisActions.map((action) => {
               const override = labelOverrides[action.id];
@@ -946,35 +984,13 @@ export default function AdminPage() {
             <CollapsibleContent>
               <CardContent>
                 <div className="space-y-6">
-                  {/* 個別スクレイプ */}
+                  {/* デバッグ（個別再実行） */}
                   <div>
                     <div className="text-sm font-medium text-muted-foreground mb-3">
-                      個別スクレイプ（keibabook）
+                      デバッグ（個別再実行）
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {scrapeActions.map((action) => (
-                        <ActionButton
-                          key={action.id}
-                          icon={action.icon}
-                          label={action.label}
-                          description={action.description}
-                          onClick={() => executeAction(action.id)}
-                          disabled={isRunning}
-                          loading={isRunning && currentAction === action.label}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* 個別ステップ */}
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground mb-3">
-                      個別ステップ（部分再実行用）
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {stepActions.map((action) => (
+                      {debugActions.map((action) => (
                         <ActionButton
                           key={action.id}
                           icon={action.icon}
@@ -1029,117 +1045,19 @@ export default function AdminPage() {
 
                   <Separator />
 
-                  {/* 特別登録データ */}
+                  {/* 分析ページへのリンク（再計算は各分析ページのヘッダーから実行） */}
                   <div>
                     <div className="text-sm font-medium text-muted-foreground mb-3">
-                      特別登録データ
+                      分析ページ
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <Button
-                        variant="outline"
-                        className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
-                        onClick={generateRegistration}
-                        disabled={isGeneratingRegistration || isRunning}
-                      >
-                        <div className="flex items-center gap-2 w-full">
-                          <span className={`text-lg ${isGeneratingRegistration ? 'animate-pulse' : ''}`}>📝</span>
-                          <span className="font-semibold text-sm">
-                            {isGeneratingRegistration ? '特別登録データ生成中...' : '特別登録データ生成'}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground mt-1">
-                          MyKeibaDBから今週の特別登録馬データを取得・JSON生成
-                        </span>
-                      </Button>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* 調教サマリー一括生成 */}
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground mb-3">
-                      調教データ
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <Button
-                        variant="outline"
-                        className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
-                        onClick={batchGenerateTraining}
-                        disabled={isGeneratingTraining || isRunning}
-                      >
-                        <div className="flex items-center gap-2 w-full">
-                          <span className={`text-lg ${isGeneratingTraining ? 'animate-pulse' : ''}`}>🏋️</span>
-                          <span className="font-semibold text-sm">
-                            {isGeneratingTraining ? '調教サマリー生成中...' : '調教サマリー一括生成'}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground mt-1">
-                          全レース日付のtraining_summary.jsonを一括生成（前走調教表示に必要）
-                        </span>
-                      </Button>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* データ分析 */}
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground mb-3">
-                      データ分析（基準値算出・統計分析）
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {analysisActions.map((action) => (
-                        <ActionButton
-                          key={action.id}
-                          icon={action.icon}
-                          label={action.label}
-                          description={action.description}
-                          onClick={() => executeAction(action.id)}
-                          disabled={isRunning}
-                          loading={isRunning && currentAction === action.label}
-                          variant="default"
-                        />
-                      ))}
-                    </div>
-                    {/* 分析結果へのリンク */}
-                    <div className="mt-4 pt-4 border-t flex flex-wrap gap-4">
-                      <a
-                        href="/analysis/rpci"
-                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        📊 RPCI分析 →
-                      </a>
-                      <a
-                        href="/analysis/rating"
-                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        📈 レイティング分析 →
-                      </a>
-                      <a
-                        href="/analysis/idm"
-                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        🎯 IDM分析 →
-                      </a>
-                      <a
-                        href="/analysis/pedigree"
-                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        🧬 血統分析 →
-                      </a>
-                      <a
-                        href="/analysis/slow-start"
-                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        🐌 出遅れ分析 →
-                      </a>
-                      <a
-                        href="/analysis/ml"
-                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        🤖 ML分析 →
-                      </a>
+                    <div className="flex flex-wrap gap-4">
+                      <a href="/analysis/rpci" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline">📊 RPCI分析 →</a>
+                      <a href="/analysis/rating" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline">📈 レイティング分析 →</a>
+                      <a href="/analysis/idm" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline">🎯 IDM分析 →</a>
+                      <a href="/analysis/pedigree" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline">🧬 血統分析 →</a>
+                      <a href="/analysis/slow-start" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline">🐌 出遅れ分析 →</a>
+                      <a href="/analysis/trainer-patterns" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline">🏋️ 調教分析 →</a>
+                      <a href="/analysis/ml" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline">🤖 ML分析 →</a>
                     </div>
                   </div>
                 </div>

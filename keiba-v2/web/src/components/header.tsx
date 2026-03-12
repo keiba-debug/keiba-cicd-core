@@ -188,10 +188,23 @@ export function Header() {
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                 >
                   <span className="flex items-center gap-2">
-                    <span>💰</span>
+                    <span>⚡</span>
                     <span>
-                      <span className="font-medium">馬券</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">購入推奨・収支管理</span>
+                      <span className="font-medium">推奨馬券</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">購入推奨リスト</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
+                  href="/bankroll/results"
+                  onClick={() => { if (bakenMenuRef.current) bakenMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📊</span>
+                    <span>
+                      <span className="font-medium">収支管理</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">成績・資金管理</span>
                     </span>
                   </span>
                 </Link>
