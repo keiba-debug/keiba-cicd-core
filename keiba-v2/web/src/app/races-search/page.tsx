@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { RACE_TREND_V2_LABELS, RACE_TREND_V2_COLORS, type RaceTrendV2Type } from '@/lib/data/rpci-utils';
@@ -25,6 +25,8 @@ interface RaceSearchEntry {
   paceType: string;
   rpci: number | null;
   raceTrendV2?: string;
+  cushionValue?: number | null;
+  moistureRate?: number | null;
 }
 
 // ── 定数 ──
@@ -143,10 +145,69 @@ export default function RaceSearchPage() {
   const [filteredCount, setFilteredCount] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedRaceIds, setSelectedRaceIds] = useState<Set<string>>(new Set());
+  const multiViewWindowRef = useRef<Window | null>(null);
+
+  const toggleRaceSelect = (raceId: string) => {
+    setSelectedRaceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(raceId)) next.delete(raceId);
+      else next.add(raceId);
+      return next;
+    });
+  };
+
+  const openMultiView = () => {
+    const selectedRaces = results.filter((r) => selectedRaceIds.has(r.raceId));
+    if (selectedRaces.length === 0) return;
+
+    const racesParam = selectedRaces.map((r) => ({
+      date: r.date.replace(/-/g, '/'),
+      track: r.venue,
+      raceNumber: r.raceNumber,
+      raceName: r.raceName,
+      videoType: 'paddock' as const,
+      kai: parseInt(r.raceId.substring(10, 12), 10),
+      nichi: parseInt(r.raceId.substring(12, 14), 10),
+    }));
+
+    const currentWindow = multiViewWindowRef.current;
+    const targetWindow = currentWindow && !currentWindow.closed ? currentWindow : null;
+
+    if (targetWindow) {
+      racesParam.forEach((race, idx) => {
+        const add = `${Date.now()}-${idx}`;
+        targetWindow.postMessage(
+          {
+            type: 'keiba:multi-view:add',
+            payload: {
+              add,
+              date: race.date,
+              track: race.track,
+              raceNumber: String(race.raceNumber),
+              videoType: race.videoType,
+              raceName: race.raceName,
+              kai: String(race.kai),
+              nichi: String(race.nichi),
+            },
+          },
+          window.location.origin
+        );
+      });
+      targetWindow.focus();
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set('races', JSON.stringify(racesParam));
+    const opened = window.open(`/multi-view?${params.toString()}`, '_blank');
+    if (opened) multiViewWindowRef.current = opened;
+  };
 
   const handleSearch = async () => {
     setIsSearching(true);
     setHasSearched(true);
+    setSelectedRaceIds(new Set());
 
     const params = new URLSearchParams();
     if (query.trim()) params.set('q', query.trim());
@@ -352,6 +413,17 @@ export default function RaceSearchPage() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>
+                    <th className="px-2 py-2 w-8">
+                      <input
+                        type="checkbox"
+                        className="w-3.5 h-3.5 rounded border-gray-300"
+                        checked={results.length > 0 && results.every((r) => selectedRaceIds.has(r.raceId))}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedRaceIds(new Set(results.map((r) => r.raceId)));
+                          else setSelectedRaceIds(new Set());
+                        }}
+                      />
+                    </th>
                     <th className="text-left px-3 py-2 font-medium">日付</th>
                     <th className="text-left px-3 py-2 font-medium">場R</th>
                     <th className="text-left px-3 py-2 font-medium">グレード</th>
@@ -369,7 +441,12 @@ export default function RaceSearchPage() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {results.map((race) => (
-                    <RaceRow key={`${race.raceId}-${race.date}`} race={race} />
+                    <RaceRow
+                      key={`${race.raceId}-${race.date}`}
+                      race={race}
+                      isSelected={selectedRaceIds.has(race.raceId)}
+                      onToggle={() => toggleRaceSelect(race.raceId)}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -383,13 +460,26 @@ export default function RaceSearchPage() {
           レース名を入力するか、絞り込み条件を設定して検索してください
         </p>
       )}
+
+      {/* 選択中フローティングバー */}
+      {selectedRaceIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-full shadow-lg bg-background border border-border">
+          <span className="text-sm font-medium">{selectedRaceIds.size}件選択中</span>
+          <Button size="sm" onClick={openMultiView} className="bg-blue-600 hover:bg-blue-700 text-white rounded-full">
+            📺 レーシングビュアーで開く
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedRaceIds(new Set())} className="text-xs rounded-full">
+            解除
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── テーブル行 ──
 
-function RaceRow({ race }: { race: RaceSearchEntry }) {
+function RaceRow({ race, isSelected, onToggle }: { race: RaceSearchEntry; isSelected: boolean; onToggle: () => void }) {
   const href = `/races-v2/${race.date}/${encodeURIComponent(race.venue)}/${race.raceId}`;
   const displayName = stripGradePrefix(race.raceName);
   const pace = PACE_BADGE[race.paceType];
@@ -406,9 +496,18 @@ function RaceRow({ race }: { race: RaceSearchEntry }) {
 
   return (
       <tr
-        className="hover:bg-muted/40 transition-colors cursor-pointer"
+        className={cn('hover:bg-muted/40 transition-colors cursor-pointer', isSelected && 'bg-blue-50/60 dark:bg-blue-950/30')}
         onClick={() => window.open(href, '_blank', 'noopener,noreferrer')}
       >
+        <td className="px-2 py-2" onClick={(e) => { e.stopPropagation(); onToggle(); }}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={onToggle}
+            className="w-3.5 h-3.5 rounded border-gray-300 text-primary"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </td>
         <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{race.date}</td>
         <td className="px-3 py-2 text-xs whitespace-nowrap">
           {race.venue}{race.raceNumber}R
