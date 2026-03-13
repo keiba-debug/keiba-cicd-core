@@ -406,9 +406,9 @@ async function extractRaceAndKbEnrichment(
           if (!enrichment.first3f && kbEntry.first_3f) {
             enrichment.first3f = String(kbEntry.first_3f);
           }
-          // seiseki直接データ優先、syoin(前走インタビュー)にフォールバック
-          enrichment.resultComment = (kbEntry.interview as string) || previousRace.interview || '';
-          enrichment.resultMemo = (kbEntry.next_race_memo as string) || previousRace.next_race_memo || '';
+          // seisekiデータのみ使用（previous_race_interviewは前走のseisekiデータのため流用不可）
+          enrichment.resultComment = (kbEntry.interview as string) || '';
+          enrichment.resultMemo = (kbEntry.next_race_memo as string) || '';
         }
       } catch {
         // kb_ext not found — graceful degradation
