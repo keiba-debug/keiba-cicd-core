@@ -461,7 +461,7 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
               <th className="px-1 py-1.5 border text-center w-8">場</th>
               <th className="px-1 py-1.5 border text-left w-24">レース</th>
               <th className="px-1 py-1.5 border text-center w-16">距離</th>
-              <th className="px-1 py-1.5 border text-center w-12">傾向</th>
+              <th className="px-1 py-1.5 border text-center w-12">ペース型</th>
               <th className="px-1 py-1.5 border text-center w-6">頭</th>
               <th className="px-1 py-1.5 border text-center w-6">馬場</th>
               <th className="px-1 py-1.5 border text-center w-6">枠</th>

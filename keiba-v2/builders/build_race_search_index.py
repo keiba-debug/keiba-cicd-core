@@ -24,6 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from core.config import data_root, indexes_dir, races_dir
+from ml.features.baba_features import load_baba_index, race_id_to_baba_key
 
 INDEXES_DIR = indexes_dir()
 RACES_DIR = races_dir()
@@ -164,7 +165,7 @@ def main():
     start = datetime.now()
 
     # 1. race_date_index.json
-    print("\n[1/2] Loading race_date_index.json...")
+    print("\n[1/3] Loading race_date_index.json...")
     races = load_race_date_index()
     print(f"  {len(races)} races from index")
 
@@ -173,8 +174,13 @@ def main():
         return
 
     # 2. 個別レースJSON（勝ち馬・馬場状態・grade補完）
-    print("\n[2/2] Loading race JSON files...")
+    print("\n[2/3] Loading race JSON files...")
     race_json_map = load_race_json_data()
+
+    # 3. 馬場データ（含水率・クッション値）
+    print("\n[3/3] Loading baba index (cushion/moisture)...")
+    baba_index = load_baba_index()
+    print(f"  {len(baba_index)} baba entries loaded")
 
     # マージ
     print("\nMerging...")
@@ -217,6 +223,12 @@ def main():
         # ペース分類: race_trend_v2 があればそちら優先、なければ paceType フォールバック
         race_trend_v2 = rj.get("raceTrendV2", "")
 
+        # 馬場データ（含水率・クッション値）
+        baba_key = race_id_to_baba_key(race_id) if race_id else ""
+        baba = baba_index.get(baba_key, {})
+        cushion_value = baba.get("cushion")
+        moisture_rate = baba.get("moisture_turf") if baba.get("moisture_turf") is not None else baba.get("moisture_dirt")
+
         output_races.append({
             "raceId": race_id,
             "date": race["date"],
@@ -235,6 +247,8 @@ def main():
             "paceType": race["paceType"],
             "rpci": race["rpci"],
             "raceTrendV2": race_trend_v2,
+            "cushionValue": cushion_value,
+            "moistureRate": moisture_rate,
         })
 
     # ソート（日付降順）

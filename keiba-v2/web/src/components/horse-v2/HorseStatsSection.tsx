@@ -330,7 +330,7 @@ export function HorseStatsSection({ stats }: HorseStatsSectionProps) {
       {hasTrendData && (
         <div className="overflow-x-auto">
           <h3 className="text-sm font-medium mb-2 text-muted-foreground flex items-center gap-2">
-            <span>レース傾向別</span>
+            <span>ペース型別</span>
             <span className="text-[10px] bg-muted px-2 py-0.5 rounded">
               適性判定あり
             </span>

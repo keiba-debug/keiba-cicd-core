@@ -718,7 +718,7 @@ function RaceTrendCard({ laps }: { laps: LapsData }) {
     <div className="rounded-lg border bg-card p-3">
       <div className="flex items-center gap-3 mb-2">
         <Activity className="w-4 h-4 text-muted-foreground" />
-        <span className="text-sm font-medium">レース傾向</span>
+        <span className="text-sm font-medium">ペース型</span>
         {trendLabel && (
           <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${trendColor}`}>
             {trendLabel}

@@ -31,6 +31,8 @@ export interface RaceSearchEntry {
   paceType: string;
   rpci: number | null;
   raceTrendV2?: string;
+  cushionValue?: number | null;
+  moistureRate?: number | null;
 }
 
 export interface RaceSearchFilters {

@@ -362,7 +362,9 @@ export default function RaceSearchPage() {
                     <th className="text-left px-3 py-2 font-medium">勝ち馬</th>
                     <th className="text-left px-3 py-2 font-medium">タイム</th>
                     <th className="text-left px-3 py-2 font-medium">上り</th>
-                    <th className="text-left px-3 py-2 font-medium">傾向</th>
+                    <th className="text-left px-3 py-2 font-medium">ペース型</th>
+                    <th className="text-right px-3 py-2 font-medium">CQ</th>
+                    <th className="text-right px-3 py-2 font-medium">含水</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -446,6 +448,12 @@ function RaceRow({ race }: { race: RaceSearchEntry }) {
               {trend.label}
             </span>
           )}
+        </td>
+        <td className="px-3 py-2 text-xs text-right text-muted-foreground font-mono">
+          {race.cushionValue != null ? race.cushionValue.toFixed(1) : ''}
+        </td>
+        <td className="px-3 py-2 text-xs text-right text-muted-foreground font-mono">
+          {race.moistureRate != null ? race.moistureRate.toFixed(1) : ''}
         </td>
       </tr>
   );

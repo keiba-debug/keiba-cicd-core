@@ -20,7 +20,7 @@ function StatusBadge({ ok, label }: { ok: boolean; label?: string }) {
   );
 }
 
-function KbRateCell({ rate, count }: { rate: number; count: number }) {
+function RateCell({ rate, count }: { rate: number; count: number }) {
   if (count === 0) return <span className="text-muted-foreground text-xs">—</span>;
   const color =
     rate === 100
@@ -29,6 +29,15 @@ function KbRateCell({ rate, count }: { rate: number; count: number }) {
         ? 'text-yellow-600 dark:text-yellow-400'
         : 'text-red-600 dark:text-red-400';
   return <span className={`text-xs font-mono ${color}`}>{rate}%</span>;
+}
+
+function BabaStatusCell({ status }: { status: 'ok' | 'partial' | 'none' | null }) {
+  if (status === null) return <span className="text-muted-foreground text-xs">—</span>;
+  if (status === 'ok')
+    return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">✓</span>;
+  if (status === 'partial')
+    return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">△</span>;
+  return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">✗</span>;
 }
 
 // ── メインページ ──
@@ -93,6 +102,8 @@ export default function DataStatusPage() {
                   <th className="text-right px-3 py-2 font-medium">インデックス</th>
                   <th className="text-right px-3 py-2 font-medium">race JSON</th>
                   <th className="text-center px-3 py-2 font-medium">KB登録率</th>
+                  <th className="text-center px-3 py-2 font-medium">JRDB</th>
+                  <th className="text-center px-3 py-2 font-medium">馬場</th>
                   <th className="text-center px-3 py-2 font-medium">成績</th>
                   <th className="text-center px-3 py-2 font-medium">予測</th>
                   <th className="text-left px-3 py-2 font-medium">予測生成日時</th>
@@ -101,13 +112,13 @@ export default function DataStatusPage() {
               <tbody>
                 {loading && dates.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <td colSpan={9} className="text-center py-8 text-muted-foreground">
                       読み込み中...
                     </td>
                   </tr>
                 ) : dates.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <td colSpan={9} className="text-center py-8 text-muted-foreground">
                       データなし
                     </td>
                   </tr>
@@ -156,7 +167,17 @@ export default function DataStatusPage() {
 
                         {/* KB登録率 */}
                         <td className="px-3 py-2 text-center">
-                          <KbRateCell rate={d.kbRate} count={d.raceJsonCount} />
+                          <RateCell rate={d.kbRate} count={d.raceJsonCount} />
+                        </td>
+
+                        {/* JRDB */}
+                        <td className="px-3 py-2 text-center">
+                          <RateCell rate={d.jrdbRate} count={d.raceJsonCount} />
+                        </td>
+
+                        {/* 馬場（含水率/クッション値） */}
+                        <td className="px-3 py-2 text-center">
+                          <BabaStatusCell status={d.babaStatus} />
                         </td>
 
                         {/* 成績 */}
@@ -197,7 +218,9 @@ export default function DataStatusPage() {
       <div className="mt-4 flex flex-wrap gap-4 text-xs text-muted-foreground">
         <div><span className="font-medium text-foreground">インデックス</span>: race_date_index のレース数</div>
         <div><span className="font-medium text-foreground">race JSON</span>: race_*.json ファイル数（黄=不足、赤=0）</div>
-        <div><span className="font-medium text-foreground">KB登録率</span>: has_keibabook_ext=true の割合</div>
+        <div><span className="font-medium text-foreground">KB登録率</span>: kb_ext ファイル数 / race JSON 数</div>
+        <div><span className="font-medium text-foreground">JRDB</span>: jrdb_pre_idm 設定済みレース率</div>
+        <div><span className="font-medium text-foreground">馬場</span>: 含水率/クッション値 ✓=全R有 △=一部 ✗=なし</div>
         <div><span className="font-medium text-foreground">成績</span>: finish_position データあり</div>
         <div><span className="font-medium text-foreground">予測</span>: predictions.json 存在</div>
       </div>
