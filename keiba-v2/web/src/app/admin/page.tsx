@@ -667,7 +667,15 @@ export default function AdminPage() {
         <h1 className="text-3xl font-bold flex items-center gap-2">
           📊 データ登録
         </h1>
-        <StatusBadge status={status} />
+        <div className="flex items-center gap-3">
+          <a
+            href="/admin/data-status"
+            className="text-sm text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
+          >
+            📋 登録状況確認
+          </a>
+          <StatusBadge status={status} />
+        </div>
       </div>
 
       {/* 日付設定（単一/範囲切り替え） */}
