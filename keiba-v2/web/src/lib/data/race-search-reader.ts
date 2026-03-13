@@ -41,6 +41,9 @@ export interface RaceSearchFilters {
   distanceMax?: number;
   years?: number[];
   grades?: string[];
+  babas?: string[];
+  dateFrom?: string; // YYYY-MM
+  dateTo?: string;   // YYYY-MM
 }
 
 export interface RaceSearchResult {
@@ -135,6 +138,22 @@ export function searchRaces(filters: RaceSearchFilters): RaceSearchResult {
   if (filters.grades?.length) {
     const gradeSet = new Set(filters.grades);
     results = results.filter((r) => gradeSet.has(r.grade));
+  }
+
+  // 馬場状態
+  if (filters.babas?.length) {
+    const babaSet = new Set(filters.babas);
+    results = results.filter((r) => babaSet.has(r.trackCondition));
+  }
+
+  // 期間 (YYYY-MM → YYYY-MM-01 / YYYY-MM-31 で前方一致比較)
+  if (filters.dateFrom) {
+    const from = filters.dateFrom + '-01';
+    results = results.filter((r) => r.date >= from);
+  }
+  if (filters.dateTo) {
+    const to = filters.dateTo + '-31';
+    results = results.filter((r) => r.date <= to);
   }
 
   // 日付降順（インデックスが既にソート済みだが念のため）

@@ -1,9 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { RACE_TREND_V2_LABELS, RACE_TREND_V2_COLORS, type RaceTrendV2Type } from '@/lib/data/rpci-utils';
 
@@ -32,8 +30,26 @@ interface RaceSearchEntry {
 // ── 定数 ──
 
 const VENUES = ['東京', '中山', '阪神', '京都', '中京', '小倉', '札幌', '函館', '福島', '新潟'] as const;
-const YEARS = [2026, 2025, 2024, 2023, 2022, 2021, 2020] as const;
 const GRADE_OPTIONS = ['G1', 'G2', 'G3', 'OP', 'L', '3勝', '2勝', '1勝', '未勝利', '新馬'] as const;
+
+const DATE_PRESETS = [
+  { label: '直近1ヶ月', months: 1 },
+  { label: '3ヶ月', months: 3 },
+  { label: '6ヶ月', months: 6 },
+  { label: '1年', months: 12 },
+] as const;
+
+function monthsAgo(n: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function currentMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+const DISTANCE_PRESETS = [1200, 1400, 1600, 1800, 2000, 2200, 2400, 3000] as const;
+const BABA_OPTIONS = ['良', '稍重', '重', '不良'] as const;
 
 const GRADE_COLORS: Record<string, string> = {
   G1: 'bg-red-500 text-white',
@@ -69,8 +85,6 @@ const BABA_COLORS: Record<string, string> = {
   '不良': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
 };
 
-// ── レース名からグレードプレフィックスを除去 ──
-
 function stripGradePrefix(name: string): string {
   return name
     .replace(/^Ｇ[１２３]\s*/, '')
@@ -79,33 +93,56 @@ function stripGradePrefix(name: string): string {
     .trim();
 }
 
-// ── チェックボックストグルヘルパー ──
-
 function toggleItem<T>(arr: T[], item: T): T[] {
   return arr.includes(item) ? arr.filter((v) => v !== item) : [...arr, item];
+}
+
+// ── フィルタチップ ──
+
+function Chip({
+  label,
+  active,
+  onClick,
+  colorClass,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  colorClass?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'px-2 py-0.5 text-xs rounded border transition-colors',
+        active
+          ? colorClass || 'bg-primary text-primary-foreground border-primary'
+          : 'bg-background hover:bg-muted border-border text-foreground',
+      )}
+    >
+      {label}
+    </button>
+  );
 }
 
 // ── ページコンポーネント ──
 
 export default function RaceSearchPage() {
-  // 検索条件
   const [query, setQuery] = useState('');
   const [venues, setVenues] = useState<string[]>([]);
   const [track, setTrack] = useState('');
   const [distanceMin, setDistanceMin] = useState('');
   const [distanceMax, setDistanceMax] = useState('');
-  const [years, setYears] = useState<number[]>([]);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [grades, setGrades] = useState<string[]>([]);
+  const [babas, setBabas] = useState<string[]>([]);
 
-  // 結果
   const [results, setResults] = useState<RaceSearchEntry[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [filteredCount, setFilteredCount] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-
-  // フィルタ表示
-  const [showFilters, setShowFilters] = useState(false);
 
   const handleSearch = async () => {
     setIsSearching(true);
@@ -117,8 +154,10 @@ export default function RaceSearchPage() {
     if (track) params.set('track', track);
     if (distanceMin) params.set('distanceMin', distanceMin);
     if (distanceMax) params.set('distanceMax', distanceMax);
-    if (years.length) params.set('years', years.join(','));
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
     if (grades.length) params.set('grades', grades.join(','));
+    if (babas.length) params.set('babas', babas.join(','));
 
     try {
       const res = await fetch(`/api/races/search?${params.toString()}`);
@@ -140,15 +179,23 @@ export default function RaceSearchPage() {
     setTrack('');
     setDistanceMin('');
     setDistanceMax('');
-    setYears([]);
+    setDateFrom('');
+    setDateTo('');
     setGrades([]);
+    setBabas([]);
   };
 
-  const hasActiveFilters = venues.length > 0 || track || distanceMin || distanceMax || years.length > 0 || grades.length > 0;
+  const setDistancePreset = (d: number) => {
+    setDistanceMin(String(d));
+    setDistanceMax(String(d));
+  };
+
+  const hasActiveFilters =
+    venues.length > 0 || track || distanceMin || distanceMax || dateFrom || dateTo || grades.length > 0 || babas.length > 0;
 
   return (
-    <div className="container py-6 max-w-5xl">
-      <h1 className="text-2xl font-bold mb-6">レース検索</h1>
+    <div className="container py-6 max-w-6xl">
+      <h1 className="text-2xl font-bold mb-4">レース検索</h1>
 
       {/* 検索バー */}
       <div className="flex gap-2 mb-4">
@@ -163,170 +210,174 @@ export default function RaceSearchPage() {
         <Button onClick={handleSearch} disabled={isSearching}>
           {isSearching ? '検索中...' : '検索'}
         </Button>
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" onClick={handleReset} className="text-xs text-muted-foreground">
+            リセット
+          </Button>
+        )}
       </div>
 
-      {/* フィルタ切替 */}
-      <div className="mb-4">
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
-        >
-          <span>{showFilters ? '▼' : '▶'}</span>
-          <span>絞り込み条件</span>
-          {hasActiveFilters && (
-            <Badge variant="secondary" className="ml-1 text-[10px]">
-              {[venues.length, track ? 1 : 0, distanceMin || distanceMax ? 1 : 0, years.length, grades.length]
-                .reduce((a, b) => a + b, 0)}
-              件
-            </Badge>
-          )}
-        </button>
-      </div>
-
-      {/* フィルタパネル */}
-      {showFilters && (
-        <div className="border rounded-lg p-4 mb-6 space-y-4 bg-muted/30">
-          {/* 競馬場 */}
-          <div>
-            <label className="text-sm font-medium mb-1 block">競馬場</label>
-            <div className="flex flex-wrap gap-1.5">
+      {/* フィルタパネル（常時表示・コンパクト） */}
+      <div className="border rounded-lg p-3 mb-5 space-y-2.5 bg-muted/20 text-sm">
+        {/* 競馬場 + トラック */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground font-medium w-12 shrink-0">競馬場</span>
+            <div className="flex flex-wrap gap-1">
               {VENUES.map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setVenues(toggleItem(venues, v))}
-                  className={cn(
-                    'px-2.5 py-1 text-xs rounded-md border transition-colors',
-                    venues.includes(v)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background hover:bg-muted border-border',
-                  )}
-                >
-                  {v}
-                </button>
+                <Chip key={v} label={v} active={venues.includes(v)} onClick={() => setVenues(toggleItem(venues, v))} />
               ))}
             </div>
           </div>
-
-          {/* トラック */}
-          <div>
-            <label className="text-sm font-medium mb-1 block">トラック</label>
-            <div className="flex gap-1.5">
-              {['', '芝', 'ダ'].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTrack(t)}
-                  className={cn(
-                    'px-3 py-1 text-xs rounded-md border transition-colors',
-                    track === t
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background hover:bg-muted border-border',
-                  )}
-                >
-                  {t || '全て'}
-                </button>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground font-medium shrink-0">トラック</span>
+            <div className="flex gap-1">
+              {['芝', 'ダ'].map((t) => (
+                <Chip key={t} label={t} active={track === t} onClick={() => setTrack(track === t ? '' : t)} />
               ))}
             </div>
           </div>
-
-          {/* 距離 */}
-          <div>
-            <label className="text-sm font-medium mb-1 block">距離</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                value={distanceMin}
-                onChange={(e) => setDistanceMin(e.target.value)}
-                placeholder="下限"
-                className="w-24 px-3 py-1 text-sm border rounded-md dark:bg-gray-900 dark:border-gray-700"
-              />
-              <span className="text-sm text-muted-foreground">~</span>
-              <input
-                type="number"
-                value={distanceMax}
-                onChange={(e) => setDistanceMax(e.target.value)}
-                placeholder="上限"
-                className="w-24 px-3 py-1 text-sm border rounded-md dark:bg-gray-900 dark:border-gray-700"
-              />
-              <span className="text-xs text-muted-foreground">m</span>
-            </div>
-          </div>
-
-          {/* 年度 */}
-          <div>
-            <label className="text-sm font-medium mb-1 block">年度</label>
-            <div className="flex flex-wrap gap-1.5">
-              {YEARS.map((y) => (
-                <button
-                  key={y}
-                  onClick={() => setYears(toggleItem(years, y))}
-                  className={cn(
-                    'px-2.5 py-1 text-xs rounded-md border transition-colors',
-                    years.includes(y)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background hover:bg-muted border-border',
-                  )}
-                >
-                  {y}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* グレード */}
-          <div>
-            <label className="text-sm font-medium mb-1 block">グレード</label>
-            <div className="flex flex-wrap gap-1.5">
-              {GRADE_OPTIONS.map((g) => (
-                <button
-                  key={g}
-                  onClick={() => setGrades(toggleItem(grades, g))}
-                  className={cn(
-                    'px-2.5 py-1 text-xs rounded-md border transition-colors',
-                    grades.includes(g)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background hover:bg-muted border-border',
-                  )}
-                >
-                  {g}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* リセット */}
-          {hasActiveFilters && (
-            <Button variant="ghost" size="sm" onClick={handleReset} className="text-xs">
-              条件をリセット
-            </Button>
-          )}
         </div>
-      )}
+
+        {/* 距離 */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground font-medium w-12 shrink-0">距離</span>
+          <div className="flex flex-wrap gap-1">
+            {DISTANCE_PRESETS.map((d) => (
+              <Chip
+                key={d}
+                label={`${d}`}
+                active={distanceMin === String(d) && distanceMax === String(d)}
+                onClick={() => {
+                  if (distanceMin === String(d) && distanceMax === String(d)) {
+                    setDistanceMin('');
+                    setDistanceMax('');
+                  } else {
+                    setDistancePreset(d);
+                  }
+                }}
+              />
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 ml-1">
+            <input
+              type="number"
+              value={distanceMin}
+              onChange={(e) => setDistanceMin(e.target.value)}
+              placeholder="下限"
+              className="w-20 px-2 py-0.5 text-xs border rounded dark:bg-gray-900 dark:border-gray-700"
+            />
+            <span className="text-xs text-muted-foreground">~</span>
+            <input
+              type="number"
+              value={distanceMax}
+              onChange={(e) => setDistanceMax(e.target.value)}
+              placeholder="上限"
+              className="w-20 px-2 py-0.5 text-xs border rounded dark:bg-gray-900 dark:border-gray-700"
+            />
+            <span className="text-xs text-muted-foreground">m</span>
+          </div>
+        </div>
+
+        {/* グレード + 馬場 + 年度 */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground font-medium w-12 shrink-0">グレード</span>
+            <div className="flex flex-wrap gap-1">
+              {GRADE_OPTIONS.map((g) => (
+                <Chip key={g} label={g} active={grades.includes(g)} onClick={() => setGrades(toggleItem(grades, g))} />
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground font-medium shrink-0">馬場</span>
+            <div className="flex gap-1">
+              {BABA_OPTIONS.map((b) => (
+                <Chip key={b} label={b} active={babas.includes(b)} onClick={() => setBabas(toggleItem(babas, b))} />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 期間 */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground font-medium w-12 shrink-0">期間</span>
+          <div className="flex flex-wrap gap-1">
+            {DATE_PRESETS.map((p) => {
+              const from = monthsAgo(p.months);
+              const to = currentMonth();
+              const active = dateFrom === from && dateTo === to;
+              return (
+                <Chip
+                  key={p.label}
+                  label={p.label}
+                  active={active}
+                  onClick={() => {
+                    if (active) { setDateFrom(''); setDateTo(''); }
+                    else { setDateFrom(from); setDateTo(to); }
+                  }}
+                />
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1.5 ml-1">
+            <input
+              type="month"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="px-2 py-0.5 text-xs border rounded dark:bg-gray-900 dark:border-gray-700"
+            />
+            <span className="text-xs text-muted-foreground">~</span>
+            <input
+              type="month"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="px-2 py-0.5 text-xs border rounded dark:bg-gray-900 dark:border-gray-700"
+            />
+          </div>
+        </div>
+      </div>
 
       {/* 検索結果 */}
-      {hasSearched && (
+      {hasSearched ? (
         <div>
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-xs text-muted-foreground mb-3">
             {filteredCount > 100
               ? `${filteredCount}件中 上位100件を表示（全${totalCount.toLocaleString()}件中）`
               : `${filteredCount}件の結果（全${totalCount.toLocaleString()}件中）`}
           </p>
 
           {results.length > 0 ? (
-            <div className="space-y-3">
-              {results.map((race) => (
-                <RaceCard key={`${race.raceId}-${race.date}`} race={race} />
-              ))}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium">日付</th>
+                    <th className="text-left px-3 py-2 font-medium">場R</th>
+                    <th className="text-left px-3 py-2 font-medium">グレード</th>
+                    <th className="text-left px-3 py-2 font-medium">レース名</th>
+                    <th className="text-left px-3 py-2 font-medium">コース</th>
+                    <th className="text-left px-3 py-2 font-medium">馬場</th>
+                    <th className="text-left px-3 py-2 font-medium">頭</th>
+                    <th className="text-left px-3 py-2 font-medium">勝ち馬</th>
+                    <th className="text-left px-3 py-2 font-medium">タイム</th>
+                    <th className="text-left px-3 py-2 font-medium">上り</th>
+                    <th className="text-left px-3 py-2 font-medium">傾向</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {results.map((race) => (
+                    <RaceRow key={`${race.raceId}-${race.date}`} race={race} />
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
-            <p className="text-muted-foreground py-8 text-center">
-              該当するレースが見つかりませんでした
-            </p>
+            <p className="text-muted-foreground py-8 text-center">該当するレースが見つかりませんでした</p>
           )}
         </div>
-      )}
-
-      {!hasSearched && (
-        <p className="text-muted-foreground py-8 text-center">
+      ) : (
+        <p className="text-muted-foreground py-8 text-center text-sm">
           レース名を入力するか、絞り込み条件を設定して検索してください
         </p>
       )}
@@ -334,9 +385,9 @@ export default function RaceSearchPage() {
   );
 }
 
-// ── レースカード ──
+// ── テーブル行 ──
 
-function RaceCard({ race }: { race: RaceSearchEntry }) {
+function RaceRow({ race }: { race: RaceSearchEntry }) {
   const href = `/races-v2/${race.date}/${encodeURIComponent(race.venue)}/${race.raceId}`;
   const displayName = stripGradePrefix(race.raceName);
   const pace = PACE_BADGE[race.paceType];
@@ -344,64 +395,58 @@ function RaceCard({ race }: { race: RaceSearchEntry }) {
   const gradeColor = GRADE_COLORS[race.grade];
   const weatherIcon = WEATHER_ICON[race.weather];
 
+  const trend =
+    race.raceTrendV2 && RACE_TREND_V2_LABELS[race.raceTrendV2 as RaceTrendV2Type]
+      ? { label: RACE_TREND_V2_LABELS[race.raceTrendV2 as RaceTrendV2Type], className: RACE_TREND_V2_COLORS[race.raceTrendV2 as RaceTrendV2Type] }
+      : pace
+        ? { label: pace.label, className: pace.className }
+        : null;
+
   return (
-    <Link href={href} target="_blank" rel="noopener noreferrer">
-      <div className="border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer">
-        {/* 1行目: グレード + レース名 + 日付 */}
-        <div className="flex items-start justify-between gap-2 mb-1.5">
-          <div className="flex items-center gap-2 min-w-0">
-            {race.grade && gradeColor && (
-              <span className={cn('px-1.5 py-0.5 rounded text-[11px] font-bold shrink-0', gradeColor)}>
-                {race.grade}
+      <tr
+        className="hover:bg-muted/40 transition-colors cursor-pointer"
+        onClick={() => window.open(href, '_blank', 'noopener,noreferrer')}
+      >
+        <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{race.date}</td>
+        <td className="px-3 py-2 text-xs whitespace-nowrap">
+          {race.venue}{race.raceNumber}R
+        </td>
+        <td className="px-3 py-2">
+          {race.grade && gradeColor && (
+            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-bold', gradeColor)}>{race.grade}</span>
+          )}
+        </td>
+        <td className="px-3 py-2 font-medium max-w-[200px] truncate">
+          {displayName || `${race.raceNumber}R`}
+        </td>
+        <td className="px-3 py-2 text-xs whitespace-nowrap">
+          {race.track}{race.distance}m
+        </td>
+        <td className="px-3 py-2 text-xs">
+          <div className="flex items-center gap-1">
+            {race.trackCondition && babaColor && (
+              <span className={cn('px-1 py-0.5 rounded text-[10px] font-medium', babaColor)}>
+                {race.trackCondition}
               </span>
             )}
-            <span className="font-semibold truncate">{displayName || `${race.raceNumber}R`}</span>
+            {weatherIcon && <span className="text-xs">{weatherIcon}</span>}
           </div>
-          <span className="text-sm text-muted-foreground shrink-0">{race.date}</span>
-        </div>
-
-        {/* 2行目: 競馬場 + コース + 馬場 + 天候 + 頭数 */}
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-          <span>{race.venue}</span>
-          <span>{race.track}{race.distance}m</span>
-          {race.trackCondition && babaColor && (
-            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', babaColor)}>
-              {race.trackCondition}
+        </td>
+        <td className="px-3 py-2 text-xs text-muted-foreground">{race.entryCount > 0 ? race.entryCount : ''}</td>
+        <td className="px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400 font-medium whitespace-nowrap">
+          {race.winnerName}
+        </td>
+        <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{race.winnerTime}</td>
+        <td className="px-3 py-2 text-xs text-muted-foreground">
+          {race.winnerLast3f != null ? race.winnerLast3f : ''}
+        </td>
+        <td className="px-3 py-2">
+          {trend && (
+            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', trend.className)}>
+              {trend.label}
             </span>
           )}
-          {weatherIcon && <span title={race.weather}>{weatherIcon}</span>}
-          {race.entryCount > 0 && <span>{race.entryCount}頭</span>}
-        </div>
-
-        {/* 3行目: 勝ち馬 + タイム + 上がり3F + RPCI + ペース */}
-        <div className="flex items-center gap-2 text-sm">
-          {race.winnerName && (
-            <span className="text-yellow-600 dark:text-yellow-400 font-medium">
-              {race.winnerName}
-            </span>
-          )}
-          {race.winnerTime && (
-            <span className="text-muted-foreground text-xs">{race.winnerTime}</span>
-          )}
-          {race.winnerLast3f != null && (
-            <span className="text-muted-foreground text-xs">上り{race.winnerLast3f}</span>
-          )}
-          {race.rpci != null && (
-            <span className="text-muted-foreground text-xs">
-              RPCI {race.rpci}
-            </span>
-          )}
-          {race.raceTrendV2 && RACE_TREND_V2_LABELS[race.raceTrendV2 as RaceTrendV2Type] ? (
-            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', RACE_TREND_V2_COLORS[race.raceTrendV2 as RaceTrendV2Type])}>
-              {RACE_TREND_V2_LABELS[race.raceTrendV2 as RaceTrendV2Type]}
-            </span>
-          ) : pace ? (
-            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', pace.className)}>
-              {pace.label}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    </Link>
+        </td>
+      </tr>
   );
 }

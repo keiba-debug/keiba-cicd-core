@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
             commands = [cmd];
           }
         } else if (action === 'batch_after_race') {
-          // 成績情報登録: 成績情報取得 → JRA-VANデータでrace_*.json更新
+          // 成績情報登録: 成績情報取得 → JRA-VANデータでrace_*.json更新 → 検索インデックス再構築
           if (isRangeAction && startDate && endDate) {
             commands = [
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'seiseki'],
@@ -183,6 +183,7 @@ export async function POST(request: NextRequest) {
             for (const d of expandRaceDateRange(startDate, endDate)) {
               commands.push(['-m', 'builders.build_race_master', '--date', d]);
             }
+            commands.push(['-m', 'builders.build_race_search_index']);
           } else {
             const dateArg = date || '';
             const cmd = ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'seiseki'];
@@ -190,6 +191,7 @@ export async function POST(request: NextRequest) {
             if (raceTo) cmd.push('--to-race', String(raceTo));
             commands = [cmd];
             if (dateArg) commands.push(['-m', 'builders.build_race_master', '--date', dateArg]);
+            commands.push(['-m', 'builders.build_race_search_index']);
           }
         } else if (action === 'sunpyo_update') {
           // 寸評更新: seiseki再取得（寸評・インタビュー・次走メモ）→ kb_ext更新
@@ -219,6 +221,8 @@ export async function POST(request: NextRequest) {
           commands = [['-m', 'builders.build_sire_stats']];
         } else if (action === 'rebuild_slow_start') {
           commands = [['-m', 'builders.build_slow_start_analysis']];
+        } else if (action === 'rebuild_race_search_index') {
+          commands = [['-m', 'builders.build_race_search_index']];
         } else if (action === 'v4_build_race') {
           if (isRangeAction && startDate && endDate) {
             for (const d of expandDateRange(startDate, endDate)) {

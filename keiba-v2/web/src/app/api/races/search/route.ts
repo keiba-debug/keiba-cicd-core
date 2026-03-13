@@ -11,6 +11,9 @@ export async function GET(request: NextRequest) {
   const distanceMax = params.get('distanceMax') ? parseInt(params.get('distanceMax')!) : undefined;
   const years = params.get('years')?.split(',').map(Number).filter(Boolean) || [];
   const grades = params.get('grades')?.split(',').filter(Boolean) || [];
+  const babas = params.get('babas')?.split(',').filter(Boolean) || [];
+  const dateFrom = params.get('dateFrom') || '';
+  const dateTo = params.get('dateTo') || '';
 
   try {
     const result = searchRaces({
@@ -21,6 +24,9 @@ export async function GET(request: NextRequest) {
       distanceMax,
       years: years.length ? years : undefined,
       grades: grades.length ? grades : undefined,
+      babas: babas.length ? babas : undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
     });
 
     return NextResponse.json(result);

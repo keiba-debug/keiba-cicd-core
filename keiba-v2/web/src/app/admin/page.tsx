@@ -652,7 +652,7 @@ export default function AdminPage() {
     a.category === 'fetch' || ['v4_build_race', 'v4_predict'].includes(a.id)
   );
   const indexActions = ACTIONS.filter((a) =>
-    ['build_horse_name_index', 'build_trainer_index'].includes(a.id)
+    ['build_horse_name_index', 'build_trainer_index', 'rebuild_race_search_index'].includes(a.id)
   );
   // analysisActions は各分析ページのRecalcButtonに移行済み
   // データリフレッシュが必要なアクション

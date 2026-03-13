@@ -21,6 +21,7 @@ export type ActionType =
   | 'analyze_training'           // 調教分析
   | 'rebuild_sire_stats'         // 血統統計再集計
   | 'rebuild_slow_start'         // 出遅れ分析再集計
+  | 'rebuild_race_search_index'  // レース検索インデックス再構築
   | 'v4_build_race'              // JRA-VAN → data3/races/
   | 'v4_predict'                 // ML予測 → races/YYYY/MM/DD/predictions.json
   | 'v4_pipeline'                // 上記を連結実行
@@ -176,6 +177,14 @@ export const ACTIONS: ActionConfig[] = [
     category: 'analysis',
     noDateRequired: true,
   },
+  {
+    id: 'rebuild_race_search_index',
+    label: 'レース検索インデックス再構築',
+    description: 'race_search_index.json を全レースから再構築（成績登録後に実行）',
+    icon: '🔍',
+    category: 'generate',
+    noDateRequired: true,
+  },
   // --- パイプライン・個別ステップ ---
   {
     id: 'v4_build_race',
@@ -285,6 +294,7 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
     case 'analyze_training':
     case 'rebuild_sire_stats':
     case 'rebuild_slow_start':
+    case 'rebuild_race_search_index':
     case 'v4_build_race':
     case 'v4_predict':
     case 'v4_pipeline':
@@ -351,6 +361,7 @@ export function getCommandArgsRange(
     case 'analyze_training':
     case 'rebuild_sire_stats':
     case 'rebuild_slow_start':
+    case 'rebuild_race_search_index':
     case 'v4_build_race':
     case 'v4_predict':
     case 'v4_pipeline':
