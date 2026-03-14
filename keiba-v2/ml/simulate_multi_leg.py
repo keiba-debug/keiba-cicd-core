@@ -756,6 +756,114 @@ def _make_note(strat_name: str, race: dict, horses: tuple) -> str:
     return " ".join(parts)
 
 
+def generate_sanrentan_formation(races: list) -> List[Recommendation]:
+    """三連単フォーメーション推奨（VB頭戦略 + 複合フィルター）
+
+    Session 105で検証済み: VB_45F3 + FO<4 + CG<0.10
+    ROI 253.9%, 180R発動, 15的中 (2025-03〜2026-03)
+
+    レース条件:
+      - P% Top3 Share < 0.45
+      - 1番人気オッズ 3.0〜4.0
+      - ConfGap < 0.10
+      - VB候補(WinEV≥1.5 & Odds≥10) ≥ 3頭
+
+    フォーメーション:
+      ★(1着): 上記VB候補
+      ▲(2着): P%上位4頭（★除く）
+      △(3着): 次の3頭
+      = ★ → ▲▲▲▲ → ▲▲▲▲△△△ = 最大28点/VB馬
+    """
+    recs = []
+
+    def name_map(entries):
+        return {e["umaban"]: e.get("horse_name", f"#{e['umaban']}") for e in entries}
+
+    for race in races:
+        if race.get("track_type") in ("obstacle", "steeplechase"):
+            continue
+
+        entries = race.get("entries", [])
+        valid = [e for e in entries if (e.get("odds") or 0) > 0]
+        if len(valid) < 8:
+            continue
+
+        venue = race.get("venue_name", "?")
+        race_num = race.get("race_number", 0)
+        nm = name_map(entries)
+
+        # --- Race-level filters ---
+        # P% raw values for share/gap calculation (match backtest logic)
+        p_raws = sorted(
+            [(e.get("pred_proba_p_raw") or 0) for e in valid],
+            reverse=True,
+        )
+        p_sum = sum(p_raws)
+
+        # P% Top3 Share < 0.45  (ratio, not absolute sum)
+        p_top3 = sum(p_raws[:3]) / p_sum if p_sum > 0 else 1.0
+        if p_top3 >= 0.45:
+            continue
+
+        # 1番人気オッズ 3.0〜4.0
+        fav_odds = min(e["odds"] for e in valid)
+        if fav_odds < 3.0 or fav_odds >= 4.0:
+            continue
+
+        # ConfGap < 0.10  (p_raw based, matches backtest analyze_entries)
+        conf_gap = p_raws[0] - p_raws[1] if len(p_raws) >= 2 else 1.0
+        if conf_gap >= 0.10:
+            continue
+
+        # VB候補 ≥ 3頭
+        vb_candidates = [e for e in valid
+                         if (e.get("win_ev") or 0) >= 1.5
+                         and e["odds"] >= 10]
+        if len(vb_candidates) < 3:
+            continue
+
+        # P% rank order
+        p_sorted = sorted(valid, key=lambda e: -(e.get("pred_proba_p_raw") or 0))
+
+        for vb in vb_candidates:
+            vb_num = vb["umaban"]
+            vb_name = nm.get(vb_num, "?")
+            vb_ev = vb.get("win_ev", 0)
+
+            # ▲: P%上位4頭（★除く）
+            others = [e for e in p_sorted if e["umaban"] != vb_num]
+            tri_horses = others[:4]
+            wide_horses = others[4:7]
+
+            second_nums = [e["umaban"] for e in tri_horses]
+            third_nums = [e["umaban"] for e in tri_horses + wide_horses]
+
+            tickets = []
+            for s in second_nums:
+                for t in third_nums:
+                    if s != t:
+                        tickets.append((vb_num, s, t))
+            tickets = tickets[:28]
+
+            for ticket in tickets:
+                horse_names = tuple(nm.get(h, f"#{h}") for h in ticket)
+                note = (f"★{vb_name}(EV{vb_ev:.1f}/odds{vb['odds']:.0f}) "
+                        f"Share{p_top3:.2f} FO{fav_odds:.1f} CG{conf_gap:.3f}")
+                recs.append(Recommendation(
+                    race_id=race["race_id"],
+                    venue=venue,
+                    race_num=race_num,
+                    strategy="三連単VB頭",
+                    ticket_type="sanrentan",
+                    horses=ticket,
+                    horse_names=horse_names,
+                    cost=100,
+                    note=note,
+                ))
+
+    return recs
+
+
 def print_recommendations(recs: List[Recommendation]):
     """推奨買い目を整形出力"""
     if not recs:

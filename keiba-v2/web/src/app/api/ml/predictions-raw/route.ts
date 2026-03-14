@@ -57,6 +57,23 @@ export async function GET(request: NextRequest) {
     } catch { /* 着順取得失敗は無視 */ }
     data.finish_positions = finishMap;
 
+    // bets.json から買い目データをマージ（存在する場合）
+    const betsPath = path.join(dayDir, 'bets.json');
+    try {
+      if (fs.existsSync(betsPath)) {
+        const betsContent = fs.readFileSync(betsPath, 'utf-8');
+        const betsData = JSON.parse(betsContent);
+        data.recommendations = betsData.recommendations;
+        data.multi_leg_recommendations = betsData.multi_leg_recommendations;
+        data.sanrentan_formation = betsData.sanrentan_formation;
+        data.bets_generated_at = betsData.bets_generated_at;
+        data.predict_only = false;
+      } else if (!data.recommendations) {
+        // bets.json もなく predictions.json にも recommendations がない
+        data.predict_only = true;
+      }
+    } catch { /* bets.json 読み込み失敗は無視 */ }
+
     return NextResponse.json(data);
   } catch (err) {
     return NextResponse.json(

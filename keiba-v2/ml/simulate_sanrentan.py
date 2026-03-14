@@ -158,8 +158,8 @@ def by_ard_ev(entries: list, min_ard: float, min_ev: float, top_n: int = 99) -> 
     """ARd + EV フィルタ"""
     valid = [e for e in entries
              if e.get("odds", 0) > 0
-             and e.get("ar_deviation", 0) >= min_ard
-             and e.get("win_ev", 0) >= min_ev]
+             and (e.get("ar_deviation") or 0) >= min_ard
+             and (e.get("win_ev") or 0) >= min_ev]
     ranked = sorted(valid, key=lambda e: -e.get("ar_deviation", 0))
     return [e["umaban"] for e in ranked[:top_n]]
 

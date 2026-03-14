@@ -147,16 +147,30 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    // vb_refresh: recommendations存在チェック
-    const hasRecs =
-      (Array.isArray(pred.recommendations) && pred.recommendations.length > 0) ||
-      (pred.races || []).some(
-        (r: Record<string, unknown>) =>
-          Array.isArray(r.recommendations) && (r.recommendations as unknown[]).length > 0
-      );
+    // vb_refresh: bets.json or predictions.json内recommendations存在チェック
+    let hasRecs = false;
+    let recsTs: string | null = null;
+
+    // 新形式: bets.json
+    const betsPath = path.join(dateDir, 'bets.json');
+    try {
+      const betsContent = await fs.readFile(betsPath, 'utf-8');
+      const betsData = JSON.parse(betsContent);
+      if (betsData.recommendations && Object.keys(betsData.recommendations).length > 0) {
+        hasRecs = true;
+        recsTs = betsData.bets_generated_at || null;
+      }
+    } catch { /* bets.json not found */ }
+
+    // 旧形式フォールバック: predictions.json内
+    if (!hasRecs) {
+      hasRecs =
+        (pred.recommendations && typeof pred.recommendations === 'object'
+          && Object.keys(pred.recommendations).length > 0);
+      recsTs = pred.odds_updated_at || pred.created_at || null;
+    }
+
     if (hasRecs) {
-      // recommendations の生成時刻を推定（odds_updated_at or created_at）
-      const recsTs = pred.odds_updated_at || pred.created_at || null;
       status.vb_refresh = {
         done: true,
         timestamp: recsTs,

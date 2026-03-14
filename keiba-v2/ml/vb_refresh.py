@@ -26,7 +26,7 @@ from ml.bet_engine import (
     VB_FLOOR_MIN_WIN_EV, VB_FLOOR_MIN_ARD,
     VB_FLOOR_ARD_VB_MIN_ARD, VB_FLOOR_ARD_VB_MIN_ODDS,
 )
-from ml.generate_bets import apply_bet_engine
+from ml.generate_bets import apply_bet_engine, save_bets
 from ml.predict import compute_market_signal
 
 
@@ -209,9 +209,10 @@ def main():
         vb_marker = f' [VB={vb}]' if vb > 0 else ''
         print(f"  {venue}{rn}R: Top1={top1_name}{vb_marker}")
 
-    # 買い目推奨再生成（generate_bets の共通関数を使用）
+    # 買い目推奨再生成 → bets.json に出力
     print(f"\n[BetEngine] Generating recommendations...")
-    apply_bet_engine(predictions_data, budget=30000)
+    bets_data = apply_bet_engine(predictions_data, budget=30000)
+    save_bets(date, bets_data)
 
     # VBリフレッシュ固有の更新
     predictions_data['vb_refreshed_at'] = datetime.now().isoformat(timespec='seconds')

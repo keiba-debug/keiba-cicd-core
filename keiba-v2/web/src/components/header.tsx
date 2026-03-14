@@ -172,6 +172,19 @@ export function Header() {
                     </span>
                   </span>
                 </Link>
+                <Link
+                  href="/analysis/formation"
+                  onClick={() => { if (vbMenuRef.current) vbMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🎰</span>
+                    <span>
+                      <span className="font-medium">三連単Formation</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">VBフォーメーション検証結果</span>
+                    </span>
+                  </span>
+                </Link>
               </div>
             </details>
 
@@ -216,7 +229,7 @@ export function Header() {
                   <span className="flex items-center gap-2">
                     <span>5</span>
                     <span>
-                      <span className="font-medium">WIN5</span>
+                      <span className="font-medium">写輪眼 WIN5</span>
                       <span className="block text-xs text-muted-foreground mt-0.5">推奨フォーメーション</span>
                     </span>
                   </span>

@@ -84,6 +84,15 @@ export async function GET(request: NextRequest) {
       try {
         const predData = JSON.parse(fs.readFileSync(predFile, 'utf-8'));
 
+        // bets.json があればマージ（新形式）
+        const betsFile = path.join(monthDir, dd, 'bets.json');
+        if (fs.existsSync(betsFile)) {
+          try {
+            const betsData = JSON.parse(fs.readFileSync(betsFile, 'utf-8'));
+            predData.recommendations = betsData.recommendations;
+          } catch { /* ignore */ }
+        }
+
         // プリセットからベットを抽出
         let bets: Array<{
           race_id: string;

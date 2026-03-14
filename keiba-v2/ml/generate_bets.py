@@ -6,6 +6,10 @@
 predictions.json のML推論結果を読み込み、bet_engine で買い目を生成。
 predict.py とは独立して実行可能 → 戦略パラメータ変更時に推論やり直し不要。
 
+Output:
+    predictions.json → ML分析のみ（betting data削除）
+    bets.json        → 買い目データ（recommendations, multi_leg, sanrentan）
+
 Usage:
     python -m ml.generate_bets --date 2026-03-01
     python -m ml.generate_bets --date 2026-03-01 --budget 50000
@@ -44,36 +48,46 @@ def load_predictions(date: str) -> dict:
     return data
 
 
+def get_bets_path(date: str) -> Path:
+    """bets.json のパスを取得"""
+    date_parts = date.split('-')
+    return (config.races_dir() / date_parts[0] / date_parts[1]
+            / date_parts[2] / "bets.json")
+
+
+def save_bets(date: str, bets_data: dict) -> Path:
+    """bets.json に買い目データを書き込み"""
+    out_path = get_bets_path(date)
+    out_json = json.dumps(bets_data, ensure_ascii=False, indent=2)
+    out_path.write_text(out_json, encoding='utf-8')
+    return out_path
+
+
 def apply_bet_engine(
     predictions_data: dict,
     budget: int = 30000,
     preset_filter: Optional[str] = None,
     bankroll: int = 100000,
 ) -> dict:
-    """predictions_data に recommendations を生成して書き込む
+    """predictions_data から買い目を生成し、bets_data dict を返す
 
     Args:
-        predictions_data: predictions.json のデータ（in-place更新）
+        predictions_data: predictions.json のデータ（変更しない）
         budget: 予算
         preset_filter: 特定プリセットのみ生成（None=全プリセット）
 
     Returns:
-        all_recommendations dict
+        bets_data dict（bets.json に書き込む内容）
     """
     races = predictions_data.get('races', [])
     if not races:
         print("[Warning] No races in predictions data")
-        return {}
+        return _empty_bets_data(predictions_data)
 
     all_recommendations = {}
 
     # ── ライブ margin 補正 ──
-    # バックテスト(確定データ)とライブ(予測時データ)でpredicted_marginに
-    # 系統的な差がある (ライブは平均+15.3pt高い)。
-    # 回帰式: BT_margin = 0.876 × PJ_margin - 8.6
-    # バックテスト最適値 43.4 → ライブ換算 59.4
-    # プリセットの margin フィルタをライブスケールに補正する
-    LIVE_MARGIN_OFFSET = 16  # ライブ margin は BT より約16pt高い
+    LIVE_MARGIN_OFFSET = 16
     import copy as _copy
     live_presets = {}
     for k, v in PRESETS.items():
@@ -88,7 +102,6 @@ def apply_bet_engine(
             r2.max_predicted_margin += LIVE_MARGIN_OFFSET
         live_adaptive_rules.append(r2)
 
-    # adaptive 以外のプリセット名リスト
     available_presets = list(PRESETS.keys()) + ['adaptive']
 
     presets = live_presets
@@ -96,9 +109,9 @@ def apply_bet_engine(
         if preset_filter not in available_presets:
             print(f"[Error] Unknown preset: {preset_filter}. "
                   f"Available: {', '.join(available_presets)}")
-            return {}
+            return _empty_bets_data(predictions_data)
         if preset_filter == 'adaptive':
-            presets = {}  # adaptive のみ（下で別処理）
+            presets = {}
         else:
             presets = {preset_filter: live_presets[preset_filter]}
 
@@ -139,11 +152,9 @@ def apply_bet_engine(
               f"Amount={s['total_amount']:,}")
 
     # --- adaptive プリセット ---
-    # relaxed ベースのベットを生成し、adaptive ルールで Kelly 率を上書き
     if not preset_filter or preset_filter == 'adaptive':
         relaxed_params = live_presets['relaxed']
         adaptive_recs = generate_recommendations(races, relaxed_params, budget=budget)
-        # adaptive ルールマッチでkelly_cappedを上書き（単勝のみ）
         adaptive_recs = apply_adaptive_kelly(adaptive_recs, races, live_adaptive_rules)
         adaptive_recs = apply_kelly_sizing(adaptive_recs, bankroll=bankroll)
         all_recommendations['adaptive'] = {
@@ -161,11 +172,6 @@ def apply_bet_engine(
         print(f"  adaptive: {s['total_bets']} bets, "
               f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}, "
               f"Amount={s['total_amount']:,}")
-
-    # predictions_data に書き込み
-    predictions_data['recommendations'] = all_recommendations
-    predictions_data['predict_only'] = False
-    predictions_data['bets_generated_at'] = datetime.now().isoformat(timespec='seconds')
 
     # マルチレグ推奨生成
     multi_leg_output = []
@@ -189,9 +195,59 @@ def apply_bet_engine(
     except Exception as e:
         print(f"  [Warning] multi-leg generation failed: {e}")
 
-    predictions_data['multi_leg_recommendations'] = multi_leg_output
+    # 三連単フォーメーション推奨生成
+    sanrentan_output = []
+    try:
+        from ml.simulate_multi_leg import generate_sanrentan_formation
+        san_recs = generate_sanrentan_formation(races)
+        for r in san_recs:
+            sanrentan_output.append({
+                'race_id': r.race_id,
+                'venue': r.venue,
+                'race_number': r.race_num,
+                'strategy': r.strategy,
+                'ticket_type': r.ticket_type,
+                'horses': list(r.horses),
+                'horse_names': list(r.horse_names),
+                'cost': r.cost,
+                'note': r.note,
+            })
+        n_races = len(set(r.race_id for r in san_recs)) if san_recs else 0
+        print(f"[Sanrentan] {len(sanrentan_output)} tickets across {n_races} races")
+    except Exception as e:
+        print(f"  [Warning] sanrentan formation failed: {e}")
 
-    return all_recommendations
+    # bets_data を構築
+    bets_data = {
+        'date': predictions_data.get('date', ''),
+        'model_version': predictions_data.get('model_version', ''),
+        'bets_generated_at': datetime.now().isoformat(timespec='seconds'),
+        'budget': budget,
+        'bankroll': bankroll,
+        'recommendations': all_recommendations,
+        'multi_leg_recommendations': multi_leg_output,
+        'sanrentan_formation': sanrentan_output,
+    }
+
+    return bets_data
+
+
+def _empty_bets_data(predictions_data: dict) -> dict:
+    return {
+        'date': predictions_data.get('date', ''),
+        'model_version': predictions_data.get('model_version', ''),
+        'bets_generated_at': datetime.now().isoformat(timespec='seconds'),
+        'recommendations': {},
+        'multi_leg_recommendations': [],
+        'sanrentan_formation': [],
+    }
+
+
+def strip_betting_fields(predictions_data: dict):
+    """predictions.json から betting 関連フィールドを除去"""
+    for key in ('recommendations', 'multi_leg_recommendations',
+                'sanrentan_formation', 'bets_generated_at', 'predict_only'):
+        predictions_data.pop(key, None)
 
 
 def main():
@@ -229,22 +285,25 @@ def main():
     print(f"[Load] {len(races)} races for {args.date}")
     print(f"  Model: v{predictions_data.get('model_version', '?')}")
 
-    # 買い目生成
+    # 買い目生成 → bets.json
     print(f"\n[BetEngine] Generating recommendations...")
-    apply_bet_engine(predictions_data, budget=args.budget,
-                     preset_filter=args.preset, bankroll=args.bankroll)
+    bets_data = apply_bet_engine(predictions_data, budget=args.budget,
+                                 preset_filter=args.preset, bankroll=args.bankroll)
+    bets_path = save_bets(args.date, bets_data)
 
-    # 保存
-    out_json = json.dumps(predictions_data, ensure_ascii=False, indent=2)
+    # predictions.json から betting fields を削除して保存
+    strip_betting_fields(predictions_data)
     date_parts = args.date.split('-')
-    out_path = (config.races_dir() / date_parts[0] / date_parts[1]
-                / date_parts[2] / "predictions.json")
-    out_path.write_text(out_json, encoding='utf-8')
+    pred_path = (config.races_dir() / date_parts[0] / date_parts[1]
+                 / date_parts[2] / "predictions.json")
+    pred_json = json.dumps(predictions_data, ensure_ascii=False, indent=2)
+    pred_path.write_text(pred_json, encoding='utf-8')
 
     elapsed = time.time() - t0
     print(f"\n[Summary]")
-    print(f"  Output:  {out_path}")
-    print(f"  Elapsed: {elapsed:.1f}s")
+    print(f"  Predictions: {pred_path}")
+    print(f"  Bets:        {bets_path}")
+    print(f"  Elapsed:     {elapsed:.1f}s")
     print(f"{'='*60}\n")
 
 

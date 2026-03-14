@@ -177,6 +177,7 @@ export interface PredictionsLive {
   closing_model_version?: string;
   recommendations?: ServerRecommendations;
   multi_leg_recommendations?: MultiLegRecommendation[];
+  sanrentan_formation?: MultiLegRecommendation[];
   vb_exclusions?: VbExclusion[];
   summary: {
     total_races: number;

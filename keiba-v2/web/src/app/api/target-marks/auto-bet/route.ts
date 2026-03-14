@@ -6,7 +6,7 @@
  *   bets: Array<{ raceId: string, umaban: number, umaban2?: number, umaban3?: number, betType: number, amount: number }>
  * }
  *
- * betType: 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複
+ * betType: 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複, 7=三連単
  * amount: 金額（円）
  *
  * 出力先: C:\TFJV\TXT\FFyyyymmdd_HHmmss.CSV
@@ -18,18 +18,18 @@ import { writePdBets } from '@/lib/data/target-pd-writer';
 import type { PdRaceEntry } from '@/lib/data/target-pd-writer';
 
 /** 有効な券種コード */
-const VALID_BET_TYPES = new Set([0, 1, 3, 4, 5, 6]);
+const VALID_BET_TYPES = new Set([0, 1, 3, 4, 5, 6, 7]);
 /** 2頭必要な券種 */
 const TWO_HORSE_TYPES = new Set([3, 4, 5]); // 馬連, ワイド, 馬単
 /** 3頭必要な券種 */
-const THREE_HORSE_TYPES = new Set([6]); // 三連複
+const THREE_HORSE_TYPES = new Set([6, 7]); // 三連複, 三連単
 
 interface BetInput {
   raceId: string;
   umaban: number;
-  umaban2?: number; // 馬連/ワイド/馬単/三連複
-  umaban3?: number; // 三連複
-  betType: number;  // 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複
+  umaban2?: number; // 馬連/ワイド/馬単/三連複/三連単
+  umaban3?: number; // 三連複/三連単
+  betType: number;  // 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複, 7=三連単
   amount: number;   // 円
 }
 
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       }
       if (!VALID_BET_TYPES.has(bet.betType)) {
         return NextResponse.json(
-          { error: `無効な券種: ${bet.betType}（0,1,3,4,5,6対応）` },
+          { error: `無効な券種: ${bet.betType}（0,1,3,4,5,6,7対応）` },
           { status: 400 }
         );
       }

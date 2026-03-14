@@ -40,14 +40,15 @@ export const BET_TYPE_CODE = {
   wide: 4,        // ワイド
   umatan: 5,      // 馬単
   sanrenpuku: 6,  // 三連複
+  sanrentan: 7,   // 三連単
 } as const;
 
 /** 1件の買い目 */
 export interface PdBet {
-  betType: number;  // 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複
+  betType: number;  // 0=単勝, 1=複勝, 3=馬連, 4=ワイド, 5=馬単, 6=三連複, 7=三連単
   umaban: number;   // 馬番（目１）
-  umaban2?: number; // 馬番（目２）— 馬連/ワイド/馬単/三連複
-  umaban3?: number; // 馬番（目３）— 三連複
+  umaban2?: number; // 馬番（目２）— 馬連/ワイド/馬単/三連複/三連単
+  umaban3?: number; // 馬番（目３）— 三連複/三連単
   amount: number;   // 金額（円）
 }
 

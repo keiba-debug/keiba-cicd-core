@@ -1835,67 +1835,18 @@ def main():
 
         print(f"[Obstacle] {len(obstacle_predictions)} obstacle races predicted")
 
-    # === 買い目推奨生成 (bet_engine) ===
-    all_recommendations = {}
-    multi_leg_output = []
-
+    # === 買い目推奨生成 (bet_engine) → bets.json ===
     if args.with_bets:
-        # 従来互換: 推論+買い目を一括実行
-        from ml.bet_engine import (
-            PRESETS, generate_recommendations,
-            recommendations_to_dict, recommendations_summary,
-            apply_kelly_sizing,
-        )
+        # 従来互換: 推論+買い目を一括実行 → bets.json に出力
+        from ml.generate_bets import apply_bet_engine, save_bets
         bankroll = getattr(args, 'bankroll', 50000) or 50000
         print(f"\n[BetEngine] Generating recommendations (--with-bets, bankroll={bankroll:,})...")
-        for preset_name, preset_params in PRESETS.items():
-            recs = generate_recommendations(all_predictions, preset_params, budget=30000)
-            recs = apply_kelly_sizing(recs, bankroll=bankroll)
-            all_recommendations[preset_name] = {
-                'params': {
-                    'win_min_ev': preset_params.win_min_ev,
-                    'win_min_gap': preset_params.win_min_gap,
-                    'win_min_rating': preset_params.win_min_rating,
-                    'win_min_ar_deviation': preset_params.win_min_ar_deviation,
-                    'win_max_rank': preset_params.win_max_rank,
-                    'win_v_ratio_min': preset_params.win_v_ratio_min,
-                    'win_v_bypass_gap': preset_params.win_v_bypass_gap,
-                    'win_v_bypass_ev': preset_params.win_v_bypass_ev,
-                    'place_min_gap': preset_params.place_min_gap,
-                    'place_min_rating': preset_params.place_min_rating,
-                    'place_min_ar_deviation': preset_params.place_min_ar_deviation,
-                    'place_min_ev': preset_params.place_min_ev,
-                    'kelly_fraction': preset_params.kelly_fraction,
-                },
-                'bets': recommendations_to_dict(recs),
-                'summary': recommendations_summary(recs),
-            }
-            s = recommendations_summary(recs)
-            print(f"  {preset_name}: {s['total_bets']} bets, "
-                  f"Win={s['win_bets']}, Place={s['place_bets']}, "
-                  f"Amount={s['total_amount']:,}")
-
-        # マルチレグ推奨生成
-        print(f"\n[MultiLeg] Generating multi-leg recommendations...")
-        try:
-            from ml.simulate_multi_leg import generate_recommendations as gen_multi_leg
-            multi_leg_recs = gen_multi_leg(all_predictions)
-            for r in multi_leg_recs:
-                multi_leg_output.append({
-                    'race_id': r.race_id,
-                    'venue': r.venue,
-                    'race_number': r.race_num,
-                    'strategy': r.strategy,
-                    'ticket_type': r.ticket_type,
-                    'horses': list(r.horses),
-                    'horse_names': list(r.horse_names),
-                    'cost': r.cost,
-                    'note': r.note,
-                })
-            print(f"  {len(multi_leg_output)} tickets across "
-                  f"{len(set(r.race_id for r in multi_leg_recs))} races")
-        except Exception as e:
-            print(f"  [Warning] multi-leg generation failed: {e}")
+        # predictions_data を仮構築して apply_bet_engine に渡す
+        _pred_data = {'races': all_predictions, 'date': date,
+                      'model_version': meta.get('version', '?')}
+        bets_data = apply_bet_engine(_pred_data, budget=30000, bankroll=bankroll)
+        bets_path = save_bets(date, bets_data)
+        print(f"  Bets saved: {bets_path}")
     else:
         print(f"\n[Info] 推論のみ（買い目は python -m ml.generate_bets --date {date} で生成）")
 
@@ -1922,11 +1873,8 @@ def main():
         'model_has_obstacle': has_obstacle_model,
         'odds_source': 'mykeibadb' if db_odds_index else 'json',
         'pit_mode': True,
-        'predict_only': not args.with_bets,
         'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
         'races': all_predictions,
-        'recommendations': all_recommendations,
-        'multi_leg_recommendations': multi_leg_output,
         'summary': {
             'total_races': len(all_predictions),
             'obstacle_races': len(obstacle_predictions) if obstacle_races else 0,
