@@ -49,7 +49,8 @@ function getConfidenceBadge(conf: number | null | undefined) {
 export type FeaturedEntry = {
   race: PredictionRace;
   entry: PredictionEntry;
-  category: 'pick' | 'value';  // pick=評価馬, value=穴注目
+  // composite=総合1位(P×W×ARd), pick=Pモデル1位, both=市場+EV両方一致★, value=市場シグナルのみ, vb=EVモデルのみ
+  category: 'composite' | 'pick' | 'both' | 'value' | 'vb';
 };
 
 // ソートキー
@@ -76,8 +77,13 @@ export function VBTable({
 }: VBTableProps) {
   if (featuredEntries.length === 0) return null;
 
-  const picks = featuredEntries.filter(e => e.category === 'pick');
-  const values = featuredEntries.filter(e => e.category === 'value');
+  const composites = featuredEntries.filter(e => e.category === 'composite');
+  const picks      = featuredEntries.filter(e => e.category === 'pick');
+  const boths      = featuredEntries.filter(e => e.category === 'both');
+  const values     = featuredEntries.filter(e => e.category === 'value');
+  const vbs        = featuredEntries.filter(e => e.category === 'vb');
+
+  const tableProps = { oddsMap, dbResults, hasResults, getFinishPos, betRecMap };
 
   return (
     <Card id="section-vb" className="mb-8 border-amber-200 dark:border-amber-800">
@@ -86,7 +92,7 @@ export function VBTable({
           <CardTitle className="text-lg flex items-center gap-2">
             注目馬リスト
             <span className="text-sm font-normal text-muted-foreground">
-              評価馬{picks.length} + 穴注目{values.length}
+              {composites.length + picks.length}頭 + Value Bet {boths.length + values.length + vbs.length}頭
             </span>
           </CardTitle>
           <div className="flex items-center gap-2">
@@ -106,46 +112,84 @@ export function VBTable({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-4 space-y-4">
-        {/* 評価馬セクション */}
-        <div>
-          <h3 className="text-sm font-bold mb-2 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-teal-500 inline-block" />
-            評価馬
-            <span className="text-xs font-normal text-muted-foreground">各レースのモデル Top1（自信度順）</span>
+      <CardContent className="pt-4 space-y-6">
+
+        {/* === 注目馬リスト === */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-teal-700 dark:text-teal-400 border-b border-teal-200 dark:border-teal-800 pb-1">
+            📊 注目馬リスト
           </h3>
-          <HorseTable
-            entries={picks}
-            oddsMap={oddsMap}
-            dbResults={dbResults}
-            hasResults={hasResults}
-            getFinishPos={getFinishPos}
-            betRecMap={betRecMap}
-            defaultSort="confidence"
-            defaultDir="desc"
-          />
+
+          {/* 総合1位 */}
+          {composites.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold mb-2 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-teal-500 inline-block" />
+                総合1位
+                <span className="text-xs font-normal text-muted-foreground">各レースの P%×W%×ARd 最高馬（{composites.length}頭）</span>
+              </h4>
+              <HorseTable entries={composites} {...tableProps} defaultSort="confidence" defaultDir="desc" />
+            </div>
+          )}
+
+          {/* Pモデル TOP1（総合1位と異なる馬のみ） */}
+          {picks.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold mb-2 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-cyan-500 inline-block" />
+                Pモデル TOP1
+                <span className="text-xs font-normal text-muted-foreground">複勝確率1位（総合1位と異なる馬、{picks.length}頭）</span>
+              </h4>
+              <HorseTable entries={picks} {...tableProps} defaultSort="confidence" defaultDir="desc" />
+            </div>
+          )}
         </div>
 
-        {/* 穴注目セクション */}
-        {values.length > 0 && (
-          <div>
-            <h3 className="text-sm font-bold mb-2 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
-              穴注目
-              <span className="text-xs font-normal text-muted-foreground">オッズ妙味 or スマートマネー検知</span>
+        {/* === Value Bet候補 === */}
+        {(boths.length > 0 || values.length > 0 || vbs.length > 0) && (
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold text-blue-700 dark:text-blue-400 border-b border-blue-200 dark:border-blue-800 pb-1">
+              💎 Value Bet候補
             </h3>
-            <HorseTable
-              entries={values}
-              oddsMap={oddsMap}
-              dbResults={dbResults}
-              hasResults={hasResults}
-              getFinishPos={getFinishPos}
-              betRecMap={betRecMap}
-              defaultSort="ard"
-              defaultDir="desc"
-            />
+
+            {/* 両方一致（★最強候補） */}
+            {boths.length > 0 && (
+              <div>
+                <h4 className="text-xs font-bold mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+                  ★ 市場シグナル×EVモデル 両方一致
+                  <span className="text-xs font-normal text-muted-foreground">最強候補（{boths.length}頭）</span>
+                </h4>
+                <HorseTable entries={boths} {...tableProps} defaultSort="ard" defaultDir="desc" />
+              </div>
+            )}
+
+            {/* 市場シグナルのみ */}
+            {values.length > 0 && (
+              <div>
+                <h4 className="text-xs font-bold mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
+                  市場シグナル
+                  <span className="text-xs font-normal text-muted-foreground">オッズ妙味 / スマートマネー検知（{values.length}頭）</span>
+                </h4>
+                <HorseTable entries={values} {...tableProps} defaultSort="ard" defaultDir="desc" />
+              </div>
+            )}
+
+            {/* EVモデルのみ */}
+            {vbs.length > 0 && (
+              <div>
+                <h4 className="text-xs font-bold mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
+                  EVモデル馬
+                  <span className="text-xs font-normal text-muted-foreground">EV &gt; 閾値（{vbs.length}頭）</span>
+                </h4>
+                <HorseTable entries={vbs} {...tableProps} defaultSort="ev" defaultDir="desc" />
+              </div>
+            )}
           </div>
         )}
+
       </CardContent>
     </Card>
   );

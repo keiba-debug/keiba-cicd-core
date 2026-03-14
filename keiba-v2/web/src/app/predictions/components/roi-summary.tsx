@@ -1,5 +1,4 @@
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 
 interface TrackROIStats {
   vbCount: number;
@@ -14,9 +13,9 @@ interface TrackROIStats {
 }
 
 interface RoiSummaryProps {
-  all: TrackROIStats;
-  betRec: TrackROIStats;
-  betExcl: TrackROIStats;
+  composite: TrackROIStats;
+  pick: TrackROIStats;
+  vbCandidates: TrackROIStats;
 }
 
 function ROIRow({ label, s, badgeClass }: { label: string; s: TrackROIStats; badgeClass?: string }) {
@@ -65,25 +64,25 @@ function ROIRow({ label, s, badgeClass }: { label: string; s: TrackROIStats; bad
   );
 }
 
-export function RoiSummary({ all, betRec, betExcl }: RoiSummaryProps) {
+export function RoiSummary({ composite, pick, vbCandidates }: RoiSummaryProps) {
   return (
     <Card id="section-roi" className="mb-6 border-blue-200 dark:border-blue-800">
       <CardContent className="py-4">
         <div className="flex items-center gap-2 mb-3">
-          <span className="font-bold text-sm">Value Bet 成績サマリー</span>
-          <Badge variant="outline" className="text-xs">結果反映済</Badge>
+          <span className="font-bold text-sm">注目馬 成績サマリー</span>
+          <span className="text-xs text-muted-foreground">結果反映済</span>
         </div>
         <div className="grid grid-cols-6 gap-2 text-center text-[10px] text-muted-foreground border-b pb-1 mb-1">
           <div className="text-left">区分</div>
-          <div>VB数</div>
+          <div>頭数</div>
           <div>単的中</div>
           <div>単勝ROI</div>
           <div>複的中</div>
           <div>複勝ROI</div>
         </div>
-        <ROIRow label="全体" s={all} />
-        <ROIRow label="システム投資" s={betRec} badgeClass="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" />
-        <ROIRow label="非推奨" s={betExcl} badgeClass="bg-gray-100 text-gray-600 dark:bg-gray-800/40 dark:text-gray-400" />
+        <ROIRow label="総合1位" s={composite} badgeClass="bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300" />
+        <ROIRow label="P1位" s={pick} badgeClass="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300" />
+        <ROIRow label="VB候補" s={vbCandidates} badgeClass="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300" />
       </CardContent>
     </Card>
   );

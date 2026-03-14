@@ -8,7 +8,7 @@ import {
   Zap, Play, Loader2, CheckCircle2, XCircle,
   ChevronLeft, ChevronRight, Calendar, RefreshCw,
   ArrowRight, TrendingUp, ChevronDown, ChevronUp, Layers,
-  Download,
+  Download, Bookmark, BookmarkCheck,
 } from 'lucide-react';
 import type { MultiLegRecommendation, PredictionRace } from '@/lib/data/predictions-reader';
 import { MultiLegRecommendations } from '@/app/predictions/components/multi-leg-recommendations';
@@ -223,6 +223,10 @@ export function ExecuteTab() {
   // FF CSV出力
   const [csvExporting, setCsvExporting] = useState(false);
   const [csvResult, setCsvResult] = useState<{ totalBets: number; winBets: number; totalAmount: number; filePath: string } | null>(null);
+
+  // 買い確定
+  const [confirmedBets, setConfirmedBets] = useState<import('@/app/api/bankroll/confirmed-bets/route').ConfirmedBet[]>([]);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -563,8 +567,57 @@ export function ExecuteTab() {
     if (selectedDate) {
       loadPredictions(selectedDate);
       setCsvResult(null);
+      // 確定betもリロード
+      fetch(`/api/bankroll/confirmed-bets?date=${selectedDate}`)
+        .then(r => r.ok ? r.json() : { bets: [] })
+        .then(d => setConfirmedBets(d.bets ?? []))
+        .catch(() => setConfirmedBets([]));
     }
   }, [selectedDate, loadPredictions]);
+
+  // 確定ベットのIDを生成
+  const makeConfirmedId = (rec: RecommendationEntry) => {
+    const pair = rec.wide_pair ? `W${rec.wide_pair[0]}-${rec.wide_pair[1]}` : String(rec.umaban);
+    return `${rec.race_id}-${rec.bet_type}-${pair}`;
+  };
+
+  // 確定ボタン押下（トグル: 確定/解除）
+  const toggleConfirmBet = async (rec: RecommendationEntry) => {
+    const id = makeConfirmedId(rec);
+    setConfirmingId(id);
+    try {
+      const payload = {
+        id,
+        confirmed_at: new Date().toISOString(),
+        date: selectedDate,
+        race_id: rec.race_id,
+        venue: rec.venue,
+        race_number: rec.race_number,
+        umaban: rec.umaban,
+        horse_name: rec.horse_name,
+        bet_type: rec.bet_type,
+        wide_pair: rec.wide_pair ?? null,
+        wide_source: rec.wide_source ?? null,
+        odds_at_confirm: rec.odds,
+        ev_at_confirm: rec.win_ev,
+        gap_at_confirm: rec.win_vb_gap,
+        ar_deviation: rec.ar_deviation ?? null,
+        pred_proba_w: rec.pred_proba_w_cal ?? null,
+        amount: getRecAmount(rec),
+        preset: activePreset,
+        adaptive_rule: rec.adaptive_rule ?? null,
+      };
+      const res = await fetch('/api/bankroll/confirmed-bets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setConfirmedBets(data.bets ?? []);
+    } finally {
+      setConfirmingId(null);
+    }
+  };
 
   // 買い目生成の実行（SSE経由）
   const executeGenerateBets = async () => {
@@ -1066,6 +1119,7 @@ export function ExecuteTab() {
                     <th className="py-2 px-1 text-right">金額</th>
                     <th className="py-2 px-1 text-center">着順</th>
                     <th className="py-2 px-1 text-center">結果</th>
+                    <th className="py-2 px-1 text-center">確定</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1221,6 +1275,29 @@ export function ExecuteTab() {
                         <td className="py-2 px-1 text-center">
                           {isHit === true && <Badge className="bg-green-600 text-white text-[10px]">的中</Badge>}
                           {isHit === false && <Badge variant="secondary" className="text-[10px]">外れ</Badge>}
+                        </td>
+                        <td className="py-2 px-1 text-center">
+                          {(() => {
+                            const cid = makeConfirmedId(rec);
+                            const isConfirmed = confirmedBets.some(b => b.id === cid);
+                            const isLoading = confirmingId === cid;
+                            return (
+                              <button
+                                onClick={() => toggleConfirmBet(rec)}
+                                disabled={isLoading}
+                                title={isConfirmed ? '確定解除' : '買い確定（推奨から消えても記録残す）'}
+                                className={`p-1 rounded transition-colors ${isConfirmed ? 'text-amber-500 hover:text-amber-600' : 'text-gray-300 hover:text-amber-400'}`}
+                              >
+                                {isLoading ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : isConfirmed ? (
+                                  <BookmarkCheck className="h-4 w-4" />
+                                ) : (
+                                  <Bookmark className="h-4 w-4" />
+                                )}
+                              </button>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
@@ -1416,6 +1493,120 @@ export function ExecuteTab() {
               <p><strong>Intersection Filter</strong> — v7.3バックテスト実証済み (2025-03〜2026-02, 3,364レース)</p>
               <p>ROI 310.7% / 的中率 19.6% / 年間46ベット / 月平均3.8回</p>
               <p>推奨配分: 資金の2%（MaxDD 14%, 年間+340%成長）</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 買い確定リスト */}
+      {confirmedBets.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-800">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <BookmarkCheck className="h-4 w-4" />
+              買い確定済み（{confirmedBets.length}件）
+              <span className="text-xs font-normal text-muted-foreground ml-1">
+                推奨から外れても残る記録
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    <th className="py-1.5 px-2 text-left">確定時刻</th>
+                    <th className="py-1.5 px-2 text-left">場</th>
+                    <th className="py-1.5 px-1 text-center">R</th>
+                    <th className="py-1.5 px-1 text-center">馬番</th>
+                    <th className="py-1.5 px-2 text-left">馬名</th>
+                    <th className="py-1.5 px-1 text-center">券種</th>
+                    <th className="py-1.5 px-1 text-right">EV</th>
+                    <th className="py-1.5 px-1 text-right">オッズ</th>
+                    <th className="py-1.5 px-1 text-right">金額</th>
+                    <th className="py-1.5 px-1 text-center">着順</th>
+                    <th className="py-1.5 px-1 text-center">結果</th>
+                    <th className="py-1.5 px-1 text-center">解除</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {confirmedBets.map((cb) => {
+                    const fp = predictions?.finish_positions;
+                    const finish1 = fp?.[cb.race_id]?.[cb.umaban] ?? null;
+                    let isHit: boolean | null = null;
+                    if (fp?.[cb.race_id]) {
+                      if (cb.bet_type === 'ワイド' || cb.bet_type === '馬連') {
+                        const f1 = cb.wide_pair ? fp[cb.race_id]?.[cb.wide_pair[0]] : null;
+                        const f2 = cb.wide_pair ? fp[cb.race_id]?.[cb.wide_pair[1]] : null;
+                        if (f1 != null && f2 != null && f1 > 0 && f2 > 0) {
+                          isHit = cb.bet_type === 'ワイド' ? f1 <= 3 && f2 <= 3 : (f1 === 1 && f2 === 2) || (f1 === 2 && f2 === 1);
+                        }
+                      } else if (cb.bet_type === '単勝' || cb.bet_type === '単複') {
+                        if (finish1 != null && finish1 > 0) isHit = finish1 === 1;
+                      } else if (cb.bet_type === '複勝') {
+                        if (finish1 != null && finish1 > 0) isHit = finish1 <= 3;
+                      }
+                    }
+                    const isCurrentlyInRecs = displayRecs.some(r => makeConfirmedId(r) === cb.id);
+                    return (
+                      <tr key={cb.id} className={`border-b ${isHit === true ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
+                        <td className="py-1.5 px-2 text-xs text-muted-foreground">
+                          {new Date(cb.confirmed_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="py-1.5 px-2 font-medium">
+                          {cb.venue}
+                          {!isCurrentlyInRecs && (
+                            <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-400 dark:bg-gray-800">消</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-1 text-center">{cb.race_number}</td>
+                        <td className="py-1.5 px-1 text-center">
+                          {cb.wide_pair ? (
+                            <span className="font-mono text-xs">{cb.wide_pair[0]}-{cb.wide_pair[1]}</span>
+                          ) : (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 font-bold text-xs">
+                              {cb.umaban}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-2 font-medium">{cb.horse_name}</td>
+                        <td className="py-1.5 px-1 text-center text-xs">{cb.bet_type}</td>
+                        <td className={`py-1.5 px-1 text-right font-mono text-xs ${getEvColor(cb.ev_at_confirm)}`}>
+                          {cb.ev_at_confirm.toFixed(2)}
+                        </td>
+                        <td className="py-1.5 px-1 text-right font-mono text-xs">{cb.odds_at_confirm.toFixed(1)}</td>
+                        <td className="py-1.5 px-1 text-right font-mono text-xs text-orange-600">¥{cb.amount.toLocaleString()}</td>
+                        <td className="py-1.5 px-1 text-center font-mono text-xs">
+                          {finish1 != null && finish1 > 0 ? (
+                            <span className={finish1 <= 3 ? 'text-green-600 font-bold' : ''}>{finish1}着</span>
+                          ) : '—'}
+                        </td>
+                        <td className="py-1.5 px-1 text-center">
+                          {isHit === true && <Badge className="bg-green-600 text-white text-[10px]">的中</Badge>}
+                          {isHit === false && <Badge variant="secondary" className="text-[10px]">外れ</Badge>}
+                        </td>
+                        <td className="py-1.5 px-1 text-center">
+                          <button
+                            onClick={async () => {
+                              const res = await fetch('/api/bankroll/confirmed-bets', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(cb),
+                              });
+                              const data = await res.json();
+                              setConfirmedBets(data.bets ?? []);
+                            }}
+                            className="p-1 text-gray-300 hover:text-red-400 transition-colors"
+                            title="確定解除"
+                          >
+                            <XCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>

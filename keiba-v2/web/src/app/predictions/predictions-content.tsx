@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { RefreshCw } from 'lucide-react';
 import type { PredictionsLive, PredictionRace, PredictionEntry, RaceResultsMap } from '@/lib/data/predictions-reader';
 
 // lib
@@ -35,6 +38,10 @@ interface PredictionsContentProps {
 }
 
 export function PredictionsContent({ data, availableDates = [], currentDate = '', isArchive = false, results }: PredictionsContentProps) {
+  const router = useRouter();
+  const [vbRefreshing, setVbRefreshing] = useState(false);
+  const [vbRefreshLog, setVbRefreshLog] = useState<string[]>([]);
+  const [vbRefreshStatus, setVbRefreshStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const [oddsMap, setOddsMap] = useState<OddsMap>({});
   const [oddsSource, setOddsSource] = useState<string>('');
   const [oddsTime, setOddsTime] = useState<string | null>(null);
@@ -316,30 +323,76 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     return entry.vb_gap;
   }, [liveRankingMap]);
 
-  // 注目馬リスト: 評価馬(Top1/race) + 穴注目(market_signal妙味/穴注目)
+  // 注目馬リスト: composite(総合1位) + pick(Pモデル1位) + both(市場×EV両方) + value(市場のみ) + vb(EVのみ)
   const featuredEntries = useMemo(() => {
     const entries: FeaturedEntry[] = [];
     const added = new Set<string>();
+
+    // 1. 総合1位: P%×W%×ARd composite の最高馬（各レース1頭）
     for (const race of races) {
-      // 評価馬: rank_p=1 の馬 (各レース1頭)
-      const top1 = race.entries.find(e => e.rank_p === 1);
-      if (top1) {
-        const key = `${race.race_id}-${top1.umaban}`;
-        entries.push({ race, entry: top1, category: 'pick' });
+      let best: typeof race.entries[0] | null = null;
+      let bestScore = -1;
+      for (const e of race.entries) {
+        const score = (e.pred_proba_p ?? 0) * (e.pred_proba_w ?? 0) * ((e.ar_deviation ?? 50) / 100);
+        if (score > bestScore) { bestScore = score; best = e; }
+      }
+      if (best) {
+        const key = `${race.race_id}-${best.umaban}`;
+        entries.push({ race, entry: best, category: 'composite' });
         added.add(key);
       }
     }
+
+    // 2. Pモデル TOP1: rank_p=1（総合1位と異なる馬のみ）
+    for (const race of races) {
+      const top1 = race.entries.find(e => e.rank_p === 1);
+      if (top1) {
+        const key = `${race.race_id}-${top1.umaban}`;
+        if (!added.has(key)) {
+          entries.push({ race, entry: top1, category: 'pick' });
+          added.add(key);
+        }
+      }
+    }
+
+    // 3. 市場シグナル×EVモデル 両方一致（★最強候補）
     for (const race of races) {
       for (const entry of race.entries) {
         const key = `${race.race_id}-${entry.umaban}`;
         if (added.has(key)) continue;
-        // 穴注目: market_signal が 穴注目 or 妙味
+        const isMarket = entry.market_signal === '穴注目' || entry.market_signal === '妙味';
+        const isVB = entry.is_value_bet;
+        if (isMarket && isVB) {
+          entries.push({ race, entry, category: 'both' });
+          added.add(key);
+        }
+      }
+    }
+
+    // 4. 市場シグナルのみ（妙味/穴注目、VBでない）
+    for (const race of races) {
+      for (const entry of race.entries) {
+        const key = `${race.race_id}-${entry.umaban}`;
+        if (added.has(key)) continue;
         if (entry.market_signal === '穴注目' || entry.market_signal === '妙味') {
           entries.push({ race, entry, category: 'value' });
           added.add(key);
         }
       }
     }
+
+    // 5. EVモデルのみ（is_value_bet、市場シグナルなし）
+    for (const race of races) {
+      for (const entry of race.entries) {
+        const key = `${race.race_id}-${entry.umaban}`;
+        if (added.has(key)) continue;
+        if (entry.is_value_bet) {
+          entries.push({ race, entry, category: 'vb' });
+          added.add(key);
+        }
+      }
+    }
+
     return entries;
   }, [races]);
 
@@ -850,34 +903,22 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       }
     };
 
-    const all = initTrack();
-    const betExcl = initTrack();
+    const composite = initTrack();
+    const pick = initTrack();
+    const vbCandidates = initTrack();
 
-    // 全体 + 非推奨: VB候補ベース
-    for (const { race, entry } of filteredVBEntries) {
+    // 注目馬リスト: composite + pick カテゴリ
+    for (const { race, entry, category } of filteredFeaturedEntries) {
       const pos = getFinishPos(race.race_id, entry.umaban);
       if (pos <= 0) continue;
-      addEntry(all, race, entry, pos);
-      if (!betRecMap.has(`${race.race_id}-${entry.umaban}`)) {
-        addEntry(betExcl, race, entry, pos);
+      if (category === 'composite') addEntry(composite, race, entry, pos);
+      else if (category === 'pick') addEntry(pick, race, entry, pos);
+      else if (category === 'both' || category === 'value' || category === 'vb') {
+        addEntry(vbCandidates, race, entry, pos);
       }
     }
 
-    // 購入プラン: betRecommendationsベース（VB外のbet recも含む）
-    const betRec = initTrack();
-    for (const r of betRecommendations) {
-      // フィルタ適用（VBテーブルと同じ絞り込み）
-      if (venueFilter !== 'all' && r.race.venue_name !== venueFilter) continue;
-      if (trackFilter !== 'all') {
-        if (trackFilter === 'turf' ? !isTurf(r.race.track_type) : !isDirt(r.race.track_type)) continue;
-      }
-      if (raceNumFilter > 0 && r.race.race_number !== raceNumFilter) continue;
-      const pos = getFinishPos(r.race.race_id, r.entry.umaban);
-      if (pos <= 0) continue;
-      addEntry(betRec, r.race, r.entry, pos);
-    }
-
-    if (all.vbCount === 0 && betRec.vbCount === 0) return null;
+    if (composite.vbCount === 0 && pick.vbCount === 0 && vbCandidates.vbCount === 0) return null;
 
     const calcROI = (b: TrackROI) => ({
       vbCount: b.vbCount,
@@ -891,8 +932,61 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       hasAnyPlaceOdds: b.hasAnyPlaceOdds,
     });
 
-    return { all: calcROI(all), betRec: calcROI(betRec), betExcl: calcROI(betExcl) };
-  }, [filteredVBEntries, dbResults, results, hasResults, oddsMap, getFinishPos, betRecMap, betRecommendations, venueFilter, trackFilter, raceNumFilter]);
+    return { composite: calcROI(composite), pick: calcROI(pick), vbCandidates: calcROI(vbCandidates) };
+  }, [filteredFeaturedEntries, dbResults, results, hasResults, oddsMap, getFinishPos]);
+
+  // --- VB再計算 ---
+  const executeVbRefresh = async () => {
+    setVbRefreshing(true);
+    setVbRefreshLog([]);
+    setVbRefreshStatus('running');
+
+    try {
+      const res = await fetch('/api/admin/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'vb_refresh', date: currentDate }),
+      });
+
+      if (!res.ok) {
+        setVbRefreshStatus('error');
+        setVbRefreshLog([`Error: ${res.status} ${res.statusText}`]);
+        setVbRefreshing(false);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) { setVbRefreshStatus('error'); setVbRefreshing(false); return; }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'log') setVbRefreshLog(prev => [...prev, event.message]);
+              else if (event.type === 'complete') setVbRefreshStatus('success');
+              else if (event.type === 'error') { setVbRefreshStatus('error'); setVbRefreshLog(prev => [...prev, `Error: ${event.message}`]); }
+            } catch { /* non-JSON */ }
+          }
+        }
+      }
+
+      setVbRefreshStatus(s => s === 'error' ? 'error' : 'success');
+      setTimeout(() => router.refresh(), 500);
+    } catch (e) {
+      setVbRefreshStatus('error');
+      setVbRefreshLog([String(e)]);
+    } finally {
+      setVbRefreshing(false);
+    }
+  };
 
   // --- レンダリング ---
 
@@ -912,16 +1006,33 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
             {data.db_odds_coverage && ` (${data.db_odds_coverage})`}
           </p>
         </div>
-        <div className="text-right text-sm text-muted-foreground">
-          <div>生成: {new Date(data.created_at).toLocaleString('ja-JP')}</div>
-          {hasOdds && (
-            <div className="text-xs mt-0.5">
-              DBオッズ: {oddsSource === 'timeseries' ? '時系列' : '確定'}
-              {oddsTime && ` (${oddsTime})`}
-              {isToday && ' 🔄30秒更新'}
+        <div className="flex flex-col items-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={executeVbRefresh}
+            disabled={vbRefreshing}
+            className={vbRefreshStatus === 'success' ? 'border-green-500 text-green-600' : vbRefreshStatus === 'error' ? 'border-red-500 text-red-600' : ''}
+          >
+            <RefreshCw className={`h-4 w-4 mr-1.5 ${vbRefreshing ? 'animate-spin' : ''}`} />
+            {vbRefreshing ? 'VB再計算中...' : 'VB再計算'}
+          </Button>
+          <div className="text-right text-sm text-muted-foreground">
+            <div>生成: {new Date(data.created_at).toLocaleString('ja-JP')}</div>
+            {hasOdds && (
+              <div className="text-xs mt-0.5">
+                DBオッズ: {oddsSource === 'timeseries' ? '時系列' : '確定'}
+                {oddsTime && ` (${oddsTime})`}
+                {isToday && ' 🔄30秒更新'}
+              </div>
+            )}
+            {oddsLoading && <div className="text-xs mt-0.5">オッズ読込中...</div>}
+          </div>
+          {vbRefreshLog.length > 0 && (
+            <div className="text-xs text-muted-foreground max-w-xs text-right truncate">
+              {vbRefreshLog[vbRefreshLog.length - 1]}
             </div>
           )}
-          {oddsLoading && <div className="text-xs mt-0.5">オッズ読込中...</div>}
         </div>
       </div>
 
@@ -972,7 +1083,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         <>
           {/* ROIサマリー */}
           {hasResults && roiStats && (
-            <RoiSummary all={roiStats.all} betRec={roiStats.betRec} betExcl={roiStats.betExcl} />
+            <RoiSummary composite={roiStats.composite} pick={roiStats.pick} vbCandidates={roiStats.vbCandidates} />
           )}
 
           {/* 推奨買い目 */}

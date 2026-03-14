@@ -224,7 +224,12 @@ export default async function IDMComparePage({ params }: PageParams) {
     // pastRacesは新しい順 → 古い順に反転
     const sorted = data.pastRaces.slice().reverse();
     for (const r of sorted) {
-      const idm = r.jrdb_idm && r.jrdb_idm !== 0 ? r.jrdb_idm : null;
+      // SED確定IDM優先、なければKYI事前IDMにフォールバック（若馬・データ未更新レース対応）
+      const idm = (r.jrdb_idm && r.jrdb_idm !== 0)
+        ? r.jrdb_idm
+        : (r.jrdb_pre_idm && r.jrdb_pre_idm !== 0)
+          ? r.jrdb_pre_idm
+          : null;
       if (idm == null) continue;
 
       const ageMonths = calcAgeMonths(birthDate, r.date);
