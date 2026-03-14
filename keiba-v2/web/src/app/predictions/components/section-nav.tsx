@@ -9,7 +9,6 @@ interface SectionNavProps {
   hasBets: boolean;
   hasVB: boolean;
   hasDanger: boolean;
-  hasMultiLeg?: boolean;
   activeTab: PageTab;
   onTabChange: (tab: PageTab) => void;
   raceCount?: number;
@@ -19,12 +18,11 @@ const BET_SECTIONS = [
   { id: 'section-summary', label: 'サマリー', always: true },
   { id: 'section-roi', label: '成績', always: false, needsResults: true },
   { id: 'section-bets', label: 'システム投資', always: false, needsBets: true },
-  { id: 'section-multi-leg', label: 'スポット馬券', always: false, needsMultiLeg: true },
   { id: 'section-vb', label: 'Value Bet', always: false, needsVB: true },
   { id: 'section-danger', label: 'Danger Alert', always: false, needsDanger: true },
 ] as const;
 
-export function SectionNav({ hasResults, hasBets, hasVB, hasDanger, hasMultiLeg = false, activeTab, onTabChange, raceCount = 0 }: SectionNavProps) {
+export function SectionNav({ hasResults, hasBets, hasVB, hasDanger, activeTab, onTabChange, raceCount = 0 }: SectionNavProps) {
   const [activeSection, setActiveSection] = useState('section-summary');
 
   const visibleSections = BET_SECTIONS.filter(s => {
@@ -32,7 +30,6 @@ export function SectionNav({ hasResults, hasBets, hasVB, hasDanger, hasMultiLeg 
     if ('needsResults' in s && s.needsResults) return hasResults;
     if ('needsBets' in s && s.needsBets) return hasBets;
     if ('needsVB' in s && s.needsVB) return hasVB;
-    if ('needsMultiLeg' in s && s.needsMultiLeg) return hasMultiLeg;
     if ('needsDanger' in s && s.needsDanger) return hasDanger;
     return true;
   });
@@ -56,7 +53,7 @@ export function SectionNav({ hasResults, hasBets, hasVB, hasDanger, hasMultiLeg 
     }
 
     return () => observer.disconnect();
-  }, [activeTab, hasResults, hasBets, hasVB, hasDanger, hasMultiLeg]);
+  }, [activeTab, hasResults, hasBets, hasVB, hasDanger]);
 
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);

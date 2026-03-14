@@ -23,7 +23,6 @@ import { BetRecommendations } from './components/bet-recommendations';
 import { VBTable, type FeaturedEntry } from './components/vb-table';
 import { RaceCard } from './components/race-card';
 import { DangerResults } from './components/danger-results';
-import { MultiLegRecommendations } from './components/multi-leg-recommendations';
 
 // --- メインコンポーネント ---
 
@@ -963,7 +962,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         hasBets={betRecommendations.length > 0}
         hasVB={filteredFeaturedEntries.length > 0}
         hasDanger={filteredDangerHorses.length > 0}
-        hasMultiLeg={(data.multi_leg_recommendations?.length ?? 0) > 0}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         raceCount={summary.total_races}
@@ -1009,18 +1007,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
             oddsTime={oddsTime}
           />
 
-          {/* マルチレグ推奨（馬単・ワイド） */}
-          {data.multi_leg_recommendations && data.multi_leg_recommendations.length > 0 && (
-            <MultiLegRecommendations
-              recommendations={data.multi_leg_recommendations}
-              results={results}
-              races={races}
-              venueFilter={venueFilter}
-              trackFilter={trackFilter}
-              raceNumFilter={raceNumFilter}
-            />
-          )}
-
           {/* 注目馬リスト */}
           <VBTable
             featuredEntries={filteredFeaturedEntries}
@@ -1043,6 +1029,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
             dangerMarkSyncing={dangerMarkSyncing}
             dangerMarkResult={dangerMarkResult}
           />
+
         </>
       )}
 

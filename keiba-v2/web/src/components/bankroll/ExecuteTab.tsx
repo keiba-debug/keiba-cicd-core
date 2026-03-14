@@ -10,6 +10,8 @@ import {
   ArrowRight, TrendingUp, ChevronDown, ChevronUp, Layers,
   Download,
 } from 'lucide-react';
+import type { MultiLegRecommendation, PredictionRace } from '@/lib/data/predictions-reader';
+import { MultiLegRecommendations } from '@/app/predictions/components/multi-leg-recommendations';
 
 // =====================================================================
 // 型定義
@@ -102,6 +104,7 @@ interface PredictionsData {
     }>;
   }>;
   finish_positions?: Record<string, Record<number, number>>; // race_id -> {umaban: finish_position}
+  multi_leg_recommendations?: MultiLegRecommendation[];
 }
 
 interface OtherPresetData {
@@ -1416,6 +1419,17 @@ export function ExecuteTab() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* スポット馬券（連系） */}
+      {predictions?.multi_leg_recommendations && predictions.multi_leg_recommendations.length > 0 && (
+        <MultiLegRecommendations
+          recommendations={predictions.multi_leg_recommendations}
+          races={(predictions.races ?? []) as unknown as PredictionRace[]}
+          venueFilter="all"
+          trackFilter="all"
+          raceNumFilter={0}
+        />
       )}
     </div>
   );
