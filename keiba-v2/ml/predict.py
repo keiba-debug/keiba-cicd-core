@@ -470,11 +470,15 @@ def predict_obstacle_race(
 
     # W Model 予測 (v2のみ、異なる特徴量リスト対応)
     pred_w_raw = None
+    pred_w_norm = None
     pred_w_cal = None
     rank_w_dict = {}
     if model_obstacle_w is not None:
         arr_w = _build_arr(features_w)
         pred_w_raw = model_obstacle_w.predict(arr_w)
+        # W レース内正規化 (sum≈100%にする表示用)
+        sum_w = pred_w_raw.sum()
+        pred_w_norm = pred_w_raw / sum_w if sum_w > 0 else pred_w_raw
         cal_w = obstacle_calibrators.get('cal_w') if obstacle_calibrators and isinstance(obstacle_calibrators, dict) else None
         pred_w_cal = cal_w.predict(pred_w_raw) if cal_w is not None else pred_w_raw
         rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w_cal), 1)}
@@ -500,8 +504,9 @@ def predict_obstacle_race(
         odds_rank = odds_rank_dict.get(i, 0)
         umaban = p['umaban']
 
-        # W model 出力
-        w_prob = round(float(pred_w_cal[i]), 6) if pred_w_cal is not None else None
+        # W model 出力 (raw正規化=表示用, cal=EV計算用)
+        w_prob_display = round(float(pred_w_norm[i]), 4) if pred_w_norm is not None else None
+        w_prob_cal = round(float(pred_w_cal[i]), 6) if pred_w_cal is not None else None
         w_rank = rank_w_dict.get(i) if rank_w_dict else None
 
         # 複勝オッズ取得
@@ -511,8 +516,8 @@ def predict_obstacle_race(
             place_low = db_place_odds[umaban].get('odds_low')
             place_high = db_place_odds[umaban].get('odds_high')
 
-        # EV計算
-        win_ev = round(w_prob * odds_val, 4) if w_prob and odds_val > 0 else None
+        # EV計算 (calibrated確率を使う)
+        win_ev = round(w_prob_cal * odds_val, 4) if w_prob_cal and odds_val > 0 else None
         # 複勝EV: raw確率(sum≈3.0) × 複勝最低オッズ
         place_ev = round(float(pred_p_raw[i]) * place_low, 4) if place_low and place_low > 0 else None
 
@@ -530,15 +535,15 @@ def predict_obstacle_race(
             'rank_p': int(rank_p),
             'odds_rank': int(odds_rank),
             'vb_gap': vb_gap,
-            'pred_proba_w': w_prob,
-            'pred_proba_w_cal': w_prob,
+            'pred_proba_w': w_prob_display,
+            'pred_proba_w_cal': w_prob_cal,
             'rank_w': int(w_rank) if w_rank else None,
             'win_vb_gap': win_vb_gap,
             'dev_gap': round(float(_dev_gaps[i]), 4),
             'place_odds_min': place_low, 'place_odds_max': place_high,
             'win_ev': win_ev, 'place_ev': place_ev,
             'predicted_margin': None, 'ar_deviation': None,
-            'is_value_bet': bool(win_ev and win_ev >= 1.3 and w_rank and w_rank <= 2),
+            'is_value_bet': bool(win_ev and win_ev >= 1.3 and w_rank is not None and w_rank <= 2),
             'kb_mark': p['kb_mark'],
             'kb_mark_point': 0, 'kb_training_arrow': '',
             'kb_rating': None, 'kb_comment': '',

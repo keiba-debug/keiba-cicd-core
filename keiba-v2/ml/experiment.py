@@ -1491,12 +1491,14 @@ def train_model(
     label_col: str = 'is_top3',
     model_name: str = 'model',
     num_boost_round: int = 1500,
+    sample_weight: np.ndarray = None,
 ) -> Tuple:
     """LightGBMモデルを学習
 
     3-way split: train=学習, val=early stopping, test=純粋評価
     NaN処理はLightGBMネイティブに委ねる（fillna(-1)しない）
     IsotonicRegressionでキャリブレーション（valセットでfit → testセットに適用）
+    sample_weight: 学習データの重み（Noneで等重み）
     """
     import lightgbm as lgb
 
@@ -1507,11 +1509,15 @@ def train_model(
     X_test = df_test[feature_cols]
     y_test = df_test[label_col]
 
-    train_data = lgb.Dataset(X_train, label=y_train)
+    train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weight)
     valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
+    weight_info = ""
+    if sample_weight is not None:
+        weight_info = (f", weight=[{sample_weight.min():.3f}~{sample_weight.max():.3f}], "
+                       f"mean={sample_weight.mean():.3f}")
     print(f"\n[Train] {model_name}: {len(feature_cols)} features, "
-          f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}")
+          f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}{weight_info}")
 
     model = lgb.train(
         params, train_data, num_boost_round=num_boost_round,
@@ -2191,12 +2197,14 @@ def train_regression_model(
     params: dict,
     model_name: str = 'Aura',
     num_boost_round: int = 1500,
+    sample_weight: np.ndarray = None,
 ) -> Tuple:
     """着差回帰モデル (LGBMRegressor) を学習
 
     target_margin カラムが必要（add_margin_target_to_df() で事前追加）。
     NOTE: 分類モデルと異なりcalibratorを返さない (4-tuple)。
     将来 margin→P(win) 変換が必要な場合は calibrator 追加を検討。
+    sample_weight: 学習データの重み（Noneで等重み）
 
     Returns:
         (model, metrics, importance, all_predictions)
@@ -2215,11 +2223,19 @@ def train_regression_model(
     X_test = df_test.loc[mask_test, feature_cols]
     y_test = df_test.loc[mask_test, 'target_margin']
 
-    # 血統カテゴリ特徴量の検出
-    print(f"\n[Train] {model_name}: {len(feature_cols)} features, "
-          f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}")
+    # 回帰モデルのweight: mask_trainでフィルタしてからslice
+    w_train = None
+    if sample_weight is not None:
+        w_train = sample_weight[mask_train.values]
 
-    train_data = lgb.Dataset(X_train, label=y_train)
+    weight_info = ""
+    if w_train is not None:
+        weight_info = (f", weight=[{w_train.min():.3f}~{w_train.max():.3f}], "
+                       f"mean={w_train.mean():.3f}")
+    print(f"\n[Train] {model_name}: {len(feature_cols)} features, "
+          f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}{weight_info}")
+
+    train_data = lgb.Dataset(X_train, label=y_train, weight=w_train)
     valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
     model = lgb.train(
@@ -2399,6 +2415,35 @@ def parse_period_range(s: str) -> Tuple[int, int, int, int]:
         return y, m, y, m
 
 
+def _compute_time_weights(df: pd.DataFrame, half_life_years: float) -> np.ndarray:
+    """指数減衰による時間重みを計算
+
+    Args:
+        df: 'date'列を持つDataFrame（YYYY-MM-DD形式）
+        half_life_years: 半減期（年）。2.0なら2年前のデータは重み0.5
+
+    Returns:
+        np.ndarray: 各行の重み（最新=1.0に正規化）
+    """
+    dates = pd.to_datetime(df['date'])
+    max_date = dates.max()
+    # 日数差 → 年差
+    years_ago = (max_date - dates).dt.days / 365.25
+    # 指数減衰: w = 2^(-years_ago / half_life)
+    decay_rate = np.log(2) / half_life_years
+    weights = np.exp(-decay_rate * years_ago.values)
+
+    print(f"\n[TimeDecay] half_life={half_life_years}y, "
+          f"weight range: {weights.min():.4f} ~ {weights.max():.4f}, "
+          f"mean={weights.mean():.4f}")
+    # 年ごとの平均重みを表示
+    df_tmp = pd.DataFrame({'year': dates.dt.year, 'weight': weights})
+    for year, grp in df_tmp.groupby('year'):
+        print(f"  {year}: n={len(grp):>6,}, avg_weight={grp['weight'].mean():.4f}")
+
+    return weights
+
+
 def _format_period(year: int, month: int = None) -> str:
     """期間をラベル文字列に変換"""
     if month:
@@ -2442,6 +2487,8 @@ def main():
                         help='血統統計カットオフ日 (YYYY-MM-DD)。cutoff付きインデックスを使用')
     parser.add_argument('--perf-stack', action='store_true',
                         help='Perfモデル予測をスタッキング特徴量として追加')
+    parser.add_argument('--time-decay', type=float, default=0,
+                        help='時間重みの半減期（年）。0=重みなし（従来動作）。例: 2.0=2年で重み半減')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -2498,6 +2545,8 @@ def main():
     print(f"  Model A features: {len(FEATURE_COLS_ALL)}")
     print(f"  Model B features: {len(FEATURE_COLS_VALUE)}")
     print(f"  NaN handling: LightGBM native")
+    if args.time_decay > 0:
+        print(f"  Time decay: half-life={args.time_decay}y (exponential)")
     print(f"{'='*60}\n")
 
     t0 = time.time()
@@ -2590,6 +2639,11 @@ def main():
           f"{df_val['race_id'].nunique():,} races")
     print(f"[Dataset] Test:  {len(df_test):,} entries from "
           f"{df_test['race_id'].nunique():,} races")
+
+    # === Time Decay Weights ===
+    train_sample_weight = None
+    if args.time_decay > 0:
+        train_sample_weight = _compute_time_weights(df_train, args.time_decay)
 
     # === Feature Pruning ===
     feature_cols_value = list(FEATURE_COLS_VALUE)
@@ -2834,12 +2888,14 @@ def main():
     model_p, metrics_p, importance_p, pred_p, cal_p, pred_p_raw = train_model(
         df_train, df_val, df_test, features_p, params_p, 'is_top3', 'Place',
         num_boost_round=optuna_num_boost_round.get('p', 1500),
+        sample_weight=train_sample_weight,
     )
 
     # === Win モデル W (is_win) ===
     model_w, metrics_w, importance_w, pred_w, cal_w, pred_w_raw = train_model(
         df_train, df_val, df_test, features_w, params_w, 'is_win', 'Win',
         num_boost_round=optuna_num_boost_round.get('w', 1500),
+        sample_weight=train_sample_weight,
     )
 
     # === Aura モデル AR (着差回帰) ===
@@ -2851,6 +2907,7 @@ def main():
     model_ar, metrics_ar, importance_ar, pred_ar = train_regression_model(
         df_train, df_val, df_test, features_ar, params_ar, 'Aura',
         num_boost_round=optuna_num_boost_round.get('ar', 1500),
+        sample_weight=train_sample_weight,
     )
 
     # 予測結果をDataFrameに追加
@@ -3181,6 +3238,7 @@ def main():
         'split': {'train': train_label, 'val': val_label, 'test': test_label},
         'optuna_optimized': optuna_optimized,
         'sire_cutoff': args.sire_cutoff,
+        'time_decay_half_life': args.time_decay if args.time_decay > 0 else None,
     }
     # Optunaでモデル別特徴量が異なる場合、個別リストも保存
     if optuna_optimized and optuna_feature_cols:
@@ -3207,6 +3265,10 @@ def main():
             'prune_bottom_pct': args.prune_bottom,
             'pruned_features': pruned_features,
         } if pruned_features else None,
+        'time_decay': {
+            'half_life_years': args.time_decay,
+            'enabled': args.time_decay > 0,
+        },
         'models': {
             'place': {
                 'target': 'is_top3',

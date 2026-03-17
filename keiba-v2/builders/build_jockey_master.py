@@ -92,14 +92,44 @@ def build_jockey_stats(years: List[int]) -> Dict[str, Dict]:
     return jockeys
 
 
+def _empty_close_bucket():
+    return {'close_wins': 0, 'close_seconds': 0}
+
+
+def _distance_bucket(distance: int) -> str:
+    """距離をバケット化: sprint/mile/intermediate/long/extended"""
+    if distance <= 1400:
+        return 'sprint'
+    elif distance <= 1800:
+        return 'mile'
+    elif distance <= 2200:
+        return 'intermediate'
+    elif distance <= 2800:
+        return 'long'
+    else:
+        return 'extended'
+
+
 def build_close_finish_stats(years: List[int]) -> Dict[str, Dict]:
     """レースJSONから騎手別の接戦成績を集計
 
     接戦の定義: 1着と2着のタイム差 <= 0.1秒
+
+    返却値: {jockey_code: {
+        close_wins, close_seconds,
+        by_year: {YYYY: {close_wins, close_seconds}},
+        by_track: {turf/dirt: {close_wins, close_seconds}},
+        by_distance: {sprint/mile/..: {close_wins, close_seconds}},
+    }}
     """
     print(f"[Close] Scanning race JSONs for close finish stats...")
 
-    close_stats = defaultdict(lambda: {'close_wins': 0, 'close_seconds': 0})
+    close_stats = defaultdict(lambda: {
+        'close_wins': 0, 'close_seconds': 0,
+        'by_year': defaultdict(_empty_close_bucket),
+        'by_track': defaultdict(_empty_close_bucket),
+        'by_distance': defaultdict(_empty_close_bucket),
+    })
     race_count = 0
     close_count = 0
 
@@ -136,12 +166,25 @@ def build_close_finish_stats(years: List[int]) -> Dict[str, Dict]:
             diff = abs(t2 - t1)
             if diff <= 0.1:
                 close_count += 1
+
+                # レース条件を取得
+                race_year = data.get('race_date', '')[:4] or str(year)
+                track_type = data.get('track_type', '')  # turf / dirt
+                distance = data.get('distance', 0) or 0
+                dist_bucket = _distance_bucket(distance)
+
                 jc1 = first.get('jockey_code', '')
                 jc2 = second.get('jockey_code', '')
-                if jc1:
-                    close_stats[jc1]['close_wins'] += 1
-                if jc2:
-                    close_stats[jc2]['close_seconds'] += 1
+                for jc, key in [(jc1, 'close_wins'), (jc2, 'close_seconds')]:
+                    if not jc:
+                        continue
+                    cs = close_stats[jc]
+                    cs[key] += 1
+                    cs['by_year'][race_year][key] += 1
+                    if track_type:
+                        cs['by_track'][track_type][key] += 1
+                    if distance > 0:
+                        cs['by_distance'][dist_bucket][key] += 1
 
     print(f"  Scanned {race_count:,} races, "
           f"found {close_count:,} close finishes (<=0.1s), "
@@ -162,6 +205,27 @@ def _parse_time(time_str: str):
         return None
 
 
+def _close_rate(bucket: dict) -> float:
+    """接戦バケットから勝率を計算"""
+    total = bucket.get('close_wins', 0) + bucket.get('close_seconds', 0)
+    if total <= 0:
+        return 0
+    return round(bucket['close_wins'] / total, 4)
+
+
+def _format_close_bucket(bucket: dict) -> dict:
+    """接戦バケットをJSON出力用に整形"""
+    cw = bucket.get('close_wins', 0)
+    cs = bucket.get('close_seconds', 0)
+    ct = cw + cs
+    return {
+        'close_wins': cw,
+        'close_seconds': cs,
+        'close_total': ct,
+        'close_win_rate': round(cw / ct, 4) if ct > 0 else 0,
+    }
+
+
 def finalize_stats(jockeys: Dict[str, Dict],
                    close_stats: Dict[str, Dict] = None) -> List[Dict]:
     """勝率・連対率・複勝率を計算して最終形式に変換"""
@@ -174,6 +238,9 @@ def finalize_stats(jockeys: Dict[str, Dict],
         close_wins = cs.get('close_wins', 0)
         close_seconds = cs.get('close_seconds', 0)
         close_total = close_wins + close_seconds
+
+        # 年度別接戦統計
+        cs_by_year = cs.get('by_year', {})
 
         entry = {
             'code': j['code'],
@@ -190,6 +257,15 @@ def finalize_stats(jockeys: Dict[str, Dict],
             'close_seconds': close_seconds,
             'close_total': close_total,
             'close_win_rate': round(close_wins / close_total, 4) if close_total > 0 else 0,
+            # v5.7: 条件別接戦統計
+            'close_by_track': {
+                t: _format_close_bucket(b)
+                for t, b in cs.get('by_track', {}).items()
+            },
+            'close_by_distance': {
+                d: _format_close_bucket(b)
+                for d, b in cs.get('by_distance', {}).items()
+            },
             'venue_stats': {
                 vc: {
                     'runs': vs['runs'],
@@ -205,6 +281,8 @@ def finalize_stats(jockeys: Dict[str, Dict],
                     'wins': ys['wins'],
                     'top3': ys['top3'],
                     'top3_rate': round(ys['top3'] / ys['runs'], 4) if ys['runs'] > 0 else 0,
+                    # 年度別接戦統計をマージ
+                    **_format_close_bucket(cs_by_year.get(y, {})),
                 }
                 for y, ys in sorted(j['year_stats'].items())
             },
@@ -262,6 +340,16 @@ def main():
         print(f"    {j['name']:>8} ({j['code']}): {j['total_runs']:>5} runs, "
               f"win={j['win_rate']:.1%}, top3={j['top3_rate']:.1%}, "
               f"close={j['close_wins']}/{j['close_total']}={j['close_win_rate']:.1%}")
+    # 接戦統計サマリ
+    has_close = [j for j in result if j['close_total'] >= 10]
+    if has_close:
+        avg_rate = sum(j['close_win_rate'] for j in has_close) / len(has_close)
+        print(f"\n  Close finish stats (>= 10 samples): {len(has_close)} jockeys, "
+              f"avg close_win_rate={avg_rate:.1%}")
+        top3_close = sorted(has_close, key=lambda x: x['close_win_rate'], reverse=True)[:3]
+        for j in top3_close:
+            print(f"    {j['name']:>8}: {j['close_win_rate']:.1%} "
+                  f"({j['close_wins']}/{j['close_total']})")
     print(f"{'='*60}\n")
 
 
