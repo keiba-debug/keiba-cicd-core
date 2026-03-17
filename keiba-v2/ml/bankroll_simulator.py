@@ -135,17 +135,17 @@ FILTERS = {
     "ev_strict": {
         "label": "EV Strict (EV>=1.3 rank<=2)",
         "fn": lambda e: (
-            e.get('win_ev', 0) >= 1.3
-            and e.get('ar_deviation', 0) >= 50
-            and e.get('rank_w', 99) <= 2
+            (e.get('win_ev') or 0) >= 1.3
+            and (e.get('ar_deviation') or 0) >= 50
+            and (e.get('rank_w') or 99) <= 2
         ),
     },
     "aggressive": {
         "label": "Aggressive (EV>=1.5 gap>=5)",
         "fn": lambda e: (
             e.get('rank_w') == 1
-            and e.get('win_vb_gap', 0) >= 5
-            and e.get('win_ev', 0) >= 1.5
+            and (e.get('win_vb_gap') or 0) >= 5
+            and (e.get('win_ev') or 0) >= 1.5
         ),
     },
 }

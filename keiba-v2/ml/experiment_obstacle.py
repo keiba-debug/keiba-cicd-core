@@ -35,7 +35,7 @@ from ml.experiment import (
     load_data, load_race_json, compute_features_for_race,
     build_pit_personnel_timeline, train_model,
     calc_hit_analysis_v2, calc_roi_analysis,
-    parse_period_range,
+    parse_period_range, _compute_time_weights,
     BASE_FEATURES, PAST_FEATURES, TRAINER_FEATURES, JOCKEY_FEATURES,
     RUNNING_STYLE_FEATURES, ROTATION_FEATURES, SPEED_FEATURES,
     PEDIGREE_FEATURES,
@@ -389,6 +389,8 @@ def main():
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
     parser.add_argument('--use-optuna', action='store_true',
                         help='Optuna最適化パラメータを使用')
+    parser.add_argument('--time-decay', type=float, default=0,
+                        help='Time decay half-life in years (0=disabled)')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -436,6 +438,8 @@ def main():
           f"depth={PARAMS_OBSTACLE_P['max_depth']}")
     print(f"  W Params: leaves={PARAMS_OBSTACLE_W['num_leaves']}, "
           f"depth={PARAMS_OBSTACLE_W['max_depth']}")
+    if args.time_decay > 0:
+        print(f"  Time decay: half-life={args.time_decay}y (exponential)")
     print(f"{'='*60}\n")
 
     t0 = time.time()
@@ -448,7 +452,7 @@ def main():
 
     # PIT timeline（平地用）
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline(
-        years=list(range(2019, 2027))
+        years=list(range(train_min, 2027))
     )
 
     # 障害専用PIT timeline（騎手/調教師の障害成績）
@@ -526,6 +530,11 @@ def main():
         w_features = [f for f in optuna_w_features if f in df_train.columns]
         print(f"[Optuna W] Using {len(w_features)} features (optuna selected)")
 
+    # Time decay weights
+    train_sample_weight = None
+    if args.time_decay > 0:
+        train_sample_weight = _compute_time_weights(df_train, args.time_decay)
+
     # === P Model (Place: is_top3) ===
     print(f"\n{'='*60}")
     print(f"  Training P Model (Place: is_top3)")
@@ -534,7 +543,8 @@ def main():
     p_params = optuna_p_params if optuna_p_params else PARAMS_OBSTACLE_P
     model_p, metrics_p, importance_p, pred_p_cal, calibrator_p, pred_p_raw = train_model(
         df_train, df_val, df_test, p_features,
-        p_params, 'is_top3', 'Obstacle_P'
+        p_params, 'is_top3', 'Obstacle_P',
+        sample_weight=train_sample_weight,
     )
 
     # === W Model (Win: is_win) ===
@@ -555,7 +565,8 @@ def main():
 
     model_w, metrics_w, importance_w, pred_w_cal, calibrator_w, pred_w_raw = train_model(
         df_train, df_val, df_test, w_features,
-        params_w, 'is_win', 'Obstacle_W'
+        params_w, 'is_win', 'Obstacle_W',
+        sample_weight=train_sample_weight,
     )
 
     # === 分析 ===
@@ -669,6 +680,7 @@ def main():
         'val_period': f"{_format_period(val_min, val_min_m)} ~ {_format_period(val_max, val_max_m)}",
         'test_period': f"{_format_period(test_min, test_min_m)} ~ {_format_period(test_max, test_max_m)}",
         'use_optuna': args.use_optuna,
+        'time_decay_half_life': args.time_decay if args.time_decay > 0 else None,
         'features_p': p_features,
         'features_w': w_features,
         'feature_count_p': len(p_features),
