@@ -451,7 +451,7 @@ class BetRecommendation:
     race_id: str
     umaban: int
     horse_name: str
-    bet_type: str               # '単勝' | '複勝' | '単複' | 'ワイド' | '馬連'
+    bet_type: str               # '単勝' | '複勝' | '単複' | 'ワイド' | '馬連' | '馬単'
     strength: str               # 'strong' | 'normal'
     win_amount: int = 0         # 単勝購入額 (100円単位)
     place_amount: int = 0       # 複勝購入額 (100円単位)
@@ -1101,6 +1101,53 @@ def generate_recommendations(
                     )
                     all_recs.append(umaren_rec)
 
+            # 障害馬単: 3パターン（重複排除）
+            # BT分析: P1→P2が11.2%で最高的中率、W1→W2が7.8%
+            # v2.5bモデルではW Top1勝率45%に上昇→W1ベースも期待大
+            sorted_by_rw = sorted(entries, key=lambda x: x.get('rank_w') or 99)
+            if len(sorted_by_rw) >= 2 and len(sorted_by_rp) >= 2:
+                w1 = sorted_by_rw[0]
+                w2 = sorted_by_rw[1]
+                p1 = sorted_by_rp[0]
+                p2 = sorted_by_rp[1]
+                umatan_pairs_added = set()  # (1着馬番, 2着馬番) で重複排除
+
+                def _add_umatan(first_e, second_e):
+                    pair_key = (first_e['umaban'], second_e['umaban'])
+                    if pair_key in umatan_pairs_added:
+                        return
+                    if pair_key[0] == pair_key[1]:
+                        return
+                    umatan_pairs_added.add(pair_key)
+                    f_uma, s_uma = pair_key
+                    f_name = first_e.get('horse_name', '?')
+                    s_name = second_e.get('horse_name', '?')
+                    est_umaren = _lookup_umaren_odds(
+                        _umaren_odds_cache, f_uma, s_uma
+                    ) if _umaren_odds_cache else 0
+                    est_odds = round(est_umaren * 2, 1) if est_umaren else 0
+                    rec = BetRecommendation(
+                        race_id=race_id,
+                        umaban=f_uma,
+                        horse_name=f"{f_name}→{s_name}",
+                        bet_type='馬単',
+                        strength='normal',
+                        win_amount=params.bet_unit,
+                        place_amount=0,
+                        odds=est_odds,
+                        wide_pair=[f_uma, s_uma],  # 1着→2着の順
+                        wide_source='障害',
+                    )
+                    all_recs.append(rec)
+
+                # (1) P1→P2: 最高的中率11.2%
+                _add_umatan(p1, p2)
+                # (2) W1→W2: 7.8%、v2.5bで上昇期待
+                _add_umatan(w1, w2)
+                # (3) P1→W2: P1≠W1の場合のクロス 6.9%
+                if p1['umaban'] != w1['umaban']:
+                    _add_umatan(p1, w2)
+
         # --- 激戦ワイド: pair_agree フィルタ (非障害, 14頭以下) ---
         # v5: ワイドオッズフロア>=2.0追加 + 馬連同時生成
         # BT: 全件ROI 85%→odds>=2.0でROI 103%, +馬連でROI 107%
@@ -1398,6 +1445,7 @@ def recommendations_summary(recs: List[BetRecommendation]) -> dict:
     place_bets = [r for r in recs if r.bet_type in ('複勝', '単複')]
     wide_bets = [r for r in recs if r.bet_type == 'ワイド']
     umaren_bets = [r for r in recs if r.bet_type == '馬連']
+    umatan_bets = [r for r in recs if r.bet_type == '馬単']
 
     return {
         'total_bets': len(recs),
@@ -1406,6 +1454,7 @@ def recommendations_summary(recs: List[BetRecommendation]) -> dict:
         'place_bets': len(place_bets),
         'wide_bets': len(wide_bets),
         'umaren_bets': len(umaren_bets),
+        'umatan_bets': len(umatan_bets),
         'win_amount': sum(r.win_amount for r in recs),
         'place_amount': sum(r.place_amount for r in recs),
         'strong_count': sum(1 for r in recs if r.strength == 'strong'),
@@ -1541,17 +1590,20 @@ def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[di
     total_place_return = 0
     win_hits = 0
     place_hits = 0
-    # ワイド/馬連 別集計
+    # ワイド/馬連/馬単 別集計
     wide_bet = 0
     wide_return = 0
     wide_hits = 0
     umaren_bet = 0
     umaren_return = 0
     umaren_hits = 0
+    umatan_bet = 0
+    umatan_return = 0
+    umatan_hits = 0
 
     for r in recs:
         # --- ワイド/馬連: ペア判定 ---
-        if r.bet_type in ('ワイド', '馬連') and r.wide_pair:
+        if r.bet_type in ('ワイド', '馬連', '馬単') and r.wide_pair:
             bet_amt = r.win_amount
             u1, u2 = r.wide_pair[0], r.wide_pair[1]
             e1 = entry_lookup.get((r.race_id, u1))
@@ -1566,7 +1618,7 @@ def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[di
                     ret = r.odds * bet_amt if r.odds > 0 else 0
                     wide_return += ret
                     wide_hits += 1
-            else:  # 馬連
+            elif r.bet_type == '馬連':
                 umaren_bet += bet_amt
                 # 馬連ヒット: 両方2着内
                 fp1 = e1.get('finish_position', 99)
@@ -1575,6 +1627,15 @@ def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[di
                     ret = r.odds * bet_amt if r.odds > 0 else 0
                     umaren_return += ret
                     umaren_hits += 1
+            else:  # 馬単
+                umatan_bet += bet_amt
+                # 馬単ヒット: pair[0]が1着 かつ pair[1]が2着
+                fp1 = e1.get('finish_position', 99)
+                fp2 = e2.get('finish_position', 99)
+                if fp1 == 1 and fp2 == 2:
+                    ret = r.odds * bet_amt if r.odds > 0 else 0
+                    umatan_return += ret
+                    umatan_hits += 1
             continue
 
         # --- 単勝/複勝/単複 ---
@@ -1598,8 +1659,8 @@ def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[di
                     total_place_return += max(entry['odds'] / 3.5, 1.1) * r.place_amount
                 place_hits += 1
 
-    total_bet = total_win_bet + total_place_bet + wide_bet + umaren_bet
-    total_return = total_win_return + total_place_return + wide_return + umaren_return
+    total_bet = total_win_bet + total_place_bet + wide_bet + umaren_bet + umatan_bet
+    total_return = total_win_return + total_place_return + wide_return + umaren_return + umatan_return
 
     return {
         'total_bet': total_bet,
@@ -1621,6 +1682,10 @@ def calc_bet_engine_roi(recs: List[BetRecommendation], race_predictions: List[di
         'umaren_return': round(umaren_return),
         'umaren_roi': round(umaren_return / umaren_bet * 100, 1) if umaren_bet > 0 else 0,
         'umaren_hits': umaren_hits,
+        'umatan_bet': umatan_bet,
+        'umatan_return': round(umatan_return),
+        'umatan_roi': round(umatan_return / umatan_bet * 100, 1) if umatan_bet > 0 else 0,
+        'umatan_hits': umatan_hits,
         'num_bets': len(recs),
     }
 

@@ -147,8 +147,9 @@ def apply_bet_engine(
         s = recommendations_summary(recs)
         wide_str = f", Wide={s['wide_bets']}" if s.get('wide_bets') else ""
         umaren_str = f", Umaren={s['umaren_bets']}" if s.get('umaren_bets') else ""
+        umatan_str = f", Umatan={s['umatan_bets']}" if s.get('umatan_bets') else ""
         print(f"  {preset_name}: {s['total_bets']} bets, "
-              f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}, "
+              f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}{umatan_str}, "
               f"Amount={s['total_amount']:,}")
 
     # --- adaptive プリセット ---
@@ -169,8 +170,9 @@ def apply_bet_engine(
         s = recommendations_summary(adaptive_recs)
         wide_str = f", Wide={s['wide_bets']}" if s.get('wide_bets') else ""
         umaren_str = f", Umaren={s['umaren_bets']}" if s.get('umaren_bets') else ""
+        umatan_str = f", Umatan={s['umatan_bets']}" if s.get('umatan_bets') else ""
         print(f"  adaptive: {s['total_bets']} bets, "
-              f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}, "
+              f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}{umatan_str}, "
               f"Amount={s['total_amount']:,}")
 
     # マルチレグ推奨生成

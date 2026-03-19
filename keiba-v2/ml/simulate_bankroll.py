@@ -7,8 +7,8 @@ backtest_cache.json の全レースデータに bet_engine の各プリセット
   bet_engine.generate_recommendations() を直接呼び出す。
   馬券画面(ExecuteTab)と完全に同一の買い目で検証。
 
-対応券種: 単勝, 複勝, 単複, ワイド(激戦/障害), 馬連(激戦/障害)
-精算: 単勝=is_win*odds, 複勝=is_top3*place_odds_min, ワイド/馬連=haraimodoshi実配当
+対応券種: 単勝, 複勝, 単複, ワイド(激戦/障害), 馬連(激戦/障害), 馬単(障害)
+精算: 単勝=is_win*odds, 複勝=is_top3*place_odds_min, ワイド/馬連/馬単=haraimodoshi実配当
 
 Usage:
     python -m ml.simulate_bankroll
@@ -188,6 +188,10 @@ def load_haraimodoshi(race_codes: List[str]):
     for i in range(1, 4):
         cols.extend([f"UMAREN{i}_KUMIBAN1", f"UMAREN{i}_KUMIBAN2",
                      f"UMAREN{i}_HARAIMODOSHIKIN"])
+    # 馬単 1-6
+    for i in range(1, 7):
+        cols.extend([f"UMATAN{i}_KUMIBAN1", f"UMATAN{i}_KUMIBAN2",
+                     f"UMATAN{i}_HARAIMODOSHIKIN"])
 
     col_str = ", ".join(cols)
     batch_size = 500
@@ -201,7 +205,7 @@ def load_haraimodoshi(race_codes: List[str]):
             cur.execute(sql, batch)
             for row in cur.fetchall():
                 rc = row["RACE_CODE"].strip()
-                payouts = {"wide": [], "umaren": []}
+                payouts = {"wide": [], "umaren": [], "umatan": []}
 
                 for i in range(1, 8):
                     k1 = _pi(row.get(f"WIDE{i}_KUMIBAN1", ""))
@@ -217,6 +221,14 @@ def load_haraimodoshi(race_codes: List[str]):
                     if k1 and k2 and pay:
                         payouts["umaren"].append((frozenset({k1, k2}), pay))
 
+                for i in range(1, 7):
+                    k1 = _pi(row.get(f"UMATAN{i}_KUMIBAN1", ""))
+                    k2 = _pi(row.get(f"UMATAN{i}_KUMIBAN2", ""))
+                    pay = _pi(row.get(f"UMATAN{i}_HARAIMODOSHIKIN", ""))
+                    if k1 and k2 and pay:
+                        # 馬単は順序あり: (1着, 2着) のタプル
+                        payouts["umatan"].append(((k1, k2), pay))
+
                 _haraimodoshi_cache[rc] = payouts
         cur.close()
 
@@ -224,13 +236,25 @@ def load_haraimodoshi(race_codes: List[str]):
 
 
 def _lookup_haraimodoshi(race_id: str, bet_type: str, pair: list) -> int:
-    """実配当を検索。Returns 100円あたりの払戻金（0=ハズレ）"""
+    """実配当を検索。Returns 100円あたりの払戻金（0=ハズレ）
+
+    馬単は順序あり: pair=[1着馬番, 2着馬番]
+    ワイド/馬連は順序なし: pair=[馬番, 馬番]
+    """
     payouts = _haraimodoshi_cache.get(race_id, {})
     entries = payouts.get(bet_type, [])
-    target = frozenset({pair[0], pair[1]})
-    for combo, pay in entries:
-        if combo == target:
-            return pay  # 100円あたりの払戻金
+    if bet_type == "umatan":
+        # 馬単: 順序あり (1着, 2着)
+        target = (pair[0], pair[1])
+        for combo, pay in entries:
+            if combo == target:
+                return pay
+    else:
+        # ワイド/馬連: 順序なし
+        target = frozenset({pair[0], pair[1]})
+        for combo, pay in entries:
+            if combo == target:
+                return pay
     return 0
 
 
@@ -258,13 +282,14 @@ def _rec_to_sim_bet(rec: BetRecommendation, race_entries: dict) -> dict:
             "entry": entry,
             "rec": rec,
         }
-    elif bt in ('ワイド', '馬連'):
+    elif bt in ('ワイド', '馬連', '馬単'):
         pair = rec.wide_pair or [rec.umaban, rec.umaban]
         e1 = race_entries.get(pair[0], {})
         e2 = race_entries.get(pair[1], {})
+        sim_type = {"ワイド": "wide", "馬連": "umaren", "馬単": "umatan"}[bt]
         return {
-            "bet_type": "wide" if bt == 'ワイド' else "umaren",
-            "pair": pair,
+            "bet_type": sim_type,
+            "pair": pair,  # 馬単: [1着馬番, 2着馬番] の順序
             "entries": [e1, e2],
             "num_runners": len(race_entries),
             "race_id": rec.race_id,
@@ -275,7 +300,7 @@ def _rec_to_sim_bet(rec: BetRecommendation, race_entries: dict) -> dict:
 
 def _bet_type_to_sim(bt: str) -> str:
     return {"単勝": "win", "複勝": "place", "単複": "win_place",
-            "ワイド": "wide", "馬連": "umaren"}.get(bt, "win")
+            "ワイド": "wide", "馬連": "umaren", "馬単": "umatan"}.get(bt, "win")
 
 
 # ── Settlement ──
@@ -323,6 +348,14 @@ def settle_bet(bet: dict) -> Tuple[int, float]:
             return (1, pay / 100)  # 100円あたり倍率
         return (1, 0)
 
+    elif bt == "umatan":
+        race_id = bet.get("race_id", "")
+        pair = bet["pair"]  # [1着馬番, 2着馬番] 順序あり
+        pay = _lookup_haraimodoshi(race_id, "umatan", pair)
+        if pay > 0:
+            return (1, pay / 100)  # 100円あたり倍率
+        return (1, 0)
+
     return (0, 0)
 
 
@@ -352,7 +385,7 @@ def get_bet_ev(bet: dict) -> float:
         p_both = p1 * p2 * 0.8
         payout = (o1 + o2) * 0.8
         return p_both * payout
-    elif bt == "umaren":
+    elif bt in ("umaren", "umatan"):
         return 0.8  # conservative default
     return 1.0
 
@@ -387,7 +420,7 @@ def calc_bet_kelly_fraction(bet: dict) -> float:
         p_both = p1 * p2 * 0.8
         payout = (o1 + o2) * 0.8
         return calc_kelly(p_both, payout)
-    elif bt == "umaren":
+    elif bt in ("umaren", "umatan"):
         return 0.01
     return 0.0
 
@@ -422,10 +455,12 @@ def run_simulation(dates_races: dict, preset_name: str, budget_cfg: dict):
     place_bets = 0
     wide_bets = 0
     umaren_bets = 0
+    umatan_bets = 0
     win_hits = 0
     place_hits = 0
     wide_hits = 0
     umaren_hits = 0
+    umatan_hits = 0
     total_bets_count = 0
 
     # Streak tracking
@@ -475,7 +510,7 @@ def run_simulation(dates_races: dict, preset_name: str, budget_cfg: dict):
             for b in day_bets:
                 bt = b["bet_type"]
                 # ワイド/馬連は補助券種のため固定比率(bankroll×1%)
-                if bt in ("wide", "umaren"):
+                if bt in ("wide", "umaren", "umatan"):
                     amount = max(100, int(bankroll * 0.01 / 100) * 100)
                 else:
                     raw_f = calc_bet_kelly_fraction(b)
@@ -622,6 +657,9 @@ def run_simulation(dates_races: dict, preset_name: str, budget_cfg: dict):
             elif bt == "umaren":
                 umaren_bets += 1
                 if ret > 0: umaren_hits += 1
+            elif bt == "umatan":
+                umatan_bets += 1
+                if ret > 0: umatan_hits += 1
 
         total_bets_count += len(day_bets)
 
@@ -688,10 +726,12 @@ def run_simulation(dates_races: dict, preset_name: str, budget_cfg: dict):
         "place_bets": place_bets,
         "wide_bets": wide_bets,
         "umaren_bets": umaren_bets,
+        "umatan_bets": umatan_bets,
         "win_hit_rate": round(win_hits / win_bets * 100, 1) if win_bets > 0 else 0,
         "place_hit_rate": round(place_hits / place_bets * 100, 1) if place_bets > 0 else 0,
         "wide_hit_rate": round(wide_hits / wide_bets * 100, 1) if wide_bets > 0 else 0,
         "umaren_hit_rate": round(umaren_hits / umaren_bets * 100, 1) if umaren_bets > 0 else 0,
+        "umatan_hit_rate": round(umatan_hits / umatan_bets * 100, 1) if umatan_bets > 0 else 0,
     }
 
 
@@ -734,6 +774,8 @@ def main():
                 bt_info += f" Wd{r['wide_bets']}({r['wide_hit_rate']}%)"
             if r['umaren_bets'] > 0:
                 bt_info += f" Um{r['umaren_bets']}({r['umaren_hit_rate']}%)"
+            if r['umatan_bets'] > 0:
+                bt_info += f" Ut{r['umatan_bets']}({r['umatan_hit_rate']}%)"
             print(f"  {bcfg['label']:>7} | Final {r['final_bankroll']:>8,} | ROI {r['roi_pct']:>+7.1f}% | "
                   f"Flat {r['flat_roi']:>6.1f}% | DD {r['max_dd']:>5.1f}% | "
                   f"{wl:>5} | {bt_info}{marker}")
@@ -785,10 +827,12 @@ def main():
             "place_bets": r["place_bets"],
             "wide_bets": r["wide_bets"],
             "umaren_bets": r["umaren_bets"],
+            "umatan_bets": r["umatan_bets"],
             "win_hit_rate": r["win_hit_rate"],
             "place_hit_rate": r["place_hit_rate"],
             "wide_hit_rate": r["wide_hit_rate"],
             "umaren_hit_rate": r["umaren_hit_rate"],
+            "umatan_hit_rate": r["umatan_hit_rate"],
         })
 
     out_path = Path("C:/KEIBA-CICD/data3/ml/bankroll_simulation.json")

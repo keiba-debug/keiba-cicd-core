@@ -29,7 +29,7 @@ def get_umaren_payouts(race_code: str) -> Dict[Tuple[int, int], int]:
     """haraimodoshi テーブルから馬連払い戻し金を取得
 
     Returns:
-        {(umaban1, umaban2): payout_per_100yen}  ※100円あたりの払い戻し
+        {(umaban1, umaban2): payout_per_100yen}  ※100円あたりの払い戻し（順不同）
     """
     rows = query(
         "SELECT * FROM haraimodoshi WHERE RACE_CODE = %s", (race_code,)
@@ -54,6 +54,40 @@ def get_umaren_payouts(race_code: str) -> Dict[Tuple[int, int], int]:
             payout = int(pay_raw)
             if payout > 0:
                 result[(min(u1, u2), max(u1, u2))] = payout
+        except (ValueError, IndexError):
+            continue
+    return result
+
+
+def get_umatan_payouts(race_code: str) -> Dict[Tuple[int, int], int]:
+    """haraimodoshi テーブルから馬単払い戻し金を取得
+
+    Returns:
+        {(1着馬番, 2着馬番): payout_per_100yen}  ※順序あり
+    """
+    rows = query(
+        "SELECT * FROM haraimodoshi WHERE RACE_CODE = %s", (race_code,)
+    )
+    if not rows:
+        return {}
+
+    row = rows[0]
+    result = {}
+    for i in range(1, 7):  # UMATAN1 ~ UMATAN6
+        k1_key = f"UMATAN{i}_KUMIBAN1"
+        k2_key = f"UMATAN{i}_KUMIBAN2"
+        pay_key = f"UMATAN{i}_HARAIMODOSHIKIN"
+        k1 = (row.get(k1_key) or '').strip()
+        k2 = (row.get(k2_key) or '').strip()
+        pay_raw = (row.get(pay_key) or '').strip()
+        if not k1 or not k2 or not pay_raw:
+            continue
+        try:
+            u1 = int(k1)
+            u2 = int(k2)
+            payout = int(pay_raw)
+            if payout > 0:
+                result[(u1, u2)] = payout  # 順序あり: (1着, 2着)
         except (ValueError, IndexError):
             continue
     return result
@@ -220,6 +254,7 @@ def settle(date: str, force: bool = False) -> dict:
     place_odds_cache: Dict[str, Dict[int, dict]] = {}
     wide_payout_cache: Dict[str, Dict[Tuple[int, int], int]] = {}
     umaren_payout_cache: Dict[str, Dict[Tuple[int, int], int]] = {}
+    umatan_payout_cache: Dict[str, Dict[Tuple[int, int], int]] = {}
     race_data_cache: Dict[str, Optional[dict]] = {}
 
     settled_count = 0
@@ -417,6 +452,40 @@ def settle(date: str, force: bool = False) -> dict:
                 else:
                     payout = amount
                     print(f"  [WARN] Umaren payout not found: {race_id} pair={pair_key}")
+                item['status'] = 'result_win'
+                item['payout'] = payout
+                win_count += 1
+                total_payout += payout
+            else:
+                item['status'] = 'result_lose'
+                item['payout'] = 0
+            item['updated_at'] = now
+            settled_count += 1
+
+        elif bet_type in ('馬単',):
+            pair = resolve_wide_pair(item, race_data)
+            if not pair:
+                print(f"  [WARN] Cannot resolve umatan pair: {race_id} sel={selection}")
+                continue
+
+            u1, u2 = pair  # [1着候補, 2着候補] の順
+            fp1 = fps.get(u1, 0)
+            fp2 = fps.get(u2, 0)
+            if fp1 == 0 or fp2 == 0:
+                continue
+
+            # 馬単的中: pair[0]が1着 かつ pair[1]が2着
+            if fp1 == 1 and fp2 == 2:
+                if race_id not in umatan_payout_cache:
+                    umatan_payout_cache[race_id] = get_umatan_payouts(race_id)
+                pair_key = (u1, u2)  # 順序あり
+                umatan_pay = umatan_payout_cache[race_id].get(pair_key)
+                if umatan_pay:
+                    payout = int(amount / 100 * umatan_pay)
+                    item['odds'] = umatan_pay / 100
+                else:
+                    payout = amount
+                    print(f"  [WARN] Umatan payout not found: {race_id} pair={pair_key}")
                 item['status'] = 'result_win'
                 item['payout'] = payout
                 win_count += 1

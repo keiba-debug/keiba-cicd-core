@@ -137,6 +137,15 @@ export function getRecBadgeClass(type: string, strength: string): string {
   if (type === '単複') {
     return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 font-bold';
   }
+  if (type === 'ワイド') {
+    return 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400';
+  }
+  if (type === '馬連') {
+    return 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400';
+  }
+  if (type === '馬単') {
+    return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-bold';
+  }
   return '';
 }
 

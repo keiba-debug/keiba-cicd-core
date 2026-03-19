@@ -446,9 +446,10 @@ def main():
     header = (f'  {"Preset":>14} {"Bets":>5} {"TotalBet":>10} {"TotalRet":>10} {"ROI":>7} '
               f'{"WinBet":>9} {"WinRet":>9} {"WinROI":>7} {"PlcBet":>9} {"PlcRet":>9} {"PlcROI":>7}'
               f' {"WideBet":>9} {"WideRet":>9} {"WideROI":>8}'
-              f' {"UmaBet":>8} {"UmaRet":>8} {"UmaROI":>8}')
+              f' {"UmaBet":>8} {"UmaRet":>8} {"UmaROI":>8}'
+              f' {"UtanBet":>8} {"UtanRet":>8} {"UtanROI":>8}')
     print(header)
-    print(f'  {"-" * 145}')
+    print(f'  {"-" * 170}')
 
     for preset_name, preset_params in PRESETS.items():
         recs = generate_recommendations(race_preds, preset_params, budget=30000)
@@ -458,12 +459,14 @@ def main():
         marker = ' ***' if roi['total_roi'] >= 100 else ''
         wide_roi = roi.get('wide_roi', 0)
         umaren_roi = roi.get('umaren_roi', 0)
+        umatan_roi = roi.get('umatan_roi', 0)
         print(f'  {preset_name:>14} {roi["num_bets"]:>5} '
               f'{roi["total_bet"]:>10,} {roi["total_return"]:>10,} {roi["total_roi"]:>6.1f}%{marker}'
               f' {roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%'
               f' {roi["place_bet"]:>9,} {roi["place_return"]:>9,} {roi["place_roi"]:>6.1f}%'
               f' {roi.get("wide_bet",0):>9,} {roi.get("wide_return",0):>9,} {wide_roi:>7.1f}%'
-              f' {roi.get("umaren_bet",0):>8,} {roi.get("umaren_return",0):>8,} {umaren_roi:>7.1f}%')
+              f' {roi.get("umaren_bet",0):>8,} {roi.get("umaren_return",0):>8,} {umaren_roi:>7.1f}%'
+              f' {roi.get("umatan_bet",0):>8,} {roi.get("umatan_return",0):>8,} {umatan_roi:>7.1f}%')
 
     # === Method A 有無比較 ===
     print(f'\n{"=" * 70}')

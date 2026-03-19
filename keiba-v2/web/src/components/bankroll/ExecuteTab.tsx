@@ -513,7 +513,15 @@ export function ExecuteTab() {
           betType: 3,
           amount,
         });
-      } else if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連') {
+      } else if (rec.bet_type === '馬単' && rec.wide_pair && rec.wide_pair.length === 2) {
+        bets.push({
+          raceId: rec.race_id,
+          umaban: rec.wide_pair[0],   // 1着候補
+          umaban2: rec.wide_pair[1],  // 2着候補
+          betType: 5,
+          amount,
+        });
+      } else if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連' || rec.bet_type === '馬単') {
         console.warn(`[FF CSV] ${rec.bet_type}にwide_pairなし、スキップ: ${rec.race_id}`);
       } else if (rec.bet_type === '単複') {
         // 単複 → 単勝+複勝の2行。金額を半分ずつ
@@ -750,8 +758,9 @@ export function ExecuteTab() {
     const obstacleCount = displayRecs.filter(r => r.track_type === 'obstacle').length;
     const wideCount = displayRecs.filter(r => r.bet_type === 'ワイド').length;
     const umarenCount = displayRecs.filter(r => r.bet_type === '馬連').length;
+    const umatanCount = displayRecs.filter(r => r.bet_type === '馬単').length;
     const gekisenWideCount = displayRecs.filter(r => r.bet_type === 'ワイド' && r.wide_source === '激戦').length;
-    return { winCount, placeCount, obstacleCount, wideCount, umarenCount, gekisenWideCount };
+    return { winCount, placeCount, obstacleCount, wideCount, umarenCount, umatanCount, gekisenWideCount };
   }, [displayRecs]);
 
   // プリセット選択肢: シミュレーションで黒字確認済みのみ
@@ -1088,6 +1097,12 @@ export function ExecuteTab() {
                   <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center">
                     <div className="text-2xl font-bold">{allSummary.umarenCount}</div>
                     <div className="text-xs text-muted-foreground">馬連</div>
+                  </div>
+                )}
+                {allSummary.umatanCount > 0 && (
+                  <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold">{allSummary.umatanCount}</div>
+                    <div className="text-xs text-muted-foreground">馬単</div>
                   </div>
                 )}
                 {allSummary.gekisenWideCount > 0 && (
