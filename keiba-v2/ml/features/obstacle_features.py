@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-障害レース専用特徴量 v2.3
+障害レース専用特徴量 v2.5
 
 v2.0: 基本障害特徴量（経験、難易度、騎手/調教師成績）
 v2.1: 予想理論ベース（コース属性、平地IDM、レベル差）
 v2.2: 障害走限定過去走統計、NaN修正、ベイズ平滑化
 v2.3: per-courseテーブル修正 + ハイレベル経験 + 平地プロフィール
 v2.3b: 3軸分類 + 障害数 + 直線路面 + 同系統コース成績
+v2.5: 経験曲線特徴量（重み付き過去走、成長速度、初障害割引）
 
 主要特徴量:
 - obstacle_experience/exp_tier: 障害戦出走回数・経験ビン
@@ -22,6 +23,9 @@ v2.3b: 3軸分類 + 障害数 + 直線路面 + 同系統コース成績
 - obstacle_count: コース別障害数 (v2.3b)
 - straight_surface: 直線路面 (v2.3b, 0=芝, 1=ダ)
 - obs_same_group_top3_rate: 同系統コースでの障害好走率 (v2.3b)
+- obs_weighted_finish_last3: 指数減衰重み付き障害着順 (v2.5, 半減期2走)
+- obs_improvement_rate: 初障害→2戦目の成長速度 (v2.5)
+- obs_debut_discount: 初障害を除外した場合の着順改善度 (v2.5)
 """
 
 from collections import defaultdict
@@ -961,4 +965,120 @@ def compute_flat_racing_profile(
     return {
         'flat_turf_ratio': round(turf_ratio, 3),
         'flat_avg_distance': round(avg_dist, 0) if distances else float('nan'),
+    }
+
+
+# ── 経験曲線特徴量 (v2.5) ──
+#
+# 分析結果:
+# - 初障害→2戦目で60.5%の馬が改善、中央値+8.3pt
+# - 初障害 vs 3戦目 相関0.268（弱い）→ 初障害の情報価値は急速に低下
+# - 指数減衰重み（半減期2走）が全予測器中MSE最小(0.0736)
+# - tier1(1-3戦)ではdecay重みが最良、tier2以降はequalと同等
+
+
+def compute_experience_curve_features(
+    ketto_num: str,
+    race_date: str,
+    history_cache: dict,
+) -> dict:
+    """障害経験曲線特徴量: 重み付き過去走、成長速度、初障害割引 (v2.5)
+
+    仮説: 障害経験が少ないほど1戦ごとの経験値が重要で上昇幅が大きい。
+    初障害の大敗はほぼ無視してよく、直近走の重みを大きくすべき。
+
+    Returns:
+        {
+            'obs_weighted_finish_last3': float,  # 指数減衰重み付き障害着順比率
+                                                  # (半減期2走: 直近=1, 1走前=0.707, 2走前=0.5)
+            'obs_improvement_rate': float,        # 初障害→2戦目の着順比率改善幅
+                                                  # 正値=改善、障害2戦以上で有効
+            'obs_debut_discount': float,          # 初障害除外時の着順改善度
+                                                  # = avg_without_debut - avg_with_debut
+                                                  # 負値=初障害が足を引っ張っている
+        }
+    """
+    import math
+
+    _NAN = {
+        'obs_weighted_finish_last3': float('nan'),
+        'obs_improvement_rate': float('nan'),
+        'obs_debut_discount': float('nan'),
+    }
+
+    records = history_cache.get(ketto_num, [])
+    if not records or isinstance(records, dict):
+        return _NAN.copy()
+
+    # 障害走のみ抽出（PIT-safe）、日付昇順
+    obs_recs = []
+    for rec in records:
+        rd = rec.get('race_date', '')
+        if rd >= race_date:
+            continue
+        if rec.get('track_type') != 'obstacle':
+            continue
+        fp = rec.get('finish_position')
+        nr = rec.get('num_runners')
+        if fp and fp > 0 and nr and nr > 0:
+            obs_recs.append({
+                'date': rd,
+                'fp': fp,
+                'nr': nr,
+                'fp_ratio': fp / nr,
+            })
+
+    if not obs_recs:
+        return _NAN.copy()
+
+    obs_recs.sort(key=lambda x: x['date'])
+    n_obs = len(obs_recs)
+
+    # --- obs_weighted_finish_last3: 指数減衰重み付き (半減期=2走) ---
+    # 直近3走を取得（最新が末尾）
+    last3 = obs_recs[-3:] if n_obs >= 3 else obs_recs
+    # 重み: 半減期2走 → weight = 2^(-i/2) where i=距離(走前)
+    # last3[-1]=直近(i=0, w=1.0), last3[-2]=1走前(i=1, w=0.707), last3[-3]=2走前(i=2, w=0.5)
+    weights = []
+    ratios = []
+    for j, rec in enumerate(last3):
+        dist_from_latest = len(last3) - 1 - j  # 0=最古, len-1=最新 → reverse
+        w = 2.0 ** (-dist_from_latest / 2.0)
+        weights.append(w)
+        ratios.append(rec['fp_ratio'])
+
+    w_sum = sum(weights)
+    obs_weighted = sum(r * w for r, w in zip(ratios, weights)) / w_sum if w_sum > 0 else float('nan')
+
+    # --- obs_improvement_rate: 初障害→2戦目の着順比率改善幅 ---
+    if n_obs >= 2:
+        debut_ratio = obs_recs[0]['fp_ratio']
+        second_ratio = obs_recs[1]['fp_ratio']
+        improvement = debut_ratio - second_ratio  # 正値=改善
+    else:
+        improvement = float('nan')
+
+    # --- obs_debut_discount: 初障害を除外した場合の着順改善度 ---
+    if n_obs >= 3:
+        # 直近3走の均等平均（初障害含む可能性）
+        last3_ratios = [r['fp_ratio'] for r in obs_recs[-3:]]
+        avg_with_all = sum(last3_ratios) / len(last3_ratios)
+
+        # 初障害を除外した直近3走の均等平均
+        no_debut = obs_recs[1:]  # 初障害以外
+        last3_no_debut = [r['fp_ratio'] for r in no_debut[-3:]]
+        avg_no_debut = sum(last3_no_debut) / len(last3_no_debut)
+
+        # 負値=初障害が足を引っ張っている（除外したら平均が良くなる）
+        debut_discount = avg_no_debut - avg_with_all
+    else:
+        debut_discount = float('nan')
+
+    def _sr(v, d):
+        return round(v, d) if not math.isnan(v) else float('nan')
+
+    return {
+        'obs_weighted_finish_last3': _sr(obs_weighted, 4),
+        'obs_improvement_rate': _sr(improvement, 4),
+        'obs_debut_discount': _sr(debut_discount, 4),
     }

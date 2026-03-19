@@ -47,7 +47,10 @@ from ml.features.obstacle_features import (
     compute_jockey_obstacle_stats, compute_trainer_obstacle_stats,
     build_obstacle_personnel_timelines, compute_weight_gain_trend,
     compute_course_attributes, compute_prev_obstacle_level_diff,
-    compute_flat_idm_avg3,
+    compute_flat_idm_avg3, compute_obstacle_only_past_stats,
+    compute_high_level_experience, compute_flat_racing_profile,
+    compute_venue_skill_features, compute_same_group_stats,
+    compute_experience_curve_features,
 )
 # VB Floor定数（推論のis_value_bet判定に使用）+ grade_offsets
 from ml.bet_engine import (
@@ -410,6 +413,37 @@ def predict_obstacle_race(
             ketto_num, race_date, history_cache,
             jrdb_sed_index or {}
         )
+
+        # v2.2: 障害走限定過去走統計
+        obs_past = compute_obstacle_only_past_stats(
+            ketto_num, race_date, distance, history_cache
+        )
+        feat.update(obs_past)
+
+        # v2.3: ハイレベルコース経験
+        hl_exp = compute_high_level_experience(
+            ketto_num, race_date, obs_level, history_cache
+        )
+        feat.update(hl_exp)
+
+        # v2.3: 平地レースプロフィール
+        flat_prof = compute_flat_racing_profile(
+            ketto_num, race_date, history_cache
+        )
+        feat.update(flat_prof)
+
+        # v2.3b: 3軸分類 + 障害数 + 直線路面
+        feat.update(compute_venue_skill_features(venue_name))
+
+        # v2.3b: 同系統コースでの障害好走率
+        feat.update(compute_same_group_stats(
+            ketto_num, race_date, venue_name, history_cache
+        ))
+
+        # v2.5: 経験曲線特徴量
+        feat.update(compute_experience_curve_features(
+            ketto_num, race_date, history_cache
+        ))
 
         kb_e = kb_entries.get(str(umaban))
 
