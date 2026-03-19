@@ -28,6 +28,7 @@ import { loadTrainerPatterns, evaluatePatternMatch, type TrainerPatternMatch } f
 import { getTrainerInfo } from '@/lib/data/trainer-index';
 import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
 import { getMlPredictions, getClosingRaceProba, getRaceConfidence } from '@/lib/data/ml-prediction-reader';
+import { getCheckUmaMap, type CheckUmaEntry } from '@/lib/data/target-checkuma-reader';
 import { getTrackBias } from '@/lib/data/jrdb-kaa-reader';
 import {
   RaceHeader,
@@ -323,6 +324,19 @@ export default async function RaceDetailPage({ params }: PageParams) {
     .filter((id): id is string => !!id);
   const horseCommentsMap = getHorseCommentsBatch(kettoNumList);
 
+  // チェック馬取得
+  const checkUmaRaw = getCheckUmaMap(kettoNumList);
+  // 馬番→CheckUmaEntry に変換
+  const checkUmaByHorseNum: Record<number, CheckUmaEntry> = {};
+  for (const e of raceData.entries) {
+    const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
+    const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
+    if (summary?.kettoNum) {
+      const entry = checkUmaRaw.get(summary.kettoNum);
+      if (entry) checkUmaByHorseNum[e.horse_number] = entry;
+    }
+  }
+
   // 直近戦績取得（SE_DATA）
   // 馬番→kettoNumマッピングを構築
   const horseNumToKettoNum = new Map<number, string>();
@@ -585,6 +599,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
           trainerPatternMatchMap={trainerPatternMatchMap}
           mlPredictions={mlPredictions ?? undefined}
           raceConfidence={raceConfidence ?? undefined}
+          checkUmaMap={Object.keys(checkUmaByHorseNum).length > 0 ? checkUmaByHorseNum : undefined}
         />
 
         {/* データ情報（フッター） */}

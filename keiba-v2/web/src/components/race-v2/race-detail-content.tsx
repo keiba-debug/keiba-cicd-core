@@ -92,11 +92,13 @@ interface RaceDetailContentProps {
   mlPredictions?: Record<number, MlPredictionEntry>;
   /** レース確信度 */
   raceConfidence?: RaceConfidence;
+  /** チェック馬（馬番→エントリ） */
+  checkUmaMap?: Record<number, { month: number; day: number; level: number; comment: string }>;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -246,6 +248,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 recentFormMap={recentFormMap}
                 mlPredictions={mlPredictions}
                 raceId={raceData.meta?.race_id}
+                checkUmaMap={checkUmaMap}
               />
             </div>
           </TabsContent>
@@ -364,6 +367,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               recentFormMap={recentFormMap}
               mlPredictions={mlPredictions}
               raceId={raceData.meta?.race_id}
+              checkUmaMap={checkUmaMap}
             />
           </div>
 

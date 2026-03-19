@@ -126,6 +126,8 @@ interface HorseEntryTableProps {
   mlPredictions?: Record<number, MlPredictionEntry>;
   /** 16桁レースID（DB odds取得用） */
   raceId?: string;
+  /** チェック馬（馬番→エントリ） */
+  checkUmaMap?: Record<number, { month: number; day: number; level: number; comment: string }>;
 }
 
 // =============================================================================
@@ -459,6 +461,7 @@ interface HorseEntryRowProps {
   hasDbOdds?: boolean;
   jrdb?: JrdbEntry;
   hasJrdb?: boolean;
+  checkUma?: { month: number; day: number; level: number; comment: string };
 }
 
 const HorseEntryRow = React.memo(function HorseEntryRow({
@@ -483,6 +486,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   hasDbOdds,
   jrdb,
   hasJrdb,
+  checkUma,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
@@ -664,6 +668,15 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
             >
               {entry.horse_name}
             </Link>
+            {/* チェック馬バッジ */}
+            {checkUma && (
+              <span
+                className="inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold flex-shrink-0 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-700"
+                title={`チェック馬 Lv${checkUma.level}${checkUma.comment ? ` — ${checkUma.comment}` : ''} (${checkUma.month}/${checkUma.day})`}
+              >
+                {checkUma.level > 0 ? `${checkUma.level}` : 'CK'}
+              </span>
+            )}
             {/* TARGETコメントアイコン */}
             {(horseComment || predictionComment || resultComment) && (
               <span
@@ -914,6 +927,7 @@ export default function HorseEntryTable({
   recentFormMap,
   mlPredictions,
   raceId,
+  checkUmaMap,
 }: HorseEntryTableProps) {
   const hasMlPredictions = mlPredictions && Object.keys(mlPredictions).length > 0;
 
@@ -1181,6 +1195,7 @@ export default function HorseEntryTable({
               hasDbOdds={hasDbOdds}
               jrdb={jrdbMap.get(entry.horse_number)}
               hasJrdb={hasJrdbData}
+              checkUma={checkUmaMap?.[entry.horse_number]}
             />
           ))}
         </tbody>
