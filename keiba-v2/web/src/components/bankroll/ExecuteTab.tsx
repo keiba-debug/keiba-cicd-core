@@ -1506,7 +1506,7 @@ export function ExecuteTab() {
         <Card>
           <CardContent className="py-4">
             <div className="text-xs text-muted-foreground space-y-1">
-              <p><strong>Intersection Filter</strong> — v7.3バックテスト実証済み (2025-03〜2026-02, 3,364レース)</p>
+              <p><strong>Intersection Filter</strong> — v{predictions?.model_version ?? '?'}バックテスト実証済み (2025-03〜2026-02, 3,364レース)</p>
               <p>ROI 310.7% / 的中率 19.6% / 年間46ベット / 月平均3.8回</p>
               <p>推奨配分: 資金の2%（MaxDD 14%, 年間+340%成長）</p>
             </div>

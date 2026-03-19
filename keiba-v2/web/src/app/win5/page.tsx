@@ -380,7 +380,7 @@ export default function Win5Page() {
           <span className="text-3xl">5</span>
           <div>
             <h1 className="text-2xl font-bold">写輪眼 — WIN5 推奨馬</h1>
-            <p className="text-sm text-muted-foreground">v7.3.1 W Top5 ROI 200% / W Top2 ROI 126%</p>
+            <p className="text-sm text-muted-foreground">W Top5 ROI 200% / W Top2 ROI 126%</p>
           </div>
         </div>
         <Link

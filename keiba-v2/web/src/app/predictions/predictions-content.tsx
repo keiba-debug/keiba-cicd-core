@@ -71,7 +71,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [bankrollBalance, setBankrollBalance] = useState<number | null>(null);
   const [bankrollBudget, setBankrollBudget] = useState<number | null>(null); // 計算済み日次予算
   const [budgetLinked, setBudgetLinked] = useState<boolean>(true); // bankroll連動モード
-  const [dailyLimitPct, setDailyLimitPct] = useState<number>(2); // 日次予算率(%) — v7.3推奨2%
+  const [dailyLimitPct, setDailyLimitPct] = useState<number>(2); // 日次予算率(%) — 推奨2%
 
   // bankroll予算を計算するヘルパー
   const computeBudget = useCallback((balance: number, pct: number) => {

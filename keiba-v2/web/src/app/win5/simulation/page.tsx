@@ -232,7 +232,7 @@ export default function Win5SimulationPage() {
           <div>
             <h1 className="text-2xl font-bold">WIN5 シミュレーション結果</h1>
             <p className="text-sm text-muted-foreground">
-              v7.3モデル バックテスト {fmtDate(data.period.start)}〜{fmtDate(data.period.end)} ({data.matched_weeks}週)
+              モデル バックテスト {fmtDate(data.period.start)}〜{fmtDate(data.period.end)} ({data.matched_weeks}週)
             </p>
           </div>
         </div>

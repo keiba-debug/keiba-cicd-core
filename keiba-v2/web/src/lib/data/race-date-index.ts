@@ -12,8 +12,10 @@ import path from 'path';
 import { TRACKS, DATA3_ROOT } from '../config';
 import { getDbRaceInfoByDates, trackTypeToJapanese } from './db-race';
 
-const INDEX_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index.json');
-const INDEX_META_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index_meta.json');
+// NOTE: race_date_index.json はPython側 (build_race_index.py) がレースIDリスト形式で書き込むため
+// Next.js側のリッチなインデックスは別ファイル名を使う（衝突防止）
+const INDEX_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index_web.json');
+const INDEX_META_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index_web_meta.json');
 
 // インメモリキャッシュ
 let dateIndex: Map<string, DateIndexEntry> = new Map();
