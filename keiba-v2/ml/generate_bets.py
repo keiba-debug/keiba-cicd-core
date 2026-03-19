@@ -219,6 +219,28 @@ def apply_bet_engine(
     except Exception as e:
         print(f"  [Warning] sanrentan formation failed: {e}")
 
+    # 三連単Distortion推奨生成（Phase2: O6オッズ×Harville歪み率）
+    distortion_output = []
+    try:
+        from ml.simulate_multi_leg import generate_distortion_sanrentan
+        dist_recs = generate_distortion_sanrentan(races)
+        for r in dist_recs:
+            distortion_output.append({
+                'race_id': r.race_id,
+                'venue': r.venue,
+                'race_number': r.race_num,
+                'strategy': r.strategy,
+                'ticket_type': r.ticket_type,
+                'horses': list(r.horses),
+                'horse_names': list(r.horse_names),
+                'cost': r.cost,
+                'note': r.note,
+            })
+        n_races = len(set(r.race_id for r in dist_recs)) if dist_recs else 0
+        print(f"[Distortion] {len(distortion_output)} tickets across {n_races} races")
+    except Exception as e:
+        print(f"  [Warning] distortion sanrentan failed: {e}")
+
     # bets_data を構築
     bets_data = {
         'date': predictions_data.get('date', ''),
@@ -229,6 +251,7 @@ def apply_bet_engine(
         'recommendations': all_recommendations,
         'multi_leg_recommendations': multi_leg_output,
         'sanrentan_formation': sanrentan_output,
+        'sanrentan_distortion': distortion_output,
     }
 
     return bets_data
@@ -242,13 +265,15 @@ def _empty_bets_data(predictions_data: dict) -> dict:
         'recommendations': {},
         'multi_leg_recommendations': [],
         'sanrentan_formation': [],
+        'sanrentan_distortion': [],
     }
 
 
 def strip_betting_fields(predictions_data: dict):
     """predictions.json から betting 関連フィールドを除去"""
     for key in ('recommendations', 'multi_leg_recommendations',
-                'sanrentan_formation', 'bets_generated_at', 'predict_only'):
+                'sanrentan_formation', 'sanrentan_distortion',
+                'bets_generated_at', 'predict_only'):
         predictions_data.pop(key, None)
 
 

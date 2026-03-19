@@ -10,6 +10,7 @@ import { isTurf, isDirt } from '../lib/helpers';
 interface MultiLegRecommendationsProps {
   recommendations: MultiLegRecommendation[];
   sanrentanFormation?: MultiLegRecommendation[];
+  sanrentanDistortion?: MultiLegRecommendation[];
   results?: RaceResultsMap;
   races: PredictionRace[];
   venueFilter: string;
@@ -39,6 +40,7 @@ const STRATEGY_META: Record<string, { label: string; roi: string; desc: string; 
   'G.VB馬単流': { label: 'VB馬単流', roi: '130%', desc: 'VB馬→ARd上位流し', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' },
   'K.危険裏ワイド': { label: '危険裏ワイド', roi: '117%', desc: '危険馬除外ワイドBOX', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' },
   '三連単VB頭': { label: '三連単VB頭', roi: '215%', desc: 'VB馬1着フォーメーション', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' },
+  '三連単Distortion': { label: '三連単Distortion', roi: '193%', desc: 'Harville歪み率2-3帯', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200' },
 };
 
 interface RaceGroup {
@@ -240,6 +242,7 @@ function BetTable({ raceGroups, results }: { raceGroups: RaceGroup[]; results?: 
 export function MultiLegRecommendations({
   recommendations,
   sanrentanFormation,
+  sanrentanDistortion,
   results,
   races,
   venueFilter,
@@ -247,9 +250,10 @@ export function MultiLegRecommendations({
   raceNumFilter,
 }: MultiLegRecommendationsProps) {
   const hasSanrentan = sanrentanFormation && sanrentanFormation.length > 0;
+  const hasDistortion = sanrentanDistortion && sanrentanDistortion.length > 0;
   const hasMultiLeg = recommendations && recommendations.length > 0;
 
-  if (!hasSanrentan && !hasMultiLeg) return null;
+  if (!hasSanrentan && !hasDistortion && !hasMultiLeg) return null;
 
   return (
     <>
@@ -261,6 +265,18 @@ export function MultiLegRecommendations({
           venueFilter={venueFilter}
           trackFilter={trackFilter}
           raceNumFilter={raceNumFilter}
+        />
+      )}
+      {hasDistortion && (
+        <SanrentanSection
+          bets={sanrentanDistortion!}
+          results={results}
+          races={races}
+          venueFilter={venueFilter}
+          trackFilter={trackFilter}
+          raceNumFilter={raceNumFilter}
+          title="三連単 Distortion"
+          subtitle="Harville歪み率2-3帯 × 本命レース(FO<3.0)"
         />
       )}
       {hasMultiLeg && (
@@ -289,6 +305,8 @@ function SanrentanSection({
   venueFilter,
   trackFilter,
   raceNumFilter,
+  title,
+  subtitle,
 }: {
   bets: MultiLegRecommendation[];
   results?: RaceResultsMap;
@@ -296,7 +314,16 @@ function SanrentanSection({
   venueFilter: string;
   trackFilter: string;
   raceNumFilter: number;
+  title?: string;
+  subtitle?: string;
 }) {
+  const sectionTitle = title || '雷切 — 三連単VB頭';
+  const sectionSubtitle = subtitle;
+  const isDistortion = !!title;  // custom title = Distortion section
+  const borderColor = isDistortion ? 'border-emerald-200 dark:border-emerald-800' : 'border-purple-200 dark:border-purple-800';
+  const textColor = isDistortion ? 'text-emerald-700 dark:text-emerald-300' : 'text-purple-700 dark:text-purple-300';
+  const badgeBorder = isDistortion ? 'border-emerald-300 text-emerald-700 dark:text-emerald-300' : 'border-purple-300 text-purple-700 dark:text-purple-300';
+  const btnBg = isDistortion ? 'bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 dark:hover:bg-emerald-900 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' : 'bg-purple-50 dark:bg-purple-950 hover:bg-purple-100 dark:hover:bg-purple-900 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300';
   const { filtered, raceGroups, totalCost } = useFilteredGroups(bets, races, venueFilter, trackFilter, raceNumFilter);
   const { csvExporting, csvResult, exportFfCsv } = useExportCsv();
 
@@ -320,12 +347,13 @@ function SanrentanSection({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <Card id="section-sanrentan" className="mb-8 border-purple-200 dark:border-purple-800">
+    <Card id={isDistortion ? "section-distortion" : "section-sanrentan"} className={`mb-8 ${borderColor}`}>
       <CardContent className="pt-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
-            <span className="text-purple-700 dark:text-purple-300">雷切 — 三連単VB頭</span>
-            <Badge variant="outline" className="text-xs border-purple-300 text-purple-700 dark:text-purple-300">
+            <span className={textColor}>{sectionTitle}</span>
+            {sectionSubtitle && <span className="text-xs text-muted-foreground">{sectionSubtitle}</span>}
+            <Badge variant="outline" className={`text-xs ${badgeBorder}`}>
               {filtered.length}点 / {raceGroups.length}R
             </Badge>
             <Badge variant="secondary" className="text-xs">
@@ -341,7 +369,7 @@ function SanrentanSection({
             <button
               onClick={() => exportFfCsv(filtered)}
               disabled={csvExporting || filtered.length === 0}
-              className="px-3 py-1 text-xs font-medium rounded border bg-purple-50 dark:bg-purple-950 hover:bg-purple-100 dark:hover:bg-purple-900 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 disabled:opacity-50"
+              className={`px-3 py-1 text-xs font-medium rounded border ${btnBg} disabled:opacity-50`}
               title="三連単をTARGET FF CSV形式で出力"
             >
               {csvExporting ? '出力中...' : 'FF CSV出力'}

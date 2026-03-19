@@ -106,6 +106,7 @@ interface PredictionsData {
   finish_positions?: Record<string, Record<number, number>>; // race_id -> {umaban: finish_position}
   multi_leg_recommendations?: MultiLegRecommendation[];
   sanrentan_formation?: MultiLegRecommendation[];
+  sanrentan_distortion?: MultiLegRecommendation[];
 }
 
 interface OtherPresetData {
@@ -1628,12 +1629,14 @@ export function ExecuteTab() {
         </Card>
       )}
 
-      {/* 雷切（三連単VB頭） + スポット馬券 */}
+      {/* 雷切（三連単VB頭） + Distortion + スポット馬券 */}
       {((predictions?.sanrentan_formation && predictions.sanrentan_formation.length > 0) ||
+        (predictions?.sanrentan_distortion && predictions.sanrentan_distortion.length > 0) ||
         (predictions?.multi_leg_recommendations && predictions.multi_leg_recommendations.length > 0)) && (
         <MultiLegRecommendations
           recommendations={predictions.multi_leg_recommendations ?? []}
           sanrentanFormation={predictions.sanrentan_formation}
+          sanrentanDistortion={predictions.sanrentan_distortion}
           races={(predictions.races ?? []) as unknown as PredictionRace[]}
           venueFilter="all"
           trackFilter="all"

@@ -5,7 +5,7 @@
  * Output: races/YYYY/MM/DD/bets.json
  *
  * predictions.json = ML分析のみ
- * bets.json = 買い目推奨 (recommendations, multi_leg, sanrentan_formation)
+ * bets.json = 買い目推奨 (recommendations, multi_leg, sanrentan_formation, sanrentan_distortion)
  */
 
 import { promises as fs } from 'fs';
@@ -25,6 +25,7 @@ export interface BetsData {
   recommendations: ServerRecommendations;
   multi_leg_recommendations: MultiLegRecommendation[];
   sanrentan_formation: MultiLegRecommendation[];
+  sanrentan_distortion?: MultiLegRecommendation[];
 }
 
 /**

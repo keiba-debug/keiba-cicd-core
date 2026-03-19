@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
         data.recommendations = betsData.recommendations;
         data.multi_leg_recommendations = betsData.multi_leg_recommendations;
         data.sanrentan_formation = betsData.sanrentan_formation;
+        data.sanrentan_distortion = betsData.sanrentan_distortion;
         data.bets_generated_at = betsData.bets_generated_at;
         data.predict_only = false;
       } else if (!data.recommendations) {

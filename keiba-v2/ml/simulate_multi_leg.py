@@ -864,6 +864,197 @@ def generate_sanrentan_formation(races: list) -> List[Recommendation]:
     return recs
 
 
+# ---------------------------------------------------------------------------
+# 三連単 Distortion戦略（Phase2: リアルタイム買い目生成）
+# ---------------------------------------------------------------------------
+
+def _harville_prob(probs: Dict[int, float], first: int, second: int, third: int) -> float:
+    """Harvilleモデルによる三連単確率"""
+    p1 = probs.get(first, 0)
+    if p1 <= 0:
+        return 0
+    remaining = {k: v for k, v in probs.items() if k != first}
+    total_r1 = sum(remaining.values())
+    if total_r1 <= 0:
+        return 0
+    p2 = remaining.get(second, 0) / total_r1
+    remaining2 = {k: v for k, v in remaining.items() if k != second}
+    total_r2 = sum(remaining2.values())
+    if total_r2 <= 0:
+        return 0
+    p3 = remaining2.get(third, 0) / total_r2
+    return p1 * p2 * p3
+
+
+def _load_o6_for_races(race_ids: List[str]) -> Dict[str, Dict[Tuple[int, int, int], float]]:
+    """O6三連単オッズをDBから取得"""
+    result = {}
+    batch_size = 100
+    with get_connection() as conn:
+        cur = conn.cursor(dictionary=True)
+        for start in range(0, len(race_ids), batch_size):
+            batch = race_ids[start:start + batch_size]
+            placeholders = ",".join(["%s"] * len(batch))
+            sql = (f"SELECT RACE_CODE, KUMIBAN, ODDS "
+                   f"FROM odds6_sanrentan "
+                   f"WHERE RACE_CODE IN ({placeholders})")
+            cur.execute(sql, batch)
+            for row in cur.fetchall():
+                rc = row["RACE_CODE"].strip()
+                kumiban = str(row["KUMIBAN"]).strip()
+                try:
+                    u1 = int(kumiban[0:2])
+                    u2 = int(kumiban[2:4])
+                    u3 = int(kumiban[4:6])
+                    odds = float(row["ODDS"]) / 10.0
+                except (ValueError, TypeError, IndexError):
+                    continue
+                if odds <= 0:
+                    continue
+                if rc not in result:
+                    result[rc] = {}
+                result[rc][(u1, u2, u3)] = odds
+        cur.close()
+    return result
+
+
+def generate_distortion_sanrentan(
+    races: list,
+    dist_min: float = 2.0,
+    dist_max: float = 3.0,
+    top_n: int = 5,
+    fav_odds_max: float = 3.0,
+    conf_gap_max: float = 0.10,
+    require_model_top3: bool = True,
+) -> List[Recommendation]:
+    """三連単Distortion戦略（Phase2: O6オッズ×Harville歪み率）
+
+    Session 110 H5b検証:
+      - 歪み率2.0-3.0帯のみROI 116%
+      - RwT3+CG<0.05: Flat ROI 193%
+      - 核心: 本命レース(FO<3.0)でモデル推奨穴馬が1着
+
+    レース条件:
+      - FavOdds < 3.0（本命がいるレース）
+      - ConfGap < 0.10（P%が接戦）
+    買い目:
+      - Harville確率/市場implied確率 = 歪み率
+      - 歪み率2.0-3.0帯のTop N点を推奨
+      - require_model_top3=True: 1着がrank_w Top3の組み合わせのみ
+    """
+    # O6オッズ一括取得
+    race_ids = [r["race_id"] for r in races
+                if r.get("track_type") not in ("obstacle", "steeplechase")]
+    if not race_ids:
+        return []
+
+    o6_odds = _load_o6_for_races(race_ids)
+    if not o6_odds:
+        print("  [Distortion] No O6 odds data available")
+        return []
+
+    recs = []
+
+    def name_map(entries):
+        return {e["umaban"]: e.get("horse_name", f"#{e['umaban']}") for e in entries}
+
+    for race in races:
+        if race.get("track_type") in ("obstacle", "steeplechase"):
+            continue
+
+        rid = race["race_id"]
+        entries = race.get("entries", [])
+        valid = [e for e in entries if (e.get("odds") or 0) > 0]
+
+        if len(valid) < 6 or rid not in o6_odds:
+            continue
+
+        venue = race.get("venue_name", "?")
+        race_num = race.get("race_number", 0)
+        nm = name_map(entries)
+
+        # --- レースフィルター ---
+        # FavOdds < 3.0
+        fav_odds = min((e.get("odds") or 999) for e in valid)
+        if fav_odds >= fav_odds_max:
+            continue
+
+        # ConfGap < 0.10 (P% raw based)
+        p_raws = sorted(
+            [(e.get("pred_proba_p_raw") or 0) for e in valid],
+            reverse=True,
+        )
+        conf_gap = p_raws[0] - p_raws[1] if len(p_raws) >= 2 else 1.0
+        if conf_gap >= conf_gap_max:
+            continue
+
+        # --- Harvilleモデル確率 ---
+        win_probs = {}
+        for e in valid:
+            uma = e.get("umaban", 0)
+            pw = (e.get("pred_proba_w_cal") or e.get("pred_proba_w") or 0)
+            if uma > 0 and pw > 0:
+                win_probs[uma] = pw
+        total_w = sum(win_probs.values())
+        if total_w <= 0:
+            continue
+        win_probs = {k: v / total_w for k, v in win_probs.items()}
+
+        # rank_w Top3 set (optional filter)
+        rw_top3 = set()
+        if require_model_top3:
+            by_rw = sorted(valid, key=lambda e: (e.get("rank_w") or 99))
+            rw_top3 = {e["umaban"] for e in by_rw[:3]}
+
+        # --- 歪み率計算 ---
+        race_o6 = o6_odds[rid]
+        combo_data = []
+        for combo, odds_val in race_o6.items():
+            if odds_val <= 0:
+                continue
+            u1, u2, u3 = combo
+            # rank_w Top3限定: 1着がモデル推奨馬のみ
+            if require_model_top3 and u1 not in rw_top3:
+                continue
+
+            h_prob = _harville_prob(win_probs, u1, u2, u3)
+            if h_prob <= 0:
+                continue
+            market_implied = 1.0 / odds_val
+            distortion = h_prob / market_implied
+
+            if distortion < dist_min or distortion >= dist_max:
+                continue
+
+            combo_data.append((combo, distortion, odds_val))
+
+        if not combo_data:
+            continue
+
+        # 歪み率降順でTop N
+        combo_data.sort(key=lambda x: -x[1])
+        selected = combo_data[:top_n]
+
+        for combo, dist, odds_val in selected:
+            u1, u2, u3 = combo
+            horse_names = tuple(nm.get(h, f"#{h}") for h in combo)
+            note = (f"Dist{dist:.2f} odds{odds_val:.0f} "
+                    f"FO{fav_odds:.1f} CG{conf_gap:.3f}")
+            recs.append(Recommendation(
+                race_id=rid,
+                venue=venue,
+                race_num=race_num,
+                strategy="三連単Distortion",
+                ticket_type="sanrentan",
+                horses=combo,
+                horse_names=horse_names,
+                cost=100,
+                note=note,
+            ))
+
+    return recs
+
+
 def print_recommendations(recs: List[Recommendation]):
     """推奨買い目を整形出力"""
     if not recs:
