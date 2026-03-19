@@ -895,6 +895,7 @@ def generate_recommendations(
                     entry_vb_score += penalty
 
             # === VB Floor Gate: 購入プラン⊆VB候補 ===
+            ms_bypass = None  # market_signalバイパス: 'tetsuban' | 'ana' | None
             if is_obstacle:
                 # 障害レース: ワイド/馬連のみ（後段で生成）→ 単勝/複勝/単複はスキップ
                 continue
@@ -906,7 +907,52 @@ def generate_recommendations(
                 vb_dev_route = (entry_dev_gap >= VB_FLOOR_MIN_DEV_GAP
                                 and (ar_dev or 0) >= VB_FLOOR_DEV_MIN_ARD)
                 if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route and not vb_dev_route:
-                    continue
+                    # --- market_signalバイパス: VB不通過でも複勝推奨 ---
+                    # 鉄板: 複勝率82% → 複勝推奨（通常額）
+                    # 穴注目: smart money入り穴馬 → 複勝少額
+                    ms = e.get('market_signal')
+                    if ms == '鉄板':
+                        ms_bypass = 'tetsuban'
+                    elif ms == '穴注目':
+                        ms_bypass = 'ana'
+                    else:
+                        continue
+
+            # --- market_signalバイパス: 複勝onlyルート ---
+            # VB Floor不通過だがmarket_signal(鉄板/穴注目)で通過した馬は複勝のみ
+            # 鉄板: 複勝率88%→通常額で複勝推奨
+            # 穴注目: smart money穴馬→少額で複勝（試行回数確保＋学習データ蓄積）
+            if ms_bypass:
+                win_ok, win_units = False, 0
+                place_ok = True
+                if ms_bypass == 'tetsuban':
+                    ms_place_amount = params.place_addon_amount or params.bet_unit
+                else:
+                    # 穴注目: 最低額で実購入（結果データ蓄積優先）
+                    ms_place_amount = params.min_bet  # 100円
+                kelly_frac = 0.0
+                rec = BetRecommendation(
+                    race_id=race_id,
+                    umaban=umaban,
+                    horse_name=horse_name,
+                    bet_type='複勝',
+                    strength='strong' if ms_bypass == 'tetsuban' else 'normal',
+                    win_amount=0,
+                    place_amount=ms_place_amount,
+                    gap=gap,
+                    dev_gap=entry_dev_gap,
+                    vb_score=round(entry_vb_score, 1),
+                    win_gap=win_gap,
+                    predicted_margin=round(margin, 1) if margin is not None else 0.0,
+                    win_ev=round(win_ev, 4) if win_ev is not None else None,
+                    place_ev=round(place_ev, 4) if place_ev is not None else None,
+                    odds=odds,
+                    place_odds_min=place_odds,
+                    ar_deviation=round(ar_dev, 1) if ar_dev is not None else None,
+                    market_signal=e.get('market_signal'),
+                )
+                race_recs.append(rec)
+                continue
 
             # --- 単勝評価 ---
             # Pre-filter: P%比率 or rank_p
@@ -2064,6 +2110,33 @@ def generate_adaptive_recommendations(
                     vb_dev_route = (dev_gap_val >= VB_FLOOR_MIN_DEV_GAP
                                     and (ar_dev or 0) >= VB_FLOOR_DEV_MIN_ARD)
                     if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route and not vb_dev_route:
+                        # market_signalバイパス: 鉄板/穴注目→複勝推奨
+                        ms = e.get('market_signal')
+                        if ms in ('鉄板', '穴注目'):
+                            place_amt = 100  # 最低額で実購入
+                            place_ev_val = e.get('place_ev')
+                            vb_score_val = compute_vb_score(dev_gap_val, gap, win_ev, ar_dev)
+                            ms_rec = BetRecommendation(
+                                race_id=race_id,
+                                umaban=umaban,
+                                horse_name=e.get('horse_name', ''),
+                                bet_type='複勝',
+                                strength='strong' if ms == '鉄板' else 'normal',
+                                win_amount=0,
+                                place_amount=place_amt,
+                                gap=gap,
+                                dev_gap=dev_gap_val,
+                                vb_score=round(vb_score_val, 1),
+                                win_gap=win_gap,
+                                predicted_margin=round(margin, 1) if margin is not None else 0.0,
+                                win_ev=round(win_ev, 4) if win_ev is not None else None,
+                                place_ev=round(place_ev_val, 4) if place_ev_val is not None else None,
+                                odds=odds,
+                                place_odds_min=e.get('place_odds_min'),
+                                ar_deviation=round(ar_dev, 1) if ar_dev is not None else None,
+                                market_signal=ms,
+                            )
+                            rule_hits.append(ms_rec)
                         continue
 
                 # Composite score (表示用)

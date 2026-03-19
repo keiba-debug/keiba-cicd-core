@@ -149,18 +149,18 @@ def _parse_haraimodoshi_row(row: dict) -> dict:
 
 def get_ard_top_n(entries: list, n: int) -> list:
     """ARd降順でtop N（odds=0の出走取消馬は除外）"""
-    valid = [e for e in entries if e.get("ar_deviation", 0) > 0
-             and e.get("odds", 0) > 0]
-    return sorted(valid, key=lambda e: -e.get("ar_deviation", 0))[:n]
+    valid = [e for e in entries if (e.get("ar_deviation") or 0) > 0
+             and (e.get("odds") or 0) > 0]
+    return sorted(valid, key=lambda e: -(e.get("ar_deviation") or 0))[:n]
 
 
 def get_danger_horses(entries: list) -> set:
     """危険馬のumaban集合（odds<=8 & ARd<53 & V%<15%）"""
     danger = set()
     for e in entries:
-        odds = e.get("odds", 999)
-        ard = e.get("ar_deviation", 99)
-        v_pct = e.get("pred_proba_p_raw", 1.0)
+        odds = e.get("odds") or 999
+        ard = e.get("ar_deviation") or 99
+        v_pct = e.get("pred_proba_p_raw") or 1.0
         if 0 < odds <= 8 and ard < 53 and v_pct < 0.15:
             danger.add(e["umaban"])
     return danger
@@ -168,16 +168,16 @@ def get_danger_horses(entries: list) -> set:
 
 def get_vb_candidates(entries: list) -> list:
     """aggressiveプリセット相当のVB候補判定（簡易インライン版）"""
-    v_pcts = [e.get("pred_proba_p_raw", 0) for e in entries]
+    v_pcts = [(e.get("pred_proba_p_raw") or 0) for e in entries]
     race_max_v = max(v_pcts) if v_pcts else 0
 
     candidates = []
     for e in entries:
-        ard = e.get("ar_deviation", 0)
-        gap = e.get("vb_gap", 0)
-        win_ev = e.get("win_ev", 0)
-        odds = e.get("odds", 0)
-        v_pct = e.get("pred_proba_p_raw", 0)
+        ard = e.get("ar_deviation") or 0
+        gap = e.get("vb_gap") or 0
+        win_ev = e.get("win_ev") or 0
+        odds = e.get("odds") or 0
+        v_pct = e.get("pred_proba_p_raw") or 0
 
         # ARd VBルート（独立バイパス）
         if ard >= 65 and odds >= 10:
@@ -412,7 +412,7 @@ def evaluate_I(race: dict, payouts: dict) -> list:
     if not vb:
         return []
     # VB馬のうちARd最高
-    axis = max(vb, key=lambda e: e.get("ar_deviation", 0))
+    axis = max(vb, key=lambda e: (e.get("ar_deviation") or 0))
     # ARd Top1でVB馬以外
     ard_sorted = get_ard_top_n(race["entries"], 5)
     target = None
@@ -437,7 +437,7 @@ def evaluate_J(race: dict, payouts: dict) -> list:
     vb = get_vb_candidates(race["entries"])
     if not vb:
         return []
-    axis = max(vb, key=lambda e: e.get("ar_deviation", 0))
+    axis = max(vb, key=lambda e: (e.get("ar_deviation") or 0))
     ard_sorted = get_ard_top_n(race["entries"], 5)
     target = None
     for e in ard_sorted:
@@ -745,8 +745,8 @@ def _generate_bets_no_payout(eval_func, race: dict) -> List[Tuple[str, tuple]]:
 def _make_note(strat_name: str, race: dict, horses: tuple) -> str:
     """推奨の補足情報"""
     entries = race.get("entries", [])
-    ard_map = {e["umaban"]: e.get("ar_deviation", 0) for e in entries}
-    odds_map = {e["umaban"]: e.get("odds", 0) for e in entries}
+    ard_map = {e["umaban"]: (e.get("ar_deviation") or 0) for e in entries}
+    odds_map = {e["umaban"]: (e.get("odds") or 0) for e in entries}
 
     parts = []
     for h in horses:
