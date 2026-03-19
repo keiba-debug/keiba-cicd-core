@@ -5,6 +5,34 @@
 
 ---
 
+## 障害v2.5b: 着差特徴量 (2026-03-19, Session 109)
+
+### 背景
+着順だけでは勝ち馬との実力差が見えない。horse_history_cacheにtime_behind_winner(秒)を追加し、
+障害レースの着差ベース特徴量4つを追加。
+
+### 新特徴量
+- `obs_avg_tbw_last3`: 障害直近3走の平均time_behind_winner
+- `obs_best_tbw_last5`: 障害直近5走のベストtbw
+- `obs_tbw_trend`: 直近3走のtbw改善トレンド
+- `obs_weighted_tbw_last3`: 指数減衰重み付きtbw(半減期2走)
+
+### 結果 (v2.5→v2.5b)
+| 指標 | v2.5 | v2.5b | 差分 |
+|------|------|-------|------|
+| P AUC | 0.7660 | 0.7657 | ±0 |
+| W AUC | 0.7642 | 0.7697 | **+0.006** |
+| W Top1勝率 | 38.8% | **45.0%** | **+6.2pt** |
+
+着差はWモデル（勝てるか判定）に特に効く。obs_weighted_tbw_last3がP#3/W#4。
+
+### インフラ変更
+- build_horse_history.py: margin + time_behind_winner をcacheに追加（537K entries, 100% valid）
+
+→ 詳細: `docs/ml-experiments/obstacle_v2.5_experience_curve.md`
+
+---
+
 ## 障害v2.5: 経験曲線特徴量 (2026-03-19, Session 109)
 
 ### 背景

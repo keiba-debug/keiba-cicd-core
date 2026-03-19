@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-障害レース専用ML実験パイプライン v2.5
+障害レース専用ML実験パイプライン v2.5b
 
 P/Wデュアルモデル（市場特徴量除外 = VALUE戦略）
 - P: is_top3分類 (Place)
@@ -62,6 +62,7 @@ from ml.features.obstacle_features import (
     compute_venue_skill_features,
     compute_same_group_stats,
     compute_experience_curve_features,
+    compute_obstacle_margin_features,
 )
 
 # === 障害レース用特徴量（市場特徴量を除外 = VALUE戦略） ===
@@ -132,6 +133,11 @@ OBSTACLE_SPECIFIC_FEATURES = [
     'obs_weighted_finish_last3',    # 指数減衰重み付き障害着順比率 (半減期2走)
     'obs_improvement_rate',         # 初障害→2戦目の着順比率改善幅
     'obs_debut_discount',           # 初障害除外時の着順改善度
+    # --- v2.5b: 着差特徴量 ---
+    'obs_avg_tbw_last3',            # 障害直近3走の平均time_behind_winner(秒)
+    'obs_best_tbw_last5',           # 障害直近5走のベストtbw(秒)
+    'obs_tbw_trend',                # 障害直近3走のtbw改善トレンド
+    'obs_weighted_tbw_last3',       # 指数減衰重み付きtbw(半減期2走)
 ]
 
 # 市場特徴量は除外（VALUE戦略）
@@ -362,6 +368,11 @@ def build_obstacle_dataset(
 
                 # v2.5: 経験曲線特徴量
                 row.update(compute_experience_curve_features(
+                    kn, race_date, history_cache
+                ))
+
+                # v2.5b: 着差特徴量
+                row.update(compute_obstacle_margin_features(
                     kn, race_date, history_cache
                 ))
 

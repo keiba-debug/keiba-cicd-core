@@ -51,6 +51,7 @@ from ml.features.obstacle_features import (
     compute_high_level_experience, compute_flat_racing_profile,
     compute_venue_skill_features, compute_same_group_stats,
     compute_experience_curve_features,
+    compute_obstacle_margin_features,
 )
 # VB Floor定数（推論のis_value_bet判定に使用）+ grade_offsets
 from ml.bet_engine import (
@@ -442,6 +443,11 @@ def predict_obstacle_race(
 
         # v2.5: 経験曲線特徴量
         feat.update(compute_experience_curve_features(
+            ketto_num, race_date, history_cache
+        ))
+
+        # v2.5b: 着差特徴量
+        feat.update(compute_obstacle_margin_features(
             ketto_num, race_date, history_cache
         ))
 

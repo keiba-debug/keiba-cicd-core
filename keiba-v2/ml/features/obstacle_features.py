@@ -9,6 +9,7 @@ v2.2: 障害走限定過去走統計、NaN修正、ベイズ平滑化
 v2.3: per-courseテーブル修正 + ハイレベル経験 + 平地プロフィール
 v2.3b: 3軸分類 + 障害数 + 直線路面 + 同系統コース成績
 v2.5: 経験曲線特徴量（重み付き過去走、成長速度、初障害割引）
+v2.5b: 着差特徴量（time_behind_winner秒ベース、勝ち馬との距離感）
 
 主要特徴量:
 - obstacle_experience/exp_tier: 障害戦出走回数・経験ビン
@@ -1081,4 +1082,117 @@ def compute_experience_curve_features(
         'obs_weighted_finish_last3': _sr(obs_weighted, 4),
         'obs_improvement_rate': _sr(improvement, 4),
         'obs_debut_discount': _sr(debut_discount, 4),
+    }
+
+
+# ── 着差特徴量 (v2.5b) ──
+#
+# 障害レースは着差が大きく、着順だけでは勝ち馬との実力差が見えない。
+# time_behind_winner(秒)を使って「勝ち馬との距離感」を特徴量化する。
+#
+# 例: 3着でも勝ち馬と0.3秒差 vs 5.0秒差では全く意味が異なる。
+# 圧勝の1着(tbw=0)と僅差の1着(周りのtbwが小さい)も区別したい。
+
+
+def compute_obstacle_margin_features(
+    ketto_num: str,
+    race_date: str,
+    history_cache: dict,
+) -> dict:
+    """障害レースの着差(time_behind_winner)ベース特徴量 (v2.5b)
+
+    Returns:
+        {
+            'obs_avg_tbw_last3': float,     # 障害直近3走の平均time_behind_winner(秒)
+                                             # 小さいほど勝ち馬に近い=強い
+            'obs_best_tbw_last5': float,    # 障害直近5走のベストtbw(秒)
+                                             # 最も勝ち馬に迫った走の実力指標
+            'obs_tbw_trend': float,          # 障害直近3走のtbw改善トレンド
+                                             # 負値=着差が縮まっている=成長中
+            'obs_weighted_tbw_last3': float, # 指数減衰重み付きtbw(半減期2走)
+                                             # obs_weighted_finish_last3のtbw版
+        }
+    """
+    import math
+
+    _NAN = {
+        'obs_avg_tbw_last3': float('nan'),
+        'obs_best_tbw_last5': float('nan'),
+        'obs_tbw_trend': float('nan'),
+        'obs_weighted_tbw_last3': float('nan'),
+    }
+
+    records = history_cache.get(ketto_num, [])
+    if not records or isinstance(records, dict):
+        return _NAN.copy()
+
+    # 障害走のみ抽出（PIT-safe）、tbwが有効なもの
+    obs_recs = []
+    for rec in records:
+        rd = rec.get('race_date', '')
+        if rd >= race_date:
+            continue
+        if rec.get('track_type') != 'obstacle':
+            continue
+        tbw = rec.get('time_behind_winner')
+        if tbw is not None:
+            obs_recs.append({'date': rd, 'tbw': tbw})
+
+    if not obs_recs:
+        return _NAN.copy()
+
+    obs_recs.sort(key=lambda x: x['date'], reverse=True)  # 最新→最古
+
+    # --- obs_avg_tbw_last3 ---
+    last3 = obs_recs[:3]
+    tbw_vals = [r['tbw'] for r in last3]
+    avg_tbw = sum(tbw_vals) / len(tbw_vals)
+
+    # --- obs_best_tbw_last5 ---
+    last5 = obs_recs[:5]
+    best_tbw = min(r['tbw'] for r in last5)
+
+    # --- obs_tbw_trend: 直近3走の改善傾向 ---
+    # 回帰傾斜: x=走番号(0=最古,...,n-1=最新), y=tbw
+    # 負の傾斜=tbwが減少=改善中
+    if len(last3) >= 2:
+        # last3[0]=最新, last3[-1]=最古 → 古い順に並び替え
+        tbw_asc = list(reversed([r['tbw'] for r in last3]))
+        n = len(tbw_asc)
+        x_mean = (n - 1) / 2.0
+        y_mean = sum(tbw_asc) / n
+        num = sum((i - x_mean) * (y - y_mean) for i, y in enumerate(tbw_asc))
+        den = sum((i - x_mean) ** 2 for i in range(n))
+        trend = num / den if den > 0 else 0.0
+    else:
+        trend = float('nan')
+
+    # --- obs_weighted_tbw_last3: 指数減衰重み付き (半減期2走) ---
+    weights = []
+    tbw_for_weight = []
+    for j, rec in enumerate(reversed(last3)):
+        # reversed: 最古→最新の順
+        dist = len(last3) - 1 - j  # 最新からの距離
+        # ↑ 間違い。j=0が最古、j=len-1が最新。dist_from_latest = len-1-j → 最古がlen-1
+        pass
+    # やり直し: last3[0]=最新, last3[1]=1走前, last3[2]=2走前
+    weights = []
+    tbw_for_weight = []
+    for j, rec in enumerate(last3):
+        # j=0: 最新(重み1.0), j=1: 1走前(重み0.707), j=2: 2走前(重み0.5)
+        w = 2.0 ** (-j / 2.0)
+        weights.append(w)
+        tbw_for_weight.append(rec['tbw'])
+
+    w_sum = sum(weights)
+    weighted_tbw = sum(t * w for t, w in zip(tbw_for_weight, weights)) / w_sum
+
+    def _sr(v, d):
+        return round(v, d) if not (isinstance(v, float) and math.isnan(v)) else float('nan')
+
+    return {
+        'obs_avg_tbw_last3': _sr(avg_tbw, 3),
+        'obs_best_tbw_last5': _sr(best_tbw, 3),
+        'obs_tbw_trend': _sr(trend, 4),
+        'obs_weighted_tbw_last3': _sr(weighted_tbw, 3),
     }
