@@ -64,6 +64,11 @@ OBSTACLE_VB_FLOOR_MAX_RANK_P = 3      # Pモデル3位以内（5→3に絞り込
 OBSTACLE_WIDE_MIN_RUNNERS = 9         # 少頭数は配当妙味なし(<=8: ROI 58%)
 OBSTACLE_WIDE_MAX_RANK_P = 2          # Pモデル Top1-2ペア
 
+# market_signal連動の金額倍率 (Session 110)
+# 最適化: Y1.2/M0.5が全プリセットで最高(合計1,433K vs NoAdj 1,151K +24%)
+MS_YAYA_MIRYOKU_MULT = 1.2   # やや妙味: 単ROI 123% → 単勝1.2倍
+MS_MIRYOKU_MULT = 0.5        # 妙味: 単ROI 73% → 控えめ
+
 # 激戦ワイド (Intense Wide - hit-focused)
 GEKISEN_WIDE_MAX_ENTRIES = 14
 GEKISEN_WIDE_MIN_PAIR_AGREE = 3
@@ -1006,11 +1011,37 @@ def generate_recommendations(
                 bet_type = '複勝'
                 strength = 'strong' if gap >= params.place_min_gap + 2 else 'normal'
 
+            # --- market_signal連動の券種・金額調整 ---
+            # Session 110分析: やや妙味→単ROI 123%, 鉄板→複勝率82%
+            ms = e.get('market_signal')
+            ms_win_multiplier = 1.0
+            if ms == 'やや妙味':
+                # 単ROI 122.6% — 単勝増額、複勝は外す
+                ms_win_multiplier = MS_YAYA_MIRYOKU_MULT
+                if bet_type == '単複':
+                    bet_type = '単勝'  # 複勝は外して単勝集中
+            elif ms == '鉄板':
+                # 複勝率82%, 複ROI 95% — 複勝を確保
+                if bet_type == '単勝':
+                    bet_type = '単複'  # 複勝も追加
+                strength = 'strong'   # 信頼度最高
+            elif ms == '妙味':
+                # 全期間だと単ROI 73% — 控えめに
+                ms_win_multiplier = MS_MIRYOKU_MULT
+            # 人気しすぎ: 単ROI 112% — 何も変えない（見送るな）
+            # 穴注目: 複ROI 74% — 何も変えない
+
             # Kelly fraction for win bet
             win_kelly_f = 0.0
             if win_ok and odds > 1 and (win_ev or 0) > 0:
                 p_win = (win_ev or 0) / odds
                 win_kelly_f = calc_kelly_fraction(p_win, odds)
+
+            ms_win_amount = int(win_units * params.bet_unit * ms_win_multiplier) if win_ok else 0
+            # 100円単位に丸め（win_okなら最低100円保証）
+            ms_win_amount = (ms_win_amount // 100) * 100
+            if win_ok and ms_win_amount < 100:
+                ms_win_amount = 100
 
             rec = BetRecommendation(
                 race_id=race_id,
@@ -1018,7 +1049,7 @@ def generate_recommendations(
                 horse_name=horse_name,
                 bet_type=bet_type,
                 strength=strength,
-                win_amount=win_units * params.bet_unit if win_ok else 0,
+                win_amount=ms_win_amount,
                 place_amount=0,  # Kelly sizing in apply_budget
                 gap=gap,
                 dev_gap=entry_dev_gap,
@@ -1039,7 +1070,11 @@ def generate_recommendations(
             )
             # --- Place上乗せ: 単勝候補に条件付きで複勝追加 ---
             # 障害レースはARd不要、PlaceEVのみで判定
-            if win_ok and params.place_addon:
+            # 鉄板シグナル: 複勝率82%→常に複勝追加
+            if win_ok and ms == '鉄板':
+                rec.place_amount = params.place_addon_amount or params.bet_unit
+                rec.bet_type = '単複'
+            elif win_ok and params.place_addon:
                 pev = place_ev or 0
                 ard = ar_dev or 0
                 addon_ok = (pev >= params.place_addon_min_pev
