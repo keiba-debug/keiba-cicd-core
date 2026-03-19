@@ -33,6 +33,9 @@ export interface MlHorsePrediction {
   base_odds: number | null;
   odds_move: number | null;         // 実オッズ/基準オッズ (>1=不人気化, <1=人気化)
   market_signal: string | null;     // 市場シグナル (鉄板/軸向き/妙味/etc.)
+  // 脚質指標 (Session 113: コースバイアスアラート用)
+  avg_first_corner_ratio: number | null;  // 平均1角通過位置 (0=最前, 1=最後尾)
+  closing_strength: number | null;         // 末脚力
 }
 
 export interface MlRacePrediction {
@@ -84,6 +87,9 @@ interface V4Entry {
   base_odds?: number | null;
   odds_move?: number | null;
   market_signal?: string | null;
+  // 脚質指標 (Session 113: コースバイアスアラート用)
+  avg_first_corner_ratio?: number | null;
+  closing_strength?: number | null;
 }
 
 interface V4Race {
@@ -148,6 +154,8 @@ function convertV4Entry(e: V4Entry): MlHorsePrediction {
     base_odds: e.base_odds ?? null,
     odds_move: e.odds_move ?? null,
     market_signal: e.market_signal ?? null,
+    avg_first_corner_ratio: e.avg_first_corner_ratio ?? null,
+    closing_strength: e.closing_strength ?? null,
   };
 }
 

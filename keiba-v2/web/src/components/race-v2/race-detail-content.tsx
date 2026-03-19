@@ -40,7 +40,7 @@ import type { RatingStandards } from '@/lib/data/rating-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
-import type { TargetMarksMap, MlPredictionEntry } from './HorseEntryTable';
+import type { TargetMarksMap, MlPredictionEntry, CourseInfoForBias } from './HorseEntryTable';
 import type { RecentFormData } from '@/lib/data/target-race-result-reader';
 import type { TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
 import type { RaceConfidence } from '@/lib/data/ml-prediction-reader';
@@ -167,6 +167,17 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
     };
   }, [kaisaiInfo, urlTrack, urlDate, raceData.meta?.race_id]);
 
+  // コースバイアスアラート用レース情報 (Session 113)
+  const courseInfoForBias = useMemo(() => {
+    const ri = raceData.race_info;
+    if (!ri.venue || !ri.distance || !ri.track) return undefined;
+    return {
+      venue: ri.venue,
+      surface: ri.track,
+      distance: typeof ri.distance === 'number' ? ri.distance : parseInt(String(ri.distance), 10),
+    };
+  }, [raceData.race_info]);
+
   // レイティング分析を実行
   const ratingAnalysis = useMemo(() => {
     return analyzeRaceRatings(
@@ -249,6 +260,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 mlPredictions={mlPredictions}
                 raceId={raceData.meta?.race_id}
                 checkUmaMap={checkUmaMap}
+                courseInfo={courseInfoForBias}
               />
             </div>
           </TabsContent>
@@ -368,6 +380,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               mlPredictions={mlPredictions}
               raceId={raceData.meta?.race_id}
               checkUmaMap={checkUmaMap}
+              courseInfo={courseInfoForBias}
             />
           </div>
 

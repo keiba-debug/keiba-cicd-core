@@ -30,6 +30,7 @@ import { POSITIVE_TEXT, POSITIVE_BG, POSITIVE_BG_MUTED, RATING_TOP, RATING_HIGH,
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { MessageSquareText } from 'lucide-react';
+import { getCourseBiasAlert, type CourseBiasAlert } from '@/lib/course-bias';
 import { TrendIndicator, StreakBadge, calculateStreak, calculateStreakWithCurrent, toRaceResult, type RecentFormEntry } from '@/components/ui/visualization';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
@@ -67,6 +68,9 @@ export interface MlPredictionEntry {
   base_odds?: number | null;
   odds_move?: number | null;
   market_signal?: string | null;
+  // 脚質指標 (Session 113: コースバイアスアラート用)
+  avg_first_corner_ratio?: number | null;
+  closing_strength?: number | null;
 }
 
 /** DB odds レスポンス型 */
@@ -112,6 +116,13 @@ export interface JrdbEntry {
   gekisou_idx: number | null;
 }
 
+/** コースバイアスアラート用レース情報 */
+export interface CourseInfoForBias {
+  venue: string;      // "東京", "中山" etc.
+  surface: string;    // "芝", "ダート", "ダ"
+  distance: number;   // 距離(m)
+}
+
 interface HorseEntryTableProps {
   entries: HorseEntry[];
   showResult?: boolean;
@@ -128,6 +139,8 @@ interface HorseEntryTableProps {
   raceId?: string;
   /** チェック馬（馬番→エントリ） */
   checkUmaMap?: Record<number, { month: number; day: number; level: number; comment: string }>;
+  /** コースバイアスアラート用レース情報 (Session 113) */
+  courseInfo?: CourseInfoForBias;
 }
 
 // =============================================================================
@@ -462,6 +475,8 @@ interface HorseEntryRowProps {
   jrdb?: JrdbEntry;
   hasJrdb?: boolean;
   checkUma?: { month: number; day: number; level: number; comment: string };
+  /** コースバイアスアラート (Session 113) */
+  courseBiasAlert?: CourseBiasAlert | null;
 }
 
 const HorseEntryRow = React.memo(function HorseEntryRow({
@@ -487,6 +502,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   jrdb,
   hasJrdb,
   checkUma,
+  courseBiasAlert,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
@@ -675,6 +691,27 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
                 title={`チェック馬 Lv${checkUma.level}${checkUma.comment ? ` — ${checkUma.comment}` : ''} (${checkUma.month}/${checkUma.day})`}
               >
                 {checkUma.level > 0 ? `${checkUma.level}` : 'CK'}
+              </span>
+            )}
+            {/* コースバイアスアラート (Session 113) */}
+            {courseBiasAlert && courseBiasAlert.totalScore !== 0 && (
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold flex-shrink-0 border",
+                  courseBiasAlert.totalScore >= 2 && "bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700",
+                  courseBiasAlert.totalScore === 1 && "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-300 dark:border-sky-700",
+                  courseBiasAlert.totalScore === -1 && "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700",
+                  courseBiasAlert.totalScore <= -2 && "bg-red-100 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700",
+                )}
+                title={[
+                  courseBiasAlert.drawBias && `枠: ${courseBiasAlert.drawBias.label}`,
+                  courseBiasAlert.styleBias && `脚質: ${courseBiasAlert.styleBias.label}`,
+                ].filter(Boolean).join('\n')}
+              >
+                {courseBiasAlert.totalScore >= 2 ? 'C◎'
+                  : courseBiasAlert.totalScore >= 1 ? 'C+'
+                  : courseBiasAlert.totalScore <= -2 ? 'C✕'
+                  : 'C-'}
               </span>
             )}
             {/* TARGETコメントアイコン */}
@@ -928,6 +965,7 @@ export default function HorseEntryTable({
   mlPredictions,
   raceId,
   checkUmaMap,
+  courseInfo,
 }: HorseEntryTableProps) {
   const hasMlPredictions = mlPredictions && Object.keys(mlPredictions).length > 0;
 
@@ -975,6 +1013,28 @@ export default function HorseEntryTable({
     }
     return map;
   }, [dbOdds, hasDbOdds]);
+
+  // --- コースバイアスアラートマップ (Session 113) ---
+  const courseBiasAlertMap = useMemo(() => {
+    const map = new Map<number, CourseBiasAlert>();
+    if (!courseInfo) return map;
+    for (const e of entries) {
+      const waku = parseInt(String(e.entry_data.waku), 10);
+      if (isNaN(waku)) continue;
+      const ml = mlPredictions?.[e.horse_number];
+      const alert = getCourseBiasAlert(
+        courseInfo.venue,
+        courseInfo.surface as '芝' | 'ダート' | 'ダ',
+        courseInfo.distance,
+        waku,
+        ml?.avg_first_corner_ratio,
+      );
+      if (alert.totalScore !== 0) {
+        map.set(e.horse_number, alert);
+      }
+    }
+    return map;
+  }, [courseInfo, entries, mlPredictions]);
 
   // --- ソート機能 ---
   type SortKey = 'horse_number' | 'odds' | 'ai_index' | 'rating' | 'ard' | 'ml_w' | 'ml_p' | 'finish' | 'jrdb_idm' | 'jrdb_sogo' | 'jrdb_gekisou';
@@ -1196,6 +1256,7 @@ export default function HorseEntryTable({
               jrdb={jrdbMap.get(entry.horse_number)}
               hasJrdb={hasJrdbData}
               checkUma={checkUmaMap?.[entry.horse_number]}
+              courseBiasAlert={courseBiasAlertMap.get(entry.horse_number)}
             />
           ))}
         </tbody>
