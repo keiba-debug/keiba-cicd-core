@@ -44,6 +44,8 @@ BASE_FEATURES = [
     'month', 'nichi',
     # v5.40: 馬場分析特徴量
     'place_code', 'first_corner_dist',
+    # v5.50: コース構造特徴量
+    'straight_distance', 'height_diff',
 ]
 
 # 過去走特徴量

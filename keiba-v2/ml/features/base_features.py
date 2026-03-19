@@ -7,7 +7,37 @@ JRA-VANデータから抽出する基本特徴量。
 
 v4.0: month, nichi (開催日) を追加
 v5.40: place_code, first_corner_dist を追加
+v5.50: straight_distance, height_diff を追加 (コース事典ベース)
 """
+
+# 直線距離 (venue_code, track_type) → meters
+# 競馬場コース事典2(馬ノスケ著) + JRA公式情報ベース
+STRAIGHT_DISTANCE = {
+    ('01', 'turf'): 266.1, ('01', 'dirt'): 264.0,   # 札幌
+    ('02', 'turf'): 262.1, ('02', 'dirt'): 260.3,   # 函館
+    ('03', 'turf'): 292.0, ('03', 'dirt'): 295.7,   # 福島
+    ('04', 'turf'): 358.7, ('04', 'dirt'): 353.9,   # 新潟
+    ('05', 'turf'): 525.9, ('05', 'dirt'): 501.6,   # 東京
+    ('06', 'turf'): 310.0, ('06', 'dirt'): 308.0,   # 中山
+    ('07', 'turf'): 412.5, ('07', 'dirt'): 410.7,   # 中京
+    ('08', 'turf'): 403.7, ('08', 'dirt'): 329.1,   # 京都
+    ('09', 'turf'): 473.6, ('09', 'dirt'): 352.7,   # 阪神
+    ('10', 'turf'): 293.0, ('10', 'dirt'): 291.3,   # 小倉
+}
+
+# 高低差 (venue_code, track_type) → meters
+HEIGHT_DIFF = {
+    ('01', 'turf'): 0.7, ('01', 'dirt'): 0.9,   # 札幌
+    ('02', 'turf'): 3.5, ('02', 'dirt'): 3.5,   # 函館
+    ('03', 'turf'): 1.9, ('03', 'dirt'): 1.6,   # 福島
+    ('04', 'turf'): 0.7, ('04', 'dirt'): 0.3,   # 新潟
+    ('05', 'turf'): 2.7, ('05', 'dirt'): 2.4,   # 東京
+    ('06', 'turf'): 5.3, ('06', 'dirt'): 4.5,   # 中山
+    ('07', 'turf'): 3.5, ('07', 'dirt'): 3.4,   # 中京
+    ('08', 'turf'): 4.3, ('08', 'dirt'): 3.0,   # 京都
+    ('09', 'turf'): 1.8, ('09', 'dirt'): 1.6,   # 阪神
+    ('10', 'turf'): 3.0, ('10', 'dirt'): 2.9,   # 小倉
+}
 
 # 1角までの概算距離 (venue_name, track_type, distance) → meters
 # analyze_baba_report.py [17] の分析結果に基づく
@@ -91,6 +121,11 @@ def extract_base_features(entry: dict, race: dict) -> dict:
     fc_key = (venue_name, track_type_str, distance)
     first_corner_dist = FIRST_CORNER_DIST.get(fc_key)  # None if not found
 
+    # v5.50: straight_distance, height_diff (コース構造特徴量)
+    sd_key = (place_code_str, track_type_str)
+    straight_distance = STRAIGHT_DISTANCE.get(sd_key)
+    height_diff = HEIGHT_DIFF.get(sd_key)
+
     return {
         'age': entry.get('age', 0),
         'sex': sex_map.get(entry.get('sex_cd', ''), 0),
@@ -111,4 +146,7 @@ def extract_base_features(entry: dict, race: dict) -> dict:
         # v5.40: 馬場分析特徴量
         'place_code': place_code,
         'first_corner_dist': first_corner_dist,
+        # v5.50: コース構造特徴量
+        'straight_distance': straight_distance,
+        'height_diff': height_diff,
     }

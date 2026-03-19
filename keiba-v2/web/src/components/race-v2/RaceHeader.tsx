@@ -86,6 +86,7 @@ export default function RaceHeader({
   // コース情報
   const courseInfo = buildCourseInfo(raceInfo);
   const trackColor = getTrackTextClass(displayVenue);
+  const courseChars = getCourseCharacteristics(displayVenue, getTrackLabel(raceInfo.track));
 
   return (
     <div className="bg-white dark:bg-gray-900 border-b">
@@ -136,6 +137,17 @@ export default function RaceHeader({
               {courseInfo && (
                 <span className={`text-sm font-bold px-3 py-1 rounded ${getCourseBadgeClass(raceInfo.track)}`}>
                   {courseInfo}
+                </span>
+              )}
+
+              {/* コース特性バッジ */}
+              {courseChars && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5" title={courseChars.note}>
+                  <span>直線{courseChars.straightDistance}m</span>
+                  {courseChars.heightDiff >= 2.0 && <span>↕{courseChars.heightDiff}m</span>}
+                  <span className={BIAS_LABELS[courseChars.biasTendency]?.color ?? ''}>
+                    {BIAS_LABELS[courseChars.biasTendency]?.label ?? ''}
+                  </span>
                 </span>
               )}
 
@@ -352,6 +364,70 @@ function buildCourseInfo(raceInfo: RaceInfo): string {
   }
   
   return parts.join(' ');
+}
+
+/**
+ * コース特性情報（競馬場コース事典ベース）
+ */
+interface CourseCharacteristics {
+  straightDistance: number;  // 直線距離(m)
+  heightDiff: number;        // 高低差(m)
+  biasTendency: string;      // front_favored | neutral | rear_possible
+  note: string;              // コース解説
+}
+
+const COURSE_DATA: Record<string, Record<string, CourseCharacteristics>> = {
+  '札幌': {
+    turf:  { straightDistance: 266, heightDiff: 0.7, biasTendency: 'front_favored', note: '洋芝・小回り。先行有利' },
+    dirt:  { straightDistance: 264, heightDiff: 0.9, biasTendency: 'front_favored', note: '先行圧倒有利' },
+  },
+  '函館': {
+    turf:  { straightDistance: 262, heightDiff: 3.5, biasTendency: 'front_favored', note: 'JRA最短直線。逃げ先行有利' },
+    dirt:  { straightDistance: 260, heightDiff: 3.5, biasTendency: 'front_favored', note: '最短直線+坂。先行有利' },
+  },
+  '福島': {
+    turf:  { straightDistance: 292, heightDiff: 1.9, biasTendency: 'front_favored', note: '小回り急坂。先行有利' },
+    dirt:  { straightDistance: 296, heightDiff: 1.6, biasTendency: 'front_favored', note: '先行有利。開催後半は差し注意' },
+  },
+  '新潟': {
+    turf:  { straightDistance: 359, heightDiff: 0.7, biasTendency: 'neutral', note: '外回り直線長い。平坦' },
+    dirt:  { straightDistance: 354, heightDiff: 0.3, biasTendency: 'front_favored', note: '平坦ダート。先行有利' },
+  },
+  '東京': {
+    turf:  { straightDistance: 526, heightDiff: 2.7, biasTendency: 'rear_possible', note: 'JRA最長直線。差し追込も届く' },
+    dirt:  { straightDistance: 502, heightDiff: 2.4, biasTendency: 'neutral', note: '直線長く差しも可能なダート' },
+  },
+  '中山': {
+    turf:  { straightDistance: 310, heightDiff: 5.3, biasTendency: 'front_favored', note: '急坂+小回り。先行有利' },
+    dirt:  { straightDistance: 308, heightDiff: 4.5, biasTendency: 'front_favored', note: '先行有利。急坂で底力要' },
+  },
+  '中京': {
+    turf:  { straightDistance: 413, heightDiff: 3.5, biasTendency: 'neutral', note: '直線長め+急坂。実力勝負' },
+    dirt:  { straightDistance: 411, heightDiff: 3.4, biasTendency: 'front_favored', note: '先行有利。急坂あり' },
+  },
+  '京都': {
+    turf:  { straightDistance: 404, heightDiff: 4.3, biasTendency: 'neutral', note: '3角坂+下り。外回り直線長い' },
+    dirt:  { straightDistance: 329, heightDiff: 3.0, biasTendency: 'front_favored', note: '先行有利。冬場は内有利傾向' },
+  },
+  '阪神': {
+    turf:  { straightDistance: 474, heightDiff: 1.8, biasTendency: 'neutral', note: '外回り直線長い。差し有利に' },
+    dirt:  { straightDistance: 353, heightDiff: 1.6, biasTendency: 'front_favored', note: '先行有利。外枠やや有利' },
+  },
+  '小倉': {
+    turf:  { straightDistance: 293, heightDiff: 3.0, biasTendency: 'front_favored', note: '小回り。先行有利。開催後半バイアス変化' },
+    dirt:  { straightDistance: 291, heightDiff: 2.9, biasTendency: 'front_favored', note: '直線短く差し届きにくい' },
+  },
+};
+
+const BIAS_LABELS: Record<string, { label: string; color: string }> = {
+  front_favored: { label: '先行有利', color: 'text-red-600 dark:text-red-400' },
+  neutral:       { label: '実力勝負', color: 'text-blue-600 dark:text-blue-400' },
+  rear_possible: { label: '差し可', color: 'text-green-600 dark:text-green-400' },
+};
+
+function getCourseCharacteristics(venue: string, trackType: string): CourseCharacteristics | null {
+  const trackKey = trackType === 'ダート' || trackType === 'ダ' ? 'dirt' : 'turf';
+  return COURSE_DATA[venue]?.[trackKey] ?? null;
 }
 
 /**
