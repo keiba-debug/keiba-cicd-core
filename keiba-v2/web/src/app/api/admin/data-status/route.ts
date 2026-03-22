@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { DATA3_ROOT } from '@/lib/config';
 
-const INDEX_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index.json');
+const INDEX_FILE = path.join(DATA3_ROOT, 'indexes', 'race_date_index_web.json');
 
 export interface DateDataStatus {
   date: string;             // YYYY-MM-DD
@@ -183,7 +183,7 @@ export async function GET() {
 
     const result: DateDataStatus[] = targetDates.map((date) => {
       const entry = indexData[date];
-      const indexCount = entry.tracks.reduce((sum, t) => sum + t.races.length, 0);
+      const indexCount = entry?.tracks?.reduce((sum, t) => sum + t.races.length, 0) ?? 0;
 
       const { raceJsonCount, hasResults, hasPredictions, predictionsAt, jrdbRate, babaStatus } =
         parseRacesDir(date, babaKeys);

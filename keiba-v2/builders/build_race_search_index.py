@@ -45,7 +45,7 @@ GRADE_NORMALIZE = {
 
 def load_race_date_index():
     """race_date_index.json をフラットなレース配列に展開"""
-    idx_path = INDEXES_DIR / "race_date_index.json"
+    idx_path = INDEXES_DIR / "race_date_index_web.json"
     if not idx_path.exists():
         print(f"[ERROR] {idx_path} not found")
         return []

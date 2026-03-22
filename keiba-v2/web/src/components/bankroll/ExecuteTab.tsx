@@ -42,6 +42,7 @@ interface RecommendationEntry {
   kelly_amount?: number | null;
   kelly_capped?: number | null; // adaptive Kelly fraction (0.33/0.25/0.125)
   adaptive_rule?: string | null; // 'danger_sniper' | 'high_ev_win' | 'relaxed_base'
+  place_odds_min?: number | null;  // 複勝最低オッズ
 }
 
 interface PredictionsData {
@@ -423,6 +424,7 @@ export function ExecuteTab() {
               kelly_amount: b.kelly_amount ?? null,
               kelly_capped: b.kelly_capped ?? null,
               adaptive_rule: b.market_signal?.startsWith('rule:') ? b.market_signal.slice(5) : null,
+              place_odds_min: b.place_odds_min ?? null,
             } as RecommendationEntry;
           });
 
@@ -734,6 +736,14 @@ export function ExecuteTab() {
         const amt = Math.floor(bankrollBalance * (betPct / 100) * kc / 100) * 100;
         return Math.max(100, amt);
       }
+      // 複勝バイパス(market_signal鉄板/穴注目, kelly_capped=0): バンクロール連動
+      // 鉄板: bankroll × betPct% × 10% (高EV組の約1/10)
+      // 穴注目: bankroll × betPct% × 5%
+      if (r.bet_type === '複勝' && r.vb_score != null && r.vb_score <= 2.0) {
+        const fraction = (r.place_amount || 0) >= 200 ? 0.10 : 0.05;  // 鉄板200円 vs 穴注目100円
+        const amt = Math.floor(bankrollBalance * (betPct / 100) * fraction / 100) * 100;
+        return Math.max(100, amt);
+      }
       // ワイド/馬連等(kelly_capped=0): Python bet_engine計算済みkelly_amountをバンクロール比率でスケール
       const kellyAmt = r.kelly_amount || 0;
       if (kellyAmt > 0) {
@@ -950,7 +960,7 @@ export function ExecuteTab() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">ベット率:</span>
-                {[1, 2, 3, 5].map(pct => (
+                {[1, 2, 3, 5, 8].map(pct => (
                   <button
                     key={pct}
                     onClick={() => {
@@ -1264,7 +1274,11 @@ export function ExecuteTab() {
                             </span>
                           ) : '—'}
                         </td>
-                        <td className="py-2 px-1 text-right font-mono">{rec.odds.toFixed(1)}</td>
+                        <td className="py-2 px-1 text-right font-mono">
+                          {(rec.bet_type === '複勝' || rec.bet_type === '単複') && rec.place_odds_min != null
+                            ? rec.place_odds_min.toFixed(1)
+                            : rec.odds.toFixed(1)}
+                        </td>
                         <td className="py-2 px-1 text-right font-mono font-bold text-orange-600">
                           ¥{recAmount.toLocaleString()}
                         </td>

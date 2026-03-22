@@ -922,6 +922,9 @@ def generate_recommendations(
             # VB Floor不通過だがmarket_signal(鉄板/穴注目)で通過した馬は複勝のみ
             # 鉄板: 複勝率88%→通常額で複勝推奨
             # 穴注目: smart money穴馬→少額で複勝（試行回数確保＋学習データ蓄積）
+            # ※ 複勝オッズ1.0倍（元返し）は利益ゼロなのでスキップ
+            if ms_bypass and place_odds is not None and place_odds <= 1.0:
+                ms_bypass = None  # 元返しは買わない
             if ms_bypass:
                 win_ok, win_units = False, 0
                 place_ok = True

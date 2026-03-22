@@ -345,6 +345,32 @@ function SanrentanSection({
   }, [filtered]);
 
   const [expanded, setExpanded] = useState(false);
+  const [selectedRaces, setSelectedRaces] = useState<Set<string>>(new Set());
+
+  // 選択レースのベットのみ
+  const selectedBets = useMemo(() => {
+    if (selectedRaces.size === 0) return filtered;  // 未選択時は全件
+    return filtered.filter(r => selectedRaces.has(r.race_id));
+  }, [filtered, selectedRaces]);
+
+  const selectedCost = useMemo(() => selectedBets.reduce((s, r) => s + r.cost, 0), [selectedBets]);
+
+  const toggleRace = (raceId: string) => {
+    setSelectedRaces(prev => {
+      const next = new Set(prev);
+      if (next.has(raceId)) next.delete(raceId);
+      else next.add(raceId);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedRaces.size === raceGroups.length) {
+      setSelectedRaces(new Set());
+    } else {
+      setSelectedRaces(new Set(raceGroups.map(g => g.raceId)));
+    }
+  };
 
   return (
     <Card id={isDistortion ? "section-distortion" : "section-sanrentan"} className={`mb-8 ${borderColor}`}>
@@ -366,13 +392,18 @@ function SanrentanSection({
                 {csvResult.msg}
               </span>
             )}
+            {selectedRaces.size > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {selectedRaces.size}R選択 / {selectedCost.toLocaleString()}円
+              </span>
+            )}
             <button
-              onClick={() => exportFfCsv(filtered)}
-              disabled={csvExporting || filtered.length === 0}
+              onClick={() => exportFfCsv(selectedBets)}
+              disabled={csvExporting || selectedBets.length === 0}
               className={`px-3 py-1 text-xs font-medium rounded border ${btnBg} disabled:opacity-50`}
-              title="三連単をTARGET FF CSV形式で出力"
+              title="選択レースの三連単をTARGET FF CSV形式で出力（未選択時は全件）"
             >
-              {csvExporting ? '出力中...' : 'FF CSV出力'}
+              {csvExporting ? '出力中...' : `FF CSV出力${selectedRaces.size > 0 ? ` (${selectedRaces.size}R)` : ''}`}
             </button>
           </div>
         </div>
@@ -392,19 +423,48 @@ function SanrentanSection({
           </div>
         ) : (
           <>
-            {/* レース別サマリー */}
+            {/* レース別サマリー（チェックボックス付き） */}
             <div className="space-y-2 mb-4">
-              {vbSummary.map((race, i) => (
-                <div key={i} className="flex items-center gap-3 text-sm border-b border-dashed pb-1">
-                  <span className="font-semibold w-16">{race.venue}{race.raceNum}R</span>
-                  <span className="text-purple-700 dark:text-purple-300">
-                    ★ {Array.from(race.vbHorses).join(' / ')}
+              <div className="flex items-center gap-2 mb-1">
+                <button
+                  onClick={toggleAll}
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                >
+                  {selectedRaces.size === raceGroups.length ? '全解除' : '全選択'}
+                </button>
+                {selectedRaces.size > 0 && (
+                  <span className="text-[10px] text-muted-foreground">
+                    CSV出力対象: {selectedRaces.size}R / {selectedBets.length}点
                   </span>
-                  <span className="text-muted-foreground ml-auto">
-                    {race.tickets}点 / {race.cost.toLocaleString()}円
-                  </span>
-                </div>
-              ))}
+                )}
+              </div>
+              {vbSummary.map((race, i) => {
+                const raceId = raceGroups.find(g => g.raceNum === race.raceNum && g.venue === race.venue)?.raceId || '';
+                const isSelected = selectedRaces.has(raceId);
+                return (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-3 text-sm border-b border-dashed pb-1 cursor-pointer rounded px-1 transition-colors ${
+                      isSelected ? 'bg-purple-50 dark:bg-purple-950/50' : 'hover:bg-muted/50'
+                    }`}
+                    onClick={() => raceId && toggleRace(raceId)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {}}
+                      className="accent-purple-600 w-3.5 h-3.5"
+                    />
+                    <span className="font-semibold w-16">{race.venue}{race.raceNum}R</span>
+                    <span className={isDistortion ? 'text-emerald-700 dark:text-emerald-300' : 'text-purple-700 dark:text-purple-300'}>
+                      ★ {Array.from(race.vbHorses).join(' / ')}
+                    </span>
+                    <span className="text-muted-foreground ml-auto">
+                      {race.tickets}点 / {race.cost.toLocaleString()}円
+                    </span>
+                  </div>
+                );
+              })}
             </div>
 
             {/* 全チケット展開 */}
