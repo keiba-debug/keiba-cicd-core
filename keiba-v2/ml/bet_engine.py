@@ -907,12 +907,13 @@ def generate_recommendations(
                 vb_dev_route = (entry_dev_gap >= VB_FLOOR_MIN_DEV_GAP
                                 and (ar_dev or 0) >= VB_FLOOR_DEV_MIN_ARD)
                 if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route and not vb_dev_route:
-                    # --- market_signalバイパス: VB不通過でも複勝推奨 ---
-                    # 鉄板: 複勝率82% → 複勝推奨（通常額）
+                    # --- market_signalバイパス: VB不通過でも推奨 ---
+                    # 鉄板: 複勝→廃止（鉄板軸馬連に移行, Session 116）
                     # 穴注目: smart money入り穴馬 → 複勝少額
                     ms = e.get('market_signal')
                     if ms == '鉄板':
-                        ms_bypass = 'tetsuban'
+                        # 鉄板は複勝を出さない（後段の鉄板軸馬連で対応）
+                        continue
                     elif ms == '穴注目':
                         ms_bypass = 'ana'
                     else:
@@ -1119,11 +1120,11 @@ def generate_recommendations(
             )
             # --- Place上乗せ: 単勝候補に条件付きで複勝追加 ---
             # 障害レースはARd不要、PlaceEVのみで判定
-            # 鉄板シグナル: 複勝率82%→常に複勝追加
-            if win_ok and ms == '鉄板':
-                rec.place_amount = params.place_addon_amount or params.bet_unit
-                rec.bet_type = '単複'
-            elif win_ok and params.place_addon:
+            # 鉄板シグナル: 複勝→廃止（鉄板軸馬連に移行, Session 116）
+            # if win_ok and ms == '鉄板':  # 旧: 常に複勝追加
+            #     rec.place_amount = params.place_addon_amount or params.bet_unit
+            #     rec.bet_type = '単複'
+            if win_ok and params.place_addon:
                 pev = place_ev or 0
                 ard = ar_dev or 0
                 addon_ok = (pev >= params.place_addon_min_pev
@@ -1296,6 +1297,84 @@ def generate_recommendations(
                             wide_source='激戦',
                         )
                         all_recs.append(umaren_rec)
+
+        # --- 鉄板軸馬連: market_signal='鉄板' の馬を軸に P1+W1 相手で馬連 ---
+        # BT: 2番人気鉄板 ROI 160.7%, 全鉄板 ROI 114.3%, P1≠W1 ROI 136.4%
+        if not is_obstacle:
+            teppan_entries = [e for e in entries if e.get('market_signal') == '鉄板']
+            if teppan_entries:
+                sorted_by_rp = sorted(entries, key=lambda x: x.get('rank_p', 99))
+                sorted_by_rw = sorted(entries, key=lambda x: x.get('rank_w') or 99)
+                sorted_by_odds = sorted(entries, key=lambda x: float(x.get('odds', 999) or 999))
+
+                for teppan_e in teppan_entries:
+                    t_uma = teppan_e['umaban']
+                    t_name = teppan_e.get('horse_name', '?')
+                    t_odds_rank = teppan_e.get('odds_rank', 0) or 0
+
+                    # 相手1: Pモデル1位（軸馬自身を除く）
+                    p1_e = None
+                    for e in sorted_by_rp:
+                        if e['umaban'] != t_uma:
+                            p1_e = e
+                            break
+                    # 相手2: Wモデル1位（軸馬自身を除く）
+                    w1_e = None
+                    for e in sorted_by_rw:
+                        if e['umaban'] != t_uma:
+                            w1_e = e
+                            break
+
+                    if not p1_e:
+                        continue
+
+                    # 強弱判定: 2番人気(odds_rank==2)ならstrong
+                    is_strong = (t_odds_rank == 2)
+                    bet_amount = params.bet_unit if is_strong else params.min_bet
+
+                    # 馬連オッズ取得
+                    if not _umaren_odds_cache:
+                        _umaren_odds_cache = _fetch_umaren_odds_for_race(race_id)
+
+                    # 馬連1: 鉄板軸 × P1
+                    umaren_pairs_added_teppan = set()
+                    pair1 = frozenset([t_uma, p1_e['umaban']])
+                    umaren_pairs_added_teppan.add(pair1)
+                    u1, u2 = t_uma, p1_e['umaban']
+                    rec1 = BetRecommendation(
+                        race_id=race_id,
+                        umaban=min(u1, u2),
+                        horse_name=f"{t_name}-{p1_e.get('horse_name', '?')}",
+                        bet_type='馬連',
+                        strength='strong' if is_strong else 'normal',
+                        win_amount=bet_amount,
+                        place_amount=0,
+                        odds=_lookup_umaren_odds(_umaren_odds_cache, u1, u2),
+                        wide_pair=sorted([u1, u2]),
+                        wide_source='鉄板軸',
+                        market_signal='鉄板',
+                    )
+                    all_recs.append(rec1)
+
+                    # 馬連2: 鉄板軸 × W1（P1と異なる場合のみ）
+                    if w1_e and w1_e['umaban'] != p1_e['umaban']:
+                        pair2 = frozenset([t_uma, w1_e['umaban']])
+                        if pair2 not in umaren_pairs_added_teppan:
+                            u1, u2 = t_uma, w1_e['umaban']
+                            rec2 = BetRecommendation(
+                                race_id=race_id,
+                                umaban=min(u1, u2),
+                                horse_name=f"{t_name}-{w1_e.get('horse_name', '?')}",
+                                bet_type='馬連',
+                                strength='strong' if is_strong else 'normal',
+                                win_amount=bet_amount,
+                                place_amount=0,
+                                odds=_lookup_umaren_odds(_umaren_odds_cache, u1, u2),
+                                wide_pair=sorted([u1, u2]),
+                                wide_source='鉄板軸',
+                                market_signal='鉄板',
+                            )
+                            all_recs.append(rec2)
 
     # 予算スケーリング
     all_recs = apply_budget(all_recs, budget, params)

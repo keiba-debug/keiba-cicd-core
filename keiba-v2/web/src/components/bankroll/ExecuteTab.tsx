@@ -227,6 +227,23 @@ export function ExecuteTab() {
   const [csvExporting, setCsvExporting] = useState(false);
   const [csvResult, setCsvResult] = useState<{ totalBets: number; winBets: number; totalAmount: number; filePath: string } | null>(null);
 
+  // 螺旋丸チェック選択（FF CSV出力対象）
+  const [selectedRecIndices, setSelectedRecIndices] = useState<Set<number>>(new Set());
+  const toggleRecSelection = (idx: number) => {
+    setSelectedRecIndices(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+  const toggleAllRecs = () => {
+    if (selectedRecIndices.size === displayRecs.length) {
+      setSelectedRecIndices(new Set());
+    } else {
+      setSelectedRecIndices(new Set(displayRecs.map((_, i) => i)));
+    }
+  };
+
   // 買い確定
   const [confirmedBets, setConfirmedBets] = useState<import('@/app/api/bankroll/confirmed-bets/route').ConfirmedBet[]>([]);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -493,11 +510,14 @@ export function ExecuteTab() {
   }, [activePreset, allMergedRecs, recommendations, allPresetsMap, raceRangeMin, raceRangeMax]);
 
   // FF CSV出力（TARGET買い目取り込み用）
-  // 常に画面の推奨リスト(displayRecs)から生成 — 画面=CSVを保証
+  // チェック選択があれば選択分のみ、なければ全件
   const exportFfCsv = async () => {
+    const targetRecs = selectedRecIndices.size > 0
+      ? displayRecs.filter((_, i) => selectedRecIndices.has(i))
+      : displayRecs;
     const bets: { raceId: string; umaban: number; umaban2?: number; betType: number; amount: number }[] = [];
 
-    for (const rec of displayRecs) {
+    for (const rec of targetRecs) {
       const amount = getRecAmount(rec);
 
       if (rec.bet_type === 'ワイド' && rec.wide_pair && rec.wide_pair.length === 2) {
@@ -992,9 +1012,14 @@ export function ExecuteTab() {
             </CardTitle>
             {displayRecs.length > 0 && (
               <div className="flex items-center gap-2">
+                {selectedRecIndices.size > 0 && (
+                  <span className="text-xs text-amber-600 font-medium">
+                    {selectedRecIndices.size}/{displayRecs.length}件選択中
+                  </span>
+                )}
                 {csvResult && (
                   <span className="text-xs text-green-600">
-                    {displayRecs.length}推奨({csvResult.totalBets}行) / ¥{csvResult.totalAmount.toLocaleString()} → CSV出力済
+                    {csvResult.totalBets}行 / ¥{csvResult.totalAmount.toLocaleString()} → CSV出力済
                   </span>
                 )}
                 <Button
@@ -1002,7 +1027,7 @@ export function ExecuteTab() {
                   variant="outline"
                   onClick={exportFfCsv}
                   disabled={csvExporting}
-                  title="TARGET FF CSV出力（買い目取り込みメニューで読込）"
+                  title="TARGET FF CSV出力（チェックした買い目のみ。未選択時は全件）"
                   className="text-xs"
                 >
                   {csvExporting ? (
@@ -1010,7 +1035,7 @@ export function ExecuteTab() {
                   ) : (
                     <Download className="h-3.5 w-3.5 mr-1" />
                   )}
-                  FF CSV出力
+                  FF CSV出力{selectedRecIndices.size > 0 ? ` (${selectedRecIndices.size}件)` : ''}
                 </Button>
               </div>
             )}
@@ -1128,6 +1153,15 @@ export function ExecuteTab() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-xs text-muted-foreground">
+                    <th className="py-2 px-1 text-center w-8">
+                      <input
+                        type="checkbox"
+                        checked={selectedRecIndices.size === displayRecs.length && displayRecs.length > 0}
+                        onChange={toggleAllRecs}
+                        className="rounded"
+                        title="全選択/全解除"
+                      />
+                    </th>
                     <th className="py-2 px-2 text-left">場</th>
                     <th className="py-2 px-1 text-center">R</th>
                     <th className="py-2 px-1 text-center">馬番</th>
@@ -1182,6 +1216,14 @@ export function ExecuteTab() {
                     return (
                       <tr key={`${rowKey}-${idx}`}
                         className={`border-b hover:bg-indigo-50 dark:hover:bg-indigo-950/30 ${isHit === true ? 'bg-green-50 dark:bg-green-950/20' : ''} ${getGapBg(rec.win_vb_gap)}`}>
+                        <td className="py-2 px-1 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedRecIndices.has(idx)}
+                            onChange={() => toggleRecSelection(idx)}
+                            className="rounded"
+                          />
+                        </td>
                         <td className="py-2 px-2 font-medium">
                           {rec.venue}
                           {rec.track_type === 'obstacle' && (
@@ -1215,8 +1257,8 @@ export function ExecuteTab() {
                               {rec.wide_source === '激戦' ? '激戦W' : rec.wide_source === '障害' ? '障害W' : 'ワイド'}
                             </Badge>
                           ) : rec.bet_type === '馬連' ? (
-                            <Badge variant="outline" className="text-[10px] border-blue-400 text-blue-600 bg-blue-50">
-                              {rec.wide_source === '障害' ? '障害連' : '馬連'}
+                            <Badge variant="outline" className={`text-[10px] border-blue-400 text-blue-600 ${rec.wide_source === '鉄板軸' ? 'bg-amber-50 border-amber-400 text-amber-700' : 'bg-blue-50'}`}>
+                              {rec.wide_source === '障害' ? '障害連' : rec.wide_source === '鉄板軸' ? '鉄板連' : '馬連'}
                             </Badge>
                           ) : rec.bet_type && rec.bet_type !== '単勝' ? (
                             <Badge variant="outline" className="text-[10px]">{rec.bet_type}</Badge>
@@ -1358,7 +1400,7 @@ export function ExecuteTab() {
                   return (
                     <tfoot>
                       <tr className="border-t-2 font-bold">
-                        <td colSpan={activePreset !== 'intersection' ? 15 : 14} className="py-2 px-2 text-right">
+                        <td colSpan={activePreset !== 'intersection' ? 16 : 15} className="py-2 px-2 text-right">
                           合計
                           {hasResults && (
                             <span className={`ml-3 text-xs font-normal ${hitCount > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>

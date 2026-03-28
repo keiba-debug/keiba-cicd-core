@@ -729,6 +729,24 @@ export async function getHorseFullData(id: string): Promise<IntegratedHorseData 
       }
     }
 
+    // --- kb_horse_code取得: レースJSONからkeibabook馬IDを探す ---
+    let kbHorseCode: string | undefined;
+    if (isIndexAvailable()) {
+      const raceFiles = getRaceFilesForHorse(kettoNum);
+      for (const filePath of raceFiles) {
+        const raceData = raceJsonCache.get(filePath) || (() => {
+          try { const d = JSON.parse(fs.readFileSync(filePath, 'utf-8')); return d; } catch { return null; }
+        })();
+        if (!raceData) continue;
+        const entries = raceData.entries as Array<Record<string, unknown>> || [];
+        const entry = entries.find(e => String(e.ketto_num || '') === kettoNum);
+        if (entry?.kb_horse_code) {
+          kbHorseCode = String(entry.kb_horse_code);
+          break;
+        }
+      }
+    }
+
     // --- Layer 2: race_*.json + kb_ext Enrichment ---
     // horse_race_indexは10桁ketto_numでキーイング
     pastRaces = await enrichWithKeibabook(pastRaces, kettoNum, horseName);
@@ -780,6 +798,7 @@ export async function getHorseFullData(id: string): Promise<IntegratedHorseData 
       basic,
       pastRaces,
       stats,
+      kbHorseCode,
       userMemo: '', // Layer 3はページ側で取得
     };
   } catch (error) {

@@ -55,7 +55,7 @@ export default async function HorseProfilePage({ params }: PageParams) {
     notFound();
   }
 
-  const { basic, pastRaces, stats } = horseData;
+  const { basic, pastRaces, stats, kbHorseCode } = horseData;
 
   // レース傾向をpastRacesに付与 + stats.byTrendを計算
   const raceTrendIndex = await getRaceTrendIndex();
@@ -115,8 +115,8 @@ export default async function HorseProfilePage({ params }: PageParams) {
     waku: race.frameNumber ? String(race.frameNumber) : undefined,
   }));
 
-  // keibabook外部リンク用ID（先頭0除去で7桁化）
-  const keibabookId = id.replace(/^0+/, '') || id;
+  // keibabook外部リンク: kb_horse_codeがあればダイレクトリンク、なければ馬名検索
+  const horseName = basic.name || '';
 
   return (
     <div className="min-h-screen bg-background">
@@ -144,24 +144,38 @@ export default async function HorseProfilePage({ params }: PageParams) {
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <span className="text-sm text-muted-foreground">外部リンク:</span>
           <div className="flex flex-wrap items-center gap-1">
-            <a
-              href={`https://p.keibabook.co.jp/db/uma/${keibabookId}/kanzen`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
-            >
-              <span className="text-sm">📖</span>
-              完全成績
-            </a>
-            <a
-              href={`https://p.keibabook.co.jp/db/uma/${keibabookId}/crireki`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
-            >
-              <span className="text-sm">📊</span>
-              調教履歴
-            </a>
+            {kbHorseCode ? (
+              <>
+                <a
+                  href={`https://p.keibabook.co.jp/db/uma/${kbHorseCode}/kanzen`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
+                >
+                  <span className="text-sm">📖</span>
+                  完全成績
+                </a>
+                <a
+                  href={`https://p.keibabook.co.jp/db/uma/${kbHorseCode}/crireki`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
+                >
+                  <span className="text-sm">📊</span>
+                  調教履歴
+                </a>
+              </>
+            ) : horseName ? (
+              <a
+                href={`https://p.keibabook.co.jp/search/horse?word=${encodeURIComponent(horseName)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted hover:bg-muted/80 rounded transition-colors"
+              >
+                <span className="text-sm">📖</span>
+                競馬ブック
+              </a>
+            ) : null}
             {kettoNum && (
               <a
                 href={`https://db.netkeiba.com/horse/result/${kettoNum}/`}
