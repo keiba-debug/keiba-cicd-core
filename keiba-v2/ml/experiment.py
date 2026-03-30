@@ -71,6 +71,8 @@ PAST_FEATURES = [
     'exact_distance_top3_rate', 'exact_distance_top3_rate_smoothed',
     'surface_switch_top3_rate', 'distance_direction_top3_rate',
     'field_size_category_top3_rate',
+    # v7.7: 着差特徴量（tbw = time behind winner）
+    'prev_tbw', 'avg_tbw_last3',
 ]
 
 # 調教師特徴量（100%マッチ）
@@ -231,8 +233,16 @@ FEATURE_COLS_ALL = (
     BABA_FEATURES + JRDB_FEATURES + TRACK_BIAS_FEATURES
 )
 
-# 共通特徴量（市場系除外 — 全モデル共通）
-FEATURE_COLS_VALUE = [f for f in FEATURE_COLS_ALL if f not in MARKET_FEATURES]
+# v7.9: P専用特徴量（好走予測に有効だが勝利予測にノイズになるもの）
+P_ONLY_FEATURES = {
+    'jrdb_mae_furi_last', 'jrdb_naka_furi_last', 'jrdb_ato_furi_last',
+    'jrdb_furi_total_last', 'jrdb_baba_sa_last', 'jrdb_baba_sa_avg3',
+    'jrdb_pace_match', 'jrdb_kyakushitsu', 'jrdb_distance_apt',
+}
+
+# 共通特徴量（市場系・P専用を除外 — W/ARモデル用ベース）
+FEATURE_COLS_VALUE = [f for f in FEATURE_COLS_ALL
+                      if f not in MARKET_FEATURES and f not in P_ONLY_FEATURES]
 
 # ハイパーパラメータ — Place (P) / Win (W) / Aura (AR)
 PARAMS_P = {
@@ -2739,6 +2749,13 @@ def main():
     features_w = optuna_feature_cols.get('w', feature_cols_value)
     features_ar = optuna_feature_cols.get('ar', feature_cols_value)
 
+    # v7.9: P専用特徴量を追加（好走予測に有効だがW/ARにはノイズ）
+    if P_ONLY_FEATURES:
+        p_extra = [f for f in P_ONLY_FEATURES if f in df_train.columns and f not in features_p]
+        if p_extra:
+            features_p = list(features_p) + p_extra
+            print(f"\n[P-Only] {len(p_extra)} features added to Place model only: {p_extra}")
+
     # === Perf Stacking (パフォ変動予測のスタッキング) ===
     if args.perf_stack:
         perf_model_path = config.ml_dir() / "model_perf.txt"
@@ -3242,8 +3259,8 @@ def main():
         'sire_cutoff': args.sire_cutoff,
         'time_decay_half_life': args.time_decay if args.time_decay > 0 else None,
     }
-    # Optunaでモデル別特徴量が異なる場合、個別リストも保存
-    if optuna_optimized and optuna_feature_cols:
+    # モデル別特徴量が異なる場合、個別リストを保存（Optuna or P_ONLY_FEATURES）
+    if features_p != features_w or features_p != features_ar:
         meta['features_per_model'] = {
             'p': features_p,
             'w': features_w,

@@ -9,9 +9,49 @@ v2のcompute_past_features()を移植・拡張。
 v4.0: best_l3f_last5, finish_std_last5, comeback_strength_last5 を追加
 v5.4: ベイズ平滑化レート + career_stage を追加
 v5.45: Phase P — 前走→今回 直接比較特徴量 (14個追加)
+v7.7: 着差(tbw)・クラス補正・勝ちっぷり(winning_margin)特徴量追加
 """
 
+import re
 from typing import Dict, List, Optional
+
+
+# ============================================================
+# 馬身→秒 変換 (1馬身 ≈ 0.2秒)
+# ============================================================
+_MARGIN_SPECIAL: Dict[str, float] = {
+    '\u30cf\u30ca': 0.05,   # ハナ
+    '\u30af\u30d3': 0.1,    # クビ
+    '\u30a2\u30bf\u30de': 0.15,  # アタマ
+    '\u5927\u5dee': 5.0,    # 大差
+}
+
+_MARGIN_FRAC = re.compile(r'^(\d+)?\.?(\d+/\d+)?$')
+
+
+def parse_margin_to_seconds(margin_str: str) -> Optional[float]:
+    """着差文字列を秒数に変換。1馬身=0.2秒。"""
+    if not margin_str:
+        return None
+    if margin_str in _MARGIN_SPECIAL:
+        return _MARGIN_SPECIAL[margin_str]
+    try:
+        # "3", "10" 等の整数馬身
+        return int(margin_str) * 0.2
+    except ValueError:
+        pass
+    # "1/2", "3/4", "1.1/2", "1.1/4", "1.3/4", "2.1/2", "3.1/2" 等
+    m = _MARGIN_FRAC.match(margin_str)
+    if m:
+        whole = int(m.group(1)) if m.group(1) else 0
+        frac_str = m.group(2)
+        if frac_str:
+            num, den = frac_str.split('/')
+            frac = int(num) / int(den)
+        else:
+            frac = 0
+        return (whole + frac) * 0.2
+    return None
 
 
 # ============================================================
@@ -104,6 +144,12 @@ def compute_past_features(
         'surface_switch_top3_rate': -1,
         'distance_direction_top3_rate': -1,
         'field_size_category_top3_rate': -1,
+        # v7.7: 着差・クラス補正特徴量
+        'prev_tbw': None,               # 前走の勝ち馬との秒差
+        'avg_tbw_last3': None,           # 直近3走のtbw平均
+        'best_tbw_last5': None,          # 直近5走のベストtbw
+        'prev_finish_adjusted': None,    # 前走着順×レースレベル補正
+        'prev_winning_margin': None,     # 前走1着時の勝ちっぷり（秒）
     }
 
     runs = history_cache.get(ketto_num, [])
@@ -268,6 +314,54 @@ def compute_past_features(
 
     # --- Category A: 前走直接シグナル ---
     result['prev_finish'] = last_race['finish_position']
+
+    # v7.7: 着差（time_behind_winner）特徴量
+    prev_tbw = last_race.get('time_behind_winner')
+    if prev_tbw is not None:
+        try:
+            result['prev_tbw'] = float(prev_tbw)
+        except (ValueError, TypeError):
+            pass
+
+    tbw_vals_3 = []
+    for r in last3:
+        tbw = r.get('time_behind_winner')
+        if tbw is not None:
+            try:
+                tbw_vals_3.append(float(tbw))
+            except (ValueError, TypeError):
+                pass
+    if tbw_vals_3:
+        result['avg_tbw_last3'] = round(sum(tbw_vals_3) / len(tbw_vals_3), 3)
+
+    tbw_vals_5 = []
+    for r in last5:
+        tbw = r.get('time_behind_winner')
+        if tbw is not None:
+            try:
+                tbw_vals_5.append(float(tbw))
+            except (ValueError, TypeError):
+                pass
+    if tbw_vals_5:
+        result['best_tbw_last5'] = round(min(tbw_vals_5), 3)
+
+    # v7.7: 前走1着時の勝ちっぷり（着差を秒に変換）
+    if last_race['finish_position'] == 1:
+        wm = parse_margin_to_seconds(last_race.get('margin', ''))
+        if wm is not None:
+            result['prev_winning_margin'] = round(wm, 3)
+
+    # v7.7: レースレベル補正着順
+    # level_vs_class > 0 = ハイレベル戦 → 着順を割引（良い方に補正）
+    if race_level_index:
+        prev_rid = last_race.get('race_id', '')
+        prev_level = race_level_index.get(prev_rid)
+        if prev_level and prev_level.get('level_vs_class') is not None:
+            lvc = prev_level['level_vs_class']
+            fp = last_race['finish_position']
+            # 補正: 着順からレベル差を引く（ハイレベル戦ほど着順が良く見える）
+            # 例: 5着 + level_vs_class=+2.0 → 補正3.0（ハイレベル戦の5着は実質3着相当）
+            result['prev_finish_adjusted'] = round(fp - lvc * 0.5, 2)
 
     prev_l3f = last_race.get('last_3f', 0)
     if prev_l3f > 0:

@@ -68,6 +68,17 @@ def compute_jrdb_features(
         # E. 乖離指標
         'jrdb_idm_vs_pre': 0.0,     # 過去IDM平均 - 事前IDM (正=過小評価)
         'jrdb_idm_growth': 0.0,     # 直近IDM - 過去全体平均 (正=成長)
+        # F. 不利補正内訳 (SED) — 前走の不利は次走巻き返しの兆候
+        'jrdb_mae_furi_last': 0.0,   # 前走・前半不利補正
+        'jrdb_naka_furi_last': 0.0,  # 前走・中盤不利補正
+        'jrdb_ato_furi_last': 0.0,   # 前走・後半不利補正
+        'jrdb_furi_total_last': 0.0, # 前走・不利合計
+        'jrdb_baba_sa_last': 0.0,    # 前走・馬場差補正
+        'jrdb_baba_sa_avg3': 0.0,    # 直近3走・馬場差補正平均
+        # G. ペース適性 (SED + KYI)
+        'jrdb_pace_match': None,     # 馬のペース vs レースペース適合度
+        'jrdb_kyakushitsu': None,    # 脚質コード (1=逃げ,2=先行,3=差し,4=追込)
+        'jrdb_distance_apt': None,   # 距離適性
     }
 
     # === A-C: 過去走IDMデータ (SED) ===
@@ -165,6 +176,59 @@ def compute_jrdb_features(
             result['jrdb_idm_growth'] = round(
                 result['jrdb_idm_last'] - statistics.mean(all_sed), 1)
 
+    # === F: 不利補正内訳 + 馬場差 (SED) ===
+    if past:
+        last5 = past[-5:]
+        sed_recs = []
+        for r in last5:
+            rd = r.get('race_date', '')
+            sed_key = f"{ketto_num}_{rd}"
+            sed = jrdb_sed_index.get(sed_key)
+            if sed:
+                sed_recs.append(sed)
+
+        if sed_recs:
+            last_sed = sed_recs[-1]
+            # 前走の不利補正内訳
+            result['jrdb_mae_furi_last'] = float(last_sed.get('mae_furi_adj', 0) or 0)
+            result['jrdb_naka_furi_last'] = float(last_sed.get('naka_furi_adj', 0) or 0)
+            result['jrdb_ato_furi_last'] = float(last_sed.get('ato_furi_adj', 0) or 0)
+            result['jrdb_furi_total_last'] = (
+                result['jrdb_mae_furi_last']
+                + result['jrdb_naka_furi_last']
+                + result['jrdb_ato_furi_last']
+            )
+            # 前走の馬場差補正
+            result['jrdb_baba_sa_last'] = float(last_sed.get('baba_sa', 0) or 0)
+            # 直近3走の馬場差平均
+            baba_vals = [float(s.get('baba_sa', 0) or 0) for s in sed_recs[-3:]]
+            if baba_vals:
+                result['jrdb_baba_sa_avg3'] = round(
+                    sum(baba_vals) / len(baba_vals), 1)
+
+            # ペース適合度: 直近3走で馬ペースとレースペースが合ってた割合
+            _PACE_MAP = {'H': 0, 'M': 1, 'S': 2}
+            pace_matches = 0
+            pace_total = 0
+            for s in sed_recs[-3:]:
+                hp = _PACE_MAP.get(s.get('horse_pace'))
+                rp = _PACE_MAP.get(s.get('race_pace'))
+                if hp is not None and rp is not None:
+                    pace_total += 1
+                    if abs(hp - rp) <= 1:  # 1段階以内のズレはOK
+                        pace_matches += 1
+            if pace_total > 0:
+                result['jrdb_pace_match'] = round(pace_matches / pace_total, 2)
+
+    # === G: 脚質・距離適性 (KYI) ===
+    if kyi:
+        kyakushitsu = kyi.get('kyakushitsu')
+        if kyakushitsu is not None and kyakushitsu > 0:
+            result['jrdb_kyakushitsu'] = int(kyakushitsu)
+        dist_apt = kyi.get('distance_aptitude')
+        if dist_apt is not None:
+            result['jrdb_distance_apt'] = int(dist_apt)
+
     return result
 
 
@@ -184,4 +248,9 @@ JRDB_FEATURE_COLS = [
     'jrdb_gekisou_idx', 'jrdb_start_idx', 'jrdb_deokure_rate',
     # E. 乖離指標
     'jrdb_idm_vs_pre', 'jrdb_idm_growth',
+    # F. 不利補正内訳 + 馬場差
+    'jrdb_mae_furi_last', 'jrdb_naka_furi_last', 'jrdb_ato_furi_last',
+    'jrdb_furi_total_last', 'jrdb_baba_sa_last', 'jrdb_baba_sa_avg3',
+    # G. ペース適性 + 脚質 + 距離適性
+    'jrdb_pace_match', 'jrdb_kyakushitsu', 'jrdb_distance_apt',
 ]
