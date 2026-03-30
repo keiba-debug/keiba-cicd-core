@@ -401,12 +401,12 @@ def build_obstacle_dataset(
 
 def main():
     parser = argparse.ArgumentParser(description='Obstacle Race ML Experiment v2.3b (P/W)')
-    parser.add_argument('--train-years', default='2019-2024',
-                        help='Training period (例: 2019-2024)')
-    parser.add_argument('--val-years', default='2025.01-2025.06',
-                        help='Validation period (例: 2025.01-2025.06)')
-    parser.add_argument('--test-years', default='2025.07-2026.02',
-                        help='Test period (例: 2025.07-2026.02)')
+    parser.add_argument('--train-years', default='2019-2025.03',
+                        help='Training period (例: 2019-2025.03)')
+    parser.add_argument('--val-years', default='2025.04',
+                        help='Validation period (例: 2025.04)')
+    parser.add_argument('--test-years', default='2025.05-2026.03',
+                        help='Test period (例: 2025.05-2026.03)')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
     parser.add_argument('--use-optuna', action='store_true',
                         help='Optuna最適化パラメータを使用')

@@ -393,10 +393,22 @@ def main():
     result = run_backtest(races, payouts)
 
     out_path = config.ml_dir() / "formation_backtest.json"
-    out_path.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    out_json = json.dumps(result, ensure_ascii=False, indent=2)
+    out_path.write_text(out_json, encoding="utf-8")
     print(f"\n  Saved: {out_path}")
+
+    # Archive to version directory
+    meta_path = config.ml_dir() / "model_meta.json"
+    if meta_path.exists():
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        version = meta.get("version", "")
+        if version:
+            archive_dir = config.ml_dir() / "versions" / f"v{version}"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = archive_dir / "formation_backtest.json"
+            archive_path.write_text(out_json, encoding="utf-8")
+            print(f"  Archive: {archive_path}")
 
     # Summary
     for s in result["strategies"]:

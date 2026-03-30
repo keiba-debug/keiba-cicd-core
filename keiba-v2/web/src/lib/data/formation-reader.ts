@@ -4,12 +4,51 @@ import { KEIBA_DATA_ROOT } from '@/lib/config';
 
 const FILENAME = 'formation_backtest.json';
 
-export async function getFormationBacktest(): Promise<unknown | null> {
-  const filePath = path.join(KEIBA_DATA_ROOT, 'ml', FILENAME);
+/**
+ * フォーメーションバックテスト結果を読み込む
+ * version指定時はアーカイブ (versions/v{version}/) から読み込み
+ */
+export async function getFormationBacktest(version?: string | null): Promise<unknown | null> {
+  const filePath = version
+    ? path.join(KEIBA_DATA_ROOT, 'ml', 'versions', `v${version}`, FILENAME)
+    : path.join(KEIBA_DATA_ROOT, 'ml', FILENAME);
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     return JSON.parse(raw);
   } catch {
     return null;
+  }
+}
+
+/**
+ * formation_backtest.json が存在するバージョン一覧を返す（新しい順）
+ */
+export async function getFormationVersions(): Promise<string[]> {
+  const versionsDir = path.join(KEIBA_DATA_ROOT, 'ml', 'versions');
+  try {
+    const entries = await fs.readdir(versionsDir, { withFileTypes: true });
+    const versions: string[] = [];
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name.startsWith('v')) {
+        const fp = path.join(versionsDir, entry.name, FILENAME);
+        try {
+          await fs.access(fp);
+          versions.push(entry.name.slice(1));
+        } catch {
+          // no formation file in this version
+        }
+      }
+    }
+    return versions.sort((a, b) => {
+      const na = a.split(/[.-]/).map(s => parseInt(s) || 0);
+      const nb = b.split(/[.-]/).map(s => parseInt(s) || 0);
+      for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+        const diff = (nb[i] || 0) - (na[i] || 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    });
+  } catch {
+    return [];
   }
 }

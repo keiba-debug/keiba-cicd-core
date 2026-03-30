@@ -324,7 +324,16 @@ function HitDetailsTable({ hits }: { hits: HitDetail[] }) {
 // Main Page
 // ---------------------------------------------------------------
 export default function FormationPage() {
-  const { data, isLoading, error } = useSWR<FormationData>('/api/formation-backtest', fetcher);
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+  const apiUrl = selectedVersion
+    ? `/api/formation-backtest?version=${selectedVersion}`
+    : '/api/formation-backtest';
+  const { data, isLoading, error } = useSWR<FormationData>(apiUrl, fetcher);
+  const { data: versionsData } = useSWR<{ versions: string[] }>(
+    '/api/formation-backtest/versions', fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 300_000 },
+  );
+  const versions = versionsData?.versions ?? [];
   const [selectedKey, setSelectedKey] = useState<string>('VB_45F3_FO4_CG10');
 
   const selectedStrategy = useMemo(() => {
@@ -359,15 +368,29 @@ export default function FormationPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">
-          三連単フォーメーション検証
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          VB頭フォーメーション (★→▲▲▲▲→▲▲▲▲△△△) / {data.period_start} ~ {data.period_end}
-          {' '}/ {data.total_races.toLocaleString()} races
-          <span className="ml-2 text-xs">Updated: {data.created_at.split('T')[0]}</span>
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">
+            三連単フォーメーション検証
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            VB頭フォーメーション (★→▲▲▲▲→▲▲▲▲△△△) / {data.period_start} ~ {data.period_end}
+            {' '}/ {data.total_races.toLocaleString()} races
+            <span className="ml-2 text-xs">Updated: {data.created_at.split('T')[0]}</span>
+          </p>
+        </div>
+        {versions.length > 0 && (
+          <select
+            value={selectedVersion ?? ''}
+            onChange={(e) => setSelectedVersion(e.target.value || null)}
+            className="rounded-lg border border-gray-200 bg-background px-3 py-1.5 text-sm dark:border-gray-700"
+          >
+            <option value="">最新</option>
+            {versions.map(v => (
+              <option key={v} value={v}>v{v}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Best Strategy Summary */}

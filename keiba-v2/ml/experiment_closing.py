@@ -355,12 +355,12 @@ def calc_subset_analysis(df: pd.DataFrame, pred_col: str, group_col: str) -> Lis
 
 def main():
     parser = argparse.ArgumentParser(description='Closing Race ML Experiment')
-    parser.add_argument('--train-years', default='2020-2024.06',
-                        help='Training period (例: 2020-2024.06)')
-    parser.add_argument('--val-years', default='2024.07-2024.12',
-                        help='Validation period (例: 2024.07-2024.12)')
-    parser.add_argument('--test-years', default='2025.01-2026.02',
-                        help='Test period (例: 2025.01-2026.02)')
+    parser.add_argument('--train-years', default='2020-2025.03',
+                        help='Training period (例: 2020-2025.03)')
+    parser.add_argument('--val-years', default='2025.04',
+                        help='Validation period (例: 2025.04)')
+    parser.add_argument('--test-years', default='2025.05-2026.03',
+                        help='Test period (例: 2025.05-2026.03)')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
     args = parser.parse_args()
 
