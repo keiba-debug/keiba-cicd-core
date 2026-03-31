@@ -28,36 +28,146 @@
 
 ## 3. アーキテクチャ
 
-### 3.1 ファイル構成
+### 3.1 ソースコード構成
+
+既存のexperiment.py(2800行超)はそのまま維持し、新モデルは独立したディレクトリで開発する。
+共通処理は段階的にcommon/に切り出す。
 
 ```
 ml/
-  models/                          # モデル定義（NEW）
-    base_model.py                  # 現行v7.9ラッパー
-    gekisou_model.py               # 激走馬抽出モデル
-    blood_model.py                 # 血統特化モデル
-    residual_model.py              # 残差モデル
-    ensemble.py                    # 統合推奨ロジック
-  predict.py                       # 既存（base model）
-  predict_multi.py                 # 複数モデル統合予測（NEW）
+  # === 共通基盤（全モデルが使う） ===
+  common/                          # 段階的に切り出し（NEW）
+    dataset.py                     # build_dataset（データ読み込み・特徴量計算）
+    trainer.py                     # train_model（LightGBM学習・評価の共通ロジック）
+    evaluator.py                   # AUC/ROI/hit分析の共通関数
 
+  features/                        # 既存のまま（全モデルが参照可能）
+    past_features.py
+    jrdb_features.py
+    pedigree_features.py
+    ...
+
+  # === 既存baseモデル（現行のまま） ===
+  experiment.py                    # base学習パイプライン（v7.9〜）
+  predict.py                       # base推論
+
+  # === 追加モデル（モデル別ディレクトリ） ===
+  models/
+    gekisou/                       # ソラ — 激走馬抽出
+      config.py                    # 特徴量リスト、ラベル定義、ハイパーパラメータ
+      experiment.py                # python -m ml.models.gekisou.experiment --version 1.0
+      predict.py                   # python -m ml.models.gekisou.predict --date 2026-04-05
+      features.py                  # gekisou固有の特徴量（必要なら）
+    blood/                         # ゲン — 血統特化
+      config.py
+      experiment.py
+      predict.py
+    residual/                      # 氷河期男 — 残差モデル
+      config.py
+      experiment.py
+      predict.py
+    ensemble.py                    # マキ — 全モデル統合推奨ロジック
+
+  predict_multi.py                 # 複数モデル統合予測（base結果に追加モデル予測を付加）
+```
+
+#### 各モデルのconfig.pyの役割
+```python
+# ml/models/gekisou/config.py の例
+MODEL_ID = 'gekisou'
+DISPLAY_NAME = 'ソラ'
+LABEL_COL = 'is_upset'           # 独自ラベル
+FEATURE_COLS = [...]             # 独自特徴量セット
+PARAMS = { 'objective': 'binary', 'scale_pos_weight': 20, ... }
+DATA_FILTER = None               # 全データ使用（条件特化なら 'turf,op+' 等）
+```
+
+#### 段階的移行計画
+1. **Phase 1**: 既存experiment.pyはそのまま。gekisouを`ml/models/gekisou/`に新規作成
+2. **Phase 2**: gekisou/bloodで共通化した処理を`ml/common/`に切り出し
+3. **Phase 3**: 既存experiment.pyの共通部分をcommonからimportするようリファクタ（任意）
+
+### 3.2 データ（学習済みモデル）構成
+
+各モデルが**独立してバージョン管理**される。
+baseをv8.0にしてもgekisou v1.0はそのまま動く。
+
+```
 data3/ml/
-  model_p.txt, model_w.txt, ...    # base model（既存）
-  multi/                           # 追加モデル格納（NEW）
+  # === base model（既存） ===
+  model_p.txt                      # base P（ライブ）
+  model_w.txt                      # base W（ライブ）
+  model_ar.txt                     # base AR（ライブ）
+  model_meta.json                  # base meta（version, features, split）
+  versions/                        # base アーカイブ（既存）
+    v7.9/
+    v7.7c/
+    ...
+
+  # === 追加モデル（モデル別ディレクトリ） ===
+  models/                          # NEW
     gekisou/
-      model.txt
-      model_meta.json
+      model.txt                    # ライブモデル
+      model_meta.json              # version: "1.0", features, label, split
+      versions/                    # gekisou独自のアーカイブ
+        v1.0/
+        v1.1/
     blood/
       model.txt
       model_meta.json
+      versions/
+        v1.0/
     residual/
-      model.txt
-      model_meta.json
+      ...
+```
 
+#### model_meta.jsonの仕様（全モデル共通フォーマット）
+```json
+{
+  "model_id": "gekisou",
+  "version": "1.0",
+  "display_name": "ソラ",
+  "label": "is_upset",
+  "features": ["prev_tbw", "jrdb_training_idx", ...],
+  "feature_count": 45,
+  "split": { "train": "2020 ~ 2025-03", "val": "2025-04", "test": "2025-05 ~ 2026-03" },
+  "data_filter": null,
+  "created_at": "2026-04-01T12:00:00",
+  "metrics": { "auc": 0.72, "hit_rate": 0.08, ... }
+}
+```
+
+### 3.3 予測結果の出力
+
+```
 data3/races/YYYY/MM/DD/
-  predictions.json                 # 既存（base model予測）
+  predictions.json                 # 既存（base model予測）— フォーマット変更なし
   multi_predictions.json           # 追加モデル予測結果（NEW）
 ```
+
+#### multi_predictions.jsonフォーマット
+```json
+{
+  "created_at": "2026-04-05T08:30:00",
+  "model_versions": {
+    "gekisou": "1.0",
+    "blood": "1.2"
+  },
+  "races": [{
+    "race_id": "...",
+    "entries": [{
+      "umaban": 1,
+      "horse_name": "...",
+      "models": {
+        "gekisou": { "score": 0.82, "rank": 2, "featured": true, "label": "激走候補" },
+        "blood":   { "score": 0.65, "rank": 5, "featured": false }
+      }
+    }]
+  }]
+}
+```
+
+### 3.4 Web表示
 
 ### 3.2 predictions.json拡張
 
@@ -82,7 +192,7 @@ data3/races/YYYY/MM/DD/
 }
 ```
 
-### 3.3 Web表示
+### 3.4 Web表示
 
 ```
 レース画面 → 各馬の横に注目アイコン
@@ -200,7 +310,10 @@ data3/races/YYYY/MM/DD/
 ## 6. 設計原則
 
 1. **baseモデルは触らない** — v7.9は安定して動いてる。追加モデルは独立して構築
-2. **predictions.jsonは拡張のみ** — 既存フォーマットを壊さない。multi_modelフィールドを追加
+2. **predictions.jsonは拡張のみ** — 既存フォーマットを壊さない。追加モデルはmulti_predictions.jsonに分離
 3. **各モデルは独立して評価** — 個別にAUC/ROIを計測。アンサンブルは最後
 4. **特徴量の差別化が命** — 同じ特徴量で学習したら同じ予測になる。各モデルの個性=特徴量の選択
 5. **キャラクターとの紐付けは表示層** — MLロジックとキャラ設定は分離。紐付けはWeb/UIで行う
+6. **疎結合** — 各モデルは独立してバージョンアップ・ロールバックできる。「全モデル同時更新しないと動かない」は絶対避ける
+7. **ソース分離** — モデル別にディレクトリを分け、config.py/experiment.py/predict.pyを持つ。共通処理はcommon/に段階的に切り出す
+8. **model_meta.json統一フォーマット** — 全モデルが同じメタデータ構造を持つ。model_id/version/features/split/metricsを必須フィールドにする
