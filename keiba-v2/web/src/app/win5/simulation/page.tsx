@@ -190,9 +190,23 @@ export default function Win5SimulationPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeCombo, setActiveCombo] = useState<string>('A+B');
   const [showWeekly, setShowWeekly] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+  const [versions, setVersions] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch('/api/win5/simulation')
+    fetch('/api/win5/simulation/versions')
+      .then(res => res.json())
+      .then(d => setVersions(d.versions ?? []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    const url = selectedVersion
+      ? `/api/win5/simulation?version=${selectedVersion}`
+      : '/api/win5/simulation';
+    fetch(url)
       .then(res => {
         if (!res.ok) throw new Error('not_found');
         return res.json();
@@ -202,7 +216,7 @@ export default function Win5SimulationPage() {
         setError('シミュレーション結果がありません。python -m ml.win5_combo_sim を実行してください。');
         setLoading(false);
       });
-  }, []);
+  }, [selectedVersion]);
 
   if (loading) {
     return (
@@ -236,12 +250,26 @@ export default function Win5SimulationPage() {
             </p>
           </div>
         </div>
-        <Link
-          href="/win5"
-          className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-muted/50 transition-colors"
-        >
-          推奨馬に戻る
-        </Link>
+        <div className="flex items-center gap-2">
+          {versions.length > 0 && (
+            <select
+              value={selectedVersion ?? ''}
+              onChange={(e) => setSelectedVersion(e.target.value || null)}
+              className="rounded-lg border border-gray-200 bg-background px-3 py-1.5 text-sm dark:border-gray-700"
+            >
+              <option value="">最新</option>
+              {versions.map(v => (
+                <option key={v} value={v}>v{v}</option>
+              ))}
+            </select>
+          )}
+          <Link
+            href="/win5"
+            className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-muted/50 transition-colors"
+          >
+            推奨馬に戻る
+          </Link>
+        </div>
       </div>
 
       {/* Plan Summary Cards */}

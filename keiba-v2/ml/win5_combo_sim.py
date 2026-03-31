@@ -735,9 +735,24 @@ def main():
         'combos': {k: combo_to_dict(v) for k, v in combo_analyses.items()},
     }
 
+    save_json = json.dumps(save_data, ensure_ascii=False, indent=2)
     with open(str(save_path), 'w', encoding='utf-8') as f:
-        json.dump(save_data, f, ensure_ascii=False, indent=2)
+        f.write(save_json)
     print(f"\n[Save] {save_path}")
+
+    # Archive to version directory
+    meta_path = ml_dir() / "model_meta.json"
+    if meta_path.exists():
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        version = meta.get("version", "")
+        if version:
+            archive_dir = ml_dir() / "versions" / f"v{version}"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = archive_dir / "win5_combo_results.json"
+            with open(str(archive_path), 'w', encoding='utf-8') as f:
+                f.write(save_json)
+            print(f"  Archive: {archive_path}")
 
 
 if __name__ == '__main__':
