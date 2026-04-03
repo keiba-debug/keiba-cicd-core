@@ -4,10 +4,10 @@ import type { MlExperimentResultV2, RoiAnalysis } from './types';
 export const TABS = [
   { key: 'overview', label: '概要' },
   { key: 'value', label: 'Value分析' },
-  { key: 'roi', label: '的中・回収' },
   { key: 'picks', label: 'VB検証' },
   { key: 'predictions', label: 'レース検証' },
-  { key: 'importance', label: '特徴量重要度' },
+  { key: 'importance', label: '特徴量' },
+  { key: 'obstacle', label: '障害' },
 ] as const;
 
 export type TabKey = (typeof TABS)[number]['key'];

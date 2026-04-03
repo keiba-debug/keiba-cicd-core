@@ -458,11 +458,6 @@ export default function ValueTab({ data }: { data: MlExperimentResultV2 }) {
         </div>
       )}
 
-      {/* Gap × Margin Heatmap (raw) */}
-      {data.gap_margin_grid && data.gap_margin_grid.length > 0 && (
-        <GapMarginHeatmap grid={data.gap_margin_grid} />
-      )}
-
     </div>
   );
 }

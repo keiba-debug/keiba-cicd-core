@@ -149,6 +149,31 @@ const PRESET_LABELS: Record<string, string> = {
   simple_wide: 'Simple Wide (1位×Gap≥3)',
 };
 
+// テスト期間(2025.05~2026.03) flat100シミュレーション結果に基づく戦略説明
+const PRESET_DESCRIPTIONS: Record<string, React.ReactNode> = {
+  aggressive: (
+    <>
+      <p><strong>Aggressive</strong> — VBスコア≥6.0の高確信度ベットのみ</p>
+      <p>Flat ROI 108.8% / 単勝的中率 7.0% / テスト期間101日 / 1,083ベット</p>
+      <p>Max DD 6.5% / Calmar 1.47 — 全プリセット中最高の効率</p>
+    </>
+  ),
+  standard: (
+    <>
+      <p><strong>Standard</strong> — VBスコア≥5.5のバランス型</p>
+      <p>Flat ROI 102.8% / 単勝的中率 7.5% / テスト期間101日 / 1,455ベット</p>
+      <p>ベット数が多く安定。Aggressiveより広い網で拾う</p>
+    </>
+  ),
+  intersection: (
+    <>
+      <p><strong>Intersection</strong> — rank_w=1 × Gap≥4 × EV≥1.3 の全交差条件</p>
+      <p>Flat ROI 104.5% / テスト期間101日 / 562ベット</p>
+      <p>少数精鋭。単勝はほぼなく、ワイド・馬連が主力</p>
+    </>
+  ),
+};
+
 // =====================================================================
 // ヘルパー
 // =====================================================================
@@ -209,7 +234,7 @@ export function ExecuteTab() {
   const [loading, setLoading] = useState(false);
 
   // プリセット切替
-  const [activePreset, setActivePreset] = useState<string>('adaptive');
+  const [activePreset, setActivePreset] = useState<string>('aggressive');
   const [allPresetsMap, setAllPresetsMap] = useState<Record<string, RecommendationEntry[]>>({});
 
   // レース番号フィルタ（0=全レース）
@@ -226,6 +251,11 @@ export function ExecuteTab() {
   // FF CSV出力
   const [csvExporting, setCsvExporting] = useState(false);
   const [csvResult, setCsvResult] = useState<{ totalBets: number; winBets: number; totalAmount: number; filePath: string } | null>(null);
+
+  // 他プリセット用: プリセットキー → 選択済みインデックスSet
+  const [otherPresetSelections, setOtherPresetSelections] = useState<Record<string, Set<number>>>({});
+  const [otherCsvExporting, setOtherCsvExporting] = useState<string | null>(null);
+  const [otherCsvResults, setOtherCsvResults] = useState<Record<string, { totalBets: number; totalAmount: number }>>({});
 
   // 螺旋丸チェック選択（FF CSV出力対象）
   const [selectedRecIndices, setSelectedRecIndices] = useState<Set<number>>(new Set());
@@ -452,15 +482,13 @@ export function ExecuteTab() {
           });
           presetsMap[key] = mappedBets;
 
-          if (key !== 'intersection') {
-            others.push({
-              key,
-              label: PRESET_LABELS[key] || key,
-              betCount: preset.bets.length,
-              totalAmount: preset.summary?.total_amount ?? preset.bets.reduce((s, b) => s + (b.win_amount || 0) + (b.place_amount || 0), 0),
-              bets: mappedBets,
-            });
-          }
+          others.push({
+            key,
+            label: PRESET_LABELS[key] || key,
+            betCount: preset.bets.length,
+            totalAmount: preset.summary?.total_amount ?? preset.bets.reduce((s, b) => s + (b.win_amount || 0) + (b.place_amount || 0), 0),
+            bets: mappedBets,
+          });
         }
         others.sort((a, b) => b.betCount - a.betCount);
       }
@@ -509,89 +537,98 @@ export function ExecuteTab() {
     });
   }, [activePreset, allMergedRecs, recommendations, allPresetsMap, raceRangeMin, raceRangeMax]);
 
-  // FF CSV出力（TARGET買い目取り込み用）
-  // チェック選択があれば選択分のみ、なければ全件
+  // FF CSV出力共通関数（RecommendationEntry配列 → API呼び出し）
+  const buildFfCsvBets = (recs: RecommendationEntry[]) => {
+    const bets: { raceId: string; umaban: number; umaban2?: number; betType: number; amount: number }[] = [];
+    for (const rec of recs) {
+      const amount = getRecAmount(rec);
+      if (rec.bet_type === 'ワイド' && rec.wide_pair && rec.wide_pair.length === 2) {
+        bets.push({ raceId: rec.race_id, umaban: rec.wide_pair[0], umaban2: rec.wide_pair[1], betType: 4, amount });
+      } else if (rec.bet_type === '馬連' && rec.wide_pair && rec.wide_pair.length === 2) {
+        bets.push({ raceId: rec.race_id, umaban: rec.wide_pair[0], umaban2: rec.wide_pair[1], betType: 3, amount });
+      } else if (rec.bet_type === '馬単' && rec.wide_pair && rec.wide_pair.length === 2) {
+        bets.push({ raceId: rec.race_id, umaban: rec.wide_pair[0], umaban2: rec.wide_pair[1], betType: 5, amount });
+      } else if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連' || rec.bet_type === '馬単') {
+        console.warn(`[FF CSV] ${rec.bet_type}にwide_pairなし、スキップ: ${rec.race_id}`);
+      } else if (rec.bet_type === '単複') {
+        const halfAmt = Math.max(Math.floor(amount / 2 / 100) * 100, 100);
+        bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 0, amount: halfAmt });
+        bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 1, amount: halfAmt });
+      } else {
+        bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: (rec.bet_type === '複勝') ? 1 : 0, amount });
+      }
+    }
+    return bets;
+  };
+
+  const submitFfCsv = async (bets: ReturnType<typeof buildFfCsvBets>) => {
+    const res = await fetch('/api/target-marks/auto-bet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bets }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  };
+
+  // メインプリセットFF CSV出力
   const exportFfCsv = async () => {
     const targetRecs = selectedRecIndices.size > 0
       ? displayRecs.filter((_, i) => selectedRecIndices.has(i))
       : displayRecs;
-    const bets: { raceId: string; umaban: number; umaban2?: number; betType: number; amount: number }[] = [];
-
-    for (const rec of targetRecs) {
-      const amount = getRecAmount(rec);
-
-      if (rec.bet_type === 'ワイド' && rec.wide_pair && rec.wide_pair.length === 2) {
-        bets.push({
-          raceId: rec.race_id,
-          umaban: rec.wide_pair[0],
-          umaban2: rec.wide_pair[1],
-          betType: 4,
-          amount,
-        });
-      } else if (rec.bet_type === '馬連' && rec.wide_pair && rec.wide_pair.length === 2) {
-        bets.push({
-          raceId: rec.race_id,
-          umaban: rec.wide_pair[0],
-          umaban2: rec.wide_pair[1],
-          betType: 3,
-          amount,
-        });
-      } else if (rec.bet_type === '馬単' && rec.wide_pair && rec.wide_pair.length === 2) {
-        bets.push({
-          raceId: rec.race_id,
-          umaban: rec.wide_pair[0],   // 1着候補
-          umaban2: rec.wide_pair[1],  // 2着候補
-          betType: 5,
-          amount,
-        });
-      } else if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連' || rec.bet_type === '馬単') {
-        console.warn(`[FF CSV] ${rec.bet_type}にwide_pairなし、スキップ: ${rec.race_id}`);
-      } else if (rec.bet_type === '単複') {
-        // 単複 → 単勝+複勝の2行。金額を半分ずつ
-        const halfAmt = Math.max(Math.floor(amount / 2 / 100) * 100, 100);
-        const winAmt = halfAmt;
-        const placeAmt = halfAmt;
-        bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 0, amount: winAmt });
-        bets.push({ raceId: rec.race_id, umaban: rec.umaban, betType: 1, amount: placeAmt });
-      } else {
-        bets.push({
-          raceId: rec.race_id,
-          umaban: rec.umaban,
-          betType: (rec.bet_type === '複勝') ? 1 : 0,
-          amount,
-        });
-      }
-    }
-
-    if (bets.length === 0) {
-      alert('出力対象の買い目がありません');
-      return;
-    }
-
+    const bets = buildFfCsvBets(targetRecs);
+    if (bets.length === 0) { alert('出力対象の買い目がありません'); return; }
     setCsvExporting(true);
     setCsvResult(null);
     try {
-      const res = await fetch('/api/target-marks/auto-bet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bets }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(err.error || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setCsvResult({
-        totalBets: data.summary.totalBets,
-        winBets: data.summary.winBets,
-        totalAmount: data.summary.totalAmount,
-        filePath: data.summary.filePath,
-      });
+      const data = await submitFfCsv(bets);
+      setCsvResult({ totalBets: data.summary.totalBets, winBets: data.summary.winBets, totalAmount: data.summary.totalAmount, filePath: data.summary.filePath });
     } catch (error) {
       alert(`FF CSV出力失敗: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setCsvExporting(false);
     }
+  };
+
+  // 他プリセットFF CSV出力
+  const exportOtherFfCsv = async (presetKey: string, presetBets: RecommendationEntry[]) => {
+    const sel = otherPresetSelections[presetKey];
+    const targetRecs = sel && sel.size > 0
+      ? presetBets.filter((_, i) => sel.has(i))
+      : presetBets;
+    const bets = buildFfCsvBets(targetRecs);
+    if (bets.length === 0) { alert('出力対象の買い目がありません'); return; }
+    setOtherCsvExporting(presetKey);
+    try {
+      const data = await submitFfCsv(bets);
+      setOtherCsvResults(prev => ({ ...prev, [presetKey]: { totalBets: data.summary.totalBets, totalAmount: data.summary.totalAmount } }));
+    } catch (error) {
+      alert(`FF CSV出力失敗: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setOtherCsvExporting(null);
+    }
+  };
+
+  const toggleOtherRec = (presetKey: string, idx: number) => {
+    setOtherPresetSelections(prev => {
+      const cur = prev[presetKey] ?? new Set<number>();
+      const next = new Set(cur);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return { ...prev, [presetKey]: next };
+    });
+  };
+
+  const toggleAllOtherRecs = (presetKey: string, total: number) => {
+    setOtherPresetSelections(prev => {
+      const cur = prev[presetKey] ?? new Set<number>();
+      if (cur.size === total) {
+        return { ...prev, [presetKey]: new Set<number>() };
+      }
+      return { ...prev, [presetKey]: new Set(Array.from({ length: total }, (_, i) => i)) };
+    });
   };
 
   // 日付変更時にリロード
@@ -794,11 +831,11 @@ export function ExecuteTab() {
     return { winCount, placeCount, obstacleCount, wideCount, umarenCount, umatanCount, gekisenWideCount };
   }, [displayRecs]);
 
-  // プリセット選択肢: シミュレーションで黒字確認済みのみ
-  // adaptive: K1/8 ROI+99%, K1/4 ROI+134% (Kelly率傾斜配分)
-  // relaxed: K1/8 ROI+53%, K1/4 ROI+128% (均等Kelly)
-  // intersection: K1/8 ROI+42%, K1/4 ROI+98%
-  const PRESET_CHOICES = ['adaptive', 'relaxed', 'intersection'] as const;
+  // プリセット選択肢: テスト期間(2025.05~2026.03) flat100シミュレーション結果順
+  // aggressive: Flat ROI 108.8% (VBスコア≥6.0, 高確信度)
+  // standard:   Flat ROI 102.8% (VBスコア≥5.5, バランス型)
+  // intersection: Flat ROI 104.5% (rank_w=1×Gap≥4×EV≥1.3, 精鋭)
+  const PRESET_CHOICES = ['aggressive', 'standard', 'intersection'] as const;
 
   return (
     <div className="space-y-6">
@@ -1468,20 +1505,20 @@ export function ExecuteTab() {
         </Card>
       )}
 
-      {/* 他プリセット参考情報（intersectionモードのみ） */}
-      {activePreset === 'intersection' && otherPresets.length > 0 && (
+      {/* 他プリセット参考情報 */}
+      {otherPresets.filter(p => p.key !== activePreset).length > 0 && (
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <Layers className="h-4 w-4 text-gray-500" />
               参考: 他プリセット推奨
               <Badge variant="outline" className="text-xs">
-                {otherPresets.reduce((s, p) => s + p.betCount, 0)}件
+                {otherPresets.filter(p => p.key !== activePreset).reduce((s, p) => s + p.betCount, 0)}件
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0 space-y-2">
-            {otherPresets.map((preset) => {
+            {otherPresets.filter(p => p.key !== activePreset).map((preset) => {
               const isExpanded = expandedPresets.has(preset.key);
               return (
                 <div key={preset.key} className="border rounded-md">
@@ -1510,45 +1547,95 @@ export function ExecuteTab() {
                     )}
                   </button>
                   {isExpanded && (
-                    <div className="border-t px-3 pb-2 overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b text-muted-foreground">
-                            <th className="py-1.5 px-1 text-left">場</th>
-                            <th className="py-1.5 px-1 text-center">R</th>
-                            <th className="py-1.5 px-1 text-center">番</th>
-                            <th className="py-1.5 px-1 text-left">馬名</th>
-                            <th className="py-1.5 px-1 text-right">Gap</th>
-                            <th className="py-1.5 px-1 text-right">EV</th>
-                            <th className="py-1.5 px-1 text-right">ARd</th>
-                            <th className="py-1.5 px-1 text-right">オッズ</th>
-                            <th className="py-1.5 px-1 text-right">金額</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {preset.bets.map((b, idx) => (
-                            <tr key={`${b.race_id}-${b.umaban}-${(b as any).wide_pair ? `W${(b as any).wide_pair.join('-')}` : idx}`} className="border-b last:border-0 hover:bg-muted/30">
-                              <td className="py-1 px-1">{b.venue}</td>
-                              <td className="py-1 px-1 text-center">{b.race_number}</td>
-                              <td className="py-1 px-1 text-center">{b.umaban}</td>
-                              <td className="py-1 px-1">{b.horse_name}</td>
-                              <td className="py-1 px-1 text-right font-mono">
-                                {b.win_vb_gap > 0 ? `+${b.win_vb_gap}` : b.win_vb_gap}
-                              </td>
-                              <td className={`py-1 px-1 text-right font-mono ${getEvColor(b.win_ev)}`}>
-                                {b.win_ev.toFixed(2)}
-                              </td>
-                              <td className="py-1 px-1 text-right font-mono">
-                                {b.ar_deviation != null ? b.ar_deviation.toFixed(1) : '—'}
-                              </td>
-                              <td className="py-1 px-1 text-right font-mono">{b.odds.toFixed(1)}</td>
-                              <td className="py-1 px-1 text-right font-mono text-red-600">
-                                ¥{((b.win_amount || 0) + (b.place_amount || 0)).toLocaleString()}
-                              </td>
+                    <div className="border-t px-3 pb-2">
+                      {/* FF CSV出力バー */}
+                      <div className="flex items-center gap-2 py-1.5 text-xs">
+                        {(otherPresetSelections[preset.key]?.size ?? 0) > 0 && (
+                          <span className="text-muted-foreground">
+                            {otherPresetSelections[preset.key]!.size}/{preset.bets.length}件選択中
+                          </span>
+                        )}
+                        {otherCsvResults[preset.key] && (
+                          <span className="text-green-600">
+                            {otherCsvResults[preset.key].totalBets}行 / ¥{otherCsvResults[preset.key].totalAmount.toLocaleString()} → CSV出力済
+                          </span>
+                        )}
+                        <button
+                          onClick={() => exportOtherFfCsv(preset.key, preset.bets)}
+                          disabled={otherCsvExporting === preset.key}
+                          className="ml-auto flex items-center gap-1 px-2 py-1 rounded border text-xs hover:bg-muted/50 transition-colors disabled:opacity-50"
+                        >
+                          {otherCsvExporting === preset.key ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Download className="h-3 w-3" />
+                          )}
+                          FF CSV{(otherPresetSelections[preset.key]?.size ?? 0) > 0 ? ` (${otherPresetSelections[preset.key]!.size}件)` : ''}
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b text-muted-foreground">
+                              <th className="py-1.5 px-1 text-center w-7">
+                                <input
+                                  type="checkbox"
+                                  checked={(otherPresetSelections[preset.key]?.size ?? 0) === preset.bets.length && preset.bets.length > 0}
+                                  onChange={() => toggleAllOtherRecs(preset.key, preset.bets.length)}
+                                  className="h-3 w-3"
+                                />
+                              </th>
+                              <th className="py-1.5 px-1 text-left">場</th>
+                              <th className="py-1.5 px-1 text-center">R</th>
+                              <th className="py-1.5 px-1 text-center">番</th>
+                              <th className="py-1.5 px-1 text-left">馬名</th>
+                              <th className="py-1.5 px-1 text-right">Gap</th>
+                              <th className="py-1.5 px-1 text-right">EV</th>
+                              <th className="py-1.5 px-1 text-right">ARd</th>
+                              <th className="py-1.5 px-1 text-right">オッズ</th>
+                              <th className="py-1.5 px-1 text-right">金額</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {preset.bets.map((b, idx) => {
+                              const isSelected = otherPresetSelections[preset.key]?.has(idx) ?? false;
+                              return (
+                                <tr
+                                  key={`${preset.key}-${idx}-${b.race_id}-${b.umaban}`}
+                                  className={`border-b last:border-0 hover:bg-muted/30 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-950/20' : ''}`}
+                                  onClick={() => toggleOtherRec(preset.key, idx)}
+                                >
+                                  <td className="py-1 px-1 text-center" onClick={e => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => toggleOtherRec(preset.key, idx)}
+                                      className="h-3 w-3"
+                                    />
+                                  </td>
+                                  <td className="py-1 px-1">{b.venue}</td>
+                                  <td className="py-1 px-1 text-center">{b.race_number}</td>
+                                  <td className="py-1 px-1 text-center">{b.umaban}</td>
+                                  <td className="py-1 px-1">{b.horse_name}</td>
+                                  <td className="py-1 px-1 text-right font-mono">
+                                    {b.win_vb_gap > 0 ? `+${b.win_vb_gap}` : b.win_vb_gap}
+                                  </td>
+                                  <td className={`py-1 px-1 text-right font-mono ${getEvColor(b.win_ev)}`}>
+                                    {b.win_ev.toFixed(2)}
+                                  </td>
+                                  <td className="py-1 px-1 text-right font-mono">
+                                    {b.ar_deviation != null ? b.ar_deviation.toFixed(1) : '—'}
+                                  </td>
+                                  <td className="py-1 px-1 text-right font-mono">{b.odds.toFixed(1)}</td>
+                                  <td className="py-1 px-1 text-right font-mono text-red-600">
+                                    ¥{((b.win_amount || 0) + (b.place_amount || 0)).toLocaleString()}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1559,13 +1646,11 @@ export function ExecuteTab() {
       )}
 
       {/* 戦略の説明 */}
-      {activePreset === 'intersection' && (
+      {PRESET_DESCRIPTIONS[activePreset] && (
         <Card>
           <CardContent className="py-4">
             <div className="text-xs text-muted-foreground space-y-1">
-              <p><strong>Intersection Filter</strong> — v{predictions?.model_version ?? '?'}バックテスト実証済み (2025-03〜2026-02, 3,364レース)</p>
-              <p>ROI 310.7% / 的中率 19.6% / 年間46ベット / 月平均3.8回</p>
-              <p>推奨配分: 資金の2%（MaxDD 14%, 年間+340%成長）</p>
+              {PRESET_DESCRIPTIONS[activePreset]}
             </div>
           </CardContent>
         </Card>

@@ -208,6 +208,7 @@ export interface IntersectionGridEntry {
 
 export interface MlExperimentResultV2 {
   version: string;
+  version_alias?: string;
   model?: string;
   experiment: string;
   created_at: string;

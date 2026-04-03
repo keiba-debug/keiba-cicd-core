@@ -35,9 +35,11 @@ interface PredictionsContentProps {
   currentDate?: string;
   isArchive?: boolean;
   results?: RaceResultsMap;
+  availableVersions?: string[];
+  currentVersion?: string | null;
 }
 
-export function PredictionsContent({ data, availableDates = [], currentDate = '', isArchive = false, results }: PredictionsContentProps) {
+export function PredictionsContent({ data, availableDates = [], currentDate = '', isArchive = false, results, availableVersions = [], currentVersion = null }: PredictionsContentProps) {
   const router = useRouter();
   const [vbRefreshing, setVbRefreshing] = useState(false);
   const [vbRefreshLog, setVbRefreshLog] = useState<string[]>([]);
@@ -282,7 +284,15 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     }
   }, [fetchAllOdds, fetchDbResults, fetchTargetMarks, isToday]);
 
-  const { races, summary } = data;
+  const { races } = data;
+  const summary = data.summary ?? {
+    total_races: races.length,
+    total_entries: races.reduce((sum: number, r: any) => sum + (r.entries?.length ?? 0), 0),
+    obstacle_races: 0,
+    value_bets: 0,
+    ev_positive_win: 0,
+    ev_positive_place: 0,
+  };
 
   // --- 派生データ ---
 
@@ -1001,10 +1011,35 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold">Value Bet</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {data.date} / Live Model v{data.model_version} / オッズ: {data.odds_source}
-            {data.db_odds_coverage && ` (${data.db_odds_coverage})`}
-          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-sm text-muted-foreground">
+              {data.date} / Model v{data.model_version}
+              {currentVersion && currentVersion !== data.model_version && ` (archived)`}
+              {' / '}オッズ: {data.odds_source}
+              {data.db_odds_coverage && ` (${data.db_odds_coverage})`}
+            </p>
+            {availableVersions.length > 1 && (
+              <select
+                value={currentVersion ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const url = new URL(window.location.href);
+                  if (v) {
+                    url.searchParams.set('version', v);
+                  } else {
+                    url.searchParams.delete('version');
+                  }
+                  router.push(url.pathname + url.search);
+                }}
+                className="text-xs rounded border border-gray-300 bg-background px-2 py-0.5 dark:border-gray-600"
+              >
+                <option value="">Latest</option>
+                {availableVersions.map(v => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           <Button

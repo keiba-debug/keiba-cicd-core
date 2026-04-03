@@ -190,16 +190,40 @@ export interface PredictionsLive {
 /**
  * 日別 predictions.json (races/YYYY/MM/DD/predictions.json) を読み込む
  */
-export function getPredictionsByDate(date: string): PredictionsLive | null {
+export function getPredictionsByDate(date: string, version?: string | null): PredictionsLive | null {
   try {
     const [y, m, d] = date.split('-');
     if (!y || !m || !d) return null;
-    const filePath = path.join(DATA3_ROOT, 'races', y, m, d, 'predictions.json');
+    const fileName = version ? `predictions_${version}.json` : 'predictions.json';
+    const filePath = path.join(DATA3_ROOT, 'races', y, m, d, fileName);
     if (!fs.existsSync(filePath)) return null;
     const content = fs.readFileSync(filePath, 'utf-8');
     return JSON.parse(content) as PredictionsLive;
   } catch {
     return null;
+  }
+}
+
+/**
+ * 指定日付で利用可能な predictions バージョン一覧を返す
+ */
+export function getAvailablePredictionVersions(date: string): string[] {
+  try {
+    const [y, m, d] = date.split('-');
+    if (!y || !m || !d) return [];
+    const dayDir = path.join(DATA3_ROOT, 'races', y, m, d);
+    if (!fs.existsSync(dayDir)) return [];
+    const files = fs.readdirSync(dayDir);
+    const versions: string[] = [];
+    for (const f of files) {
+      const match = f.match(/^predictions_(.+)\.json$/);
+      if (match && !match[1].includes('_')) {
+        versions.push(match[1]);
+      }
+    }
+    return versions;
+  } catch {
+    return [];
   }
 }
 

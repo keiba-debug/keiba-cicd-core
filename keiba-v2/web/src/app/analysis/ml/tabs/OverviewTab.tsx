@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { MetricCard } from '../utils';
-import type { MlExperimentResultV2, MlModelResult, RegressionModelResult, HitAnalysisV2, ArdThresholdEntry, ObstacleModelMeta, RoiAnalysis } from '../types';
+import type { MlExperimentResultV2, MlModelResult, RegressionModelResult, HitAnalysisV2, ArdThresholdEntry, ObstacleModelMeta, RoiAnalysis, BetEnginePresetResult } from '../types';
 
 function EceBadge({ ece }: { ece: number }) {
   if (ece < 0.03) {
@@ -383,13 +383,7 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
         </div>
       )}
 
-      {/* Obstacle Model */}
-      {obstacleModel && (
-        <div>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-purple-600 dark:text-purple-400">障害モデル (3着内)</h2>
-          <ObstacleModelCard meta={obstacleModel} />
-        </div>
-      )}
+      {/* Obstacle Model → 障害タブに分離 */}
 
       {/* Model Info */}
       <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
@@ -512,6 +506,77 @@ export default function OverviewTab({ data, obstacleModel }: { data: MlExperimen
           </div>
         );
       })()}
+
+      {/* 購入プラン比較 (旧ROIタブから統合) */}
+      {data.bet_engine_presets && Object.keys(data.bet_engine_presets).length > 0 && (
+        <BetEnginePresetsTable presets={data.bet_engine_presets} />
+      )}
+    </div>
+  );
+}
+
+const PRESET_LABELS: Record<string, string> = {
+  intersection: 'Intersection (rw=1, gap>=4, EV>=1.3)',
+  standard: 'Standard',
+  wide: 'Wide',
+  aggressive: 'Aggressive',
+  simple: 'Simple (rw=1, gap>=4)',
+  simple_ev2: 'Simple EV2 (rw=1, EV>=2.0)',
+  simple_wide: 'Simple Wide (rw=1, gap>=3)',
+};
+
+const PRESET_ORDER = ['intersection', 'standard', 'wide', 'aggressive', 'simple', 'simple_ev2', 'simple_wide'];
+
+function BetEnginePresetsTable({ presets }: { presets: Record<string, BetEnginePresetResult> }) {
+  const sorted = PRESET_ORDER.filter((k) => k in presets);
+  return (
+    <div className="rounded-lg border border-amber-200 p-4 dark:border-amber-800">
+      <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">購入プラン比較</h3>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700">
+            <th className="py-2 text-left">プリセット</th>
+            <th className="py-2 text-right">Bets</th>
+            <th className="py-2 text-right">ROI</th>
+            <th className="py-2 text-right">95% CI</th>
+            <th className="py-2 text-right">純利益</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((key) => {
+            const p = presets[key];
+            const net = p.total_return - p.total_bet;
+            const isRecommended = key === 'intersection';
+            const hasCi = p.bootstrap_ci_low != null && p.bootstrap_ci_high != null;
+            return (
+              <tr key={key} className={cn('border-b border-gray-50 dark:border-gray-800',
+                isRecommended && 'bg-amber-50/50 dark:bg-amber-950/20'
+              )}>
+                <td className="py-2 font-medium">
+                  {PRESET_LABELS[key] ?? key}
+                  {isRecommended && (
+                    <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">推奨</span>
+                  )}
+                </td>
+                <td className="py-2 text-right tabular-nums text-gray-500">{p.num_bets}</td>
+                <td className="py-2 text-right tabular-nums">
+                  <span className={cn('font-bold', p.total_roi >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500')}>
+                    {p.total_roi.toFixed(1)}%
+                  </span>
+                </td>
+                <td className="py-2 text-right tabular-nums text-xs text-gray-500">
+                  {hasCi ? `${p.bootstrap_ci_low!.toFixed(1)}–${p.bootstrap_ci_high!.toFixed(1)}%` : '-'}
+                </td>
+                <td className={cn('py-2 text-right tabular-nums font-medium',
+                  net >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'
+                )}>
+                  {net >= 0 ? '+' : ''}¥{net.toLocaleString()}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

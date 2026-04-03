@@ -3,28 +3,21 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { FEATURE_LABELS, FEATURE_CATEGORIES, getFeatureCategory } from '../utils';
-import type { MlExperimentResultV2, ObstacleModelMeta } from '../types';
+import type { MlExperimentResultV2 } from '../types';
 
-type ModelKey = 'place' | 'win' | 'aura' | 'obstacle_p' | 'obstacle_w';
+type ModelKey = 'place' | 'win' | 'aura';
 
 const MODEL_OPTIONS: { key: ModelKey; label: string; shortLabel: string; color: string; activeColor: string }[] = [
   { key: 'place', label: '好走(P)', shortLabel: 'P', color: 'blue', activeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
   { key: 'win', label: '勝利(W)', shortLabel: 'W', color: 'emerald', activeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { key: 'aura', label: '能力(AR)', shortLabel: 'AR', color: 'amber', activeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  { key: 'obstacle_p', label: '障害(P)', shortLabel: '障P', color: 'purple', activeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
-  { key: 'obstacle_w', label: '障害(W)', shortLabel: '障W', color: 'purple', activeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
 ];
 
-export default function ImportanceTab({ data, obstacleModel }: { data: MlExperimentResultV2; obstacleModel?: ObstacleModelMeta | null }) {
+export default function ImportanceTab({ data }: { data: MlExperimentResultV2 }) {
   const [showModel, setShowModel] = useState<ModelKey>('place');
 
-  const isObstacle = showModel === 'obstacle_p' || showModel === 'obstacle_w';
-  const modelData = isObstacle ? null : data.models[showModel as keyof typeof data.models];
-  const fi = showModel === 'obstacle_p'
-    ? (obstacleModel?.feature_importance_p ?? [])
-    : showModel === 'obstacle_w'
-    ? (obstacleModel?.feature_importance_w ?? [])
-    : (modelData?.feature_importance ?? []);
+  const modelData = data.models[showModel as keyof typeof data.models];
+  const fi = modelData?.feature_importance ?? [];
   const maxImportance = fi[0]?.importance ?? 1;
 
   const barColors: Record<string, { top: string; high: string; base: string }> = {
@@ -40,7 +33,7 @@ export default function ImportanceTab({ data, obstacleModel }: { data: MlExperim
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {MODEL_OPTIONS.map((opt) => {
-          const modelExists = (opt.key === 'obstacle_p' || opt.key === 'obstacle_w') ? !!obstacleModel : !!data.models[opt.key as keyof typeof data.models];
+          const modelExists = !!data.models[opt.key as keyof typeof data.models];
           return (
             <button key={opt.key} onClick={() => modelExists && setShowModel(opt.key)}
               disabled={!modelExists}
@@ -56,10 +49,31 @@ export default function ImportanceTab({ data, obstacleModel }: { data: MlExperim
         })}
       </div>
       <p className="text-sm text-gray-500">
-        LightGBMのgain（情報利得）ベースの特徴量重要度 — {fi.length}特徴量
+        LightGBMのgain（情報利得）ベースの特徴量重要度 — Top 20 / {fi.length}特徴量
       </p>
-      <div className="space-y-1.5">
-        {fi.map((f, i) => {
+      <FeatureList features={fi.slice(0, 20)} maxImportance={maxImportance} barColors={currentBar} startRank={0} />
+      {fi.length > 20 && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">残り {fi.length - 20} 特徴量を表示</summary>
+          <div className="mt-2">
+            <FeatureList features={fi.slice(20)} maxImportance={maxImportance} barColors={currentBar} startRank={20} />
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function FeatureList({ features, maxImportance, barColors, startRank }: {
+  features: { feature: string; importance: number }[];
+  maxImportance: number;
+  barColors: { top: string; high: string; base: string };
+  startRank: number;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {features.map((f, idx) => {
+        const i = startRank + idx;
           const pct = (f.importance / maxImportance) * 100;
           const jaLabel = FEATURE_LABELS[f.feature];
           const category = getFeatureCategory(f.feature);
@@ -79,7 +93,7 @@ export default function ImportanceTab({ data, obstacleModel }: { data: MlExperim
               <div className="flex-1">
                 <div className="relative h-5 rounded bg-gray-100 dark:bg-gray-700/50">
                   <div className={cn('absolute inset-y-0 left-0 rounded',
-                    i === 0 ? currentBar.top : i < 3 ? currentBar.high : currentBar.base
+                    i === 0 ? barColors.top : i < 3 ? barColors.high : barColors.base
                   )} style={{ width: `${Math.max(pct, 1)}%` }} />
                   <span className="absolute inset-y-0 right-2 flex items-center text-xs tabular-nums text-gray-600 dark:text-gray-300">
                     {f.importance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -90,6 +104,5 @@ export default function ImportanceTab({ data, obstacleModel }: { data: MlExperim
           );
         })}
       </div>
-    </div>
   );
 }

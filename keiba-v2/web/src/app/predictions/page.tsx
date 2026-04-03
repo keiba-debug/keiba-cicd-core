@@ -1,4 +1,4 @@
-import { getPredictionsByDate, getAvailablePredictionDates, getResultsByDate, enrichPredictionsFromDb } from '@/lib/data/predictions-reader';
+import { getPredictionsByDate, getAvailablePredictionDates, getAvailablePredictionVersions, getResultsByDate, enrichPredictionsFromDb } from '@/lib/data/predictions-reader';
 import { PredictionsContent } from './predictions-content';
 import Link from 'next/link';
 
@@ -8,15 +8,16 @@ export const dynamic = 'force-dynamic';
 export default async function PredictionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; version?: string }>;
 }) {
   const params = await searchParams;
   const dates = getAvailablePredictionDates();
   const targetDate = params.date || null;
+  const targetVersion = params.version || null;
   // デフォルト: 最新アーカイブ日付を使用
   let data = targetDate
-    ? getPredictionsByDate(targetDate)
-    : (dates.length > 0 ? getPredictionsByDate(dates[0]) : null);
+    ? getPredictionsByDate(targetDate, targetVersion)
+    : (dates.length > 0 ? getPredictionsByDate(dates[0], targetVersion) : null);
 
   if (!data) {
     return (
@@ -53,6 +54,7 @@ export default async function PredictionsPage({
   // 障害レースは障害モデルで予測済み → フィルタ不要（紫バッジで表示）
 
   const results = getResultsByDate(data.date);
+  const availableVersions = getAvailablePredictionVersions(data.date);
 
   return (
     <PredictionsContent
@@ -61,6 +63,8 @@ export default async function PredictionsPage({
       currentDate={data.date}
       isArchive={!!targetDate}
       results={results}
+      availableVersions={availableVersions}
+      currentVersion={targetVersion}
     />
   );
 }
