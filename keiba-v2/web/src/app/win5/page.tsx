@@ -137,7 +137,7 @@ function StrategyCard({ name, strategy, races, results, strategyResult }: {
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open); } }}
       >
         <div className="flex items-center gap-3">
-          <span className="text-lg">{name === 'w_top2' ? 'W2' : name === 'w_top5' ? 'W5' : name === 'w_adaptive' ? 'WA' : name === 'w_floor50_gap' ? '\u2B50' : name === 'w2_ar1_p1' ? 'D' : name === 'p_fixed_2' ? 'P2' : '\u25C6'}</span>
+          <span className="text-lg font-bold">{name}</span>
           <div className="text-left">
             <div className="font-semibold text-sm flex items-center gap-2">
               {strategy.label}
@@ -370,7 +370,7 @@ export default function Win5Page() {
     }
   };
 
-  const strategyOrder = ['w_top2', 'w_top5', 'w_adaptive', 'w_floor50_gap', 'w2_ar1_p1', 'p_fixed_2'];
+  const strategyOrder = ['A', 'B', 'C', 'D'];
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-6">
@@ -380,7 +380,7 @@ export default function Win5Page() {
           <span className="text-3xl">5</span>
           <div>
             <h1 className="text-2xl font-bold">写輪眼 — WIN5 推奨馬</h1>
-            <p className="text-sm text-muted-foreground">W Top5 ROI 200% / W Top2 ROI 126%</p>
+            <p className="text-sm text-muted-foreground">A: WP合算2 / B: +KB印+IDM / C: 頭数適応 / D: WP合算3[参考]</p>
           </div>
         </div>
         <Link

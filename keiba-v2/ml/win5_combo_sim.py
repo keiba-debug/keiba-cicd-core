@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-WIN5 A+B+C+D 併用 精密週次シミュレーション
-- Plan A: w_top2 (rank_w top2, 32pts, 毎週)
-- Plan B: w_ard1st_55_tiered (条件付き)
-- Plan C: union_top2 (rank_w∪rank_p top2)
-- Plan D: w2_ar1_p1 (rank_w top2 ∪ AR偏差値1位 ∪ rank_p 1位)
-- A+B / A+B+C / A+D / A+B+D 併用
-重複的中の考慮あり
+WIN5 A/B/C/D 併用 精密週次シミュレーション
+
+win5_pick.py と同一の戦略:
+- Plan A: WPs2固定         — WP合算rank top2 (32点, ¥3,200/週)
+- Plan B: WPs2+kb1+idm1   — WP合算top2 ∪ KB印◎ ∪ IDM1位 (~71点, ¥7,100/週)
+- Plan C: field_adaptive   — 頭数適応 WP合算 (~94点, ¥9,400/週)
+- Plan D: WPs3固定         — WP合算rank top3 (243点, ¥24,300/週) [参考]
+- 併用: A+B / A+C / A+B+C / A+B+C+D
 """
 import json
 import sys
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-from core.config import data_root, ml_dir
+from core.config import data_root, ml_dir, races_dir
 from core import db
 
 
@@ -28,18 +29,13 @@ from core import db
 def load_win5_schedule():
     schedule_rows = db.query("""
         SELECT w.KAISAI_NEN, w.KAISAI_GAPPI,
-            w.RACE_CODE1, w.KEIBAJO_CODE1, w.RACE_BANGO1,
-            w.RACE_CODE2, w.KEIBAJO_CODE2, w.RACE_BANGO2,
-            w.RACE_CODE3, w.KEIBAJO_CODE3, w.RACE_BANGO3,
-            w.RACE_CODE4, w.KEIBAJO_CODE4, w.RACE_BANGO4,
-            w.RACE_CODE5, w.KEIBAJO_CODE5, w.RACE_BANGO5,
+            w.RACE_CODE1, w.RACE_CODE2, w.RACE_CODE3, w.RACE_CODE4, w.RACE_CODE5,
             w.TEKICHU_NASHI_FLAG
         FROM win5 w ORDER BY w.KAISAI_NEN, w.KAISAI_GAPPI
     """)
     payout_rows = db.query("""
         SELECT KAISAI_NEN, KAISAI_GAPPI,
-            WIN5_KUMIBAN1, WIN5_KUMIBAN2, WIN5_KUMIBAN3,
-            WIN5_KUMIBAN4, WIN5_KUMIBAN5,
+            WIN5_KUMIBAN1, WIN5_KUMIBAN2, WIN5_KUMIBAN3, WIN5_KUMIBAN4, WIN5_KUMIBAN5,
             WIN5_HARAIMODOSHIKIN, TEKICHU_HYOSU
         FROM win5_haraimodoshi ORDER BY KAISAI_NEN, KAISAI_GAPPI
     """)
@@ -57,17 +53,12 @@ def load_win5_schedule():
         races = []
         for i in range(1, 6):
             rc = (row.get(f'RACE_CODE{i}') or '').strip()
-            vc = (row.get(f'KEIBAJO_CODE{i}') or '').strip()
-            rn = (row.get(f'RACE_BANGO{i}') or '').strip()
             pr = payout_index.get(date_str)
             winner = 0
             if pr:
                 kb = (pr.get(f'WIN5_KUMIBAN{i}') or '').strip()
                 winner = int(kb) if kb and kb.isdigit() else 0
-            races.append({
-                'race_id': rc, 'venue': vc,
-                'race_num': rn, 'winner': winner
-            })
+            races.append({'race_id': rc, 'winner': winner})
         pr = payout_index.get(date_str)
         payout = 0
         if pr:
@@ -81,125 +72,125 @@ def load_win5_schedule():
     return weeks
 
 
-def load_cache():
-    with open(str(ml_dir() / "backtest_cache.json"), encoding='utf-8') as f:
-        cache = json.load(f)
-    idx = {}
-    race_list = cache if isinstance(cache, list) else list(cache.values())
-    for rd in race_list:
-        rid = rd.get('race_id', '')
-        if not rid:
+def load_predictions_all(weeks):
+    """全WIN5日のpredictions.jsonを読み込み"""
+    pc = {}
+    for w in weeks:
+        ds = w['date']
+        if ds in pc:
             continue
-        entries = []
-        for e in rd.get('entries', []):
-            ard = float(e.get('ar_deviation', 0) or 0)
-            if ard == 0:
-                pm = float(e.get('predicted_margin', 0) or 0)
-                ard = 50 + pm * 20
-            entries.append({
-                'umaban': int(e.get('umaban', 0)),
-                'horse_name': e.get('horse_name', ''),
-                'rank_w': int(e.get('rank_w', 0) or 0),
-                'rank_p': int(e.get('rank_p', 0) or 0),
-                'ar_deviation': ard,
-                'is_win': bool(e.get('is_win', False)),
-            })
-        idx[rid] = {'entries': entries, 'count': len(entries)}
-    return idx
+        y, m, d = ds[:4], ds[4:6], ds[6:8]
+        p = races_dir() / y / m / d / 'predictions.json'
+        if not p.exists():
+            continue
+        with open(p, encoding='utf-8') as f:
+            data = json.load(f)
+        rd = {}
+        for r in data.get('races', []):
+            rid = r.get('race_id', '')
+            rd[rid] = {
+                'entries': r.get('entries', []),
+                'num_runners': r.get('num_runners', len(r.get('entries', []))),
+                'is_handicap': r.get('is_handicap', False),
+            }
+        pc[ds] = rd
+    return pc
 
 
 # ============================================================
-# Strategy implementations
+# Strategy implementations (win5_pick.py と完全同一)
 # ============================================================
-def get_sorted(entries, rank_key):
-    if rank_key == 'wp_sum':
-        valid = [e for e in entries if e['rank_w'] > 0 and e['rank_p'] > 0]
-        return sorted(valid, key=lambda e: e['rank_w'] + e['rank_p'])
-    return sorted(
-        [e for e in entries if e.get(rank_key, 0) > 0],
-        key=lambda e: e[rank_key]
-    )
+KB_MARK_ORDER = {'\u25ce': 1, '\u25cb': 2, '\u25b2': 3, '\u25b3': 4, '\u25bd': 5, '\u00d7': 6, '': 99}
 
 
-def plan_a_select(pred):
-    """w_top2: rank_w上位2頭"""
-    top = get_sorted(pred['entries'], 'rank_w')
-    return [e['umaban'] for e in top[:2]] if top else []
+def wps_sorted(entries):
+    valid = [e for e in entries if (e.get('rank_w') or 0) > 0 and (e.get('rank_p') or 0) > 0]
+    return sorted(valid, key=lambda e: e['rank_w'] + e['rank_p'])
 
 
-def plan_b_select(pred):
-    """w_ard1st_55_tiered: ARd1位>=55でtiered"""
-    top = get_sorted(pred['entries'], 'rank_w')
-    if not top:
-        return None
-    ard_1st = top[0]['ar_deviation']
-    if ard_1st < 55:
-        return None
-    if ard_1st >= 70:
+def wps_top(entries, n):
+    return [int(e['umaban']) for e in wps_sorted(entries)[:n]]
+
+
+def kb_mark_top(entries, n):
+    s = sorted(entries, key=lambda e: (
+        KB_MARK_ORDER.get(e.get('kb_mark', ''), 99),
+        -float(e.get('kb_rating', 0) or 0)
+    ))
+    return [int(e['umaban']) for e in s[:n]]
+
+
+def idm_top(entries, n):
+    s = sorted(entries, key=lambda e: -float(e.get('jrdb_idm', 0) or 0))
+    return [int(e['umaban']) for e in s[:n]]
+
+
+def union(*lists):
+    s = set()
+    for l in lists:
+        s.update(l)
+    return list(s)
+
+
+def plan_a_select(race_info):
+    """Plan A: WPs2固定"""
+    return wps_top(race_info['entries'], 2)
+
+
+def plan_b_select(race_info):
+    """Plan B: WPs2+kb1+idm1"""
+    e = race_info['entries']
+    return union(wps_top(e, 2), kb_mark_top(e, 1), idm_top(e, 1))
+
+
+def plan_c_select(race_info):
+    """Plan C: field_adaptive — 頭数12以下→1頭, 14以上→3頭, 他→2頭"""
+    f = race_info['num_runners']
+    if f <= 12:
         n = 1
-    elif ard_1st >= 65:
-        n = 2
-    elif ard_1st >= 60:
+    elif f >= 14:
         n = 3
-    elif ard_1st >= 55:
-        n = 4
     else:
-        n = 5
-    return [e['umaban'] for e in top[:n]]
+        n = 2
+    return wps_top(race_info['entries'], n)
 
 
-def plan_c_select(pred):
-    """union_top2: rank_w top2 ∪ rank_p top2 の和集合"""
-    w_top = get_sorted(pred['entries'], 'rank_w')[:2]
-    p_top = get_sorted(pred['entries'], 'rank_p')[:2]
-    selected = set()
-    for e in w_top + p_top:
-        selected.add(e['umaban'])
-    return list(selected)
+def plan_d_select(race_info):
+    """Plan D: WPs3固定 [参考]"""
+    return wps_top(race_info['entries'], 3)
 
 
-def plan_d_select(pred):
-    """w2_ar1_p1: rank_w top2 ∪ AR偏差値1位 ∪ rank_p 1位 の和集合"""
-    uma_set = set()
-    w_top = get_sorted(pred['entries'], 'rank_w')[:2]
-    for e in w_top:
-        uma_set.add(e['umaban'])
-    # AR deviation top1
-    ar_top = sorted(pred['entries'], key=lambda e: -e['ar_deviation'])[:1]
-    for e in ar_top:
-        uma_set.add(e['umaban'])
-    # rank_p top1
-    p_top = get_sorted(pred['entries'], 'rank_p')[:1]
-    for e in p_top:
-        uma_set.add(e['umaban'])
-    return list(uma_set)
+PLAN_FNS = {
+    'A': ('A: WP合算 Top2 (32点)', plan_a_select),
+    'B': ('B: WP2+KB印+IDM (~71点)', plan_b_select),
+    'C': ('C: 頭数適応 WP合算 (~94点)', plan_c_select),
+    'D': ('D: WP合算 Top3 (243点) [参考]', plan_d_select),
+}
 
 
-def simulate_plan(weeks, pred_index, plan_name, select_fn):
-    """1つのプランを週次シミュレーション"""
+# ============================================================
+# Simulation
+# ============================================================
+def simulate_plan(weeks, pred_cache, plan_key, select_fn):
     results = []
     for week in weeks:
-        date = week['date']
-        races = week['races']
-        payout = week['payout']
-
+        preds = pred_cache.get(week['date'], {})
         race_selections = []
         skip_week = False
-        for race in races:
-            rid = race['race_id']
-            pred = pred_index.get(rid)
-            if not pred:
+        for race in week['races']:
+            ri = preds.get(race['race_id'])
+            if not ri or not ri['entries']:
                 race_selections.append([])
                 continue
-            sel = select_fn(pred)
-            if sel is None:
+            sel = select_fn(ri)
+            if not sel:
                 skip_week = True
                 break
             race_selections.append(sel)
 
         if skip_week or len(race_selections) < 5:
             results.append({
-                'date': date, 'skip': True, 'cost': 0, 'payout': 0,
+                'date': week['date'], 'skip': True, 'cost': 0, 'payout': 0,
                 'tickets': 0, 'hit': False, 'selections': [],
             })
             continue
@@ -211,7 +202,7 @@ def simulate_plan(weeks, pred_index, plan_name, select_fn):
         cost = total_tickets * 100
 
         hit = True
-        for i, race in enumerate(races):
+        for i, race in enumerate(week['races']):
             winner = race['winner']
             if winner == 0:
                 hit = False
@@ -220,9 +211,9 @@ def simulate_plan(weeks, pred_index, plan_name, select_fn):
                 hit = False
                 break
 
-        actual_payout = payout if hit else 0
         results.append({
-            'date': date, 'skip': False, 'cost': cost, 'payout': actual_payout,
+            'date': week['date'], 'skip': False, 'cost': cost,
+            'payout': week['payout'] if hit else 0,
             'tickets': total_tickets, 'hit': hit,
             'selections': [len(s) for s in race_selections],
         })
@@ -230,7 +221,6 @@ def simulate_plan(weeks, pred_index, plan_name, select_fn):
 
 
 def simulate_combined(plan_results_list, plan_names):
-    """複数プランの併用シミュレーション"""
     combined = []
     for i in range(len(plan_results_list[0])):
         total_cost = 0
@@ -255,7 +245,6 @@ def simulate_combined(plan_results_list, plan_names):
 
 def analyze_plan(results, name):
     played = [r for r in results if not r['skip']]
-    skipped = [r for r in results if r['skip']]
     hits = [r for r in played if r['hit']]
     total_cost = sum(r['cost'] for r in played)
     total_payout = sum(r['payout'] for r in played)
@@ -278,7 +267,6 @@ def analyze_plan(results, name):
         weekly_pl = r['payout'] - r['cost']
         cum_pl += weekly_pl
         cum_pls.append(cum_pl)
-
         if cum_pl > peak:
             peak = cum_pl
             peak_date = r['date']
@@ -287,7 +275,6 @@ def analyze_plan(results, name):
             max_dd = dd
             max_dd_from = peak_date
             max_dd_to = r['date']
-
         if r['hit']:
             losing_streak = 0
         else:
@@ -296,7 +283,7 @@ def analyze_plan(results, name):
 
     return {
         'name': name,
-        'played': len(played), 'skipped': len(skipped),
+        'played': len(played), 'skipped': len(results) - len(played),
         'hits': len(hits),
         'hit_rate': len(hits) / len(played) * 100 if played else 0,
         'avg_tickets': sum(r['tickets'] for r in played) / len(played) if played else 0,
@@ -313,18 +300,18 @@ def analyze_plan(results, name):
 # ============================================================
 def main():
     print("=" * 80)
-    print("  WIN5 A+B+C 併用 精密シミュレーション")
+    print("  WIN5 A/B/C/D 併用 精密シミュレーション")
     print("=" * 80)
 
     print("\n[Load] データ読み込み中...")
     all_weeks = load_win5_schedule()
-    pred_index = load_cache()
-    print(f"  WIN5: {len(all_weeks)}週, 予測: {len(pred_index)}レース")
+    pred_cache = load_predictions_all(all_weeks)
+    print(f"  WIN5: {len(all_weeks)}週, 予測: {len(pred_cache)}日")
 
-    # Filter matched weeks
     matched_weeks = []
     for w in all_weeks:
-        all_found = all(r['race_id'] in pred_index for r in w['races'])
+        preds = pred_cache.get(w['date'], {})
+        all_found = all(r['race_id'] in preds for r in w['races'])
         all_winners = all(r['winner'] > 0 for r in w['races'])
         if all_found and all_winners:
             matched_weeks.append(w)
@@ -332,22 +319,17 @@ def main():
     print(f"  マッチ: {len(matched_weeks)}週"
           f" ({matched_weeks[0]['date']} 〜 {matched_weeks[-1]['date']})")
 
-    # Run each plan
     print("\n[Sim] プラン別シミュレーション...")
-    res_a = simulate_plan(matched_weeks, pred_index, 'A', plan_a_select)
-    res_b = simulate_plan(matched_weeks, pred_index, 'B', plan_b_select)
-    res_c = simulate_plan(matched_weeks, pred_index, 'C', plan_c_select)
-    res_d = simulate_plan(matched_weeks, pred_index, 'D', plan_d_select)
+    for pk, (pname, _) in PLAN_FNS.items():
+        print(f"  Plan {pk}: {pname}")
 
-    # ============================================================
-    # Individual Plan Analysis
-    # ============================================================
-    plans = {
-        'A': analyze_plan(res_a, 'A: w_top2 (32点/週)'),
-        'B': analyze_plan(res_b, 'B: w_ard1st_55_tiered'),
-        'C': analyze_plan(res_c, 'C: union_top2'),
-        'D': analyze_plan(res_d, 'D: w2_ar1_p1'),
-    }
+    plan_results = {}
+    for pk, (pname, pfn) in PLAN_FNS.items():
+        plan_results[pk] = simulate_plan(matched_weeks, pred_cache, pk, pfn)
+
+    plans = {}
+    for pk, (pname, _) in PLAN_FNS.items():
+        plans[pk] = analyze_plan(plan_results[pk], pname)
 
     for key in ['A', 'B', 'C', 'D']:
         p = plans[key]
@@ -361,36 +343,25 @@ def main():
         print(f"  累計払戻: {p['total_payout']:>12,}円")
         print(f"  ROI: {p['roi']:.1f}%")
         print(f"  最終損益: {p['final_pl']:>+12,}円")
-        print(f"  最高到達点: {p['peak']:>+12,}円")
         print(f"  最大DD: {p['max_dd']:>12,}円"
               f" ({p['max_dd_from']}〜{p['max_dd_to']})")
         print(f"  最大連敗: {p['max_losing_streak']}週")
 
-    # ============================================================
-    # Combined Plans
-    # ============================================================
     combos = [
-        ('A+B', [res_a, res_b], ['A', 'B']),
-        ('A+B+C', [res_a, res_b, res_c], ['A', 'B', 'C']),
-        ('A+D', [res_a, res_d], ['A', 'D']),
-        ('A+B+D', [res_a, res_b, res_d], ['A', 'B', 'D']),
+        ('A+B', ['A', 'B']),
+        ('A+C', ['A', 'C']),
+        ('A+B+C', ['A', 'B', 'C']),
+        ('A+B+C+D', ['A', 'B', 'C', 'D']),
     ]
 
     combo_analyses = {}
-    for combo_name, combo_res, combo_keys in combos:
-        combined = simulate_combined(combo_res, combo_keys)
-        cum_pl = 0
-        peak = 0
-        max_dd = 0
-        max_dd_from = ''
-        max_dd_to = ''
-        peak_date = ''
-        cum_pls = []
-        losing_streak = 0
-        max_losing_streak = 0
-        total_cost = 0
-        total_payout = 0
-        hit_count = 0
+    for combo_name, combo_keys in combos:
+        res_list = [plan_results[k] for k in combo_keys]
+        combined = simulate_combined(res_list, combo_keys)
+        cum_pl = 0; peak = 0; max_dd = 0
+        max_dd_from = ''; max_dd_to = ''; peak_date = ''
+        cum_pls = []; losing_streak = 0; max_losing_streak = 0
+        total_cost = 0; total_payout = 0; hit_count = 0
 
         for r in combined:
             total_cost += r['cost']
@@ -399,19 +370,15 @@ def main():
             cum_pl += weekly_pl
             cum_pls.append(cum_pl)
             if r['hit']:
-                hit_count += 1
-                losing_streak = 0
+                hit_count += 1; losing_streak = 0
             else:
                 losing_streak += 1
                 max_losing_streak = max(max_losing_streak, losing_streak)
             if cum_pl > peak:
-                peak = cum_pl
-                peak_date = r['date']
+                peak = cum_pl; peak_date = r['date']
             dd = peak - cum_pl
             if dd > max_dd:
-                max_dd = dd
-                max_dd_from = peak_date
-                max_dd_to = r['date']
+                max_dd = dd; max_dd_from = peak_date; max_dd_to = r['date']
 
         roi = total_payout / total_cost * 100 if total_cost > 0 else 0
         combo_analyses[combo_name] = {
@@ -432,234 +399,32 @@ def main():
         print(f"  累計払戻: {total_payout:>12,}円")
         print(f"  ROI: {roi:.1f}%")
         print(f"  最終損益: {cum_pl:>+12,}円")
-        print(f"  最高到達点: {peak:>+12,}円")
         print(f"  最大DD: {max_dd:>12,}円"
               f" ({max_dd_from}〜{max_dd_to})")
         print(f"  最大連敗: {max_losing_streak}週")
 
-    # ============================================================
-    # Weekly cashflow (A+B combo, detailed)
-    # ============================================================
-    print(f"\n{'=' * 80}")
-    print(f"  A+B 併用 週次収支推移")
-    print(f"{'=' * 80}")
-
-    ab = combo_analyses['A+B']
-    cum_pl = 0
-    peak_so_far = 0
-    print(f"\n{'日付':>10} {'A投資':>8} {'A払戻':>10} {'B投資':>8}"
-          f" {'B払戻':>10} {'週損益':>10} {'累計損益':>12} {'DD':>10}")
-    print("-" * 92)
-
-    for i, r in enumerate(ab['combined']):
-        da = r['details'].get('A', {})
-        db_r = r['details'].get('B', {})
-        a_cost = da.get('cost', 0) if not da.get('skip') else 0
-        a_pay = da.get('payout', 0)
-        b_cost = db_r.get('cost', 0) if not db_r.get('skip') else 0
-        b_pay = db_r.get('payout', 0)
-        b_skip = db_r.get('skip', False)
-        wpl = r['payout'] - r['cost']
-        cum_pl += wpl
-
-        if cum_pl > peak_so_far:
-            peak_so_far = cum_pl
-        dd = peak_so_far - cum_pl if peak_so_far > cum_pl else 0
-
-        b_cost_str = "   SKIP" if b_skip else f"{b_cost:>7,}円"
-        marker = ""
-        if da.get('hit') and db_r.get('hit') and not b_skip:
-            marker = " ★★"
-        elif da.get('hit') or (db_r.get('hit') and not b_skip):
-            marker = " ★"
-
-        print(f"{r['date']:>10} {a_cost:>7,}円 {a_pay:>9,}円"
-              f" {b_cost_str:>8} {b_pay:>9,}円"
-              f" {wpl:>+9,}円 {cum_pl:>+11,}円 {dd:>9,}円{marker}")
-
-    # ============================================================
-    # A+B+C Weekly cashflow
-    # ============================================================
-    print(f"\n{'=' * 80}")
-    print(f"  A+B+C 併用 週次収支推移")
-    print(f"{'=' * 80}")
-
-    abc = combo_analyses['A+B+C']
-    cum_pl = 0
-    peak_so_far = 0
-    print(f"\n{'日付':>10} {'コスト':>10} {'払戻':>10}"
-          f" {'週損益':>10} {'累計損益':>12} {'DD':>10}")
-    print("-" * 70)
-
-    for i, r in enumerate(abc['combined']):
-        wpl = r['payout'] - r['cost']
-        cum_pl += wpl
-        if cum_pl > peak_so_far:
-            peak_so_far = cum_pl
-        dd = peak_so_far - cum_pl if peak_so_far > cum_pl else 0
-        marker = " ★" if r['hit'] else ""
-        print(f"{r['date']:>10} {r['cost']:>9,}円 {r['payout']:>9,}円"
-              f" {wpl:>+9,}円 {cum_pl:>+11,}円 {dd:>9,}円{marker}")
-
-    # ============================================================
-    # Summary comparison
-    # ============================================================
+    # Summary
     print(f"\n{'=' * 80}")
     print(f"  全プラン比較サマリー")
     print(f"{'=' * 80}")
-
-    print(f"\n{'プラン':<22} {'投資':>12} {'払戻':>12} {'ROI':>7}"
-          f" {'最終損益':>12} {'最大DD':>12} {'DD率':>6} {'連敗':>4} {'的中':>4}")
+    print(f"\n{'プラン':<30} {'投資':>12} {'払戻':>12} {'ROI':>7}"
+          f" {'最終損益':>12} {'最大DD':>12} {'連敗':>4} {'的中':>4}")
     print("-" * 105)
-
     for key in ['A', 'B', 'C', 'D']:
         p = plans[key]
-        dd_pct = (p['max_dd'] / p['total_cost'] * 100
-                  if p['total_cost'] > 0 else 0)
-        print(f"{p['name']:<22} {p['total_cost']:>11,}円"
+        print(f"{p['name']:<30} {p['total_cost']:>11,}円"
               f" {p['total_payout']:>11,}円 {p['roi']:>6.1f}%"
               f" {p['final_pl']:>+11,}円 {p['max_dd']:>11,}円"
-              f" {dd_pct:>5.1f}% {p['max_losing_streak']:>3}週"
-              f" {p['hits']:>3}回")
-
-    for combo_name in ['A+B', 'A+B+C', 'A+D', 'A+B+D']:
+              f" {p['max_losing_streak']:>3}週 {p['hits']:>3}回")
+    for combo_name in ['A+B', 'A+C', 'A+B+C', 'A+B+C+D']:
         ca = combo_analyses[combo_name]
-        dd_pct = (ca['max_dd'] / ca['total_cost'] * 100
-                  if ca['total_cost'] > 0 else 0)
-        print(f"{combo_name:<22} {ca['total_cost']:>11,}円"
+        print(f"{combo_name:<30} {ca['total_cost']:>11,}円"
               f" {ca['total_payout']:>11,}円 {ca['roi']:>6.1f}%"
               f" {ca['final_pl']:>+11,}円 {ca['max_dd']:>11,}円"
-              f" {dd_pct:>5.1f}% {ca['max_losing_streak']:>3}週"
-              f" {ca['hit_count']:>3}回")
+              f" {ca['max_losing_streak']:>3}週 {ca['hit_count']:>3}回")
 
     # ============================================================
-    # 重複的中分析
-    # ============================================================
-    print(f"\n{'=' * 80}")
-    print(f"  重複的中分析 (A+B)")
-    print(f"{'=' * 80}")
-
-    both_hit = 0
-    for r in ab['combined']:
-        da = r['details'].get('A', {})
-        db_r = r['details'].get('B', {})
-        a_hit = da.get('hit', False) if not da.get('skip') else False
-        b_hit = db_r.get('hit', False) if not db_r.get('skip') else False
-        if a_hit or b_hit:
-            print(f"\n  {r['date']}:")
-            if a_hit:
-                print(f"    Plan A 的中: {da['tickets']}点"
-                      f" → ¥{da['payout']:,}")
-            if b_hit:
-                print(f"    Plan B 的中: {db_r['tickets']}点"
-                      f" → ¥{db_r['payout']:,}")
-            if a_hit and b_hit:
-                both_hit += 1
-                combined_payout = da['payout'] + db_r['payout']
-                print(f"    → ★★ 両方的中！合計払戻: ¥{combined_payout:,}")
-            cost = r['cost']
-            profit = r['payout'] - cost
-            print(f"    週コスト: ¥{cost:,}"
-                  f"  週損益: ¥{profit:+,}")
-
-    total_unique_hit_weeks = sum(
-        1 for r in ab['combined']
-        if r['details'].get('A', {}).get('hit') or
-        (r['details'].get('B', {}).get('hit') and
-         not r['details'].get('B', {}).get('skip'))
-    )
-    print(f"\n  的中週数: {total_unique_hit_weeks}週"
-          f"  (A only: {ab['hit_count'] - both_hit - (total_unique_hit_weeks - ab['hit_count'])}週,"
-          f" B only: ?, 両方: {both_hit}週)")
-
-    # ============================================================
-    # ASCII Art Cumulative P&L Chart (A+B)
-    # ============================================================
-    print(f"\n{'=' * 80}")
-    print(f"  A+B 累計損益チャート")
-    print(f"{'=' * 80}")
-
-    pls = ab['cum_pls']
-    min_pl = min(pls)
-    max_pl = max(pls)
-    chart_width = 60
-    chart_height = 20
-
-    if max_pl == min_pl:
-        max_pl = min_pl + 1
-
-    def scale(val):
-        return int((val - min_pl) / (max_pl - min_pl) * (chart_height - 1))
-
-    # Sample points (take every nth point to fit)
-    n_points = len(pls)
-    step = max(1, n_points // chart_width)
-    sampled = [(i, pls[i]) for i in range(0, n_points, step)]
-
-    # Build chart
-    chart = [[' ' for _ in range(len(sampled))] for _ in range(chart_height)]
-    zero_row = scale(0)
-
-    for col, (idx, val) in enumerate(sampled):
-        row = scale(val)
-        chart[row][col] = '*'
-
-    # Print chart (top to bottom)
-    for row_idx in range(chart_height - 1, -1, -1):
-        val = min_pl + (max_pl - min_pl) * row_idx / (chart_height - 1)
-        label = f"{val:>+10,.0f}円"
-        line = ''.join(chart[row_idx])
-        marker = '-' if row_idx == zero_row else ' '
-        print(f"  {label} |{line.replace(' ', marker if row_idx == zero_row else ' ')}")
-
-    # X axis labels
-    print(f"  {'':>11}+{''.join(['-' for _ in sampled])}")
-    first_date = matched_weeks[0]['date']
-    last_date = matched_weeks[-1]['date']
-    print(f"  {'':>11} {first_date}{'':>{len(sampled)-16}}{last_date}")
-
-    # ============================================================
-    # 年間換算
-    # ============================================================
-    print(f"\n{'=' * 80}")
-    print(f"  年間換算（67週 → 52週）")
-    print(f"{'=' * 80}")
-
-    ratio = 52 / 67
-    for combo_name in ['A+B', 'A+B+C', 'A+D', 'A+B+D']:
-        ca = combo_analyses[combo_name]
-        annual_cost = ca['total_cost'] * ratio
-        annual_payout = ca['total_payout'] * ratio
-        annual_pl = ca['final_pl'] * ratio
-        print(f"\n  {combo_name}:")
-        print(f"    年間投資: ¥{annual_cost:>12,.0f}")
-        print(f"    年間払戻: ¥{annual_payout:>12,.0f}")
-        print(f"    年間損益: ¥{annual_pl:>+12,.0f}")
-        print(f"    月平均損益: ¥{annual_pl / 12:>+12,.0f}")
-
-    # ============================================================
-    # バンクロール要件
-    # ============================================================
-    print(f"\n{'=' * 80}")
-    print(f"  バンクロール要件")
-    print(f"{'=' * 80}")
-
-    for combo_name in ['A+B', 'A+B+C', 'A+D', 'A+B+D']:
-        ca = combo_analyses[combo_name]
-        # 最大DDの1.5倍をバンクロール要件とする
-        bankroll_req = int(ca['max_dd'] * 1.5)
-        weekly_avg_cost = ca['total_cost'] / len(matched_weeks)
-        months_to_max_dd = ca['max_dd'] / weekly_avg_cost / 4.3 if weekly_avg_cost > 0 else 0
-        print(f"\n  {combo_name}:")
-        print(f"    最大DD: ¥{ca['max_dd']:,}")
-        print(f"    推奨バンクロール (DD×1.5): ¥{bankroll_req:,}")
-        print(f"    週平均コスト: ¥{weekly_avg_cost:,.0f}")
-        print(f"    DD到達までの平均期間: {months_to_max_dd:.1f}ヶ月")
-        print(f"    DD/バンクロール比: {ca['max_dd']/bankroll_req*100:.0f}%")
-
-
-    # ============================================================
-    # JSON保存（Web表示用）
+    # JSON保存
     # ============================================================
     save_path = ml_dir() / "win5_combo_results.json"
 
@@ -678,35 +443,25 @@ def main():
             'cum_pls': p['cum_pls'],
         }
 
-    def combo_to_dict(ca):
-        ratio = 52 / len(matched_weeks)
+    def combo_to_dict(ca, combo_keys):
+        ratio = 52 / len(matched_weeks) if matched_weeks else 1
         weekly = []
         cum = 0
         for r in ca['combined']:
-            da = r['details'].get('A', {})
-            db_r = r['details'].get('B', {})
-            dc_r = r['details'].get('C', {})
-            dd_r = r['details'].get('D', {})
             cum += r['payout'] - r['cost']
-            weekly.append({
+            entry = {
                 'date': r['date'],
                 'cost': r['cost'], 'payout': r['payout'],
                 'pl': r['payout'] - r['cost'], 'cum_pl': cum,
                 'hit': r['hit'],
-                'a_hit': da.get('hit', False) if not da.get('skip') else False,
-                'b_hit': db_r.get('hit', False) if not db_r.get('skip') else False,
-                'c_hit': dc_r.get('hit', False) if not dc_r.get('skip') else False,
-                'd_hit': dd_r.get('hit', False) if not dd_r.get('skip') else False,
-                'b_skip': db_r.get('skip', False),
-                'a_cost': da.get('cost', 0) if not da.get('skip') else 0,
-                'b_cost': db_r.get('cost', 0) if not db_r.get('skip') else 0,
-                'c_cost': dc_r.get('cost', 0) if not dc_r.get('skip') else 0,
-                'd_cost': dd_r.get('cost', 0) if not dd_r.get('skip') else 0,
-                'a_payout': da.get('payout', 0),
-                'b_payout': db_r.get('payout', 0),
-                'c_payout': dc_r.get('payout', 0),
-                'd_payout': dd_r.get('payout', 0),
-            })
+            }
+            for k in ['A', 'B', 'C', 'D']:
+                dk = r['details'].get(k, {})
+                entry[f'{k.lower()}_hit'] = dk.get('hit', False) if not dk.get('skip') else False
+                entry[f'{k.lower()}_cost'] = dk.get('cost', 0) if not dk.get('skip') else 0
+                entry[f'{k.lower()}_payout'] = dk.get('payout', 0)
+                entry[f'{k.lower()}_skip'] = dk.get('skip', False)
+            weekly.append(entry)
         return {
             'total_cost': ca['total_cost'],
             'total_payout': ca['total_payout'],
@@ -732,7 +487,8 @@ def main():
         },
         'matched_weeks': len(matched_weeks),
         'plans': {k: plan_to_dict(v) for k, v in plans.items()},
-        'combos': {k: combo_to_dict(v) for k, v in combo_analyses.items()},
+        'combos': {k: combo_to_dict(combo_analyses[k], ck)
+                   for k, ck in [c for c in combos]},
     }
 
     save_json = json.dumps(save_data, ensure_ascii=False, indent=2)
@@ -740,7 +496,6 @@ def main():
         f.write(save_json)
     print(f"\n[Save] {save_path}")
 
-    # Archive to version directory
     meta_path = ml_dir() / "model_meta.json"
     if meta_path.exists():
         with open(meta_path, encoding="utf-8") as f:

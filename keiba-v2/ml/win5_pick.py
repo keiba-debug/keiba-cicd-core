@@ -3,17 +3,21 @@
 """
 WIN5 推奨馬ピッカー
 
-指定日のWIN5対象レースに対して上位戦略で推奨馬を出力する。
+指定日のWIN5対象レースに対して4プラン(A/B/C/D)で推奨馬を出力する。
+combo_sim と同一の戦略を使用。
+
+Plan A: WPs2固定         — WP合算rank top2 (32点, ¥3,200/週)
+Plan B: WPs2+kb1+idm1   — WP合算top2 ∪ KB印◎ ∪ IDM1位 (~71点, ¥7,100/週)
+Plan C: field_adaptive   — 頭数適応 (12以下→1頭, 14以上→3頭, 他→2頭, ~94点 ¥9,400/週)
+Plan D: WPs3固定         — WP合算rank top3 (243点, ¥24,300/週) [参考]
 
 Usage:
     python -m ml.win5_pick --date 2026-01-25
-    python -m ml.win5_pick --date 2026-01-25 --json
 """
 
 import argparse
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -26,24 +30,102 @@ from core import config, db
 
 
 # ============================================================
-# データ構造
+# 共通ソートユーティリティ
 # ============================================================
 
-@dataclass
-class PickEntry:
-    umaban: int
-    horse_name: str
-    odds: float
-    odds_rank: int
-    rank_w: int
-    rank_p: int
-    ar_deviation: float
-    win_ev: float
-    place_ev: float
-    pred_proba_w_cal: float
-    pred_proba_p_raw: float
-    kb_mark: str
-    kb_rating: float
+KB_MARK_ORDER = {'\u25ce': 1, '\u25cb': 2, '\u25b2': 3, '\u25b3': 4, '\u25bd': 5, '\u00d7': 6, '': 99}
+
+
+def wps_sorted(entries: list) -> list:
+    """WP合算rank (rank_w + rank_p) でソート"""
+    valid = [e for e in entries
+             if (e.get('rank_w') or 0) > 0 and (e.get('rank_p') or 0) > 0]
+    return sorted(valid, key=lambda e: e['rank_w'] + e['rank_p'])
+
+
+def kb_mark_top(entries: list, n: int) -> list:
+    """競馬ブック印順で上位N頭の馬番リスト"""
+    s = sorted(entries, key=lambda e: (
+        KB_MARK_ORDER.get(e.get('kb_mark', ''), 99),
+        -float(e.get('kb_rating', 0) or 0)
+    ))
+    return [int(e['umaban']) for e in s[:n]]
+
+
+def idm_top(entries: list, n: int) -> list:
+    """JRDB IDM順で上位N頭の馬番リスト"""
+    s = sorted(entries, key=lambda e: -float(e.get('jrdb_idm', 0) or 0))
+    return [int(e['umaban']) for e in s[:n]]
+
+
+def wps_top(entries: list, n: int) -> list:
+    """WP合算rank上位N頭の馬番リスト"""
+    return [int(e['umaban']) for e in wps_sorted(entries)[:n]]
+
+
+def union(*lists) -> list:
+    """複数リストの和集合"""
+    s = set()
+    for l in lists:
+        s.update(l)
+    return list(s)
+
+
+# ============================================================
+# 戦略定義 (combo_sim と完全同一)
+# ============================================================
+
+def plan_a_select(entries: list, race_info: dict = None) -> list:
+    """Plan A: WPs2固定 — WP合算rank top2"""
+    return wps_top(entries, 2)
+
+
+def plan_b_select(entries: list, race_info: dict = None) -> list:
+    """Plan B: WPs2+kb1+idm1 — WP合算top2 ∪ KB印◎ ∪ IDM1位"""
+    return union(wps_top(entries, 2), kb_mark_top(entries, 1), idm_top(entries, 1))
+
+
+def plan_c_select(entries: list, race_info: dict = None) -> list:
+    """Plan C: field_adaptive — 頭数12以下→1頭, 14以上→3頭, 他→2頭"""
+    num_runners = len(entries)
+    if race_info:
+        num_runners = race_info.get('num_runners', num_runners)
+    if num_runners <= 12:
+        n = 1
+    elif num_runners >= 14:
+        n = 3
+    else:
+        n = 2
+    return wps_top(entries, n)
+
+
+def plan_d_select(entries: list, race_info: dict = None) -> list:
+    """Plan D: WPs3固定 — WP合算rank top3 [参考]"""
+    return wps_top(entries, 3)
+
+
+PLANS = {
+    'A': {
+        'label': 'Plan A: WP合算 Top2 (32点/週)',
+        'select': plan_a_select,
+        'reference': False,
+    },
+    'B': {
+        'label': 'Plan B: WP合算2+KB印◎+IDM1位 (~71点/週)',
+        'select': plan_b_select,
+        'reference': False,
+    },
+    'C': {
+        'label': 'Plan C: 頭数適応 WP合算 (~94点/週)',
+        'select': plan_c_select,
+        'reference': False,
+    },
+    'D': {
+        'label': 'Plan D: WP合算 Top3 (243点/週)',
+        'select': plan_d_select,
+        'reference': True,
+    },
+}
 
 
 # ============================================================
@@ -51,11 +133,7 @@ class PickEntry:
 # ============================================================
 
 def get_win5_race_ids(date: str) -> Optional[list]:
-    """
-    mykeibadbからWIN5対象レースIDを取得。
-    date: YYYY-MM-DD
-    Returns: [race_id1, ..., race_id5] or None
-    """
+    """mykeibadbからWIN5対象レースIDを取得"""
     parts = date.split('-')
     year = parts[0]
     gappi = parts[1] + parts[2]
@@ -83,7 +161,7 @@ def get_win5_race_ids(date: str) -> Optional[list]:
 # ============================================================
 
 def load_predictions(date: str) -> dict:
-    """predictions.json からレース予測を読み込み"""
+    """predictions.json からレース予測を読み込み (race_id -> race dict)"""
     parts = date.split('-')
     pred_path = config.races_dir() / parts[0] / parts[1] / parts[2] / "predictions.json"
     if not pred_path.exists():
@@ -101,225 +179,8 @@ def load_predictions(date: str) -> dict:
 
 
 # ============================================================
-# 可変戦略ロジック（w_floor50_gap ベース）
+# レース情報
 # ============================================================
-
-STRATEGIES = {
-    'w_top2': {
-        'label': 'W Top2 固定32点 (ROI 126%, 3200円/週)',
-        'rank_key': 'rank_w',
-        'ard_floor': 0,
-        'gap_rules': [],
-        'default_n': 2,
-    },
-    'w_top5': {
-        'label': 'W Top5 固定3125点 (ROI 200%, 312500円/週)',
-        'rank_key': 'rank_w',
-        'ard_floor': 0,
-        'gap_rules': [],
-        'default_n': 5,
-    },
-    'w_floor50_gap': {
-        'label': 'W ARd>=50 + Gap制御 (可変点数)',
-        'rank_key': 'rank_w',
-        'ard_floor': 50,
-        'gap_rules': [(12, 1), (6, 2), (3, 3)],
-        'default_n': 5,
-    },
-    'w2_ar1_p1': {
-        'label': 'Plan D: W2+AR1+P1 (ROI 163%)',
-        'custom': 'plan_d',
-    },
-    'w_adaptive': {
-        'label': 'W Adaptive (ard_gap可変, コスト半減)',
-        'custom': 'adaptive',
-    },
-    'p_fixed_2': {
-        'label': 'P Top2 固定32点 (ROI 21%)',
-        'rank_key': 'rank_p',
-        'ard_floor': 0,
-        'gap_rules': [],
-        'default_n': 2,
-    },
-}
-
-
-def apply_plan_d(race_data: dict) -> list:
-    """Plan D: w2_ar1_p1 — rank_w top2 ∪ AR偏差値1位 ∪ rank_p 1位 の和集合"""
-    entries = race_data.get('entries', [])
-    if not entries:
-        return []
-
-    uma_set = set()
-    # rank_w top2
-    by_w = sorted([e for e in entries if (e.get('rank_w') or 0) > 0], key=lambda e: e['rank_w'])
-    for e in by_w[:2]:
-        uma_set.add(int(e.get('umaban', 0)))
-    # AR deviation top1
-    by_ar = sorted(entries, key=lambda e: -float(e.get('ar_deviation', 0) or 0))
-    if by_ar:
-        uma_set.add(int(by_ar[0].get('umaban', 0)))
-    # rank_p top1
-    by_p = sorted([e for e in entries if (e.get('rank_p') or 0) > 0], key=lambda e: e['rank_p'])
-    if by_p:
-        uma_set.add(int(by_p[0].get('umaban', 0)))
-
-    selected = [e for e in entries if int(e.get('umaban', 0)) in uma_set]
-    picks = []
-    for e in selected:
-        picks.append(PickEntry(
-            umaban=int(e.get('umaban', 0)),
-            horse_name=e.get('horse_name', ''),
-            odds=float(e.get('odds', 0) or 0),
-            odds_rank=int(e.get('odds_rank', 0) or 0),
-            rank_w=int(e.get('rank_w', 0) or 0),
-            rank_p=int(e.get('rank_p', 0) or 0),
-            ar_deviation=float(e.get('ar_deviation', 0) or 0),
-            win_ev=float(e.get('win_ev', 0) or 0),
-            place_ev=float(e.get('place_ev', 0) or 0),
-            pred_proba_w_cal=float(e.get('pred_proba_w_cal', 0) or 0),
-            pred_proba_p_raw=float(e.get('pred_proba_p_raw', 0) or 0),
-            kb_mark=e.get('kb_mark', ''),
-            kb_rating=float(e.get('kb_rating', 0) or 0),
-        ))
-    return sorted(picks, key=lambda p: p.rank_w if p.rank_w > 0 else 999)
-
-
-def apply_adaptive(race_data: dict) -> list:
-    """W Adaptive: ard_gap と entry_count に応じてピック数を可変"""
-    entries = race_data.get('entries', [])
-    if not entries:
-        return []
-
-    # rank_w順にソート
-    sorted_entries = sorted(
-        [e for e in entries if (e.get('rank_w') or 0) > 0],
-        key=lambda e: e['rank_w']
-    )
-    if not sorted_entries:
-        return []
-
-    # ard_gap計算
-    ard_1st = float(sorted_entries[0].get('ar_deviation', 0) or 0)
-    ard_2nd = float(sorted_entries[1].get('ar_deviation', 0) or 0) if len(sorted_entries) > 1 else 0
-    ard_gap = ard_1st - ard_2nd
-    entry_count = len(entries)
-
-    # ピック数決定
-    if ard_gap >= 10 and entry_count <= 12:
-        n = 2
-    elif ard_gap >= 10:
-        n = 3
-    elif ard_gap >= 5:
-        n = 3
-    elif ard_gap >= 3:
-        n = 4
-    else:
-        n = 5
-
-    selected = sorted_entries[:n]
-
-    # PickEntryに変換
-    picks = []
-    for e in selected:
-        picks.append(PickEntry(
-            umaban=int(e.get('umaban', 0)),
-            horse_name=e.get('horse_name', ''),
-            odds=float(e.get('odds', 0) or 0),
-            odds_rank=int(e.get('odds_rank', 0) or 0),
-            rank_w=int(e.get('rank_w', 0) or 0),
-            rank_p=int(e.get('rank_p', 0) or 0),
-            ar_deviation=float(e.get('ar_deviation', 0) or 0),
-            win_ev=float(e.get('win_ev', 0) or 0),
-            place_ev=float(e.get('place_ev', 0) or 0),
-            pred_proba_w_cal=float(e.get('pred_proba_w_cal', 0) or 0),
-            pred_proba_p_raw=float(e.get('pred_proba_p_raw', 0) or 0),
-            kb_mark=e.get('kb_mark', ''),
-            kb_rating=float(e.get('kb_rating', 0) or 0),
-        ))
-    return picks
-
-
-def apply_strategy(race_data: dict, strategy: dict) -> list:
-    """
-    レースに戦略を適用して推奨馬を返す。
-    Returns: list of PickEntry (推奨馬)
-    """
-    rank_key = strategy['rank_key']
-    ard_floor = strategy['ard_floor']
-    gap_rules = strategy['gap_rules']
-    default_n = strategy['default_n']
-
-    entries = race_data.get('entries', [])
-    if not entries:
-        return []
-
-    # rank順にソート（wp_sum の場合は rank_w + rank_p の合計でソート）
-    if rank_key == 'wp_sum':
-        valid = [e for e in entries
-                 if (e.get('rank_w') or 0) > 0 and (e.get('rank_p') or 0) > 0]
-        sorted_entries = sorted(valid, key=lambda e: e['rank_w'] + e['rank_p'])
-    else:
-        sorted_entries = sorted(
-            [e for e in entries if (e.get(rank_key) or 0) > 0],
-            key=lambda e: e[rank_key]
-        )
-    if not sorted_entries:
-        return []
-
-    # gap計算
-    ard_1st = float(sorted_entries[0].get('ar_deviation', 50) or 50)
-    ard_2nd = float(sorted_entries[1].get('ar_deviation', 50) or 50) if len(sorted_entries) > 1 else 0
-
-    gap_12 = ard_1st - ard_2nd
-
-    # 頭数決定
-    n = default_n
-    for gap_threshold, target_n in gap_rules:
-        if gap_12 >= gap_threshold:
-            n = target_n
-            break
-
-    selected = sorted_entries[:n]
-
-    # ARdフロアでフィルタ
-    if ard_floor > 0:
-        selected = [e for e in selected if float(e.get('ar_deviation', 0) or 0) >= ard_floor]
-
-    # PickEntryに変換
-    picks = []
-    for e in selected:
-        picks.append(PickEntry(
-            umaban=int(e.get('umaban', 0)),
-            horse_name=e.get('horse_name', ''),
-            odds=float(e.get('odds', 0) or 0),
-            odds_rank=int(e.get('odds_rank', 0) or 0),
-            rank_w=int(e.get('rank_w', 0) or 0),
-            rank_p=int(e.get('rank_p', 0) or 0),
-            ar_deviation=float(e.get('ar_deviation', 0) or 0),
-            win_ev=float(e.get('win_ev', 0) or 0),
-            place_ev=float(e.get('place_ev', 0) or 0),
-            pred_proba_w_cal=float(e.get('pred_proba_w_cal', 0) or 0),
-            pred_proba_p_raw=float(e.get('pred_proba_p_raw', 0) or 0),
-            kb_mark=e.get('kb_mark', ''),
-            kb_rating=float(e.get('kb_rating', 0) or 0),
-        ))
-    return picks
-
-
-# ============================================================
-# レース情報取得
-# ============================================================
-
-def get_race_info(race_id: str, date: str) -> dict:
-    """race_*.json からレース名等を取得"""
-    parts = date.split('-')
-    race_path = config.races_dir() / parts[0] / parts[1] / parts[2] / f"race_{race_id}.json"
-    if not race_path.exists():
-        return {}
-    with open(race_path, encoding='utf-8') as f:
-        return json.load(f)
-
 
 VENUE_MAP = {
     '01': '札幌', '02': '函館', '03': '福島', '04': '新潟',
@@ -329,11 +190,38 @@ VENUE_MAP = {
 
 
 def race_id_to_venue_race(race_id: str) -> tuple:
-    """race_idから場名とR番号を取得 (race_id: YYYYMMDDJJKKNNRR)"""
     venue_code = race_id[8:10]
     race_num = int(race_id[14:16])
     venue_name = VENUE_MAP.get(venue_code, f'場{venue_code}')
     return venue_name, race_num
+
+
+def get_race_info(race_id: str, date: str) -> dict:
+    parts = date.split('-')
+    race_path = config.races_dir() / parts[0] / parts[1] / parts[2] / f"race_{race_id}.json"
+    if not race_path.exists():
+        return {}
+    with open(race_path, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def extract_pick_info(entry: dict) -> dict:
+    return {
+        'umaban': int(entry.get('umaban', 0)),
+        'horse_name': entry.get('horse_name', ''),
+        'odds': float(entry.get('odds', 0) or 0),
+        'odds_rank': int(entry.get('odds_rank', 0) or 0),
+        'rank_w': int(entry.get('rank_w', 0) or 0),
+        'rank_p': int(entry.get('rank_p', 0) or 0),
+        'ar_deviation': round(float(entry.get('ar_deviation', 0) or 0), 1),
+        'win_ev': round(float(entry.get('win_ev', 0) or 0), 2),
+        'place_ev': round(float(entry.get('place_ev', 0) or 0), 2),
+        'pred_proba_w_cal': float(entry.get('pred_proba_w_cal', 0) or 0),
+        'pred_proba_p_raw': float(entry.get('pred_proba_p_raw', 0) or 0),
+        'kb_mark': entry.get('kb_mark', ''),
+        'kb_rating': float(entry.get('kb_rating', 0) or 0),
+        'jrdb_idm': float(entry.get('jrdb_idm', 0) or 0),
+    }
 
 
 # ============================================================
@@ -341,73 +229,69 @@ def race_id_to_venue_race(race_id: str) -> tuple:
 # ============================================================
 
 def print_picks(date: str, win5_races: list, pred_index: dict, race_infos: dict):
-    """コンソール出力"""
     print(f"\n{'='*70}")
     print(f"  WIN5 推奨馬  {date}")
     print(f"{'='*70}")
 
-    for strat_name, strat in STRATEGIES.items():
+    for plan_key, plan in PLANS.items():
+        ref_tag = " [参考]" if plan['reference'] else ""
         print(f"\n{'─'*70}")
-        print(f"  {strat['label']}")
+        print(f"  {plan['label']}{ref_tag}")
         print(f"{'─'*70}")
 
         total_tickets = 1
-        race_picks = []
-
         for i, race_id in enumerate(win5_races):
             race_data = pred_index.get(race_id)
             venue, race_num = race_id_to_venue_race(race_id)
-
-            # レース名取得
             info = race_infos.get(race_id, {})
             race_name = info.get('race_name', '')
 
             if not race_data:
                 print(f"\n  R{i+1}: {venue}{race_num}R {race_name}")
                 print(f"       予測データなし")
-                race_picks.append([])
                 total_tickets = 0
                 continue
 
-            if strat.get('custom') == 'plan_d':
-                picks = apply_plan_d(race_data)
-            elif strat.get('custom') == 'adaptive':
-                picks = apply_adaptive(race_data)
-            else:
-                picks = apply_strategy(race_data, strat)
-            race_picks.append(picks)
-            n = len(picks) if picks else 0
-            total_tickets *= max(n, 1)
-
-            # ヘッダ
             entries = race_data.get('entries', [])
-            sorted_by_w = sorted(
-                [e for e in entries if (e.get('rank_w') or 0) > 0],
-                key=lambda e: e['rank_w']
-            )
-            ard_1st = float(sorted_by_w[0]['ar_deviation']) if sorted_by_w else 0
-            ard_2nd = float(sorted_by_w[1]['ar_deviation']) if len(sorted_by_w) > 1 else 0
-            gap = ard_1st - ard_2nd
+            race_info = {
+                'num_runners': race_data.get('num_runners', len(entries)),
+                'is_handicap': race_data.get('is_handicap', False),
+            }
+            selected_umaban = plan['select'](entries, race_info)
 
-            print(f"\n  R{i+1}: {venue}{race_num}R {race_name}  "
-                  f"({len(entries)}頭, ARd1位={ard_1st:.1f}, gap={gap:.1f}) → {n}頭")
-
-            if not picks:
-                print(f"       → 条件外（推奨なし）")
+            if not selected_umaban:
+                print(f"\n  R{i+1}: {venue}{race_num}R {race_name} → 選択なし")
+                total_tickets = 0
                 continue
 
-            for p in picks:
-                mark = f" {p.kb_mark}" if p.kb_mark else ""
-                print(f"       {p.umaban:>2}番 {p.horse_name:<10} "
-                      f"Rw={p.rank_w} Rp={p.rank_p} ARd={p.ar_deviation:>5.1f} "
-                      f"odds={p.odds:>5.1f}({p.odds_rank}人) "
-                      f"WEV={p.win_ev:.2f} PEV={p.place_ev:.2f}{mark}")
+            n = len(selected_umaban)
+            total_tickets *= n
+
+            top = wps_sorted(entries)
+            ard_1st = float(top[0].get('ar_deviation', 0)) if top else 0
+            num_r = race_info['num_runners']
+
+            print(f"\n  R{i+1}: {venue}{race_num}R {race_name}  "
+                  f"({num_r}頭, ARd1位={ard_1st:.1f}) → {n}頭")
+
+            picks = [e for e in entries if int(e.get('umaban', 0)) in selected_umaban]
+            picks.sort(key=lambda e: (e.get('rank_w', 99) + e.get('rank_p', 99)))
+
+            for e in picks:
+                mark = f" {e.get('kb_mark','')}" if e.get('kb_mark') else ""
+                idm_v = float(e.get('jrdb_idm', 0) or 0)
+                idm_s = f" IDM={idm_v:.0f}" if idm_v else ""
+                print(f"       {int(e.get('umaban',0)):>2}番 {e.get('horse_name',''):<10} "
+                      f"Rw={int(e.get('rank_w',0))} Rp={int(e.get('rank_p',0))} "
+                      f"ARd={float(e.get('ar_deviation',0)):>5.1f} "
+                      f"odds={float(e.get('odds',0)):>5.1f}({e.get('odds_rank',0)}人) "
+                      f"WEV={float(e.get('win_ev',0)):.2f}{mark}{idm_s}")
 
         print(f"\n  → 合計 {total_tickets}点 (¥{total_tickets * 100:,})")
 
-    # 参考: 各レースの1位-3位一覧
+    # 参考一覧
     print(f"\n{'='*70}")
-    print(f"  参考: rank_w / rank_p 上位3頭")
+    print(f"  参考: WP合算 / rank_w / rank_p 上位3頭")
     print(f"{'='*70}")
 
     for i, race_id in enumerate(win5_races):
@@ -415,33 +299,22 @@ def print_picks(date: str, win5_races: list, pred_index: dict, race_infos: dict)
         venue, race_num = race_id_to_venue_race(race_id)
         info = race_infos.get(race_id, {})
         race_name = info.get('race_name', '')
-
         if not race_data:
             continue
-
         entries = race_data.get('entries', [])
-        by_w = sorted([e for e in entries if (e.get('rank_w') or 0) > 0], key=lambda e: e['rank_w'])[:5]
-        by_p = sorted([e for e in entries if (e.get('rank_p') or 0) > 0], key=lambda e: e['rank_p'])[:5]
+        top_wps = wps_sorted(entries)[:5]
 
         print(f"\n  R{i+1}: {venue}{race_num}R {race_name}")
-        print(f"    rank_w:")
-        for e in by_w:
+        print(f"    WP合算:")
+        for e in top_wps:
             mark = f" {e.get('kb_mark','')}" if e.get('kb_mark') else ""
-            print(f"      {e['rank_w']:>2}位 {e['umaban']:>2}番 {e.get('horse_name',''):<10} "
+            print(f"      Rw+Rp={e['rank_w']+e['rank_p']:>2} {int(e.get('umaban',0)):>2}番 "
+                  f"{e.get('horse_name',''):<10} "
                   f"ARd={float(e.get('ar_deviation',0)):>5.1f} "
-                  f"odds={float(e.get('odds',0)):>5.1f}({e.get('odds_rank',0)}人) "
-                  f"WEV={float(e.get('win_ev',0)):.2f}{mark}")
-        print(f"    rank_p:")
-        for e in by_p:
-            mark = f" {e.get('kb_mark','')}" if e.get('kb_mark') else ""
-            print(f"      {e['rank_p']:>2}位 {e['umaban']:>2}番 {e.get('horse_name',''):<10} "
-                  f"ARd={float(e.get('ar_deviation',0)):>5.1f} "
-                  f"odds={float(e.get('odds',0)):>5.1f}({e.get('odds_rank',0)}人) "
-                  f"PEV={float(e.get('place_ev',0)):.2f}{mark}")
+                  f"odds={float(e.get('odds',0)):>5.1f}({e.get('odds_rank',0)}人){mark}")
 
 
 def save_json(date: str, win5_races: list, pred_index: dict, race_infos: dict):
-    """JSON出力"""
     output = {
         'date': date,
         'strategies': {},
@@ -461,9 +334,10 @@ def save_json(date: str, win5_races: list, pred_index: dict, race_infos: dict):
         })
     output['races'] = races_info
 
-    for strat_name, strat in STRATEGIES.items():
+    for plan_key, plan in PLANS.items():
         strat_result = {
-            'label': strat['label'],
+            'label': plan['label'],
+            'reference': plan['reference'],
             'legs': [],
             'total_tickets': 1,
         }
@@ -474,37 +348,33 @@ def save_json(date: str, win5_races: list, pred_index: dict, race_infos: dict):
                 strat_result['total_tickets'] = 0
                 continue
 
-            if strat.get('custom') == 'plan_d':
-                picks = apply_plan_d(race_data)
-            elif strat.get('custom') == 'adaptive':
-                picks = apply_adaptive(race_data)
-            else:
-                picks = apply_strategy(race_data, strat)
-            n = len(picks) if picks else 0
-            strat_result['total_tickets'] *= max(n, 1)
+            entries = race_data.get('entries', [])
+            race_info = {
+                'num_runners': race_data.get('num_runners', len(entries)),
+                'is_handicap': race_data.get('is_handicap', False),
+            }
+            selected_umaban = plan['select'](entries, race_info)
 
-            leg_data = {
+            if not selected_umaban:
+                strat_result['legs'].append({'leg': i + 1, 'picks': [], 'count': 0})
+                strat_result['total_tickets'] = 0
+                continue
+
+            n = len(selected_umaban)
+            strat_result['total_tickets'] *= n
+
+            picks = [e for e in entries if int(e.get('umaban', 0)) in selected_umaban]
+            picks.sort(key=lambda e: (e.get('rank_w', 99) + e.get('rank_p', 99)))
+
+            strat_result['legs'].append({
                 'leg': i + 1,
                 'count': n,
-                'picks': [{
-                    'umaban': p.umaban,
-                    'horse_name': p.horse_name,
-                    'odds': p.odds,
-                    'odds_rank': p.odds_rank,
-                    'rank_w': p.rank_w,
-                    'rank_p': p.rank_p,
-                    'ar_deviation': round(p.ar_deviation, 1),
-                    'win_ev': round(p.win_ev, 2),
-                    'place_ev': round(p.place_ev, 2),
-                    'kb_mark': p.kb_mark,
-                } for p in picks],
-            }
-            strat_result['legs'].append(leg_data)
+                'picks': [extract_pick_info(e) for e in picks],
+            })
 
         strat_result['cost'] = strat_result['total_tickets'] * 100
-        output['strategies'][strat_name] = strat_result
+        output['strategies'][plan_key] = strat_result
 
-    # 保存
     parts = date.split('-')
     out_dir = config.races_dir() / parts[0] / parts[1] / parts[2]
     out_path = out_dir / "win5_picks.json"
@@ -526,19 +396,16 @@ def main():
 
     date = args.date
 
-    # WIN5対象レース取得
     print(f"[WIN5] {date} の対象レースを取得...")
     win5_races = get_win5_race_ids(date)
     if not win5_races:
         print(f"  WIN5データが見つかりません（{date}）")
-        print(f"  → mykeibadbにWIN5スケジュールが登録されていない可能性があります")
         return
 
     for i, rid in enumerate(win5_races):
         venue, race_num = race_id_to_venue_race(rid)
         print(f"  R{i+1}: {venue}{race_num}R ({rid})")
 
-    # predictions.json ロード
     print(f"\n[Load] predictions.json...")
     pred_index = load_predictions(date)
     if not pred_index:
@@ -549,18 +416,15 @@ def main():
     matched = sum(1 for r in win5_races if r in pred_index)
     print(f"  {matched}/{len(win5_races)} レースの予測データあり")
 
-    # レース情報ロード
     race_infos = {}
     for rid in win5_races:
         info = get_race_info(rid, date)
         if info:
             race_infos[rid] = info
 
-    # 推奨馬出力
     print_picks(date, win5_races, pred_index, race_infos)
 
-    # JSON保存
-    if args.json or True:  # 常に保存
+    if args.json or True:
         save_json(date, win5_races, pred_index, race_infos)
 
 

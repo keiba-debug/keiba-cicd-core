@@ -498,7 +498,8 @@ export default function Win5SimulationPage() {
                       {planKeys.map(k => {
                         const cost = (w[costKey(k)] as number) || 0;
                         const pay = (w[payKey(k)] as number) || 0;
-                        const isSkip = k === 'B' && w.b_skip;
+                        const skipKey = `${k.toLowerCase()}_skip` as keyof WeeklyData;
+                        const isSkip = !!(w[skipKey]);
                         return (
                           <React.Fragment key={k}>
                             <td className="px-2 py-1 text-right">
@@ -530,16 +531,16 @@ export default function Win5SimulationPage() {
       {/* Legend */}
       <div className="mt-6 p-3 rounded-lg border bg-muted/10 text-xs text-muted-foreground space-y-1">
         <div>
-          <span className="font-medium">Plan A</span>: w_top2 — rank_w上位2頭を毎週購入 (32点=3,200円)
+          <span className="font-medium">Plan A</span>: WP合算Top2 — rank_w+rank_p合算で上位2頭 (32点=3,200円)
         </div>
         <div>
-          <span className="font-medium">Plan B</span>: w_ard1st_55_tiered — ARd1位&ge;55の週のみ参加、ARd値でtiered可変
+          <span className="font-medium">Plan B</span>: WP2+KB印+IDM — WP合算Top2 &cup; KB印◎ &cup; JRDB IDM1位 (~71点=7,100円)
         </div>
         <div>
-          <span className="font-medium">Plan C</span>: union_top2 — rank_w上位2頭 &cup; rank_p上位2頭の和集合
+          <span className="font-medium">Plan C</span>: 頭数適応 — 12頭以下&rarr;1頭, 14頭以上&rarr;3頭, 他&rarr;2頭 (~94点=9,400円)
         </div>
         <div>
-          <span className="font-medium">Plan D</span>: w2_ar1_p1 — rank_w上位2頭 &cup; AR偏差値1位 &cup; rank_p1位
+          <span className="font-medium">Plan D</span>: WP合算Top3 — rank_w+rank_p合算で上位3頭 (243点=24,300円) [参考]
         </div>
         <div>
           <span className="font-medium">推奨バンクロール</span>: 最大ドローダウンの1.5倍。この金額を準備してから開始すること。
