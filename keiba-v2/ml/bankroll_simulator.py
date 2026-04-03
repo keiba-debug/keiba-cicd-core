@@ -121,8 +121,8 @@ FILTERS = {
         "fn": lambda e: (
             e.get('rank_w') == 1
             and e.get('win_vb_gap', 0) >= 4
-            and e.get('win_ev', 0) >= 1.3
-            and e.get('predicted_margin', 999) <= 60
+            and (e.get('win_ev') or 0) >= 1.3
+            and (e.get('predicted_margin') or 999) <= 60
         ),
     },
     "simple": {
@@ -225,7 +225,7 @@ def calc_bet_size(config: SimConfig, balance: int, bet: Bet) -> int:
     elif config.sizing == 'tiered_ev':
         multiplier = 1
         for ev_threshold, mult in sorted(config.ev_tiers, key=lambda x: -x[0]):
-            if bet.win_ev >= ev_threshold:
+            if (bet.win_ev or 0) >= ev_threshold:
                 multiplier = mult
                 break
         raw = config.base_unit * multiplier

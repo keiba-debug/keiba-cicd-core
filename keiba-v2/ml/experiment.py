@@ -1031,10 +1031,26 @@ def load_data(sire_cutoff: str = None) -> tuple:
     else:
         print("  JRDB KAA index: NOT FOUND (skipping)")
 
+    # CYB/CHA/KKA/JOA indexes (Session 115: 新規JRDB5種)
+    def _load_jrdb(name):
+        p = config.indexes_dir() / f"jrdb_{name}_index.json"
+        if p.exists():
+            with open(p, encoding='utf-8') as f:
+                idx = json.load(f)
+            print(f"  JRDB {name.upper()} index: {len(idx):,} entries")
+            return idx
+        print(f"  JRDB {name.upper()} index: NOT FOUND (skipping)")
+        return {}
+    jrdb_cyb_index = _load_jrdb('cyb')
+    jrdb_cha_index = _load_jrdb('cha')
+    jrdb_kka_index = _load_jrdb('kka')
+    jrdb_joa_index = _load_jrdb('joa')
+
     return (history_cache, trainer_index, jockey_index,
             date_index, pace_index, kb_ext_index, training_summary_index,
             race_level_index, pedigree_index, sire_stats_index,
-            jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index)
+            jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index,
+            jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index)
 
 
 def compute_features_for_race(
@@ -1059,6 +1075,10 @@ def compute_features_for_race(
     jrdb_sed_index: dict = None,
     jrdb_kyi_index: dict = None,
     jrdb_kaa_index: dict = None,
+    jrdb_cyb_index: dict = None,
+    jrdb_cha_index: dict = None,
+    jrdb_kka_index: dict = None,
+    jrdb_joa_index: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
@@ -1251,7 +1271,7 @@ def compute_features_for_race(
         baba_feat = get_baba_features(race_id, track_type, baba_index or {})
         feat.update(baba_feat)
 
-        # JRDB特徴量 (v7.0)
+        # JRDB特徴量 (v7.0 + Session 115: CYB/CHA/KKA/JOA)
         if jrdb_sed_index is not None or jrdb_kyi_index is not None:
             jrdb_feat = compute_jrdb_features(
                 ketto_num=ketto_num,
@@ -1259,6 +1279,12 @@ def compute_features_for_race(
                 history_cache=history_cache,
                 jrdb_sed_index=jrdb_sed_index or {},
                 jrdb_kyi_index=jrdb_kyi_index or {},
+                jrdb_cyb_index=jrdb_cyb_index or {},
+                jrdb_cha_index=jrdb_cha_index or {},
+                jrdb_kka_index=jrdb_kka_index or {},
+                jrdb_joa_index=jrdb_joa_index or {},
+                race_id=race_id,
+                umaban=umaban,
             )
             feat.update(jrdb_feat)
 
@@ -1334,6 +1360,10 @@ def build_dataset(
     pit_bms_tl: dict = None,
     baba_index: dict = None,
     jrdb_kaa_index: dict = None,
+    jrdb_cyb_index: dict = None,
+    jrdb_cha_index: dict = None,
+    jrdb_kka_index: dict = None,
+    jrdb_joa_index: dict = None,
     save_features: bool = False,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
@@ -1415,6 +1445,10 @@ def build_dataset(
                 jrdb_sed_index=jrdb_sed_index,
                 jrdb_kyi_index=jrdb_kyi_index,
                 jrdb_kaa_index=jrdb_kaa_index,
+                jrdb_cyb_index=jrdb_cyb_index,
+                jrdb_cha_index=jrdb_cha_index,
+                jrdb_kka_index=jrdb_kka_index,
+                jrdb_joa_index=jrdb_joa_index,
             )
             if save_features and rows:
                 from ml.feature_snapshot import save_feature_snapshot
@@ -2581,7 +2615,8 @@ def main():
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
      race_level_index, pedigree_index, sire_stats_index,
-     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index) = load_data(
+     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index,
+     jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index) = load_data(
         sire_cutoff=args.sire_cutoff)
 
     # Point-in-time: 調教師・騎手の累積タイムライン構築
@@ -2613,6 +2648,10 @@ def main():
         jrdb_sed_index=jrdb_sed_index,
         jrdb_kyi_index=jrdb_kyi_index,
         jrdb_kaa_index=jrdb_kaa_index,
+        jrdb_cyb_index=jrdb_cyb_index,
+        jrdb_cha_index=jrdb_cha_index,
+        jrdb_kka_index=jrdb_kka_index,
+        jrdb_joa_index=jrdb_joa_index,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2628,6 +2667,10 @@ def main():
         jrdb_sed_index=jrdb_sed_index,
         jrdb_kyi_index=jrdb_kyi_index,
         jrdb_kaa_index=jrdb_kaa_index,
+        jrdb_cyb_index=jrdb_cyb_index,
+        jrdb_cha_index=jrdb_cha_index,
+        jrdb_kka_index=jrdb_kka_index,
+        jrdb_joa_index=jrdb_joa_index,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2643,6 +2686,10 @@ def main():
         jrdb_sed_index=jrdb_sed_index,
         jrdb_kyi_index=jrdb_kyi_index,
         jrdb_kaa_index=jrdb_kaa_index,
+        jrdb_cyb_index=jrdb_cyb_index,
+        jrdb_cha_index=jrdb_cha_index,
+        jrdb_kka_index=jrdb_kka_index,
+        jrdb_joa_index=jrdb_joa_index,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "

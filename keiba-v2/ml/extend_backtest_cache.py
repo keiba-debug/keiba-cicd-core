@@ -136,7 +136,8 @@ def main():
     existing_ids = {r["race_id"] for r in cache}
     existing_dates = sorted(set(r["race_id"][:8] for r in cache))
     print(f"  {len(cache)} races, {len(existing_dates)} dates")
-    print(f"  Range: {existing_dates[0]} - {existing_dates[-1]}")
+    if existing_dates:
+        print(f"  Range: {existing_dates[0]} - {existing_dates[-1]}")
 
     # 追加対象の日付決定
     if args.dates:

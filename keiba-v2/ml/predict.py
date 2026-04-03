@@ -766,10 +766,25 @@ def load_master_data():
             jrdb_kaa_index = json.load(f)
         print(f"  JRDB KAA index: {len(jrdb_kaa_index):,} entries")
 
+    # CYB/CHA/KKA/JOA indexes (Session 115)
+    def _load_jrdb_idx(name):
+        p = config.indexes_dir() / f"jrdb_{name}_index.json"
+        if p.exists():
+            with open(p, encoding='utf-8') as f:
+                idx = json.load(f)
+            print(f"  JRDB {name.upper()} index: {len(idx):,} entries")
+            return idx
+        return {}
+    jrdb_cyb_index = _load_jrdb_idx('cyb')
+    jrdb_cha_index = _load_jrdb_idx('cha')
+    jrdb_kka_index = _load_jrdb_idx('kka')
+    jrdb_joa_index = _load_jrdb_idx('joa')
+
     return (history_cache, trainer_index, jockey_index, pace_index,
             kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
             baba_index, pit_trainer_tl, pit_jockey_tl,
-            jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index)
+            jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index,
+            jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index)
 
 
 def load_keibabook_ext(race_id: str, date: str) -> Optional[dict]:
@@ -909,6 +924,10 @@ def predict_race(
     jrdb_sed_index: Optional[dict] = None,
     jrdb_kyi_index: Optional[dict] = None,
     jrdb_kaa_index: Optional[dict] = None,
+    jrdb_cyb_index: Optional[dict] = None,
+    jrdb_cha_index: Optional[dict] = None,
+    jrdb_kka_index: Optional[dict] = None,
+    jrdb_joa_index: Optional[dict] = None,
     verbose: bool = False,
 ) -> dict:
     """1レースの予測を実行
@@ -1128,7 +1147,7 @@ def predict_race(
         baba_feat = get_baba_features(race_id, track_type, baba_index or {})
         feat.update(baba_feat)
 
-        # JRDB特徴量 (v7.0)
+        # JRDB特徴量 (v7.0 + Session 115: CYB/CHA/KKA/JOA)
         if jrdb_sed_index is not None or jrdb_kyi_index is not None:
             jrdb_feat = compute_jrdb_features(
                 ketto_num=ketto_num,
@@ -1136,6 +1155,12 @@ def predict_race(
                 history_cache=history_cache,
                 jrdb_sed_index=jrdb_sed_index or {},
                 jrdb_kyi_index=jrdb_kyi_index or {},
+                jrdb_cyb_index=jrdb_cyb_index or {},
+                jrdb_cha_index=jrdb_cha_index or {},
+                jrdb_kka_index=jrdb_kka_index or {},
+                jrdb_joa_index=jrdb_joa_index or {},
+                race_id=race_id,
+                umaban=umaban,
             )
             feat.update(jrdb_feat)
 
@@ -1675,7 +1700,8 @@ def main():
     (history_cache, trainer_index, jockey_index, pace_index,
      kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
      baba_index, pit_trainer_tl, pit_jockey_tl,
-     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index) = load_master_data()
+     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index,
+     jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index) = load_master_data()
     print(f"  History: {len(history_cache):,} horses")
     print(f"  Trainers: {len(trainer_index):,}")
     print(f"  Jockeys: {len(jockey_index):,}")
@@ -1817,6 +1843,10 @@ def main():
             jrdb_sed_index=jrdb_sed_index,
             jrdb_kyi_index=jrdb_kyi_index,
             jrdb_kaa_index=jrdb_kaa_index,
+            jrdb_cyb_index=jrdb_cyb_index,
+            jrdb_cha_index=jrdb_cha_index,
+            jrdb_kka_index=jrdb_kka_index,
+            jrdb_joa_index=jrdb_joa_index,
             verbose=verbose,
         )
         all_predictions.append(pred)
@@ -1945,14 +1975,13 @@ def main():
     if archive_dir.exists():
         out_path = archive_dir / "predictions.json"
 
-        # 既存predictions.jsonをバージョン付きアーカイブ
+        # 既存predictions.jsonをバージョン付きアーカイブ（旧形式: タイムスタンプ付き）
         if out_path.exists():
             try:
                 with open(out_path, encoding='utf-8') as f:
                     old = json.load(f)
                 old_ver = old.get('model_version', 'unknown')
                 old_ts = old.get('created_at', '')
-                # ISO timestamp → compact: 2026-03-01T12:30:00 → 20260301T123000
                 old_ts_compact = old_ts.replace('-', '').replace(':', '')[:15]
                 archive_name = f"predictions_v{old_ver}_{old_ts_compact}.json"
             except Exception:
@@ -1963,7 +1992,12 @@ def main():
                 shutil.copy2(str(out_path), str(archive_path))
                 print(f"  Archived: {archive_name}")
 
+        # メインファイル（最新版として上書き）
         out_path.write_text(out_json, encoding='utf-8')
+
+        # バージョン別ファイル: predictions_{version}.json（Web UIバージョン切替用）
+        versioned_path = archive_dir / f"predictions_{actual_model_version}.json"
+        versioned_path.write_text(out_json, encoding='utf-8')
 
         # 特徴量スナップショット保存（PIT/リーク検証用）
         if feature_snapshot_data:

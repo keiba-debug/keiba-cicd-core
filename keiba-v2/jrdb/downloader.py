@@ -47,12 +47,19 @@ ENV_PATH = DATA_DIR / '.env'
 
 # データタイプ → ダウンロードページURL (datazip=ZIP形式, data=LZH形式)
 DATA_TYPES = {
-    'SED': '/member/datazip/Sed/index.html',    # 成績データ (事後IDM)
-    'SKB': '/member/datazip/Skb/index.html',    # 成績拡張データ
+    # --- 既存 ---
+    'SED': '/member/datazip/Sed/index.html',    # 成績データ (事後IDM) ※SRB同梱
+    'SKB': '/member/datazip/Skb/index.html',    # 成績拡張データ (コメント・馬具・脚元)
     'KYI': '/member/datazip/Kyi/index.html',    # 競走馬データ (事前IDM)
-    'TYB': '/member/datazip/Tyb/index.html',    # 直前情報データ
+    'TYB': '/member/datazip/Tyb/index.html',    # 直前情報データ (パドック・馬具変更)
     'HJC': '/member/datazip/Hjc/index.html',    # 払戻情報データ
     'KAA': '/member/data/Kaa/index.html',       # 開催データ (馬場・天候) ※LZH形式
+    # --- Session 114 追加 ---
+    'CYB': '/member/datazip/Cyb/index.html',    # 調教分析データ (追切指数・仕上指数・調教コメント)
+    'CHA': '/member/datazip/Cha/index.html',    # 調教本追切データ (時計・併せ馬・乗り役)
+    'KKA': '/member/datazip/Kka/index.html',    # 競走馬拡張データ (条件別成績・血統統計)
+    'UKC': '/member/datazip/Ukc/index.html',    # 馬基本データ (血統詳細・系統コード)
+    'JOA': '/member/datazip/Jo/index.html',     # 情報データ (CID指数・LS指数・消し馬)
 }
 
 
@@ -332,7 +339,7 @@ def main():
 
     if args.list:
         for dt in types:
-            links = list_zip_links(session, dt)
+            links = list_archive_links(session, dt)
             print(f"\n[{dt}] {len(links)} files available:")
             for l in links[:10]:
                 tag = f"({l['year']})" if l['is_yearly'] else "(single)"
