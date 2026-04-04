@@ -43,6 +43,7 @@ interface RecommendationEntry {
   kelly_capped?: number | null; // adaptive Kelly fraction (0.33/0.25/0.125)
   adaptive_rule?: string | null; // 'danger_sniper' | 'high_ev_win' | 'relaxed_base'
   place_odds_min?: number | null;  // 複勝最低オッズ
+  market_signal?: string | null;   // 鉄板/穴注目/妙味/やや妙味/人気しすぎ
 }
 
 interface PredictionsData {
@@ -133,6 +134,7 @@ interface OtherPresetData {
     bet_type?: string;
     place_ev?: number | null;
     vb_score?: number | null;
+    market_signal?: string | null;
   }>;
 }
 
@@ -471,6 +473,7 @@ export function ExecuteTab() {
               kelly_capped: b.kelly_capped ?? null,
               adaptive_rule: b.market_signal?.startsWith('rule:') ? b.market_signal.slice(5) : null,
               place_odds_min: b.place_odds_min ?? null,
+              market_signal: b.market_signal?.startsWith('rule:') ? null : (b.market_signal ?? null),
             } as RecommendationEntry;
           });
 
@@ -1302,7 +1305,20 @@ export function ExecuteTab() {
                             </span>
                           )}
                         </td>
-                        <td className="py-2 px-2 font-medium">{rec.horse_name}</td>
+                        <td className="py-2 px-2 font-medium">
+                          {rec.horse_name}
+                          {rec.market_signal && (
+                            <span className={`ml-1 text-[10px] px-1 py-0.5 rounded ${
+                              rec.market_signal === '穴注目' ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300' :
+                              rec.market_signal === '鉄板' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+                              rec.market_signal === '妙味' ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' :
+                              rec.market_signal === 'やや妙味' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' :
+                              'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                            }`}>
+                              {rec.market_signal}
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 px-1 text-center">
                           {rec.bet_type === 'ワイド' ? (
                             <Badge variant="outline" className={`text-[10px] border-purple-400 text-purple-600 ${rec.wide_source === '激戦' ? 'bg-red-50 border-red-400 text-red-600' : 'bg-purple-50'}`}>
@@ -1632,7 +1648,20 @@ export function ExecuteTab() {
                                   <td className="py-1 px-1">{b.venue}</td>
                                   <td className="py-1 px-1 text-center">{b.race_number}</td>
                                   <td className="py-1 px-1 text-center">{b.umaban}</td>
-                                  <td className="py-1 px-1">{b.horse_name}</td>
+                                  <td className="py-1 px-1">
+                                    {b.horse_name}
+                                    {b.market_signal && (
+                                      <span className={`ml-1 text-[9px] px-0.5 py-0.5 rounded ${
+                                        b.market_signal === '穴注目' ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300' :
+                                        b.market_signal === '鉄板' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+                                        b.market_signal === '妙味' ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' :
+                                        b.market_signal === 'やや妙味' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' :
+                                        'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                                      }`}>
+                                        {b.market_signal}
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="py-1 px-1 text-right font-mono">
                                     {b.win_vb_gap > 0 ? `+${b.win_vb_gap}` : b.win_vb_gap}
                                   </td>
