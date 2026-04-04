@@ -329,10 +329,10 @@ function SanrentanSection({
 
   // VB馬ごとの集計
   const vbSummary = useMemo(() => {
-    const byRace = new Map<string, { venue: string; raceNum: number; vbHorses: Set<string>; tickets: number; cost: number }>();
+    const byRace = new Map<string, { venue: string; raceNum: number; raceId: string; vbHorses: Set<string>; tickets: number; cost: number; hits: number }>();
     for (const rec of filtered) {
       if (!byRace.has(rec.race_id)) {
-        byRace.set(rec.race_id, { venue: rec.venue, raceNum: rec.race_number, vbHorses: new Set(), tickets: 0, cost: 0 });
+        byRace.set(rec.race_id, { venue: rec.venue, raceNum: rec.race_number, raceId: rec.race_id, vbHorses: new Set(), tickets: 0, cost: 0, hits: 0 });
       }
       const r = byRace.get(rec.race_id)!;
       // ★ horse is first in horses array
@@ -340,9 +340,23 @@ function SanrentanSection({
       r.vbHorses.add(`${rec.horses[0]}${starName}`);
       r.tickets += 1;
       r.cost += rec.cost;
+      if (checkHitFn(rec, results) === 'hit') r.hits += 1;
     }
     return Array.from(byRace.values()).sort((a, b) => a.raceNum - b.raceNum);
-  }, [filtered]);
+  }, [filtered, results]);
+
+  // 結果サマリー
+  const hasResults = results != null && Object.keys(results).length > 0;
+  const resultsSummary = useMemo(() => {
+    if (!hasResults) return null;
+    let totalHits = 0;
+    let totalTickets = 0;
+    for (const race of vbSummary) {
+      totalHits += race.hits;
+      totalTickets += race.tickets;
+    }
+    return { totalHits, totalTickets };
+  }, [hasResults, vbSummary]);
 
   const [expanded, setExpanded] = useState(false);
   const [selectedRaces, setSelectedRaces] = useState<Set<string>>(new Set());
@@ -385,6 +399,12 @@ function SanrentanSection({
             <Badge variant="secondary" className="text-xs">
               {totalCost.toLocaleString()}円
             </Badge>
+            {resultsSummary && (
+              <Badge variant={resultsSummary.totalHits > 0 ? 'default' : 'outline'}
+                className={`text-xs ${resultsSummary.totalHits > 0 ? 'bg-green-600' : ''}`}>
+                的中 {resultsSummary.totalHits}/{resultsSummary.totalTickets}
+              </Badge>
+            )}
           </h3>
           <div className="flex items-center gap-2">
             {csvResult && (
@@ -439,8 +459,12 @@ function SanrentanSection({
                 )}
               </div>
               {vbSummary.map((race, i) => {
-                const raceId = raceGroups.find(g => g.raceNum === race.raceNum && g.venue === race.venue)?.raceId || '';
+                const raceId = race.raceId;
                 const isSelected = selectedRaces.has(raceId);
+                // 結果判定: hit=1件以上的中, miss=全不的中, pending=未確定
+                const raceHitStatus = !hasResults ? 'pending' :
+                  race.hits > 0 ? 'hit' :
+                  filtered.filter(r => r.race_id === raceId).some(r => checkHitFn(r, results) === 'pending') ? 'pending' : 'miss';
                 return (
                   <div
                     key={i}
@@ -459,8 +483,14 @@ function SanrentanSection({
                     <span className={isDistortion ? 'text-emerald-700 dark:text-emerald-300' : 'text-purple-700 dark:text-purple-300'}>
                       ★ {Array.from(race.vbHorses).join(' / ')}
                     </span>
-                    <span className="text-muted-foreground ml-auto">
+                    <span className="text-muted-foreground ml-auto flex items-center gap-2">
                       {race.tickets}点 / {race.cost.toLocaleString()}円
+                      {raceHitStatus === 'hit' && (
+                        <span className="text-green-600 font-bold text-xs">的中{race.hits > 1 ? ` ×${race.hits}` : ''}</span>
+                      )}
+                      {raceHitStatus === 'miss' && (
+                        <span className="text-gray-400 text-xs">不的中</span>
+                      )}
                     </span>
                   </div>
                 );

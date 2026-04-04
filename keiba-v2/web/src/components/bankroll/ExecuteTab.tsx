@@ -1823,10 +1823,23 @@ export function ExecuteTab() {
           recommendations={predictions.multi_leg_recommendations ?? []}
           sanrentanFormation={predictions.sanrentan_formation}
           sanrentanDistortion={predictions.sanrentan_distortion}
+          results={predictions.finish_positions
+            ? Object.fromEntries(
+                Object.entries(predictions.finish_positions).map(([raceId, fps]) => [
+                  raceId,
+                  Object.fromEntries(
+                    Object.entries(fps).map(([umaban, fp]) => [
+                      Number(umaban),
+                      { umaban: Number(umaban), finish_position: fp, time: '', last_3f: 0, odds: 0 },
+                    ])
+                  ),
+                ])
+              )
+            : undefined}
           races={(predictions.races ?? []) as unknown as PredictionRace[]}
           venueFilter="all"
           trackFilter="all"
-          raceNumFilter={0}
+          raceNumFilter={raceFilter}
         />
       )}
     </div>
