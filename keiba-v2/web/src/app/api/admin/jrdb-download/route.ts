@@ -3,7 +3,7 @@
  * POST /api/admin/jrdb-download
  *
  * 4段階パイプライン:
- *   1. SED/KYI/KAAの最新データをJRDBからダウンロード
+ *   1. JRDB全8種(SED/KYI/KAA/CYB/CHA/KKA/UKC/JOA)の最新データをダウンロード
  *   2. JRDBインデックス再構築 (build_jrdb_index)
  *   3. 対象日のrace JSONにJRDB指標を付与 (build_race_from_keibabook --force)
  *   4. predictions.json再生成 (ml.predict → ml.predict_closing → ml.generate_bets)
@@ -17,7 +17,7 @@ import { ADMIN_CONFIG } from '@/lib/admin/config';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const JRDB_TYPES = ['SED', 'KYI', 'KAA'] as const;
+const JRDB_TYPES = ['SED', 'KYI', 'KAA', 'CYB', 'CHA', 'KKA', 'UKC', 'JOA'] as const;
 
 function runPython(args: string[], send: (data: Record<string, unknown>) => void): Promise<void> {
   return new Promise<void>((resolve, reject) => {

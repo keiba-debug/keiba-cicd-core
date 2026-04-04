@@ -28,6 +28,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from ml.model_loader import load_model, load_model_safe, ModelBundle
 from ml.features.base_features import extract_base_features
 from ml.features.baba_features import load_baba_index, get_baba_features
 from ml.features.past_features import compute_past_features
@@ -105,147 +106,30 @@ def compute_market_signal(odds_move, ar_deviation, rank_p):
 
 
 def load_model_and_meta(model_version: Optional[str] = None):
-    """学習済みモデルとメタ情報をロード
+    """学習済みモデルとメタ情報をロード（model_loader経由）
 
     Args:
         model_version: バージョン指定（例: "5.0", "3.5"）。
                        None=最新のliveモデル、"latest"=同上。
-                       指定時は versions/v{version}/ からロード。
+
+    Returns:
+        (model_p, model_w, meta, calibrators, model_ar) — 後方互換タプル
     """
-    import lightgbm as lgb
-
-    ml_dir = config.ml_dir()
-
-    # バージョン指定時はアーカイブからロード
-    if model_version and model_version != "latest":
-        ver_dir = ml_dir / "versions" / f"v{model_version}"
-        if not ver_dir.exists():
-            available = list_model_versions()
-            ver_list = ", ".join(v['version'] for v in available)
-            raise FileNotFoundError(
-                f"モデルバージョン v{model_version} が見つかりません。\n"
-                f"利用可能: {ver_list}"
-            )
-        load_dir = ver_dir
-        print(f"[Model] Loading archived model v{model_version}")
-    else:
-        load_dir = ml_dir
-        print(f"[Model] Loading latest (live) model")
-
-    model_p_path = load_dir / "model_p.txt"
-    model_w_path = load_dir / "model_w.txt"
-    model_ar_path = load_dir / "model_ar.txt"
-    meta_path = load_dir / "model_meta.json"
-
-    # Place モデル (P) は必須
-    missing = [p for p in [model_p_path, meta_path] if not p.exists()]
-    if missing:
-        names = ", ".join(p.name for p in missing)
-        raise FileNotFoundError(
-            f"モデルファイルが見つかりません: {names} (in {load_dir})\n"
-            "先に python -m ml.experiment を実行してください"
-        )
-
-    model_p = lgb.Booster(model_file=str(model_p_path))
-    print(f"[Model] Place model loaded: model_p.txt")
-
-    # Win モデル (W)
-    model_w = None
-    if model_w_path.exists():
-        model_w = lgb.Booster(model_file=str(model_w_path))
-        print(f"[Model] Win model loaded: model_w.txt")
-    else:
-        print(f"[Model] Win model not found - running without win predictions")
-
-    # IsotonicRegressionキャリブレーター（オプション）
-    # EV計算にはcalibrated確率を使用、ランキングはraw正規化（順序不変のため）
-    calibrators = None
-    cal_path = load_dir / "calibrators.pkl"
-    if cal_path.exists():
-        import pickle
-        with open(cal_path, 'rb') as f:
-            calibrators = pickle.load(f)
-        print(f"[Model] Calibrators loaded: {list(calibrators.keys())}")
-
-    with open(meta_path, encoding='utf-8') as f:
-        meta = json.load(f)
-
-    # calibrator整合性チェック
-    if meta.get('has_calibrators') and calibrators is None:
-        print("[WARN] model_meta says calibrators exist but calibrators.pkl not found — using raw probabilities for EV")
-
-    # Aura モデル (着差回帰, オプション)
-    model_ar = None
-    if model_ar_path.exists():
-        model_ar = lgb.Booster(model_file=str(model_ar_path))
-        print(f"[Model] Aura model loaded: model_ar.txt")
-    else:
-        print(f"[Model] Aura model not found - running without margin predictions")
-
-    ver_label = meta.get('version', '?')
-    feat_v = len(meta.get('features_value', []))
-    print(f"[Model] Version: {ver_label}, Features: {feat_v}")
-
-    return model_p, model_w, meta, calibrators, model_ar
+    version = None if (not model_version or model_version == "latest") else model_version
+    bundle = load_model("polaris", version=version)
+    return bundle.model_p, bundle.model_w, bundle.meta, bundle.calibrators, bundle.model_ar
 
 
 def load_obstacle_model():
-    """障害レース用モデルをロード（v2: P+W, v1: single model フォールバック）
+    """障害レース用モデルをロード（model_loader経由）
 
     Returns:
         (model_p, model_w, meta, calibrators) or (None, None, None, None)
-        calibrators: dict{'cal_p':..., 'cal_w':...} (v2) or single calibrator (v1)
     """
-    import lightgbm as lgb
-    import pickle
-
-    ml_dir = config.ml_dir()
-    meta_path = ml_dir / "model_obstacle_meta.json"
-
-    if not meta_path.exists():
+    bundle = load_model_safe("enif")
+    if bundle is None:
         return None, None, None, None
-
-    with open(meta_path, encoding='utf-8') as f:
-        meta = json.load(f)
-
-    ver = meta.get('version', '?')
-    feat_count = meta.get('feature_count', '?')
-    is_v2 = meta.get('model_type') == 'obstacle_p_w'
-
-    if is_v2:
-        # v2: P+W dual model
-        model_p_path = ml_dir / "model_obstacle_p.txt"
-        model_w_path = ml_dir / "model_obstacle_w.txt"
-        cal_path = ml_dir / "calibrators_obstacle.pkl"
-
-        if not model_p_path.exists():
-            return None, None, None, None
-
-        model_p = lgb.Booster(model_file=str(model_p_path))
-        model_w = lgb.Booster(model_file=str(model_w_path)) if model_w_path.exists() else None
-
-        calibrators = None
-        if cal_path.exists():
-            with open(cal_path, 'rb') as f:
-                calibrators = pickle.load(f)
-
-        print(f"[Model] Obstacle P/W model loaded: v{ver}, {feat_count} features")
-        return model_p, model_w, meta, calibrators
-    else:
-        # v1 fallback: single model
-        model_path = ml_dir / "model_obstacle.txt"
-        if not model_path.exists():
-            return None, None, None, None
-
-        model = lgb.Booster(model_file=str(model_path))
-        calibrator = None
-        cal_path = ml_dir / "calibrator_obstacle.pkl"
-        if cal_path.exists():
-            with open(cal_path, 'rb') as f:
-                calibrator = pickle.load(f)
-
-        print(f"[Model] Obstacle model loaded (v1): v{ver}, {feat_count} features")
-        return model, None, meta, calibrator
+    return bundle.model_p, bundle.model_w, bundle.meta, bundle.calibrators
 
 
 def predict_obstacle_race(
@@ -634,50 +518,50 @@ def predict_obstacle_race(
     }
 
 
-def list_model_versions() -> list:
-    """利用可能なモデルバージョン一覧を返す（新しい順）
+def list_model_versions(model_name: str = "polaris") -> list:
+    """利用可能なモデルバージョン一覧を返す
+
+    model_loader.list_versions() のラッパー + 旧versions.json フォールバック。
 
     Returns:
-        list of dict: version, archived_at, has_win_model, feature_count_all, feature_count_value
+        list of dict: version, has_win_model, feature_count_value, is_live, ...
     """
-    from core.versioning import get_versions
+    from ml.model_loader import list_versions as ml_list_versions, get_active_version
 
-    ml_dir = config.ml_dir()
+    active = get_active_version(model_name)
     versions = []
 
-    # アーカイブされたバージョン
-    for entry in get_versions(ml_dir):
-        ver = entry.get('version', '?')
-        ver_dir = ml_dir / "versions" / f"v{ver}"
-        meta_path = ver_dir / "model_meta.json"
-
+    for v in ml_list_versions(model_name):
+        ver = v['version']
         info = {
             'version': ver,
-            'archived_at': entry.get('archived_at', ''),
-            'has_win_model': (ver_dir / "model_w.txt").exists(),
-            'is_live': False,
+            'is_live': v.get('is_active', False),
+            'has_win_model': v.get('w_auc') is not None,
+            'feature_count_value': v.get('features', 0),
         }
-
-        if meta_path.exists():
-            with open(meta_path, encoding='utf-8') as f:
-                meta = json.load(f)
-            info['feature_count_value'] = len(meta.get('features_value', []))
-            info['created_at'] = meta.get('created_at', '')
-
+        if v.get('p_auc'):
+            info['p_auc'] = v['p_auc']
+        if v.get('description'):
+            info['description'] = v['description']
         versions.append(info)
 
-    # 現在のliveモデル
-    live_meta_path = ml_dir / "model_meta.json"
-    if live_meta_path.exists():
-        with open(live_meta_path, encoding='utf-8') as f:
-            meta = json.load(f)
-        versions.insert(0, {
-            'version': meta.get('version', '?') + ' (live)',
-            'created_at': meta.get('created_at', ''),
-            'has_win_model': (ml_dir / "model_w.txt").exists(),
-            'feature_count_value': len(meta.get('features_value', [])),
-            'is_live': True,
-        })
+    # 旧versions.json からの補完（レジストリにないバージョン）
+    try:
+        from core.versioning import get_versions
+        ml_dir = config.ml_dir()
+        registry_versions = {v['version'] for v in versions}
+        for entry in get_versions(ml_dir):
+            ver = entry.get('version', '?')
+            if ver not in registry_versions:
+                versions.append({
+                    'version': ver,
+                    'archived_at': entry.get('archived_at', ''),
+                    'is_live': False,
+                    'has_win_model': False,
+                    'feature_count_value': 0,
+                })
+    except Exception:
+        pass
 
     return versions
 
@@ -1673,27 +1557,37 @@ def main():
     print(f"  DB Odds: {'ON' if use_db_odds else 'OFF (JSON fallback)'}")
     print(f"{'='*60}\n")
 
-    # モデルロード
+    # モデルロード（model_loader経由）
     print("[Load] Loading models...")
-    model_p, model_w, meta, calibrators, model_ar = load_model_and_meta(model_version)
+    version = None if (not model_version or model_version == "latest") else model_version
+    polaris_bundle = load_model("polaris", version=version)
+    model_p = polaris_bundle.model_p
+    model_w = polaris_bundle.model_w
+    meta = polaris_bundle.meta
+    calibrators = polaris_bundle.calibrators
+    model_ar = polaris_bundle.model_ar
 
     if verbose:
-        feat_count = len(meta.get('features_value', []))
-        per_model = meta.get('features_per_model')
+        feat_count = len(polaris_bundle.features)
+        per_model = polaris_bundle.features_per_model
         print(f"  Models: P({feat_count}f)")
         if per_model:
             for mk, mf in per_model.items():
                 print(f"          {mk.upper()}({len(mf)}f)")
-        if model_w is not None:
+        if polaris_bundle.has_win:
             print(f"  Win model: loaded")
-        if model_ar is not None:
+        if polaris_bundle.has_ar:
             print(f"  AR model: loaded")
-        if calibrators:
+        if polaris_bundle.has_calibrators:
             print(f"  Calibrators: {list(calibrators.keys())}")
 
-    # 障害モデルロード (v2: P+W, v1: single model)
-    model_obstacle, model_obstacle_w, obstacle_meta, obstacle_calibrators = load_obstacle_model()
-    has_obstacle_model = model_obstacle is not None
+    # 障害モデルロード（model_loader経由）
+    enif_bundle = load_model_safe("enif")
+    has_obstacle_model = enif_bundle is not None
+    model_obstacle = enif_bundle.model_p if enif_bundle else None
+    model_obstacle_w = enif_bundle.model_w if enif_bundle else None
+    obstacle_meta = enif_bundle.meta if enif_bundle else None
+    obstacle_calibrators = enif_bundle.calibrators if enif_bundle else None
 
     # マスタデータロード
     print("[Load] Loading master data...")
@@ -1849,6 +1743,7 @@ def main():
             jrdb_joa_index=jrdb_joa_index,
             verbose=verbose,
         )
+        pred['model'] = 'polaris'
         all_predictions.append(pred)
 
         # Value Bet集計
@@ -1899,6 +1794,7 @@ def main():
                 jrdb_sed_index=jrdb_sed_index,
                 db_place_odds=db_place_odds_index.get(race['race_id']),
             )
+            pred['model'] = 'enif'
             obstacle_predictions.append(pred)
             all_predictions.append(pred)
 
@@ -1937,11 +1833,39 @@ def main():
 
     # 結果保存
     actual_model_version = model_version if model_version else meta.get('version', '?')
+    models_used = {
+        'polaris': {
+            'version': polaris_bundle.version,
+            'features': len(polaris_bundle.features),
+            'source': polaris_bundle.source,
+        },
+    }
+    if enif_bundle:
+        models_used['enif'] = {
+            'version': enif_bundle.version,
+            'features': len(enif_bundle.features),
+            'source': enif_bundle.source,
+        }
+
+    # セッションID: 全モデルのバージョンを結合（バージョン別ファイル名に使用）
+    # 主モデル(polaris)を先頭に、残りをアルファベット順で結合
+    # 例: "polaris-2.0" (単独) or "polaris-2.0_enif-obstacle-v2.5b" (複合)
+    def _version_label(name: str, info: dict) -> str:
+        ver = info['version']
+        return ver if ver.startswith(name) else f"{name}-{ver}"
+
+    primary = ['polaris'] if 'polaris' in models_used else []
+    others = sorted(n for n in models_used if n not in primary)
+    session_parts = [_version_label(n, models_used[n]) for n in primary + others]
+    session_id = "_".join(session_parts)
+
     output = {
-        'version': '4.1',
+        'version': '4.2',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'date': date,
         'model_version': actual_model_version,
+        'session_id': session_id,
+        'models_used': models_used,
         'model_source': 'archive' if model_version else 'live',
         'model_features_value': len(meta.get('features_value', [])),
         'model_has_win': model_w is not None,
@@ -1995,9 +1919,11 @@ def main():
         # メインファイル（最新版として上書き）
         out_path.write_text(out_json, encoding='utf-8')
 
-        # バージョン別ファイル: predictions_{version}.json（Web UIバージョン切替用）
-        versioned_path = archive_dir / f"predictions_{actual_model_version}.json"
+        # セッション別ファイル: predictions_{session_id}.json（Web UIバージョン切替用）
+        # session_id例: "polaris-2.0_enif-obstacle-v2.5b"
+        versioned_path = archive_dir / f"predictions_{session_id}.json"
         versioned_path.write_text(out_json, encoding='utf-8')
+        print(f"  Session: {versioned_path.name}")
 
         # 特徴量スナップショット保存（PIT/リーク検証用）
         if feature_snapshot_data:

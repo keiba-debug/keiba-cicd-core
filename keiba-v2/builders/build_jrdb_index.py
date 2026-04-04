@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from jrdb.parser import (
     parse_sed_line, parse_kyi_line, parse_srb_line,
     parse_cyb_line, parse_cha_line, parse_kka_line,
-    parse_ukc_line, parse_joa_line,
+    parse_ukc_line, parse_joa_line, parse_kaa_line,
 )
 
 RAW_DIR = Path('C:/KEIBA-CICD/data3/jrdb/raw')
@@ -620,7 +620,44 @@ def _save_index(index: dict, name: str, t0: float):
     print(f"  Saved: {out} ({size_mb:.1f} MB, {time.time()-t0:.1f}s)")
 
 
-ALL_TYPES = ['sed', 'kyi', 'srb', 'cyb', 'cha', 'kka', 'ukc', 'joa']
+def build_kaa_index(year_range: range) -> dict:
+    """KAA全ファイル → {venue_code}_{race_date} → 開催データ（馬場・天候）"""
+    kaa_dir = RAW_DIR / 'KAA'
+    if not kaa_dir.exists():
+        print(f"ERROR: {kaa_dir} not found")
+        return {}
+
+    index = {}
+    errors = 0
+    file_count = 0
+
+    for f in sorted(kaa_dir.glob('KAA*.txt')):
+        yy = f.stem[3:5]
+        try:
+            year = 2000 + int(yy) if int(yy) < 80 else 1900 + int(yy)
+        except ValueError:
+            continue
+        if year not in year_range:
+            continue
+
+        data = f.read_bytes()
+        for line in data.split(b'\r\n'):
+            if len(line) < 49:
+                continue
+            try:
+                rec = parse_kaa_line(line)
+                if rec:
+                    key = f"{rec['venue_code']}_{rec['race_date']}"
+                    index[key] = rec
+            except Exception:
+                errors += 1
+        file_count += 1
+
+    print(f"[KAA] {file_count} files → {len(index):,} entries, {errors} errors")
+    return index
+
+
+ALL_TYPES = ['sed', 'kyi', 'srb', 'cyb', 'cha', 'kka', 'ukc', 'joa', 'kaa']
 
 
 def main():
@@ -672,6 +709,10 @@ def main():
     if 'joa' in targets:
         t0 = time.time()
         _save_index(build_joa_index(year_range), 'joa', t0)
+
+    if 'kaa' in targets:
+        t0 = time.time()
+        _save_index(build_kaa_index(year_range), 'kaa', t0)
 
 
 if __name__ == '__main__':

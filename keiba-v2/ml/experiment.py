@@ -3261,6 +3261,7 @@ def main():
     model_dir = config.ml_dir()
     config.ensure_dir(model_dir)
 
+    # 旧バージョンアーカイブ（旧構造: versions/v{old_ver}/）
     current_meta_path = model_dir / "model_meta.json"
     if current_meta_path.exists():
         from core.versioning import archive_before_save
@@ -3275,6 +3276,7 @@ def main():
             metadata={"created_at": old_meta.get("created_at", "")},
         )
 
+    # モデルファイル保存（旧構造: ml_dir直下）
     model_p.save_model(str(model_dir / "model_p.txt"))
     model_w.save_model(str(model_dir / "model_w.txt"))
     model_ar.save_model(str(model_dir / "model_ar.txt"))
@@ -3316,6 +3318,34 @@ def main():
     (model_dir / "model_meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
     )
+
+    # === 新構造: models/polaris/live/ にも保存 ===
+    new_live_dir = model_dir / "models" / "polaris" / "live"
+    new_live_dir.mkdir(parents=True, exist_ok=True)
+    import shutil
+    for fname in ["model_p.txt", "model_w.txt", "model_ar.txt", "calibrators.pkl"]:
+        src = model_dir / fname
+        if src.exists():
+            shutil.copy2(str(src), str(new_live_dir / fname))
+    # meta.json は新構造用の統一名
+    (new_live_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
+    )
+
+    # model_registry.json にバージョン登録
+    try:
+        from ml.model_loader import register_version
+        register_version(
+            "polaris",
+            experiment_version,
+            description=meta.get('description', ''),
+            p_auc=auc_p if 'auc_p' in dir() else None,
+            w_auc=auc_w if 'auc_w' in dir() else None,
+            features=len(all_features_union),
+            set_active=True,
+        )
+    except Exception as e:
+        print(f"  [WARN] model_registry update failed: {e}")
 
     # 結果JSON保存
     result = {

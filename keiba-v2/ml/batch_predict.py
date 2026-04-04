@@ -23,8 +23,9 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 from core import config
+from ml.model_loader import load_model, load_model_safe
 from ml.predict import (
-    load_model_and_meta, load_obstacle_model, load_master_data,
+    load_master_data,
     get_races_for_date, load_keibabook_ext,
     predict_race, predict_obstacle_race, load_grade_offsets,
 )
@@ -56,6 +57,10 @@ def predict_date(
     jrdb_sed_index: dict = None,
     jrdb_kyi_index: dict = None,
     jrdb_kaa_index: dict = None,
+    jrdb_cyb_index: dict = None,
+    jrdb_cha_index: dict = None,
+    jrdb_kka_index: dict = None,
+    jrdb_joa_index: dict = None,
     model_obstacle_w=None,
     jockey_obstacle_tl: dict = None,
     trainer_obstacle_tl: dict = None,
@@ -136,7 +141,12 @@ def predict_date(
             jrdb_sed_index=jrdb_sed_index,
             jrdb_kyi_index=jrdb_kyi_index,
             jrdb_kaa_index=jrdb_kaa_index,
+            jrdb_cyb_index=jrdb_cyb_index,
+            jrdb_cha_index=jrdb_cha_index,
+            jrdb_kka_index=jrdb_kka_index,
+            jrdb_joa_index=jrdb_joa_index,
         )
+        pred['model'] = 'polaris'
         all_predictions.append(pred)
         for e in pred['entries']:
             if e['is_value_bet']:
@@ -173,6 +183,7 @@ def predict_date(
                 jockey_obstacle_tl=jockey_obstacle_tl,
                 trainer_obstacle_tl=trainer_obstacle_tl,
             )
+            pred['model'] = 'enif'
             obstacle_predictions.append(pred)
             all_predictions.append(pred)
 
@@ -235,11 +246,16 @@ def predict_date(
 
     # 出力
     actual_model_version = meta.get('version', '?')
+    models_used = {'polaris': {'version': actual_model_version, 'source': 'live'}}
+    if obstacle_meta:
+        models_used['enif'] = {'version': obstacle_meta.get('version', '?'), 'source': 'live'}
+
     output = {
-        'version': '4.1',
+        'version': '4.2',
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'date': date,
         'model_version': actual_model_version,
+        'models_used': models_used,
         'model_source': 'live',
         'model_features_value': len(meta.get('features_value', [])),
         'model_has_win': model_w is not None,
@@ -301,18 +317,28 @@ def main():
     dates = get_all_dates(args.from_date, args.to_date)
     print(f"[Dates] {len(dates)} days found")
 
-    # モデルロード
+    # モデルロード（model_loader経由）
     print("\n[Load] Loading models...")
-    model_p, model_w, meta, calibrators, model_ar = load_model_and_meta()
-    model_obstacle, model_obstacle_w, obstacle_meta, obstacle_calibrators = load_obstacle_model()
-    print(f"  Model v{meta.get('version', '?')}")
+    polaris = load_model("polaris")
+    model_p, model_w, meta, calibrators, model_ar = (
+        polaris.model_p, polaris.model_w, polaris.meta, polaris.calibrators, polaris.model_ar
+    )
+    enif = load_model_safe("enif")
+    model_obstacle = enif.model_p if enif else None
+    model_obstacle_w = enif.model_w if enif else None
+    obstacle_meta = enif.meta if enif else None
+    obstacle_calibrators = enif.calibrators if enif else None
+    print(f"  Polaris: {polaris.summary()}")
+    if enif:
+        print(f"  Enif: {enif.summary()}")
 
     # マスタデータロード
     print("[Load] Loading master data...")
     (history_cache, trainer_index, jockey_index, pace_index,
      kb_ext_index, race_level_index, pedigree_index, sire_stats_index,
      baba_index, pit_trainer_tl, pit_jockey_tl,
-     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index) = load_master_data()
+     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index,
+     jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index) = load_master_data()
 
     # 障害用PIT timeline
     jockey_obstacle_tl = None
@@ -346,6 +372,10 @@ def main():
             jrdb_sed_index=jrdb_sed_index,
             jrdb_kyi_index=jrdb_kyi_index,
             jrdb_kaa_index=jrdb_kaa_index,
+            jrdb_cyb_index=jrdb_cyb_index,
+            jrdb_cha_index=jrdb_cha_index,
+            jrdb_kka_index=jrdb_kka_index,
+            jrdb_joa_index=jrdb_joa_index,
             model_obstacle_w=model_obstacle_w,
             jockey_obstacle_tl=jockey_obstacle_tl,
             trainer_obstacle_tl=trainer_obstacle_tl,

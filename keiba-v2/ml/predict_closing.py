@@ -40,31 +40,20 @@ from ml.features.baba_features import get_baba_features, load_baba_index
 
 
 def load_closing_model():
-    """差し追込モデルをロード"""
-    ml_dir = config.ml_dir()
-    model_path = ml_dir / "model_closing.txt"
-    cal_path = ml_dir / "calibrator_closing.pkl"
-    meta_path = ml_dir / "model_closing_meta.json"
+    """差し追込モデルをロード（model_loader経由）"""
+    from ml.model_loader import load_model
 
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"model_closing.txt が見つかりません (in {ml_dir})\n"
-            "先に python -m ml.experiment_closing を実行してください"
-        )
-
-    model = lgb.Booster(model_file=str(model_path))
-
+    bundle = load_model("eclipse")
+    # 後方互換: (model, calibrator, meta) タプルを返す
     calibrator = None
-    if cal_path.exists():
-        with open(cal_path, 'rb') as f:
-            calibrator = pickle.load(f)
-
-    meta = {}
-    if meta_path.exists():
-        with open(meta_path, encoding='utf-8') as f:
-            meta = json.load(f)
-
-    return model, calibrator, meta
+    if bundle.calibrators:
+        if isinstance(bundle.calibrators, dict):
+            calibrator = (bundle.calibrators.get('cal_p')
+                          or next(iter(bundle.calibrators.values()), None))
+        else:
+            # eclipse calibrators.pklはIsotonicRegressionオブジェクト直
+            calibrator = bundle.calibrators
+    return bundle.model_p, calibrator, bundle.meta
 
 
 def predict_closing_for_date(

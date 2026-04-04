@@ -32,13 +32,16 @@ export async function GET(request: NextRequest) {
   const files = fs.readdirSync(dayDir);
   const versions: string[] = [];
   const pattern = /^predictions_(.+)\.json$/;
+  // タイムスタンプ付きアーカイブを除外: predictions_v7.1_20260301T101905.json
+  const timestampPattern = /^\d{8}T\d{4,6}$/;
 
   for (const f of files) {
     const m = f.match(pattern);
     if (m) {
       const ver = m[1];
-      // 旧形式(タイムスタンプ付き: predictions_v7.1_20260301T101905.json)は除外
-      if (ver.includes('_')) continue;
+      // 旧形式アーカイブ除外: 末尾が _YYYYMMDDTHHMMSS のもの
+      const lastPart = ver.split('_').pop() || '';
+      if (timestampPattern.test(lastPart)) continue;
       versions.push(ver);
     }
   }

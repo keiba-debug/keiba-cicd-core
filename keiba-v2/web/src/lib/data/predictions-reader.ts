@@ -215,10 +215,15 @@ export function getAvailablePredictionVersions(date: string): string[] {
     if (!fs.existsSync(dayDir)) return [];
     const files = fs.readdirSync(dayDir);
     const versions: string[] = [];
+    // タイムスタンプ付きアーカイブ除外: predictions_v7.1_20260301T101905.json
+    const timestampPattern = /^\d{8}T\d{4,6}$/;
     for (const f of files) {
       const match = f.match(/^predictions_(.+)\.json$/);
-      if (match && !match[1].includes('_')) {
-        versions.push(match[1]);
+      if (match) {
+        const ver = match[1];
+        const lastPart = ver.split('_').pop() || '';
+        if (timestampPattern.test(lastPart)) continue;
+        versions.push(ver);
       }
     }
     return versions;
