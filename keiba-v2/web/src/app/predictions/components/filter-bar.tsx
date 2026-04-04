@@ -3,8 +3,8 @@ interface FilterBarProps {
   venueFilter: string;
   setVenueFilter: (v: string) => void;
   raceNumbers: number[];
-  raceNumFilter: number;
-  setRaceNumFilter: (n: number) => void;
+  raceNumFilter: number | string;
+  setRaceNumFilter: (n: number | string) => void;
   trackFilter: string;
   setTrackFilter: (v: string) => void;
   minEv: number;
@@ -46,19 +46,28 @@ export function FilterBar({
         ))}
       </div>
 
-      {/* レース番号 */}
+      {/* レース番号（レンジ + 個別） */}
       <div className="flex items-center gap-1">
         <span className="text-xs text-muted-foreground mr-1">R:</span>
-        <button
-          onClick={() => setRaceNumFilter(0)}
-          className={`px-2.5 py-1 text-xs rounded transition-colors ${
-            raceNumFilter === 0
-              ? 'bg-purple-600 text-white shadow-sm'
-              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
-          }`}
-        >
-          全て
-        </button>
+        {([
+          { v: 0 as number | string, l: '全て' },
+          { v: '1-4', l: '1-4' },
+          { v: '5-8', l: '5-8' },
+          { v: '9-12', l: '9-12' },
+        ] as const).map(({ v, l }) => (
+          <button
+            key={String(v)}
+            onClick={() => setRaceNumFilter(v)}
+            className={`px-2.5 py-1 text-xs rounded transition-colors ${
+              raceNumFilter === v
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+            }`}
+          >
+            {l}
+          </button>
+        ))}
+        <span className="text-gray-300 dark:text-gray-600 mx-0.5">|</span>
         {raceNumbers.map(n => (
           <button
             key={n}

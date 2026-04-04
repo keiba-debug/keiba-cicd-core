@@ -237,9 +237,8 @@ export function ExecuteTab() {
   const [activePreset, setActivePreset] = useState<string>('aggressive');
   const [allPresetsMap, setAllPresetsMap] = useState<Record<string, RecommendationEntry[]>>({});
 
-  // レース番号フィルタ（0=全レース）
-  const [raceRangeMin, setRaceRangeMin] = useState(0);
-  const [raceRangeMax, setRaceRangeMax] = useState(0);
+  // レース番号フィルタ: 0=全て, "1-4"等=レンジ, 数値=個別R
+  const [raceFilter, setRaceFilter] = useState<number | string>(0);
 
   // バンクロール残高 & 推奨購入額
   const [bankrollBalance, setBankrollBalance] = useState<number | null>(null);
@@ -526,16 +525,21 @@ export function ExecuteTab() {
     });
   }, [allPresetsMap]);
 
+  // レースフィルタのマッチ判定
+  const matchRace = useCallback((raceNumber: number) => {
+    if (raceFilter === 0) return true;
+    if (typeof raceFilter === 'number') return raceNumber === raceFilter;
+    const m = /^(\d+)-(\d+)$/.exec(raceFilter);
+    if (m) return raceNumber >= Number(m[1]) && raceNumber <= Number(m[2]);
+    return true;
+  }, [raceFilter]);
+
   // 表示する推奨リスト（プリセット + レース番号フィルタ）
   const displayRecs = useMemo(() => {
     const base = allPresetsMap[activePreset] || [];
-    if (raceRangeMin === 0 && raceRangeMax === 0) return base;
-    return base.filter(r => {
-      if (raceRangeMin > 0 && r.race_number < raceRangeMin) return false;
-      if (raceRangeMax > 0 && r.race_number > raceRangeMax) return false;
-      return true;
-    });
-  }, [activePreset, allMergedRecs, recommendations, allPresetsMap, raceRangeMin, raceRangeMax]);
+    if (raceFilter === 0) return base;
+    return base.filter(r => matchRace(r.race_number));
+  }, [activePreset, allMergedRecs, recommendations, allPresetsMap, raceFilter, matchRace]);
 
   // FF CSV出力共通関数（RecommendationEntry配列 → API呼び出し）
   const buildFfCsvBets = (recs: RecommendationEntry[]) => {
@@ -933,30 +937,41 @@ export function ExecuteTab() {
               );
             })}
 
-            {/* レース番号フィルタ */}
+            {/* レース番号フィルタ（レンジ + 個別R） */}
             <div className="flex items-center gap-1.5 ml-auto">
               <span className="text-xs text-muted-foreground">R:</span>
-              {[
-                { label: '全', min: 0, max: 0 },
-                { label: '1-4', min: 1, max: 4 },
-                { label: '5-8', min: 5, max: 8 },
-                { label: '9-12', min: 9, max: 12 },
-              ].map(({ label, min, max }) => {
-                const isActive = raceRangeMin === min && raceRangeMax === max;
-                return (
-                  <button
-                    key={label}
-                    onClick={() => { setRaceRangeMin(min); setRaceRangeMax(max); }}
-                    className={`px-2 py-1 text-xs rounded border transition-colors ${
-                      isActive
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+              {([
+                { label: '全', value: 0 as number | string },
+                { label: '1-4', value: '1-4' },
+                { label: '5-8', value: '5-8' },
+                { label: '9-12', value: '9-12' },
+              ] as const).map(({ label, value }) => (
+                <button
+                  key={label}
+                  onClick={() => setRaceFilter(value)}
+                  className={`px-2 py-1 text-xs rounded border transition-colors ${
+                    raceFilter === value
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+              <span className="text-muted-foreground/30 mx-0.5">|</span>
+              {Array.from(new Set(allMergedRecs.map(r => r.race_number))).sort((a, b) => a - b).map(n => (
+                <button
+                  key={n}
+                  onClick={() => setRaceFilter(n)}
+                  className={`px-1.5 py-1 text-xs rounded border transition-colors ${
+                    raceFilter === n
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -1513,13 +1528,14 @@ export function ExecuteTab() {
               <Layers className="h-4 w-4 text-gray-500" />
               参考: 他プリセット推奨
               <Badge variant="outline" className="text-xs">
-                {otherPresets.filter(p => p.key !== activePreset).reduce((s, p) => s + p.betCount, 0)}件
+                {otherPresets.filter(p => p.key !== activePreset).reduce((s, p) => s + p.bets.filter(b => matchRace(b.race_number)).length, 0)}件
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0 space-y-2">
             {otherPresets.filter(p => p.key !== activePreset).map((preset) => {
               const isExpanded = expandedPresets.has(preset.key);
+              const filteredBets = raceFilter === 0 ? preset.bets : preset.bets.filter(b => matchRace(b.race_number));
               return (
                 <div key={preset.key} className="border rounded-md">
                   <button
@@ -1534,10 +1550,10 @@ export function ExecuteTab() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{preset.label}</span>
                       <Badge variant="secondary" className="text-xs">
-                        {preset.betCount}件
+                        {filteredBets.length}件
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        ¥{preset.totalAmount.toLocaleString()}
+                        ¥{filteredBets.reduce((s, b) => s + (b.win_amount ?? 0) + (b.place_amount ?? 0), 0).toLocaleString()}
                       </span>
                     </div>
                     {isExpanded ? (
@@ -1552,7 +1568,7 @@ export function ExecuteTab() {
                       <div className="flex items-center gap-2 py-1.5 text-xs">
                         {(otherPresetSelections[preset.key]?.size ?? 0) > 0 && (
                           <span className="text-muted-foreground">
-                            {otherPresetSelections[preset.key]!.size}/{preset.bets.length}件選択中
+                            {otherPresetSelections[preset.key]!.size}/{filteredBets.length}件選択中
                           </span>
                         )}
                         {otherCsvResults[preset.key] && (
@@ -1561,7 +1577,7 @@ export function ExecuteTab() {
                           </span>
                         )}
                         <button
-                          onClick={() => exportOtherFfCsv(preset.key, preset.bets)}
+                          onClick={() => exportOtherFfCsv(preset.key, filteredBets)}
                           disabled={otherCsvExporting === preset.key}
                           className="ml-auto flex items-center gap-1 px-2 py-1 rounded border text-xs hover:bg-muted/50 transition-colors disabled:opacity-50"
                         >
@@ -1580,8 +1596,8 @@ export function ExecuteTab() {
                               <th className="py-1.5 px-1 text-center w-7">
                                 <input
                                   type="checkbox"
-                                  checked={(otherPresetSelections[preset.key]?.size ?? 0) === preset.bets.length && preset.bets.length > 0}
-                                  onChange={() => toggleAllOtherRecs(preset.key, preset.bets.length)}
+                                  checked={(otherPresetSelections[preset.key]?.size ?? 0) === filteredBets.length && filteredBets.length > 0}
+                                  onChange={() => toggleAllOtherRecs(preset.key, filteredBets.length)}
                                   className="h-3 w-3"
                                 />
                               </th>
@@ -1597,7 +1613,7 @@ export function ExecuteTab() {
                             </tr>
                           </thead>
                           <tbody>
-                            {preset.bets.map((b, idx) => {
+                            {filteredBets.map((b, idx) => {
                               const isSelected = otherPresetSelections[preset.key]?.has(idx) ?? false;
                               return (
                                 <tr

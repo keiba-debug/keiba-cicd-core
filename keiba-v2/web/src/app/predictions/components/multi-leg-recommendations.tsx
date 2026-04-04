@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { MultiLegRecommendation, PredictionRace } from '@/lib/data/predictions-reader';
 import type { RaceResultsMap } from '@/lib/data/predictions-reader';
-import { isTurf, isDirt } from '../lib/helpers';
+import { isTurf, isDirt, matchRaceNum } from '../lib/helpers';
 
 interface MultiLegRecommendationsProps {
   recommendations: MultiLegRecommendation[];
@@ -15,7 +15,7 @@ interface MultiLegRecommendationsProps {
   races: PredictionRace[];
   venueFilter: string;
   trackFilter: string;
-  raceNumFilter: number;
+  raceNumFilter: number | string;
 }
 
 const TICKET_TYPE_JP: Record<string, string> = {
@@ -80,7 +80,7 @@ function useFilteredGroups(
   races: PredictionRace[],
   venueFilter: string,
   trackFilter: string,
-  raceNumFilter: number,
+  raceNumFilter: number | string,
 ) {
   const raceTrackMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -99,8 +99,8 @@ function useFilteredGroups(
         return trackFilter === 'turf' ? isTurf(tt) : isDirt(tt);
       });
     }
-    if (raceNumFilter > 0) {
-      filtered = filtered.filter(r => r.race_number === raceNumFilter);
+    if (raceNumFilter !== 0) {
+      filtered = filtered.filter(r => matchRaceNum(raceNumFilter, r.race_number));
     }
 
     const groupMap = new Map<string, RaceGroup>();
@@ -313,7 +313,7 @@ function SanrentanSection({
   races: PredictionRace[];
   venueFilter: string;
   trackFilter: string;
-  raceNumFilter: number;
+  raceNumFilter: number | string;
   title?: string;
   subtitle?: string;
 }) {
@@ -506,12 +506,12 @@ function SpotSection({
   races: PredictionRace[];
   venueFilter: string;
   trackFilter: string;
-  raceNumFilter: number;
+  raceNumFilter: number | string;
 }) {
   const { filtered, raceGroups, totalCost } = useFilteredGroups(bets, races, venueFilter, trackFilter, raceNumFilter);
   const { csvExporting, csvResult, exportFfCsv } = useExportCsv();
   const [open, setOpen] = useState(false);
-  const isFiltered = venueFilter !== 'all' || trackFilter !== 'all' || raceNumFilter > 0;
+  const isFiltered = venueFilter !== 'all' || trackFilter !== 'all' || raceNumFilter !== 0;
 
   return (
     <Card id="section-multi-leg" className="mb-8">

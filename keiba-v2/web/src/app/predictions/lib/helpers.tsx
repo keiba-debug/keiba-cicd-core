@@ -1,6 +1,17 @@
 import type { PredictionRace, PredictionEntry } from '@/lib/data/predictions-reader';
 import type { OddsMap, DangerInfo, SortDir, SortState } from './types';
 
+// --- レースフィルタ ---
+
+/** レースフィルタのマッチ判定: 0=全て, "1-4"等=レンジ, 数値=個別R */
+export function matchRaceNum(filter: number | string, raceNumber: number): boolean {
+  if (filter === 0) return true;
+  if (typeof filter === 'number') return raceNumber === filter;
+  const m = /^(\d+)-(\d+)$/.exec(filter);
+  if (m) return raceNumber >= Number(m[1]) && raceNumber <= Number(m[2]);
+  return true;
+}
+
 // --- ★スコア（おいしさ）---
 
 /** winGap + rating から★スコアを算出 (3=★★★, 2=★★, 1=★, 0=条件外) */

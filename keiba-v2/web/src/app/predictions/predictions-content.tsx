@@ -11,7 +11,7 @@ import type { PredictionsLive, PredictionRace, PredictionEntry, RaceResultsMap }
 import type { DbOddsResponse, OddsMap, DbResultsMap, DbResultEntry, DbResultsResponse, BetRecommendation, DangerHorseEntry, SortState } from './lib/types';
 import {
   getWinOdds, getPlaceOddsMin, calcWinEv, calcPlaceEv, calcHeadRatio,
-  isTurf, isDirt, getPlaceLimit, getRaceDanger, getStarScore,
+  isTurf, isDirt, getPlaceLimit, getRaceDanger, getStarScore, matchRaceNum,
 } from './lib/helpers';
 import { BET_CONFIG, BUDGET_PCT_OPTIONS, rescaleBudget, equalDistribute, type ServerPresetKey, type AllocMode } from './lib/bet-logic';
 import { generateLiveRecommendations } from './lib/bet-engine';
@@ -52,7 +52,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
   // フィルタ state
   const [venueFilter, setVenueFilter] = useState<string>('all');
-  const [raceNumFilter, setRaceNumFilter] = useState<number>(0);
+  const [raceNumFilter, setRaceNumFilter] = useState<number | string>(0); // 0=全て, "1-4"等=レンジ, 数値=個別R
   const [trackFilter, setTrackFilter] = useState<string>('all');
   const [minEv, setMinEv] = useState<number>(0);
   const [minArd, setMinArd] = useState<number | null>(null);
@@ -425,7 +425,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         trackFilter === 'turf' ? isTurf(r.track_type) : isDirt(r.track_type)
       );
     }
-    if (raceNumFilter > 0) filtered = filtered.filter(r => r.race_number === raceNumFilter);
+    if (raceNumFilter !== 0) filtered = filtered.filter(r => matchRaceNum(raceNumFilter, r.race_number));
     const map = new Map<string, PredictionRace[]>();
     for (const race of filtered) {
       const group = map.get(race.venue_name) || [];
@@ -485,7 +485,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           trackFilter === 'turf' ? isTurf(r.track_type) : isDirt(r.track_type)
         );
       }
-      if (raceNumFilter > 0) targetRaces = targetRaces.filter(r => r.race_number === raceNumFilter);
+      if (raceNumFilter !== 0) targetRaces = targetRaces.filter(r => matchRaceNum(raceNumFilter, r.race_number));
 
       // liveGapsを計算してAPIに送信（リアルタイムodds連動）
       const liveGaps: Record<string, Record<number, number>> = {};
@@ -601,7 +601,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         trackFilter === 'turf' ? isTurf(e.race.track_type) : isDirt(e.race.track_type)
       );
     }
-    if (raceNumFilter > 0) entries = entries.filter(e => e.race.race_number === raceNumFilter);
+    if (raceNumFilter !== 0) entries = entries.filter(e => matchRaceNum(raceNumFilter, e.race.race_number));
     if (minEv > 0) {
       entries = entries.filter(e => {
         const winOdds = getWinOdds(oddsMap, e.race.race_id, e.entry.umaban, e.entry.odds);
@@ -627,7 +627,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         trackFilter === 'turf' ? isTurf(e.race.track_type) : isDirt(e.race.track_type)
       );
     }
-    if (raceNumFilter > 0) entries = entries.filter(e => e.race.race_number === raceNumFilter);
+    if (raceNumFilter !== 0) entries = entries.filter(e => matchRaceNum(raceNumFilter, e.race.race_number));
     return entries;
   }, [featuredEntries, venueFilter, trackFilter, raceNumFilter]);
 
@@ -666,7 +666,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     let entries = dangerHorses;
     if (venueFilter !== 'all') entries = entries.filter(d => d.race.venue_name === venueFilter);
     if (trackFilter !== 'all') entries = entries.filter(d => trackFilter === 'turf' ? isTurf(d.race.track_type) : isDirt(d.race.track_type));
-    if (raceNumFilter > 0) entries = entries.filter(d => d.race.race_number === raceNumFilter);
+    if (raceNumFilter !== 0) entries = entries.filter(d => matchRaceNum(raceNumFilter, d.race.race_number));
     return entries;
   }, [dangerHorses, venueFilter, trackFilter, raceNumFilter]);
 
@@ -682,7 +682,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           trackFilter === 'turf' ? isTurf(r.track_type) : isDirt(r.track_type)
         );
       }
-      if (raceNumFilter > 0) targetRaces = targetRaces.filter(r => r.race_number === raceNumFilter);
+      if (raceNumFilter !== 0) targetRaces = targetRaces.filter(r => matchRaceNum(raceNumFilter, r.race_number));
 
       // 危険馬リストを構築
       const dangerList: Array<{ raceId: string; umaban: number }> = [];
@@ -721,7 +721,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     let recs = [...betRecommendations];
     if (venueFilter !== 'all') recs = recs.filter(r => r.race.venue_name === venueFilter);
     if (trackFilter !== 'all') recs = recs.filter(r => trackFilter === 'turf' ? isTurf(r.race.track_type) : isDirt(r.race.track_type));
-    if (raceNumFilter > 0) recs = recs.filter(r => r.race.race_number === raceNumFilter);
+    if (raceNumFilter !== 0) recs = recs.filter(r => matchRaceNum(raceNumFilter, r.race.race_number));
 
     const { key, dir } = betSort;
     const mul = dir === 'asc' ? 1 : -1;
