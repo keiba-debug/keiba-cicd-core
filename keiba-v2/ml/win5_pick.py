@@ -7,8 +7,9 @@ WIN5 推奨馬ピッカー
 combo_sim と同一の戦略を使用。
 
 メインプラン:
-  Plan E: rank_w Top2固定   — Wモデル上位2頭 (32点, ¥3,200/週)
-  Plan N: 頭数適応 rank_w   — 頭数で1-3頭 (~94点, ¥9,400/週)
+  Plan E:   rank_w Top2固定      — Wモデル上位2頭 (32点, ¥3,200/週)
+  Plan N:   頭数適応 rank_w      — 頭数で1-3頭 (~94点, ¥9,400/週)
+  Plan CG3: 自信度可変 rank_w    — conf_gap大→1頭, 中→2頭, 小→3頭 (~48点, ¥4,800/週)
 
 参考プラン（WP合算系、独自的中13回あり）:
   Plan A: WP合算 Top2固定   — rank_w+rank_p合算上位2頭 (32点, ¥3,200/週)
@@ -82,8 +83,20 @@ def union(*lists) -> list:
 
 # ============================================================
 # 戦略定義 (combo_sim と完全同一)
-# polaris 2.1b Session 117: rank_w単独 > WP合算
+# polaris 2.1b Session 117: rank_w単独 > WP合算, 自信度可変(CG3)追加
 # ============================================================
+
+
+def _conf_gap(entries: list) -> float:
+    """rank_w 1位と2位のpred_proba_w差（自信度）"""
+    valid = [e for e in entries if (e.get('rank_w') or 0) > 0]
+    by_rw = sorted(valid, key=lambda e: e['rank_w'])
+    if len(by_rw) < 2:
+        return 0
+    p1 = by_rw[0].get('pred_proba_w_cal') or by_rw[0].get('pred_proba_w') or 0
+    p2 = by_rw[1].get('pred_proba_w_cal') or by_rw[1].get('pred_proba_w') or 0
+    return p1 - p2
+
 
 def plan_e_select(entries: list, race_info: dict = None) -> list:
     """Plan E: rank_w Top2固定（メイン）"""
@@ -101,6 +114,13 @@ def plan_n_select(entries: list, race_info: dict = None) -> list:
         n = 3
     else:
         n = 2
+    return rw_top(entries, n)
+
+
+def plan_cg3_select(entries: list, race_info: dict = None) -> list:
+    """Plan CG3: 自信度可変 rank_w（メイン）— gap>0.10→1頭, >0.05→2頭, else→3頭"""
+    cg = _conf_gap(entries)
+    n = 1 if cg > 0.10 else (2 if cg > 0.05 else 3)
     return rw_top(entries, n)
 
 
@@ -132,6 +152,11 @@ PLANS = {
     'N': {
         'label': 'Plan N: 頭数適応 rank_w (~94点/週)',
         'select': plan_n_select,
+        'reference': False,
+    },
+    'CG3': {
+        'label': 'Plan CG3: 自信度可変 rank_w (~48点/週)',
+        'select': plan_cg3_select,
         'reference': False,
     },
     'A': {

@@ -177,7 +177,7 @@ export default function Win5SimulationPage() {
   const [data, setData] = useState<SimData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeCombo, setActiveCombo] = useState<string>('E+N');
+  const [activeCombo, setActiveCombo] = useState<string>('E+N+CG3');
   const [showWeekly, setShowWeekly] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
@@ -405,10 +405,11 @@ export default function Win5SimulationPage() {
               </tr>
             </thead>
             <tbody>
-              {combo.weekly.filter(w => w.hit).map(w => {
+              {[...combo.weekly].filter(w => w.hit).reverse().map(w => {
                 const planColors: Record<string, string> = {
                   E: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
                   N: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+                  CG3: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
                   A: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
                   C: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
                 };
@@ -523,6 +524,9 @@ export default function Win5SimulationPage() {
         </div>
         <div>
           <span className="font-medium">Plan N</span>: 頭数適応 rank_w — 12頭以下&rarr;1頭, 14頭以上&rarr;3頭, 他&rarr;2頭 (~94点=9,400円)
+        </div>
+        <div>
+          <span className="font-medium">Plan CG3</span>: 自信度可変 rank_w — conf_gap&gt;0.10&rarr;1頭, &gt;0.05&rarr;2頭, else&rarr;3頭 (~48点=4,800円)
         </div>
         <div>
           <span className="font-medium">Plan A</span>: WP合算Top2 — rank_w+rank_p合算で上位2頭 (32点=3,200円) [参考]

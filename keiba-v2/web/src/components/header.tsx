@@ -230,7 +230,7 @@ export function Header() {
                     <span>5</span>
                     <span>
                       <span className="font-medium">WIN5 シミュレーション</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">E+N+A+C 併用バックテスト</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">E+N+CG3 併用バックテスト</span>
                     </span>
                   </span>
                 </Link>

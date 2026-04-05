@@ -3,20 +3,23 @@
 """
 WIN5 精密週次シミュレーション
 
-polaris 2.1b Session 117: rank_w単独 > WP合算 と判明
-  E(rw2): 的中40回 ROI 3409% vs 旧A(WP2): 的中28回 ROI 2383%
-  N(適応rw): 的中55回 ROI 11318% vs 旧C(適応WP): 的中41回 ROI 2016%
-  全併用(E+N+A+C): 的中81回, 連敗24w — 視点の違いで相互補完
+polaris 2.1b Session 117:
+  rank_w単独 > WP合算: E(rw2) ROI 3409% vs A(WP2) 2383%
+  自信度可変(CG3): conf_gap>0.10→1頭, >0.05→2頭, else→3頭
+    E+CG3: 的中65回 ROI 10897% MaxDD 221K 連敗24w（最効率）
+    E+N+CG3: 的中80回 ROI 11124% 連敗24w
+  全併用(E+N+CG3+A+C): 的中92回, 連敗24w
 
 メインプラン:
-- Plan E: rank_w Top2固定    — Wモデル上位2頭 (32点, ¥3,200/週)
-- Plan N: 頭数適応 rank_w    — 頭数で1-3頭 (~94点, ¥9,400/週)
+- Plan E:   rank_w Top2固定      — Wモデル上位2頭 (32点, ¥3,200/週)
+- Plan N:   頭数適応 rank_w      — 頭数で1-3頭 (~94点, ¥9,400/週)
+- Plan CG3: 自信度可変 rank_w    — conf_gap大→1頭, 中→2頭, 小→3頭 (~48点, ¥4,800/週)
 
 参考プラン（WP合算系、独自的中13回あり）:
 - Plan A: WP合算 Top2固定    — rank_w+rank_p合算上位2頭 (32点, ¥3,200/週)
 - Plan C: 頭数適応 WP合算    — 頭数で1-3頭 (~94点, ¥9,400/週)
 
-併用: E+N / A+C / E+N+A+C
+併用: E+CG3 / E+N+CG3 / A+C / E+N+CG3+A+C
 """
 import json
 import sys
@@ -148,11 +151,26 @@ def union(*lists):
 
 # ============================================================
 # Plan definitions
-# polaris 2.1b Session 117: rank_w単独がWP合算より優秀と判明
-#   E(rw2): 的中40回 ROI 3409% vs A(WP2): 的中28回 ROI 2383%
-#   N(適応rw): 的中55回 ROI 11318% vs C(適応WP): 的中41回 ROI 2016%
-#   ただし旧A+Cだけで的中する13回があり(視点の違い)、全併用で連敗24wに短縮
+# polaris 2.1b Session 117:
+#   rank_w単独 > WP合算: E(rw2) ROI 3409% vs A(WP2) 2383%
+#   自信度可変(CG3): conf_gap>0.10→1頭, >0.05→2頭, else→3頭
+#     CG3単体: 的中54回 ROI 15918% MaxDD 125K
+#     E+CG3: 的中65回 ROI 10897% MaxDD 221K 連敗24w（最効率）
+#     E+N+CG3: 的中80回 ROI 11124% MaxDD 874K 連敗24w
+#   旧A+Cだけの独自的中13回あり → 全併用で連敗24wに短縮
 # ============================================================
+
+
+def _conf_gap(entries):
+    """rank_w 1位と2位のpred_proba_w差（自信度）"""
+    valid = [e for e in entries if (e.get('rank_w') or 0) > 0]
+    by_rw = sorted(valid, key=lambda e: e['rank_w'])
+    if len(by_rw) < 2:
+        return 0
+    p1 = by_rw[0].get('pred_proba_w_cal') or by_rw[0].get('pred_proba_w') or 0
+    p2 = by_rw[1].get('pred_proba_w_cal') or by_rw[1].get('pred_proba_w') or 0
+    return p1 - p2
+
 
 def plan_e_select(race_info):
     """Plan E: rank_w Top2固定（メイン）"""
@@ -168,6 +186,13 @@ def plan_n_select(race_info):
         n = 3
     else:
         n = 2
+    return rw_top(race_info['entries'], n)
+
+
+def plan_cg3_select(race_info):
+    """Plan CG3: 自信度可変 rank_w（メイン）— gap>0.10→1頭, >0.05→2頭, else→3頭"""
+    cg = _conf_gap(race_info['entries'])
+    n = 1 if cg > 0.10 else (2 if cg > 0.05 else 3)
     return rw_top(race_info['entries'], n)
 
 
@@ -191,6 +216,7 @@ def plan_c_select(race_info):
 PLAN_FNS = {
     'E': ('E: rank_w Top2 (32点)', plan_e_select),
     'N': ('N: 頭数適応 rank_w (~94点)', plan_n_select),
+    'CG3': ('CG3: 自信度可変 rank_w (~48点)', plan_cg3_select),
     'A': ('A: WP合算 Top2 (32点) [参考]', plan_a_select),
     'C': ('C: 頭数適応 WP合算 (~94点) [参考]', plan_c_select),
 }
@@ -376,9 +402,10 @@ def main():
         print(f"  最大連敗: {p['max_losing_streak']}週")
 
     combos = [
-        ('E+N', ['E', 'N']),
+        ('E+CG3', ['E', 'CG3']),
+        ('E+N+CG3', ['E', 'N', 'CG3']),
         ('A+C', ['A', 'C']),
-        ('E+N+A+C', ['E', 'N', 'A', 'C']),
+        ('E+N+CG3+A+C', ['E', 'N', 'CG3', 'A', 'C']),
     ]
 
     combo_analyses = {}
