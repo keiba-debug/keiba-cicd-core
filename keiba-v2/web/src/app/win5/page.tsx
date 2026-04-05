@@ -370,7 +370,7 @@ export default function Win5Page() {
     }
   };
 
-  const strategyOrder = ['A', 'B', 'C', 'D'];
+  const strategyOrder = ['E', 'N', 'CG3', 'A', 'C'];
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-6">
