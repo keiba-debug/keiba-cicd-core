@@ -234,10 +234,14 @@ FEATURE_COLS_ALL = (
 )
 
 # v7.9: P専用特徴量（好走予測に有効だが勝利予測にノイズになるもの）
+# CID/LS系: P AUC +0.014だがW ROI悪化（gap4: 124%→110%）のためP専用
 P_ONLY_FEATURES = {
     'jrdb_mae_furi_last', 'jrdb_naka_furi_last', 'jrdb_ato_furi_last',
     'jrdb_furi_total_last', 'jrdb_baba_sa_last', 'jrdb_baba_sa_avg3',
     'jrdb_pace_match', 'jrdb_kyakushitsu', 'jrdb_distance_apt',
+    # CID/LS — Pモデル専用 (polaris 2.1b)
+    'jrdb_cid', 'jrdb_cid_score', 'jrdb_ls_idx',
+    'jrdb_cid_score_trend', 'jrdb_cid_score_vs_avg',
 }
 
 # 共通特徴量（市場系・P専用を除外 — W/ARモデル用ベース）

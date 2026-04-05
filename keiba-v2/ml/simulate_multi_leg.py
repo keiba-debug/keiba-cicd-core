@@ -769,10 +769,10 @@ def generate_sanrentan_formation(races: list) -> List[Recommendation]:
       - VB候補(WinEV≥1.5 & Odds≥10) ≥ 3頭
 
     フォーメーション:
-      ★(1着): 上記VB候補
+      ★(1着): VB候補のうちEV上位2頭（点数爆発防止）
       ▲(2着): P%上位4頭（★除く）
       △(3着): 次の3頭
-      = ★ → ▲▲▲▲ → ▲▲▲▲△△△ = 最大28点/VB馬
+      = ★ → ▲▲▲▲ → ▲▲▲▲△△△ = 最大28点/VB馬 × 2頭 = 56点/レース
     """
     recs = []
 
@@ -815,12 +815,15 @@ def generate_sanrentan_formation(races: list) -> List[Recommendation]:
         if conf_gap >= 0.10:
             continue
 
-        # VB候補 ≥ 3頭
+        # VB候補 ≥ 3頭（EV降順で上位2頭のみ使用 → 1レースmax56点）
         vb_candidates = [e for e in valid
                          if (e.get("win_ev") or 0) >= 1.5
                          and e["odds"] >= 10]
         if len(vb_candidates) < 3:
             continue
+
+        # EV降順で上位2頭に制限（点数爆発防止）
+        vb_candidates = sorted(vb_candidates, key=lambda e: -(e.get("win_ev") or 0))[:2]
 
         # P% rank order
         p_sorted = sorted(valid, key=lambda e: -(e.get("pred_proba_p_raw") or 0))

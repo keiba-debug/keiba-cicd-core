@@ -204,11 +204,17 @@ def main():
                         help='独自にモデル学習（旧方式、liveモデルとは異なる結果）')
     parser.add_argument('--sire-cutoff', type=str, default=None,
                         help='血統統計カットオフ日 (YYYY-MM-DD)。未指定時はmodel_metaから自動取得')
+    parser.add_argument('--model-dir', type=str, default=None,
+                        help='モデルディレクトリ（未指定時はlive ml_dir）例: data3/ml/versions/v7.9')
+    parser.add_argument('--cache-suffix', type=str, default=None,
+                        help='backtest_cache出力ファイルのsuffix 例: v7.9 → backtest_cache_v7.9.json')
     args = parser.parse_args()
 
     print('=' * 70)
     if args.retrain:
         print('  bet_engine バックテスト (retrain mode: 独自学習)')
+    elif args.model_dir:
+        print(f'  bet_engine バックテスト (custom model: {args.model_dir})')
     else:
         print('  bet_engine バックテスト (live model mode)')
     print('=' * 70)
@@ -249,7 +255,8 @@ def main():
     (history_cache, trainer_index, jockey_index,
      date_index, pace_index, kb_ext_index, training_summary_index,
      race_level_index, pedigree_index, sire_stats_index,
-     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index) = load_data(
+     jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index,
+     jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index) = load_data(
         sire_cutoff=sire_cutoff)
 
     # PIT timelines
@@ -312,8 +319,13 @@ def main():
             df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_AR, 'Aura'
         )
     else:
-        # === 新方式: liveモデルをロードしてテストデータで予測 ===
-        ml_dir = config.ml_dir()
+        # === 新方式: モデルをロードしてテストデータで予測 ===
+        if args.model_dir:
+            ml_dir = Path(args.model_dir)
+            if not ml_dir.is_absolute():
+                ml_dir = Path(config.data_root()) / args.model_dir
+        else:
+            ml_dir = config.ml_dir()
         meta_path = ml_dir / "model_meta.json"
         with open(meta_path, encoding='utf-8') as f:
             meta = json.load(f)
@@ -434,7 +446,8 @@ def main():
     print(f'  {len(race_preds)} races, {sum(len(r["entries"]) for r in race_preds):,} entries')
 
     # キャッシュ保存（再分析用）
-    cache_path = Path('C:/KEIBA-CICD/data3/ml/backtest_cache.json')
+    cache_name = f'backtest_cache_{args.cache_suffix}.json' if args.cache_suffix else 'backtest_cache.json'
+    cache_path = Path(config.data_root()) / 'ml' / cache_name
     with open(cache_path, 'w', encoding='utf-8') as f:
         json.dump(race_preds, f, ensure_ascii=False)
     print(f'  Cached to {cache_path}')

@@ -95,27 +95,24 @@ def apply_bet_engine(
         if p.win_max_predicted_margin > 0 and p.win_max_predicted_margin < 900:
             p.win_max_predicted_margin += LIVE_MARGIN_OFFSET
         live_presets[k] = p
-    live_adaptive_rules = []
-    for r in ADAPTIVE_RULES:
-        r2 = _copy.copy(r)
-        if r2.max_predicted_margin < 900:
-            r2.max_predicted_margin += LIVE_MARGIN_OFFSET
-        live_adaptive_rules.append(r2)
 
-    available_presets = list(PRESETS.keys()) + ['adaptive']
+    # 生成対象プリセット（polaris 2.1b: 主力3プリセットのみ）
+    # 旧プリセット(standard/wide/aggressive/intersection/relaxed/simple系/adaptive)は
+    # バックテスト比較でtansho_ipponに劣る or 重複するため非生成化。
+    # PRESETS辞書自体はbacktest_bet_engine用に残置。
+    ACTIVE_PRESETS = ['tansho_ippon']
 
-    presets = live_presets
+    available_presets = list(PRESETS.keys())
     if preset_filter:
         if preset_filter not in available_presets:
             print(f"[Error] Unknown preset: {preset_filter}. "
                   f"Available: {', '.join(available_presets)}")
             return _empty_bets_data(predictions_data)
-        if preset_filter == 'adaptive':
-            presets = {}
-        else:
-            presets = {preset_filter: live_presets[preset_filter]}
+        target_presets = {preset_filter: live_presets[preset_filter]}
+    else:
+        target_presets = {k: live_presets[k] for k in ACTIVE_PRESETS}
 
-    for preset_name, preset_params in presets.items():
+    for preset_name, preset_params in target_presets.items():
         recs = generate_recommendations(races, preset_params, budget=budget)
         recs = apply_kelly_sizing(recs, bankroll=bankroll)
         all_recommendations[preset_name] = {
@@ -152,28 +149,21 @@ def apply_bet_engine(
               f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}{umatan_str}, "
               f"Amount={s['total_amount']:,}")
 
-    # --- adaptive プリセット ---
-    if not preset_filter or preset_filter == 'adaptive':
-        relaxed_params = live_presets['relaxed']
-        adaptive_recs = generate_recommendations(races, relaxed_params, budget=budget)
-        adaptive_recs = apply_adaptive_kelly(adaptive_recs, races, live_adaptive_rules)
-        adaptive_recs = apply_kelly_sizing(adaptive_recs, bankroll=bankroll)
-        all_recommendations['adaptive'] = {
-            'params': {
-                'type': 'adaptive',
-                'base_preset': 'relaxed',
-                'rules': [r.name for r in live_adaptive_rules],
-            },
-            'bets': recommendations_to_dict(adaptive_recs),
-            'summary': recommendations_summary(adaptive_recs),
+    # --- tansho_ippon: 単勝のみにフィルタ（generate_recommendationsが自動追加するワイド/馬連を除外） ---
+    if 'tansho_ippon' in all_recommendations:
+        ti = all_recommendations['tansho_ippon']
+        win_only = [b for b in ti['bets'] if b.get('bet_type') == '単勝']
+        ti['bets'] = win_only
+        n = len(win_only)
+        ti['summary'] = {
+            'total_bets': n, 'total_amount': n * 100,
+            'win_bets': n, 'place_bets': 0, 'wide_bets': 0,
+            'umaren_bets': 0, 'umatan_bets': 0,
         }
-        s = recommendations_summary(adaptive_recs)
-        wide_str = f", Wide={s['wide_bets']}" if s.get('wide_bets') else ""
-        umaren_str = f", Umaren={s['umaren_bets']}" if s.get('umaren_bets') else ""
-        umatan_str = f", Umatan={s['umatan_bets']}" if s.get('umatan_bets') else ""
-        print(f"  adaptive: {s['total_bets']} bets, "
-              f"Win={s['win_bets']}, Place={s['place_bets']}{wide_str}{umaren_str}{umatan_str}, "
-              f"Amount={s['total_amount']:,}")
+        print(f"  tansho_ippon (filtered): {n} win-only bets")
+
+        # 馬連プリセット派生
+        _generate_umaren_presets(races, all_recommendations, budget)
 
     # マルチレグ推奨生成
     multi_leg_output = []
@@ -255,6 +245,111 @@ def apply_bet_engine(
     }
 
     return bets_data
+
+
+def _generate_umaren_presets(
+    races: list,
+    all_recommendations: dict,
+    budget: int,
+):
+    """tansho_ippon VB通過レースから馬連プリセット(honmei_umaren, umaren_hirome)を生成
+
+    honmei_umaren: 単勝一本の全ベット + 同レースの馬連rp Top2 (2点)
+    umaren_hirome: 単勝一本の全ベット + 同レースの馬連ARd Top3 (3点)
+    """
+    tansho_bets = all_recommendations['tansho_ippon'].get('bets', [])
+    if not tansho_bets:
+        return
+
+    # VB通過レースのrace_id→軸馬番を取得
+    vb_races = {}  # race_id → umaban (軸馬)
+    for bet in tansho_bets:
+        rid = bet.get('race_id')
+        if rid:
+            vb_races[rid] = bet.get('umaban', 0)
+
+    # レースデータをrace_idでインデックス化
+    race_map = {str(r.get('race_id', '')): r for r in races}
+
+    for preset_key, n_partners, partner_method in [
+        ('honmei_umaren', 2, 'rp'),
+        ('umaren_hirome', 3, 'ard'),
+    ]:
+        umaren_bets = []
+        for rid, axis_umaban in vb_races.items():
+            race = race_map.get(rid)
+            if not race:
+                continue
+
+            entries = race.get('entries', [])
+            valid = [e for e in entries if (e.get('odds') or 0) > 0]
+            if len(valid) < 2:
+                continue
+
+            # 相手選出
+            others = [e for e in valid if e.get('umaban') != axis_umaban]
+            if partner_method == 'rp':
+                partners = sorted(others, key=lambda e: (e.get('rank_p') or 99))[:n_partners]
+            else:  # ard
+                partners = sorted(others, key=lambda e: -(e.get('ar_deviation') or 0))[:n_partners]
+
+            axis_name = next(
+                (e.get('horse_name', '') for e in valid if e.get('umaban') == axis_umaban),
+                ''
+            )
+
+            for p in partners:
+                pair = sorted([axis_umaban, p.get('umaban', 0)])
+                umaren_bets.append({
+                    'race_id': rid,
+                    'umaban': axis_umaban,
+                    'horse_name': f"{axis_name}→{p.get('horse_name', '')}",
+                    'bet_type': '馬連',
+                    'strength': 'normal',
+                    'win_amount': 0,
+                    'place_amount': 0,
+                    'umaren_amount': 100,
+                    'umaren_pair': pair,
+                    'wide_pair': pair,  # ExecuteTab互換
+                    'odds': 0,  # 馬連オッズ（現時点では未取得）
+                    'gap': 0,
+                    'dev_gap': 0,
+                    'vb_score': 0,
+                    'win_gap': 0,
+                    'predicted_margin': 0,
+                    'win_ev': 0,
+                    'place_ev': 0,
+                    'kelly_amount': 0,
+                    'market_signal': '',
+                    'is_danger': False,
+                })
+
+        # 単勝一本のベットをコピーして馬連を追加
+        combined_bets = list(tansho_bets) + umaren_bets
+        n_win = len(tansho_bets)
+        n_umaren = len(umaren_bets)
+        total_amount = n_win * 100 + n_umaren * 100
+
+        all_recommendations[preset_key] = {
+            'params': {
+                'type': 'umaren_combo',
+                'base_preset': 'tansho_ippon',
+                'partner_method': partner_method,
+                'n_partners': n_partners,
+            },
+            'bets': combined_bets,
+            'summary': {
+                'total_bets': n_win + n_umaren,
+                'total_amount': total_amount,
+                'win_bets': n_win,
+                'place_bets': 0,
+                'wide_bets': 0,
+                'umaren_bets': n_umaren,
+                'umatan_bets': 0,
+            },
+        }
+        print(f"  {preset_key}: {n_win + n_umaren} bets (Win={n_win}, Umaren={n_umaren}), "
+              f"Amount={total_amount:,}")
 
 
 def _empty_bets_data(predictions_data: dict) -> dict:

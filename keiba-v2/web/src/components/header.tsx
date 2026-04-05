@@ -160,32 +160,6 @@ export function Header() {
                   </span>
                 </Link>
                 <Link
-                  href="/analysis/simulation"
-                  onClick={() => { if (vbMenuRef.current) vbMenuRef.current.open = false; }}
-                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <span>📈</span>
-                    <span>
-                      <span className="font-medium">Simulation</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">バンクロール・配分戦略比較</span>
-                    </span>
-                  </span>
-                </Link>
-                <Link
-                  href="/analysis/formation"
-                  onClick={() => { if (vbMenuRef.current) vbMenuRef.current.open = false; }}
-                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <span>🎰</span>
-                    <span>
-                      <span className="font-medium">三連単Formation</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">VBフォーメーション検証結果</span>
-                    </span>
-                  </span>
-                </Link>
-                <Link
                   href="/changelog"
                   onClick={() => { if (vbMenuRef.current) vbMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors border-t"
@@ -244,6 +218,45 @@ export function Header() {
                     <span>
                       <span className="font-medium">写輪眼 WIN5</span>
                       <span className="block text-xs text-muted-foreground mt-0.5">推奨フォーメーション</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
+                  href="/win5/simulation"
+                  onClick={() => { if (bakenMenuRef.current) bakenMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>5</span>
+                    <span>
+                      <span className="font-medium">WIN5 シミュレーション</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">E+N+A+C 併用バックテスト</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
+                  href="/analysis/simulation"
+                  onClick={() => { if (bakenMenuRef.current) bakenMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors border-t"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📈</span>
+                    <span>
+                      <span className="font-medium">戦略シミュレーション</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">バンクロール・配分戦略比較</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
+                  href="/analysis/formation"
+                  onClick={() => { if (bakenMenuRef.current) bakenMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🎰</span>
+                    <span>
+                      <span className="font-medium">三連単Formation</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">VBフォーメーション検証結果</span>
                     </span>
                   </span>
                 </Link>

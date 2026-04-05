@@ -7,13 +7,18 @@ import type { SimulationResult } from './types';
 import BankrollChart from './BankrollChart';
 
 const MODE_COLORS: Record<string, string> = {
-  adaptive: '#3b82f6',
-  intersection: '#ef4444',
+  // 新プリセット
+  tansho_ippon: '#3b82f6',     // blue — 単勝一本
+  honmei_umaren: '#ef4444',    // red — 本命馬連
+  umaren_hirome: '#f59e0b',    // amber — 馬連広め
+  // 旧プリセット (互換)
+  adaptive: '#6366f1',
+  intersection: '#10b981',
   intersection_place: '#f97316',
-  relaxed: '#f59e0b',
-  simple: '#10b981',
-  simple_ev2: '#8b5cf6',
-  simple_wide: '#6366f1',
+  relaxed: '#8b5cf6',
+  simple: '#14b8a6',
+  simple_ev2: '#a855f7',
+  simple_wide: '#64748b',
 };
 
 function MetricCard({ label, value, sub, color }: {
@@ -150,7 +155,7 @@ export default function SimulationPage() {
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const { data, isLoading, error } = useSimulationResult(selectedVersion);
   const { versions } = useSimulationVersions();
-  const [selectedBudget, setSelectedBudget] = useState('3%');
+  const [selectedBudget, setSelectedBudget] = useState('flat500');
 
   // All results for the selected budget (one per preset)
   const filteredResults = useMemo(() => {
@@ -252,14 +257,14 @@ export default function SimulationPage() {
             Bankroll Simulation
             {data.model_version && (
               <span className="ml-2 text-base font-normal text-muted-foreground">
-                v{data.model_version}
+                {data.model_version}
               </span>
             )}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {data.initial_bankroll.toLocaleString()}円 / 複利 / {periodInfo ? `${periodInfo.start}~${periodInfo.end} (${periodInfo.days}日)` : '---'}
+            {data.initial_bankroll.toLocaleString()}円 / {periodInfo ? `${periodInfo.start}~${periodInfo.end} (${periodInfo.days}日)` : '---'}
             {data.created_at && (
-              <span className="ml-2">/ {data.created_at.replace('T', ' ')}</span>
+              <span className="ml-2">/ {data.created_at.slice(0, 16).replace('T', ' ')}</span>
             )}
           </p>
         </div>

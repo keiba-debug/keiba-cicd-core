@@ -447,6 +447,29 @@ PRESETS: Dict[str, BetStrategyParams] = {
         max_win_per_race=1,
         closing_boost_threshold=0,
     ),
+    # ===================================================================
+    # 新プリセット (polaris 2.1b 戦略再設計 Session 117)
+    # 軸条件は3プリセット共通: rank_w=1 + gap≥3 + EV≥1.3 + margin≤60
+    # 馬連系はgenerate_bets.py側でtansho_ippon VB通過レースに追加生成
+    # ===================================================================
+    'tansho_ippon': BetStrategyParams(
+        # 単勝一本: シミュレーション最強の単勝戦略
+        # polaris 2.1b: 164件, ROI 156.1%, flat500 +46.0%
+        win_max_rank_w=1,               # rank_w=1のみ
+        win_min_win_gap=3,              # win_vb_gap>=3
+        win_min_ev=1.3,                 # EV>=1.3
+        win_max_predicted_margin=60,    # 接戦フィルタ (predicted_margin)
+        win_min_vb_score=0,             # Composite Score無効
+        win_v_ratio_min=0,              # P%比率フィルタ無効
+        win_max_rank=99,                # rank_pフィルタ無効
+        win_min_gap=0,                  # place gapフィルタ無効
+        ard_vb_min_ard=0,              # ARd VBルート無効
+        ard_vb_min_odds=0,
+        place_addon=False,              # 複勝なし: 単勝一本
+        place_min_gap=99,               # 複勝単独無効
+        max_win_per_race=1,             # 1レース1買い
+        closing_boost_threshold=0,      # Closing boost無効
+    ),
 }
 
 

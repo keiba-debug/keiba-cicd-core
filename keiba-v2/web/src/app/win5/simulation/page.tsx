@@ -32,19 +32,8 @@ interface WeeklyData {
   pl: number;
   cum_pl: number;
   hit: boolean;
-  a_hit: boolean;
-  b_hit: boolean;
-  c_hit: boolean;
-  d_hit: boolean;
-  b_skip: boolean;
-  a_cost: number;
-  b_cost: number;
-  c_cost: number;
-  d_cost: number;
-  a_payout: number;
-  b_payout: number;
-  c_payout: number;
-  d_payout: number;
+  // 動的プランキー: e_hit, n_hit, a_hit, c_hit 等
+  [key: string]: string | number | boolean;
 }
 
 interface ComboData {
@@ -188,7 +177,7 @@ export default function Win5SimulationPage() {
   const [data, setData] = useState<SimData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeCombo, setActiveCombo] = useState<string>('A+B');
+  const [activeCombo, setActiveCombo] = useState<string>('E+N');
   const [showWeekly, setShowWeekly] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
@@ -274,7 +263,7 @@ export default function Win5SimulationPage() {
 
       {/* Plan Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        {(['A', 'B', 'C', 'D'] as const).map(key => {
+        {(Object.keys(plans) as string[]).map(key => {
           const p = plans[key];
           if (!p) return null;
           return (
@@ -417,11 +406,13 @@ export default function Win5SimulationPage() {
             </thead>
             <tbody>
               {combo.weekly.filter(w => w.hit).map(w => {
-                const plans_hit: string[] = [];
-                if (w.a_hit) plans_hit.push('A');
-                if (w.b_hit) plans_hit.push('B');
-                if (w.c_hit) plans_hit.push('C');
-                if (w.d_hit) plans_hit.push('D');
+                const planColors: Record<string, string> = {
+                  E: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+                  N: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+                  A: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+                  C: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+                };
+                const plans_hit = Object.keys(planColors).filter(p => w[`${p.toLowerCase()}_hit`]);
                 const profit = w.payout - w.cost;
                 return (
                   <tr key={w.date} className="border-t hover:bg-muted/20">
@@ -436,10 +427,7 @@ export default function Win5SimulationPage() {
                         <span
                           key={p}
                           className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold mr-1 ${
-                            p === 'A' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                            p === 'B' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
-                            p === 'D' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' :
-                            'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
+                            planColors[p] || 'bg-gray-100 text-gray-700'
                           }`}
                         >
                           {p}
@@ -467,9 +455,9 @@ export default function Win5SimulationPage() {
         </button>
 
         {showWeekly && (() => {
-          const planKeys = activeCombo.split('+') as ('A' | 'B' | 'C' | 'D')[];
-          const costKey = (k: string) => `${k.toLowerCase()}_cost` as keyof WeeklyData;
-          const payKey = (k: string) => `${k.toLowerCase()}_payout` as keyof WeeklyData;
+          const planKeys = activeCombo.split('+');
+          const costKey = (k: string) => `${k.toLowerCase()}_cost`;
+          const payKey = (k: string) => `${k.toLowerCase()}_payout`;
           return (
             <div className="mt-3 border rounded-xl overflow-x-auto">
               <table className="w-full text-xs">
@@ -498,7 +486,7 @@ export default function Win5SimulationPage() {
                       {planKeys.map(k => {
                         const cost = (w[costKey(k)] as number) || 0;
                         const pay = (w[payKey(k)] as number) || 0;
-                        const skipKey = `${k.toLowerCase()}_skip` as keyof WeeklyData;
+                        const skipKey = `${k.toLowerCase()}_skip`;
                         const isSkip = !!(w[skipKey]);
                         return (
                           <React.Fragment key={k}>
@@ -531,16 +519,16 @@ export default function Win5SimulationPage() {
       {/* Legend */}
       <div className="mt-6 p-3 rounded-lg border bg-muted/10 text-xs text-muted-foreground space-y-1">
         <div>
-          <span className="font-medium">Plan A</span>: WP合算Top2 — rank_w+rank_p合算で上位2頭 (32点=3,200円)
+          <span className="font-medium">Plan E</span>: rank_w Top2 — Wモデル上位2頭 (32点=3,200円)
         </div>
         <div>
-          <span className="font-medium">Plan B</span>: WP2+KB印+IDM — WP合算Top2 &cup; KB印◎ &cup; JRDB IDM1位 (~71点=7,100円)
+          <span className="font-medium">Plan N</span>: 頭数適応 rank_w — 12頭以下&rarr;1頭, 14頭以上&rarr;3頭, 他&rarr;2頭 (~94点=9,400円)
         </div>
         <div>
-          <span className="font-medium">Plan C</span>: 頭数適応 — 12頭以下&rarr;1頭, 14頭以上&rarr;3頭, 他&rarr;2頭 (~94点=9,400円)
+          <span className="font-medium">Plan A</span>: WP合算Top2 — rank_w+rank_p合算で上位2頭 (32点=3,200円) [参考]
         </div>
         <div>
-          <span className="font-medium">Plan D</span>: WP合算Top3 — rank_w+rank_p合算で上位3頭 (243点=24,300円) [参考]
+          <span className="font-medium">Plan C</span>: 頭数適応 WP合算 — 12頭以下&rarr;1頭, 14頭以上&rarr;3頭, 他&rarr;2頭 (~94点=9,400円) [参考]
         </div>
         <div>
           <span className="font-medium">推奨バンクロール</span>: 最大ドローダウンの1.5倍。この金額を準備してから開始すること。

@@ -119,7 +119,7 @@ export default function BankrollChart({ results, initialBankroll, modeColors }: 
             type="monotone"
             dataKey={r.mode}
             stroke={modeColors[r.mode] ?? '#888'}
-            strokeWidth={r.mode === 'intersection' ? 2.5 : 1.5}
+            strokeWidth={r.mode === 'honmei_umaren' || r.mode === 'intersection' ? 2.5 : 1.5}
             dot={false}
             connectNulls
           />

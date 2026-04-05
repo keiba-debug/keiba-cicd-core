@@ -3,13 +3,16 @@
 """
 WIN5 推奨馬ピッカー
 
-指定日のWIN5対象レースに対して4プラン(A/B/C/D)で推奨馬を出力する。
+指定日のWIN5対象レースに対してプラン別に推奨馬を出力する。
 combo_sim と同一の戦略を使用。
 
-Plan A: WPs2固定         — WP合算rank top2 (32点, ¥3,200/週)
-Plan B: WPs2+kb1+idm1   — WP合算top2 ∪ KB印◎ ∪ IDM1位 (~71点, ¥7,100/週)
-Plan C: field_adaptive   — 頭数適応 (12以下→1頭, 14以上→3頭, 他→2頭, ~94点 ¥9,400/週)
-Plan D: WPs3固定         — WP合算rank top3 (243点, ¥24,300/週) [参考]
+メインプラン:
+  Plan E: rank_w Top2固定   — Wモデル上位2頭 (32点, ¥3,200/週)
+  Plan N: 頭数適応 rank_w   — 頭数で1-3頭 (~94点, ¥9,400/週)
+
+参考プラン（WP合算系、独自的中13回あり）:
+  Plan A: WP合算 Top2固定   — rank_w+rank_p合算上位2頭 (32点, ¥3,200/週)
+  Plan C: 頭数適応 WP合算   — 頭数で1-3頭 (~94点, ¥9,400/週)
 
 Usage:
     python -m ml.win5_pick --date 2026-01-25
@@ -34,6 +37,12 @@ from core import config, db
 # ============================================================
 
 KB_MARK_ORDER = {'\u25ce': 1, '\u25cb': 2, '\u25b2': 3, '\u25b3': 4, '\u25bd': 5, '\u00d7': 6, '': 99}
+
+
+def rw_top(entries: list, n: int) -> list:
+    """rank_w（Winモデル）上位n頭の馬番リスト"""
+    valid = [e for e in entries if (e.get('rank_w') or 0) > 0]
+    return [int(e['umaban']) for e in sorted(valid, key=lambda e: e['rank_w'])[:n]]
 
 
 def wps_sorted(entries: list) -> list:
@@ -73,20 +82,35 @@ def union(*lists) -> list:
 
 # ============================================================
 # 戦略定義 (combo_sim と完全同一)
+# polaris 2.1b Session 117: rank_w単独 > WP合算
 # ============================================================
 
+def plan_e_select(entries: list, race_info: dict = None) -> list:
+    """Plan E: rank_w Top2固定（メイン）"""
+    return rw_top(entries, 2)
+
+
+def plan_n_select(entries: list, race_info: dict = None) -> list:
+    """Plan N: 頭数適応 rank_w（メイン）— 12以下→1頭, 14以上→3頭, 他→2頭"""
+    num_runners = len(entries)
+    if race_info:
+        num_runners = race_info.get('num_runners', num_runners)
+    if num_runners <= 12:
+        n = 1
+    elif num_runners >= 14:
+        n = 3
+    else:
+        n = 2
+    return rw_top(entries, n)
+
+
 def plan_a_select(entries: list, race_info: dict = None) -> list:
-    """Plan A: WPs2固定 — WP合算rank top2"""
+    """Plan A: WP合算 Top2固定（参考）"""
     return wps_top(entries, 2)
 
 
-def plan_b_select(entries: list, race_info: dict = None) -> list:
-    """Plan B: WPs2+kb1+idm1 — WP合算top2 ∪ KB印◎ ∪ IDM1位"""
-    return union(wps_top(entries, 2), kb_mark_top(entries, 1), idm_top(entries, 1))
-
-
 def plan_c_select(entries: list, race_info: dict = None) -> list:
-    """Plan C: field_adaptive — 頭数12以下→1頭, 14以上→3頭, 他→2頭"""
+    """Plan C: 頭数適応 WP合算（参考）— 12以下→1頭, 14以上→3頭, 他→2頭"""
     num_runners = len(entries)
     if race_info:
         num_runners = race_info.get('num_runners', num_runners)
@@ -99,30 +123,25 @@ def plan_c_select(entries: list, race_info: dict = None) -> list:
     return wps_top(entries, n)
 
 
-def plan_d_select(entries: list, race_info: dict = None) -> list:
-    """Plan D: WPs3固定 — WP合算rank top3 [参考]"""
-    return wps_top(entries, 3)
-
-
 PLANS = {
-    'A': {
-        'label': 'Plan A: WP合算 Top2 (32点/週)',
-        'select': plan_a_select,
+    'E': {
+        'label': 'Plan E: rank_w Top2 (32点/週)',
+        'select': plan_e_select,
         'reference': False,
     },
-    'B': {
-        'label': 'Plan B: WP合算2+KB印◎+IDM1位 (~71点/週)',
-        'select': plan_b_select,
+    'N': {
+        'label': 'Plan N: 頭数適応 rank_w (~94点/週)',
+        'select': plan_n_select,
         'reference': False,
+    },
+    'A': {
+        'label': 'Plan A: WP合算 Top2 (32点/週) [参考]',
+        'select': plan_a_select,
+        'reference': True,
     },
     'C': {
-        'label': 'Plan C: 頭数適応 WP合算 (~94点/週)',
+        'label': 'Plan C: 頭数適応 WP合算 (~94点/週) [参考]',
         'select': plan_c_select,
-        'reference': False,
-    },
-    'D': {
-        'label': 'Plan D: WP合算 Top3 (243点/週)',
-        'select': plan_d_select,
         'reference': True,
     },
 }

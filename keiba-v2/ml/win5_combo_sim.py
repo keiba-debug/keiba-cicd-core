@@ -1,14 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-WIN5 A/B/C/D 併用 精密週次シミュレーション
+WIN5 精密週次シミュレーション
 
-win5_pick.py と同一の戦略:
-- Plan A: WPs2固定         — WP合算rank top2 (32点, ¥3,200/週)
-- Plan B: WPs2+kb1+idm1   — WP合算top2 ∪ KB印◎ ∪ IDM1位 (~71点, ¥7,100/週)
-- Plan C: field_adaptive   — 頭数適応 WP合算 (~94点, ¥9,400/週)
-- Plan D: WPs3固定         — WP合算rank top3 (243点, ¥24,300/週) [参考]
-- 併用: A+B / A+C / A+B+C / A+B+C+D
+polaris 2.1b Session 117: rank_w単独 > WP合算 と判明
+  E(rw2): 的中40回 ROI 3409% vs 旧A(WP2): 的中28回 ROI 2383%
+  N(適応rw): 的中55回 ROI 11318% vs 旧C(適応WP): 的中41回 ROI 2016%
+  全併用(E+N+A+C): 的中81回, 連敗24w — 視点の違いで相互補完
+
+メインプラン:
+- Plan E: rank_w Top2固定    — Wモデル上位2頭 (32点, ¥3,200/週)
+- Plan N: 頭数適応 rank_w    — 頭数で1-3頭 (~94点, ¥9,400/週)
+
+参考プラン（WP合算系、独自的中13回あり）:
+- Plan A: WP合算 Top2固定    — rank_w+rank_p合算上位2頭 (32点, ¥3,200/週)
+- Plan C: 頭数適応 WP合算    — 頭数で1-3頭 (~94点, ¥9,400/週)
+
+併用: E+N / A+C / E+N+A+C
 """
 import json
 import sys
@@ -103,6 +111,12 @@ def load_predictions_all(weeks):
 KB_MARK_ORDER = {'\u25ce': 1, '\u25cb': 2, '\u25b2': 3, '\u25b3': 4, '\u25bd': 5, '\u00d7': 6, '': 99}
 
 
+def rw_top(entries, n):
+    """rank_w（Winモデル）上位n頭"""
+    valid = [e for e in entries if (e.get('rank_w') or 0) > 0]
+    return [int(e['umaban']) for e in sorted(valid, key=lambda e: e['rank_w'])[:n]]
+
+
 def wps_sorted(entries):
     valid = [e for e in entries if (e.get('rank_w') or 0) > 0 and (e.get('rank_p') or 0) > 0]
     return sorted(valid, key=lambda e: e['rank_w'] + e['rank_p'])
@@ -132,19 +146,38 @@ def union(*lists):
     return list(s)
 
 
+# ============================================================
+# Plan definitions
+# polaris 2.1b Session 117: rank_w単独がWP合算より優秀と判明
+#   E(rw2): 的中40回 ROI 3409% vs A(WP2): 的中28回 ROI 2383%
+#   N(適応rw): 的中55回 ROI 11318% vs C(適応WP): 的中41回 ROI 2016%
+#   ただし旧A+Cだけで的中する13回があり(視点の違い)、全併用で連敗24wに短縮
+# ============================================================
+
+def plan_e_select(race_info):
+    """Plan E: rank_w Top2固定（メイン）"""
+    return rw_top(race_info['entries'], 2)
+
+
+def plan_n_select(race_info):
+    """Plan N: 頭数適応 rank_w（メイン）— 12以下→1頭, 14以上→3頭, 他→2頭"""
+    f = race_info['num_runners']
+    if f <= 12:
+        n = 1
+    elif f >= 14:
+        n = 3
+    else:
+        n = 2
+    return rw_top(race_info['entries'], n)
+
+
 def plan_a_select(race_info):
-    """Plan A: WPs2固定"""
+    """Plan A: WP合算 Top2固定（参考）"""
     return wps_top(race_info['entries'], 2)
 
 
-def plan_b_select(race_info):
-    """Plan B: WPs2+kb1+idm1"""
-    e = race_info['entries']
-    return union(wps_top(e, 2), kb_mark_top(e, 1), idm_top(e, 1))
-
-
 def plan_c_select(race_info):
-    """Plan C: field_adaptive — 頭数12以下→1頭, 14以上→3頭, 他→2頭"""
+    """Plan C: 頭数適応 WP合算（参考）— 12以下→1頭, 14以上→3頭, 他→2頭"""
     f = race_info['num_runners']
     if f <= 12:
         n = 1
@@ -155,16 +188,11 @@ def plan_c_select(race_info):
     return wps_top(race_info['entries'], n)
 
 
-def plan_d_select(race_info):
-    """Plan D: WPs3固定 [参考]"""
-    return wps_top(race_info['entries'], 3)
-
-
 PLAN_FNS = {
-    'A': ('A: WP合算 Top2 (32点)', plan_a_select),
-    'B': ('B: WP2+KB印+IDM (~71点)', plan_b_select),
-    'C': ('C: 頭数適応 WP合算 (~94点)', plan_c_select),
-    'D': ('D: WP合算 Top3 (243点) [参考]', plan_d_select),
+    'E': ('E: rank_w Top2 (32点)', plan_e_select),
+    'N': ('N: 頭数適応 rank_w (~94点)', plan_n_select),
+    'A': ('A: WP合算 Top2 (32点) [参考]', plan_a_select),
+    'C': ('C: 頭数適応 WP合算 (~94点) [参考]', plan_c_select),
 }
 
 
@@ -331,7 +359,7 @@ def main():
     for pk, (pname, _) in PLAN_FNS.items():
         plans[pk] = analyze_plan(plan_results[pk], pname)
 
-    for key in ['A', 'B', 'C', 'D']:
+    for key in PLAN_FNS:
         p = plans[key]
         print(f"\n{'=' * 60}")
         print(f"  {p['name']}")
@@ -348,10 +376,9 @@ def main():
         print(f"  最大連敗: {p['max_losing_streak']}週")
 
     combos = [
-        ('A+B', ['A', 'B']),
+        ('E+N', ['E', 'N']),
         ('A+C', ['A', 'C']),
-        ('A+B+C', ['A', 'B', 'C']),
-        ('A+B+C+D', ['A', 'B', 'C', 'D']),
+        ('E+N+A+C', ['E', 'N', 'A', 'C']),
     ]
 
     combo_analyses = {}
@@ -410,13 +437,13 @@ def main():
     print(f"\n{'プラン':<30} {'投資':>12} {'払戻':>12} {'ROI':>7}"
           f" {'最終損益':>12} {'最大DD':>12} {'連敗':>4} {'的中':>4}")
     print("-" * 105)
-    for key in ['A', 'B', 'C', 'D']:
+    for key in PLAN_FNS:
         p = plans[key]
         print(f"{p['name']:<30} {p['total_cost']:>11,}円"
               f" {p['total_payout']:>11,}円 {p['roi']:>6.1f}%"
               f" {p['final_pl']:>+11,}円 {p['max_dd']:>11,}円"
               f" {p['max_losing_streak']:>3}週 {p['hits']:>3}回")
-    for combo_name in ['A+B', 'A+C', 'A+B+C', 'A+B+C+D']:
+    for combo_name in [c[0] for c in combos]:
         ca = combo_analyses[combo_name]
         print(f"{combo_name:<30} {ca['total_cost']:>11,}円"
               f" {ca['total_payout']:>11,}円 {ca['roi']:>6.1f}%"
@@ -455,7 +482,7 @@ def main():
                 'pl': r['payout'] - r['cost'], 'cum_pl': cum,
                 'hit': r['hit'],
             }
-            for k in ['A', 'B', 'C', 'D']:
+            for k in PLAN_FNS:
                 dk = r['details'].get(k, {})
                 entry[f'{k.lower()}_hit'] = dk.get('hit', False) if not dk.get('skip') else False
                 entry[f'{k.lower()}_cost'] = dk.get('cost', 0) if not dk.get('skip') else 0

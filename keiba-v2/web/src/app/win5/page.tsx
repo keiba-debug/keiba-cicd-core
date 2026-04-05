@@ -380,7 +380,7 @@ export default function Win5Page() {
           <span className="text-3xl">5</span>
           <div>
             <h1 className="text-2xl font-bold">写輪眼 — WIN5 推奨馬</h1>
-            <p className="text-sm text-muted-foreground">A: WP合算2 / B: +KB印+IDM / C: 頭数適応 / D: WP合算3[参考]</p>
+            <p className="text-sm text-muted-foreground">E: rw Top2 / N: 適応rw / A: WP合算2[参考] / C: 適応WP[参考]</p>
           </div>
         </div>
         <Link

@@ -23,7 +23,7 @@ interface RecommendationEntry {
   race_number: number;
   umaban: number;
   horse_name: string;
-  odds: number;
+  odds?: number;
   rank_w: number;
   win_vb_gap: number;
   win_ev: number;
@@ -38,6 +38,7 @@ interface RecommendationEntry {
   place_ev?: number | null;
   vb_score?: number | null;
   wide_pair?: number[] | null;
+  umaren_pair?: number[] | null;
   wide_source?: string | null;  // '障害' | '激戦'
   kelly_amount?: number | null;
   kelly_capped?: number | null; // adaptive Kelly fraction (0.33/0.25/0.125)
@@ -63,7 +64,7 @@ interface PredictionsData {
       strength: string;
       win_amount: number;
       place_amount: number;
-      odds: number;
+      odds?: number;
       gap?: number;
       win_gap?: number;
       dev_gap?: number;
@@ -74,12 +75,15 @@ interface PredictionsData {
       ar_deviation?: number;
       pred_proba_w_cal?: number;
       wide_pair?: number[] | null;
+      umaren_pair?: number[] | null;
       wide_source?: string | null;
       track_type?: string;
       kelly_win_frac?: number;
       kelly_amount?: number;
       kelly_capped?: number;
       market_signal?: string;
+      place_odds_min?: number | null;
+      umaren_amount?: number;
     }>;
     summary: {
       total_bets: number;
@@ -122,7 +126,7 @@ interface OtherPresetData {
     race_number: number;
     umaban: number;
     horse_name: string;
-    odds: number;
+    odds?: number;
     win_vb_gap: number;
     win_ev: number;
     predicted_margin: number | null;
@@ -134,44 +138,40 @@ interface OtherPresetData {
     bet_type?: string;
     place_ev?: number | null;
     vb_score?: number | null;
+    wide_pair?: number[] | null;
+    umaren_pair?: number[] | null;
     market_signal?: string | null;
   }>;
 }
 
 // プリセットのラベル定義
 const PRESET_LABELS: Record<string, string> = {
-  standard: 'Standard (VBスコア)',
-  wide: 'Wide (緩め)',
-  aggressive: 'Aggressive (攻め)',
-  adaptive: '螺旋丸 (傾斜Kelly)',
-  intersection: 'Intersection',
-  relaxed: 'Relaxed (Gap≥3×EV≥1)',
-  simple: 'Simple (1位×Gap≥4)',
-  simple_ev2: 'Simple EV2 (1位×EV≥2)',
-  simple_wide: 'Simple Wide (1位×Gap≥3)',
+  tansho_ippon: '単勝一本',
+  honmei_umaren: '本命馬連',
+  umaren_hirome: '馬連広め',
 };
 
-// テスト期間(2025.05~2026.03) flat100シミュレーション結果に基づく戦略説明
+// polaris 2.1b シミュレーション結果に基づく戦略説明
 const PRESET_DESCRIPTIONS: Record<string, React.ReactNode> = {
-  aggressive: (
+  tansho_ippon: (
     <>
-      <p><strong>Aggressive</strong> — VBスコア≥6.0の高確信度ベットのみ</p>
-      <p>Flat ROI 108.8% / 単勝的中率 7.0% / テスト期間101日 / 1,083ベット</p>
-      <p>Max DD 6.5% / Calmar 1.47 — 全プリセット中最高の効率</p>
+      <p><strong>単勝一本</strong> — Wモデル1位 × Gap≥3 × EV≥1.3 × 接戦</p>
+      <p>Flat ROI 156.1% / 的中率 12.8% / 164件</p>
+      <p>flat500: +46.0% / Calmar 3.77 — 最もシンプルで最高ROI</p>
     </>
   ),
-  standard: (
+  honmei_umaren: (
     <>
-      <p><strong>Standard</strong> — VBスコア≥5.5のバランス型</p>
-      <p>Flat ROI 102.8% / 単勝的中率 7.5% / テスト期間101日 / 1,455ベット</p>
-      <p>ベット数が多く安定。Aggressiveより広い網で拾う</p>
+      <p><strong>本命馬連</strong> — 単勝一本の軸 + Pモデル上位2頭への馬連</p>
+      <p>Flat ROI 131.2% / 492件 (単勝+馬連)</p>
+      <p>flat500: +76.8% / Calmar 2.17 — 馬連で利益拡大</p>
     </>
   ),
-  intersection: (
+  umaren_hirome: (
     <>
-      <p><strong>Intersection</strong> — rank_w=1 × Gap≥4 × EV≥1.3 の全交差条件</p>
-      <p>Flat ROI 104.5% / テスト期間101日 / 562ベット</p>
-      <p>少数精鋭。単勝はほぼなく、ワイド・馬連が主力</p>
+      <p><strong>馬連広め</strong> — 単勝一本の軸 + ARd上位3頭への馬連</p>
+      <p>Flat ROI 98.4% / 656件 (単勝+馬連)</p>
+      <p>点数多め。馬連3点で広く拾うが分散リスクあり</p>
     </>
   ),
 };
@@ -236,7 +236,7 @@ export function ExecuteTab() {
   const [loading, setLoading] = useState(false);
 
   // プリセット切替
-  const [activePreset, setActivePreset] = useState<string>('aggressive');
+  const [activePreset, setActivePreset] = useState<string>('tansho_ippon');
   const [allPresetsMap, setAllPresetsMap] = useState<Record<string, RecommendationEntry[]>>({});
 
   // レース番号フィルタ: 0=全て, "1-4"等=レンジ, 数値=個別R
@@ -549,12 +549,13 @@ export function ExecuteTab() {
     const bets: { raceId: string; umaban: number; umaban2?: number; betType: number; amount: number }[] = [];
     for (const rec of recs) {
       const amount = getRecAmount(rec);
-      if (rec.bet_type === 'ワイド' && rec.wide_pair && rec.wide_pair.length === 2) {
-        bets.push({ raceId: rec.race_id, umaban: rec.wide_pair[0], umaban2: rec.wide_pair[1], betType: 4, amount });
-      } else if (rec.bet_type === '馬連' && rec.wide_pair && rec.wide_pair.length === 2) {
-        bets.push({ raceId: rec.race_id, umaban: rec.wide_pair[0], umaban2: rec.wide_pair[1], betType: 3, amount });
-      } else if (rec.bet_type === '馬単' && rec.wide_pair && rec.wide_pair.length === 2) {
-        bets.push({ raceId: rec.race_id, umaban: rec.wide_pair[0], umaban2: rec.wide_pair[1], betType: 5, amount });
+      const wp = rec.wide_pair || rec.umaren_pair;
+      if (rec.bet_type === 'ワイド' && wp && wp.length === 2) {
+        bets.push({ raceId: rec.race_id, umaban: wp[0], umaban2: wp[1], betType: 4, amount });
+      } else if (rec.bet_type === '馬連' && wp && wp.length === 2) {
+        bets.push({ raceId: rec.race_id, umaban: wp[0], umaban2: wp[1], betType: 3, amount });
+      } else if (rec.bet_type === '馬単' && wp && wp.length === 2) {
+        bets.push({ raceId: rec.race_id, umaban: wp[0], umaban2: wp[1], betType: 5, amount });
       } else if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連' || rec.bet_type === '馬単') {
         console.warn(`[FF CSV] ${rec.bet_type}にwide_pairなし、スキップ: ${rec.race_id}`);
       } else if (rec.bet_type === '単複') {
@@ -653,8 +654,9 @@ export function ExecuteTab() {
 
   // 確定ベットのIDを生成
   const makeConfirmedId = (rec: RecommendationEntry) => {
-    const pair = rec.wide_pair ? `W${rec.wide_pair[0]}-${rec.wide_pair[1]}` : String(rec.umaban);
-    return `${rec.race_id}-${rec.bet_type}-${pair}`;
+    const wp = rec.wide_pair || rec.umaren_pair;
+    const pairStr = wp ? `W${wp[0]}-${wp[1]}` : String(rec.umaban);
+    return `${rec.race_id}-${rec.bet_type}-${pairStr}`;
   };
 
   // 確定ボタン押下（トグル: 確定/解除）
@@ -672,7 +674,7 @@ export function ExecuteTab() {
         umaban: rec.umaban,
         horse_name: rec.horse_name,
         bet_type: rec.bet_type,
-        wide_pair: rec.wide_pair ?? null,
+        wide_pair: rec.wide_pair ?? rec.umaren_pair ?? null,
         wide_source: rec.wide_source ?? null,
         odds_at_confirm: rec.odds,
         ev_at_confirm: rec.win_ev,
@@ -838,11 +840,11 @@ export function ExecuteTab() {
     return { winCount, placeCount, obstacleCount, wideCount, umarenCount, umatanCount, gekisenWideCount };
   }, [displayRecs]);
 
-  // プリセット選択肢: テスト期間(2025.05~2026.03) flat100シミュレーション結果順
-  // aggressive: Flat ROI 108.8% (VBスコア≥6.0, 高確信度)
-  // standard:   Flat ROI 102.8% (VBスコア≥5.5, バランス型)
-  // intersection: Flat ROI 104.5% (rank_w=1×Gap≥4×EV≥1.3, 精鋭)
-  const PRESET_CHOICES = ['aggressive', 'standard', 'intersection'] as const;
+  // プリセット選択肢: polaris 2.1b シミュレーション結果
+  // tansho_ippon: Flat ROI 156.1% (rw1+gap3+EV1.3+m60, 単勝最強)
+  // honmei_umaren: Flat ROI 131.2% (単勝一本軸 + Pモデル馬連2点)
+  // umaren_hirome: Flat ROI 98.4% (単勝一本軸 + ARd馬連3点)
+  const PRESET_CHOICES = ['tansho_ippon', 'honmei_umaren', 'umaren_hirome'] as const;
 
   return (
     <div className="space-y-6">
@@ -1242,15 +1244,16 @@ export function ExecuteTab() {
                   {displayRecs.map((rec, idx) => {
                     const recAmount = getRecAmount(rec);
                     const fp = predictions?.finish_positions;
+                    const pair = rec.wide_pair || rec.umaren_pair;
                     // 着順取得
                     const finish1 = fp?.[rec.race_id]?.[rec.umaban] ?? null;
-                    const finish2 = rec.wide_pair ? fp?.[rec.race_id]?.[rec.wide_pair[1]] ?? null : null;
+                    const finish2 = pair ? fp?.[rec.race_id]?.[pair[1]] ?? null : null;
                     // 的中判定
                     let isHit: boolean | null = null;
                     if (fp?.[rec.race_id]) {
                       if (rec.bet_type === 'ワイド' || rec.bet_type === '馬連') {
-                        const f1 = rec.wide_pair ? fp[rec.race_id]?.[rec.wide_pair[0]] : null;
-                        const f2 = rec.wide_pair ? fp[rec.race_id]?.[rec.wide_pair[1]] : null;
+                        const f1 = pair ? fp[rec.race_id]?.[pair[0]] : null;
+                        const f2 = pair ? fp[rec.race_id]?.[pair[1]] : null;
                         if (f1 != null && f2 != null && f1 > 0 && f2 > 0) {
                           if (rec.bet_type === 'ワイド') {
                             isHit = f1 <= 3 && f2 <= 3;
@@ -1264,8 +1267,8 @@ export function ExecuteTab() {
                         if (finish1 != null && finish1 > 0) isHit = finish1 <= 3;
                       }
                     }
-                    const rowKey = rec.wide_pair
-                      ? `${rec.race_id}-${rec.bet_type}-W${rec.wide_pair[0]}-${rec.wide_pair[1]}`
+                    const rowKey = pair
+                      ? `${rec.race_id}-${rec.bet_type}-W${pair[0]}-${pair[1]}`
                       : `${rec.race_id}-${rec.umaban}`;
 
                     return (
@@ -1289,14 +1292,14 @@ export function ExecuteTab() {
                         </td>
                         <td className="py-2 px-1 text-center">{rec.race_number}</td>
                         <td className="py-2 px-1 text-center">
-                          {(rec.bet_type === 'ワイド' || rec.bet_type === '馬連') && rec.wide_pair ? (
+                          {(rec.bet_type === 'ワイド' || rec.bet_type === '馬連') && pair ? (
                             <span className="inline-flex items-center gap-0.5">
                               <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${rec.bet_type === '馬連' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700' : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700'}`}>
-                                {rec.wide_pair[0]}
+                                {pair[0]}
                               </span>
                               <span className="text-[10px] text-muted-foreground">-</span>
                               <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${rec.bet_type === '馬連' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700' : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700'}`}>
-                                {rec.wide_pair[1]}
+                                {pair[1]}
                               </span>
                             </span>
                           ) : (
@@ -1387,21 +1390,21 @@ export function ExecuteTab() {
                         <td className="py-2 px-1 text-right font-mono">
                           {(rec.bet_type === '複勝' || rec.bet_type === '単複') && rec.place_odds_min != null
                             ? rec.place_odds_min.toFixed(1)
-                            : rec.odds.toFixed(1)}
+                            : rec.odds != null ? rec.odds.toFixed(1) : '—'}
                         </td>
                         <td className="py-2 px-1 text-right font-mono font-bold text-orange-600">
                           ¥{recAmount.toLocaleString()}
                         </td>
                         <td className="py-2 px-1 text-center font-mono text-xs">
-                          {(rec.bet_type === 'ワイド' || rec.bet_type === '馬連') && rec.wide_pair ? (
+                          {(rec.bet_type === 'ワイド' || rec.bet_type === '馬連') && pair ? (
                             fp?.[rec.race_id] ? (
                               <span>
-                                <span className={fp[rec.race_id]?.[rec.wide_pair[0]] != null && fp[rec.race_id][rec.wide_pair[0]] <= 3 ? 'text-green-600 font-bold' : ''}>
-                                  {fp[rec.race_id]?.[rec.wide_pair[0]] || '—'}
+                                <span className={fp[rec.race_id]?.[pair[0]] != null && fp[rec.race_id][pair[0]] <= 3 ? 'text-green-600 font-bold' : ''}>
+                                  {fp[rec.race_id]?.[pair[0]] || '—'}
                                 </span>
                                 <span className="text-muted-foreground">-</span>
-                                <span className={fp[rec.race_id]?.[rec.wide_pair[1]] != null && fp[rec.race_id][rec.wide_pair[1]] <= 3 ? 'text-green-600 font-bold' : ''}>
-                                  {fp[rec.race_id]?.[rec.wide_pair[1]] || '—'}
+                                <span className={fp[rec.race_id]?.[pair[1]] != null && fp[rec.race_id][pair[1]] <= 3 ? 'text-green-600 font-bold' : ''}>
+                                  {fp[rec.race_id]?.[pair[1]] || '—'}
                                 </span>
                               </span>
                             ) : '—'
@@ -1449,13 +1452,14 @@ export function ExecuteTab() {
                   const hitCount = fp ? displayRecs.filter(rec => {
                     const raceFinish = fp[rec.race_id];
                     if (!raceFinish) return false;
-                    if ((rec.bet_type === 'ワイド') && rec.wide_pair) {
-                      const f1 = raceFinish[rec.wide_pair[0]];
-                      const f2 = raceFinish[rec.wide_pair[1]];
+                    const wp = rec.wide_pair || rec.umaren_pair;
+                    if ((rec.bet_type === 'ワイド') && wp) {
+                      const f1 = raceFinish[wp[0]];
+                      const f2 = raceFinish[wp[1]];
                       return f1 > 0 && f2 > 0 && f1 <= 3 && f2 <= 3;
-                    } else if (rec.bet_type === '馬連' && rec.wide_pair) {
-                      const f1 = raceFinish[rec.wide_pair[0]];
-                      const f2 = raceFinish[rec.wide_pair[1]];
+                    } else if (rec.bet_type === '馬連' && wp) {
+                      const f1 = raceFinish[wp[0]];
+                      const f2 = raceFinish[wp[1]];
                       return (f1 === 1 && f2 === 2) || (f1 === 2 && f2 === 1);
                     } else if (rec.bet_type === '単勝' || rec.bet_type === '単複') {
                       return raceFinish[rec.umaban] === 1;
@@ -1593,7 +1597,7 @@ export function ExecuteTab() {
                           </span>
                         )}
                         <button
-                          onClick={() => exportOtherFfCsv(preset.key, filteredBets)}
+                          onClick={() => exportOtherFfCsv(preset.key, filteredBets as RecommendationEntry[])}
                           disabled={otherCsvExporting === preset.key}
                           className="ml-auto flex items-center gap-1 px-2 py-1 rounded border text-xs hover:bg-muted/50 transition-colors disabled:opacity-50"
                         >
@@ -1671,7 +1675,7 @@ export function ExecuteTab() {
                                   <td className="py-1 px-1 text-right font-mono">
                                     {b.ar_deviation != null ? b.ar_deviation.toFixed(1) : '—'}
                                   </td>
-                                  <td className="py-1 px-1 text-right font-mono">{b.odds.toFixed(1)}</td>
+                                  <td className="py-1 px-1 text-right font-mono">{b.odds != null ? b.odds.toFixed(1) : '—'}</td>
                                   <td className="py-1 px-1 text-right font-mono text-red-600">
                                     ¥{((b.win_amount || 0) + (b.place_amount || 0)).toLocaleString()}
                                   </td>
