@@ -15,8 +15,6 @@
 
 import type { PredictionRace, PredictionEntry, ServerBetRecommendation } from '@/lib/data/predictions-reader';
 import type { OddsMap } from './types';
-import type { ServerPresetKey, AllocMode } from './bet-logic';
-import { rescaleBudget, equalDistribute } from './bet-logic';
 
 // =====================================================================
 // パラメータ定義 — Intersection Filter
@@ -32,40 +30,17 @@ interface IntersectionParams {
   betUnit: number;
 }
 
-// --- プリセット ---
-// ライブ margin 補正: バックテスト最適値 43.4 + 16pt = 59.4
-// ライブ予測の predicted_margin はバックテスト(確定データ)より平均+15.3pt高い
-// 回帰式: BT_margin = 0.876 × PJ_margin - 8.6
-const LIVE_MARGIN_OFFSET = 16;
-
-const ENGINE_PRESETS: Record<ServerPresetKey, IntersectionParams> = {
-  adaptive: {
-    maxRankW: 1,
-    minWinGap: 2,
-    minWinEv: 1.3,
-    maxMargin: 43.4 + LIVE_MARGIN_OFFSET,
-    maxWinPerRace: 1,
-    minBet: 100,
-    betUnit: 100,
-  },
-  relaxed: {
-    maxRankW: 1,
-    minWinGap: 2,
-    minWinEv: 1.3,
-    maxMargin: 43.4 + LIVE_MARGIN_OFFSET,
-    maxWinPerRace: 1,
-    minBet: 100,
-    betUnit: 100,
-  },
-  intersection: {
-    maxRankW: 1,
-    minWinGap: 4,
-    minWinEv: 1.3,
-    maxMargin: 43.4 + LIVE_MARGIN_OFFSET,
-    maxWinPerRace: 1,
-    minBet: 100,
-    betUnit: 100,
-  },
+// --- tansho_ippon 統一パラメータ ---
+// Python bet_engine.py の tansho_ippon と同一条件
+// polaris 2.1b: 164件, ROI 156.1%, flat500 +46.0%
+const TANSHO_IPPON_PARAMS: IntersectionParams = {
+  maxRankW: 1,       // rank_w=1のみ
+  minWinGap: 3,      // win_vb_gap>=3
+  minWinEv: 1.3,     // EV>=1.3
+  maxMargin: 60,     // predicted_margin<=60
+  maxWinPerRace: 1,  // 1レース1買い
+  minBet: 100,
+  betUnit: 100,
 };
 
 // =====================================================================
@@ -221,25 +196,20 @@ function calcKellyFraction(prob: number, odds: number): number {
 // =====================================================================
 
 /**
- * ライブオッズで購入プラン再計算
+ * ライブオッズで購入プラン再計算 — tansho_ippon 統一
  *
- * Intersection Filter: rank_w=1 × winGap × winEv × margin
- * 単勝のみ（複勝は全条件でマイナスROI）
+ * Python bet_engine.py の tansho_ippon と同一条件:
+ * rank_w=1 × gap≥3 × EV≥1.3 × margin≤60, 単勝のみ
  *
- * adaptive プリセット: relaxed と同じフィルタだが、
- * ルール別Kelly率でベット額を変える。
+ * budget = 1ベットあたり基準額 (bankroll × betPct%)
+ * Kelly率で傾斜: danger_sniper(K1/3) > high_ev_win(K1/4)
  */
 export function generateLiveRecommendations(
   races: PredictionRace[],
   oddsMap: OddsMap,
-  presetKey: ServerPresetKey,
   budget: number,
-  allocMode: AllocMode,
 ): ServerBetRecommendation[] {
-  const params = ENGINE_PRESETS[presetKey];
-  if (!params) return [];
-
-  const isAdaptive = presetKey === 'adaptive';
+  const params = TANSHO_IPPON_PARAMS;
   const allRecs: LiveRec[] = [];
 
   for (const race of races) {
@@ -247,8 +217,8 @@ export function generateLiveRecommendations(
     const liveEntries = buildLiveEntries(race.entries, race.race_id, raceOdds);
     if (liveEntries.length === 0) continue;
 
-    // 危険馬検出 (adaptive用)
-    const dangerSet = isAdaptive ? detectDanger(liveEntries) : new Set<number>();
+    // 危険馬検出
+    const dangerSet = detectDanger(liveEntries);
     const hasDanger = dangerSet.size > 0;
 
     const raceRecs: LiveRec[] = [];
@@ -260,19 +230,16 @@ export function generateLiveRecommendations(
       if ((e.winEv ?? 0) < params.minWinEv) continue;
       if ((e.predictedMargin ?? 100) > params.maxMargin) continue;
 
-      // adaptive: ルールマッチング
+      // ルールマッチング → Kelly率決定
       let adaptiveRule: string | undefined;
       let kellyCapped = 0;
-      if (isAdaptive) {
-        const rule = matchAdaptiveRule(e, hasDanger);
-        if (rule) {
-          adaptiveRule = rule.name;
-          // Kelly計算: raw f* × rule.kellyFraction
-          const winProb = e.predProbaW ?? ((e.winEv ?? 0) / Math.max(e.liveOdds, 1));
-          if (winProb > 0 && e.liveOdds > 1) {
-            const rawF = calcKellyFraction(winProb, e.liveOdds);
-            kellyCapped = rawF * rule.kellyFraction;
-          }
+      const rule = matchAdaptiveRule(e, hasDanger);
+      if (rule) {
+        adaptiveRule = rule.name;
+        const winProb = e.predProbaW ?? ((e.winEv ?? 0) / Math.max(e.liveOdds, 1));
+        if (winProb > 0 && e.liveOdds > 1) {
+          const rawF = calcKellyFraction(winProb, e.liveOdds);
+          kellyCapped = rawF * rule.kellyFraction;
         }
       }
 
@@ -300,23 +267,11 @@ export function generateLiveRecommendations(
     allRecs.push(...raceRecs);
   }
 
-  // 予算スケーリング
-  if (allRecs.length > 0) {
-    if (isAdaptive) {
-      // adaptive: Kelly率ベースで配分
-      // kellyCapped > 0 の比率で予算を按分
-      const totalKelly = allRecs.reduce((s, r) => s + Math.max(r.kellyCapped, 0.01), 0);
-      for (const r of allRecs) {
-        const share = Math.max(r.kellyCapped, 0.01) / totalKelly;
-        r.winAmount = Math.max(params.minBet, roundToUnit(budget * share, params.betUnit));
-      }
-    } else {
-      // 均等配分
-      const perBet = Math.max(params.minBet, roundToUnit(budget / allRecs.length, params.betUnit));
-      for (const r of allRecs) {
-        r.winAmount = perBet;
-      }
-    }
+  // 金額計算 — budget = 1ベットあたり基準額 (bankroll × betPct%)
+  // ExecuteTab と同じ方式: Kelly率で傾斜、件数で薄まらない
+  for (const r of allRecs) {
+    const kc = Math.max(r.kellyCapped, 0.01);
+    r.winAmount = Math.max(params.minBet, roundToUnit(budget * kc, params.betUnit));
   }
 
   // ServerBetRecommendation[] に変換
@@ -349,15 +304,8 @@ export function generateLiveRecommendations(
     adaptive_rule: r.adaptiveRule,
   }));
 
-  // allocMode に応じた配分
-  if (isAdaptive) {
-    // adaptive は Kelly率ベース配分済み → そのまま返す
-    return serverRecs;
-  }
-  if (allocMode === 'equal') {
-    return equalDistribute(serverRecs, budget);
-  }
-  return rescaleBudget(serverRecs, budget);
+  // per-bet方式: 金額は計算済み → そのまま返す
+  return serverRecs;
 }
 
 // =====================================================================

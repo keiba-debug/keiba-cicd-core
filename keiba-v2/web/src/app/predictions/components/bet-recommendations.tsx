@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PredictionEntry } from '@/lib/data/predictions-reader';
 import type { BetRecommendation, OddsMap, SortState, DbResultsMap } from '../lib/types';
-import { BET_CONFIG, PRESET_OPTIONS, BUDGET_PCT_OPTIONS, type ServerPresetKey, type AllocMode } from '../lib/bet-logic';
+import { BET_CONFIG, BUDGET_PCT_OPTIONS } from '../lib/bet-logic';
 import { getWinOdds, calcHeadRatio, getGapColor, getEvColor, getRecBadgeClass, getRaceLink, SortTh, getArColor, getArdColor, getPlaceLimit } from '../lib/helpers';
 
 interface BetRecommendationsProps {
@@ -26,10 +26,6 @@ interface BetRecommendationsProps {
   betSyncResult: { totalBets: number; winBets: number; placeBets: number; racesWritten: number; totalAmount: number; filePath: string } | null;
   betSort: SortState;
   setBetSort: (s: SortState) => void;
-  preset: ServerPresetKey;
-  onPresetChange: (preset: ServerPresetKey) => void;
-  allocMode: AllocMode;
-  onAllocModeChange: (mode: AllocMode) => void;
   dbResults?: DbResultsMap;
   getFinishPos?: (raceId: string, umaban: number) => number;
   bankrollBalance?: number | null;
@@ -42,29 +38,11 @@ interface BetRecommendationsProps {
   onDailyLimitPctChange?: (pct: number) => void;
 }
 
-function PresetButtons({ preset, onPresetChange }: { preset: ServerPresetKey; onPresetChange: (p: ServerPresetKey) => void }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      {PRESET_OPTIONS.map(opt => (
-        <button key={opt.key} onClick={() => onPresetChange(opt.key)}
-          className={`px-2.5 py-1 text-xs rounded border transition-colors ${preset === opt.key
-            ? 'bg-indigo-600 text-white border-indigo-600'
-            : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-          title={opt.description}>
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function BetRecommendations({
   betRecommendations, sortedBetRecommendations, betSummary,
   oddsMap, getLiveGap, oddsLoading, dailyBudget, updateBudget,
   fetchAllOdds, syncBetMarks, betSyncing, betSyncResult,
   betSort, setBetSort,
-  preset, onPresetChange,
-  allocMode, onAllocModeChange,
   dbResults, getFinishPos,
   bankrollBalance, budgetLinked, toggleBudgetLink,
   isLiveCalc, isArchive, oddsTime,
@@ -77,10 +55,7 @@ export function BetRecommendations({
       <Card className="mb-8 border-gray-200 dark:border-gray-700">
         <CardContent className="py-6 text-center text-muted-foreground">
           <div className="text-lg font-bold mb-1">本日は見送り推奨</div>
-          <div className="text-xs">選択プリセットの条件を満たす馬が見つかりません</div>
-          <div className="mt-3">
-            <PresetButtons preset={preset} onPresetChange={onPresetChange} />
-          </div>
+          <div className="text-xs">単勝一本の条件(rw1 × Gap≥3 × EV≥1.3 × margin≤60)を満たす馬が見つかりません</div>
         </CardContent>
       </Card>
     );
@@ -116,13 +91,13 @@ export function BetRecommendations({
               {oddsLoading ? '取得中...' : '更新'}
             </button>
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
-              予算
+              1bet
               <input
                 type="number"
                 value={dailyBudget}
                 onChange={(e) => updateBudget(Number(e.target.value))}
-                step={5000}
-                min={1000}
+                step={1000}
+                min={100}
                 className="w-20 px-1.5 py-0.5 text-xs text-right rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
               />
             </label>
@@ -160,16 +135,6 @@ export function BetRecommendations({
                 ))}
               </div>
             )}
-            <div className="flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
-              <button
-                onClick={() => onAllocModeChange('kelly')}
-                className={`px-2 py-0.5 text-[10px] transition-colors ${allocMode === 'kelly' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                title="Gap比例の傾斜配分（gap大→厚め）">傾斜</button>
-              <button
-                onClick={() => onAllocModeChange('equal')}
-                className={`px-2 py-0.5 text-[10px] transition-colors ${allocMode === 'equal' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                title="予算を均等配分">均等</button>
-            </div>
             {betSyncResult && (
               <span className="text-xs text-green-700 dark:text-green-400">
                 {`${betSyncResult.racesWritten}件 / 単${betSyncResult.winBets} 複${betSyncResult.placeBets} / ¥${betSyncResult.totalAmount.toLocaleString()} → FF CSV出力済`}
@@ -185,11 +150,11 @@ export function BetRecommendations({
             </button>
           </div>
         </div>
-        {/* プリセット切り替え */}
+        {/* 戦略表示 */}
         <div className="flex items-center gap-2 mt-2">
-          <PresetButtons preset={preset} onPresetChange={onPresetChange} />
-          <span className="text-[10px] text-muted-foreground ml-1">
-            {PRESET_OPTIONS.find(o => o.key === preset)?.description}
+          <Badge variant="outline" className="text-[10px]">単勝一本</Badge>
+          <span className="text-[10px] text-muted-foreground">
+            rw1 × Gap≥3 × EV≥1.3 × margin≤60 — Kelly傾斜
           </span>
         </div>
       </CardHeader>
@@ -422,17 +387,12 @@ export function BetRecommendations({
 
         <div className="mt-3 space-y-1 text-[10px] text-muted-foreground">
           <div>
-            システム投資エンジン / {allocMode === 'equal' ? '均等配分' : '傾斜配分'} / 日予算 &yen;{dailyBudget.toLocaleString()} / 最低 &yen;{BET_CONFIG.minBet}
+            システム投資エンジン / 1bet &yen;{dailyBudget.toLocaleString()} × Kelly傾斜 / 最低 &yen;{BET_CONFIG.minBet}
           </div>
           <div className="bg-gray-50 dark:bg-gray-800/50 rounded px-2 py-1.5 leading-relaxed">
             <span className="font-medium">配分ルール:</span>{' '}
-            {allocMode === 'equal'
-              ? '全VB馬に均等配分 → 分散効果でリスク調整リターン最大化（Calmar 7.14, Sharpe 0.151）'
-              : 'Gap比例の傾斜配分 → 乖離が大きい馬ほど厚めに配分（Calmar 5.09, Sharpe 0.137）'
-            }{' '}
-            / 全額単勝（バンクロールSim検証: 単勝100% {'>'} 単複混合, ROI +345%）
-            / 推奨日予算: バンクロールの5%（MaxDD 62-69%, 127日で4.5倍）
-            / Place上乗せ: 複EV≥1.3 {'&'} ARd≥50 → 複勝¥200追加
+            Kelly傾斜 — danger_sniper(K1/3) {'>'} high_ev_win(K1/4), 1ベットあたり bankroll × betPct% × kelly_capped
+            {' '}/ 全額単勝（バンクロールSim検証: 単勝100% {'>'} 単複混合, ROI +345%）
           </div>
         </div>
       </CardContent>

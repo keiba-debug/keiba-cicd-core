@@ -13,7 +13,7 @@ import {
   getWinOdds, getPlaceOddsMin, calcWinEv, calcPlaceEv, calcHeadRatio,
   isTurf, isDirt, getPlaceLimit, getRaceDanger, getStarScore, matchRaceNum,
 } from './lib/helpers';
-import { BET_CONFIG, BUDGET_PCT_OPTIONS, rescaleBudget, equalDistribute, type ServerPresetKey, type AllocMode } from './lib/bet-logic';
+import { BET_CONFIG, BUDGET_PCT_OPTIONS } from './lib/bet-logic';
 import { generateLiveRecommendations } from './lib/bet-engine';
 
 // components
@@ -75,9 +75,10 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [budgetLinked, setBudgetLinked] = useState<boolean>(true); // bankroll連動モード
   const [dailyLimitPct, setDailyLimitPct] = useState<number>(2); // 日次予算率(%) — 推奨2%
 
-  // bankroll予算を計算するヘルパー
+  // bankroll予算を計算するヘルパー — 1ベットあたり基準額 (100円単位)
+  // ExecuteTab と同じ方式: bankroll × betPct%
   const computeBudget = useCallback((balance: number, pct: number) => {
-    return Math.max(1000, Math.floor(balance * pct / 100 / 1000) * 1000);
+    return Math.max(100, Math.floor(balance * pct / 100 / 100) * 100);
   }, []);
 
   // bankroll API から現在資金と設定を取得
@@ -114,7 +115,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   }, []);
 
   const updateBudget = useCallback((value: number) => {
-    const v = Math.max(1000, Math.round(value / 1000) * 1000);
+    const v = Math.max(100, Math.round(value / 100) * 100);
     setDailyBudget(v);
     localStorage.setItem('keiba_daily_budget', String(v));
     // 手動変更したら連動解除
@@ -160,24 +161,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   // ページタブ（馬券 / 出走表）
   const [activeTab, setActiveTab] = useState<PageTab>('bets');
 
-  // 推奨買い目 プリセット選択（デフォルト: adaptive — Sim最高ROI）
-  const [preset, setPreset] = useState<ServerPresetKey>('adaptive');
-  useEffect(() => {
-    const saved = localStorage.getItem('keiba_bet_preset');
-    if (saved && ['adaptive', 'relaxed', 'intersection'].includes(saved)) {
-      setPreset(saved as ServerPresetKey);
-    }
-  }, []);
-  const updatePreset = useCallback((p: ServerPresetKey) => {
-    setPreset(p);
-    localStorage.setItem('keiba_bet_preset', p);
-  }, []);
-
-  // 配分モード（Kelly / 均等）— Intersection Filterでは均等配分が基本
-  const [allocMode, setAllocMode] = useState<AllocMode>('equal');
-  const updateAllocMode = useCallback((m: AllocMode) => {
-    setAllocMode(m);
-  }, []);
+  // プリセット: tansho_ippon 統一 (Python bet_engine.py と同一条件)
 
   // TARGET My印
   const [targetMarks, setTargetMarks] = useState<Record<string, Record<number, string>>>({});
@@ -531,13 +515,17 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const betRecommendations = useMemo<BetRecommendation[]>(() => {
     // オッズ取得済み → TS版エンジンで再計算
     const serverRecs = hasLiveOdds
-      ? generateLiveRecommendations(races, oddsMap, preset, dailyBudget, allocMode)
+      ? generateLiveRecommendations(races, oddsMap, dailyBudget)
       : (() => {
-          const presetData = data.recommendations?.[preset];
+          // Python側 tansho_ippon プリセットを参照
+          const presetData = data.recommendations?.['tansho_ippon'] ?? data.recommendations?.['intersection'];
           if (!presetData) return [];
-          return allocMode === 'equal'
-            ? equalDistribute(presetData.bets, dailyBudget)
-            : rescaleBudget(presetData.bets, dailyBudget);
+          // per-bet方式: 各ベットを基準額に設定
+          return presetData.bets.map(b => ({
+            ...b,
+            win_amount: b.win_amount > 0 ? dailyBudget : 0,
+            place_amount: b.place_amount > 0 ? Math.max(100, Math.round(dailyBudget * 0.5 / 100) * 100) : 0,
+          }));
         })();
 
     if (serverRecs.length === 0) return [];
@@ -582,7 +570,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
     displayRecs.sort((a, b) => (b.betAmountWin + b.betAmountPlace) - (a.betAmountWin + a.betAmountPlace));
     return displayRecs;
-  }, [data.recommendations, preset, dailyBudget, allocMode, races, oddsMap, hasLiveOdds]);
+  }, [data.recommendations, dailyBudget, races, oddsMap, hasLiveOdds]);
 
   // VBエントリ→bet推奨ルックアップ (race_id-umaban → BetRecommendation)
   const betRecMap = useMemo(() => {
@@ -1137,10 +1125,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
             betSyncResult={betSyncResult}
             betSort={betSort}
             setBetSort={setBetSort}
-            preset={preset}
-            onPresetChange={updatePreset}
-            allocMode={allocMode}
-            onAllocModeChange={updateAllocMode}
             dbResults={dbResults}
             getFinishPos={getFinishPos}
             bankrollBalance={bankrollBalance}
