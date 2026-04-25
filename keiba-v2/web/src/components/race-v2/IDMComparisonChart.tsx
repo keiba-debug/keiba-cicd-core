@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import {
   LineChart,
@@ -12,6 +12,12 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from 'recharts';
+import {
+  judgeBuyZone,
+  getBuyZoneDisplay,
+  getMyMarkColor,
+  type BuyZone,
+} from '@/components/odds-race/buy-zone';
 
 // ── 型定義 ──
 
@@ -43,6 +49,12 @@ export interface HorseIDMData {
   predProbaP: number | null;   // P% (好走確率)
   predProbaW: number | null;   // W% (勝率)
   marketSignal: string | null; // 市場シグナル
+  // ── 拡張: My印 + 買い度判定 ──
+  myMark1?: string | null;     // TARGET馬印1
+  myMark2?: string | null;     // TARGET馬印2
+  winEv?: number | null;       // 単勝EV
+  placeEv?: number | null;     // 複勝EV
+  isVb?: boolean;              // ML的Value Bet候補
 }
 
 // ── 定数 ──
@@ -143,9 +155,10 @@ interface IDMComparisonChartProps {
   raceName: string;
   winnerIdmStandard?: number | null; // クラス別勝ち馬IDM基準値
   gradeLabel?: string;               // グレード表示ラベル
+  raceId?: string;                   // 16桁 raceId（オッズ急騰アイコン取得用）
 }
 
-type SortKey = 'horseNumber' | 'latestIdm' | 'maxIdm' | 'max5Idm' | 'avg3' | 'avg5' | 'raceCount' | 'trend' | 'odds' | 'arDeviation' | 'predProbaP' | 'predProbaW';
+type SortKey = 'horseNumber' | 'latestIdm' | 'maxIdm' | 'max5Idm' | 'avg3' | 'avg5' | 'raceCount' | 'trend' | 'odds' | 'arDeviation' | 'predProbaP' | 'predProbaW' | 'winEv' | 'myMark1' | 'myMark2';
 type ChartTab = 'timeline' | 'range';
 
 // dateNum (エポック日: 2000-01-01からの日数) → 表示ラベル
@@ -157,8 +170,37 @@ function formatDateNum(v: number): string {
   return `${y}/${String(m).padStart(2, '0')}`;
 }
 
-export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeLabel }: IDMComparisonChartProps) {
+export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeLabel, raceId }: IDMComparisonChartProps) {
   const [chartTab, setChartTab] = useState<ChartTab>('timeline');
+  // 直前急騰マップ（馬番 → level）
+  const [surgeMap, setSurgeMap] = useState<Map<number, 'hot' | 'warm'>>(new Map());
+
+  useEffect(() => {
+    if (!raceId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/odds/ji-timeseries?raceId=${raceId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const m = new Map<number, 'hot' | 'warm'>();
+        for (const h of data.horses ?? []) {
+          const lvl = h.lastMinute?.level;
+          if (lvl === 'hot' || lvl === 'warm') {
+            const num = parseInt(String(h.umaban), 10);
+            if (!isNaN(num)) m.set(num, lvl);
+          }
+        }
+        setSurgeMap(m);
+      } catch {
+        // 静かに無視
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [raceId]);
   const [startYear, setStartYear] = useState<number | null>(CURRENT_YEAR - 1); // デフォルト: 前年から
   const [visibleHorses, setVisibleHorses] = useState<Set<number>>(
     () => new Set(horses.map(h => h.horseNumber))
@@ -451,6 +493,7 @@ export function IDMComparisonChart({ horses, raceName, winnerIdmStandard, gradeL
         }}
         onToggle={toggleHorse}
         onHighlight={setHighlightedHorse}
+        surgeMap={surgeMap}
       />
     </div>
   );
@@ -679,11 +722,17 @@ interface SummaryTableProps {
   onSort: (key: SortKey) => void;
   onToggle: (num: number) => void;
   onHighlight: (num: number | null) => void;
+  surgeMap: Map<number, 'hot' | 'warm'>;
 }
+
+// My印優先度（ソート用）
+const MY_MARK_ORDER: Record<string, number> = {
+  '◎': 6, '○': 5, '▲': 4, '△': 3, '★': 2, '穴': 1,
+};
 
 function SummaryTable({
   horses, colorMap, visibleHorses, highlightedHorse,
-  sortKey, sortDesc, onSort, onToggle, onHighlight,
+  sortKey, sortDesc, onSort, onToggle, onHighlight, surgeMap,
 }: SummaryTableProps) {
 
   const sorted = useMemo(() => {
@@ -703,6 +752,9 @@ function SummaryTable({
         case 'arDeviation': va = a.arDeviation ?? -1; vb = b.arDeviation ?? -1; break;
         case 'predProbaP': va = a.predProbaP ?? -1; vb = b.predProbaP ?? -1; break;
         case 'predProbaW': va = a.predProbaW ?? -1; vb = b.predProbaW ?? -1; break;
+        case 'winEv': va = a.winEv ?? -1; vb = b.winEv ?? -1; break;
+        case 'myMark1': va = MY_MARK_ORDER[a.myMark1 ?? ''] ?? -1; vb = MY_MARK_ORDER[b.myMark1 ?? ''] ?? -1; break;
+        case 'myMark2': va = MY_MARK_ORDER[a.myMark2 ?? ''] ?? -1; vb = MY_MARK_ORDER[b.myMark2 ?? ''] ?? -1; break;
         default: va = a.horseNumber; vb = b.horseNumber;
       }
       return sortDesc ? vb - va : va - vb;
@@ -720,6 +772,7 @@ function SummaryTable({
   const allArd = horses.map(h => h.arDeviation);
   const allPredP = horses.map(h => h.predProbaP);
   const allPredW = horses.map(h => h.predProbaW);
+  const allWinEv = horses.map(h => h.winEv ?? null);
 
   const columns: Array<{ key: SortKey; label: string }> = [
     { key: 'horseNumber', label: '番' },
@@ -733,6 +786,7 @@ function SummaryTable({
     { key: 'predProbaW', label: 'W%' },
     { key: 'odds', label: 'オッズ' },
     { key: 'arDeviation', label: 'ARd' },
+    { key: 'winEv', label: '単EV' },
     { key: 'raceCount', label: '戦数' },
   ];
 
@@ -756,6 +810,20 @@ function SummaryTable({
                 {col.label}{sortArrow(col.key)}
               </th>
             ))}
+            <th
+              onClick={() => onSort('myMark1')}
+              className="px-2 py-2 text-center cursor-pointer hover:bg-muted/50 transition-colors select-none w-8"
+              title="TARGET馬印1（クリックでソート）"
+            >
+              My1{sortArrow('myMark1')}
+            </th>
+            <th
+              onClick={() => onSort('myMark2')}
+              className="px-2 py-2 text-center cursor-pointer hover:bg-muted/50 transition-colors select-none w-8"
+              title="TARGET馬印2（クリックでソート）"
+            >
+              My2{sortArrow('myMark2')}
+            </th>
             <th className="px-3 py-2 text-left">馬名</th>
             {columns.slice(1).map(col => (
               <th
@@ -766,6 +834,9 @@ function SummaryTable({
                 {col.label}{sortArrow(col.key)}
               </th>
             ))}
+            <th className="px-2 py-2 text-center select-none w-20" title="単EV による買い度判定">
+              判定
+            </th>
             <th className="px-3 py-2 text-center">市場</th>
           </tr>
         </thead>
@@ -794,15 +865,55 @@ function SummaryTable({
                 <td className="px-3 py-1.5 text-center font-mono font-bold" style={{ color }}>
                   {h.horseNumber}
                 </td>
+                <td className="px-2 py-1.5 text-center text-base">
+                  {h.myMark1 ? (
+                    <span className={getMyMarkColor(h.myMark1)}>{h.myMark1}</span>
+                  ) : (
+                    <span className="text-gray-300">-</span>
+                  )}
+                </td>
+                <td className="px-2 py-1.5 text-center text-base">
+                  {h.myMark2 ? (
+                    <span className={getMyMarkColor(h.myMark2)}>{h.myMark2}</span>
+                  ) : (
+                    <span className="text-gray-300">-</span>
+                  )}
+                </td>
                 <td className="px-3 py-1.5 font-medium">
-                  <Link
-                    href={`/horses/${h.horseId}`}
-                    target="_blank"
-                    onClick={(e) => e.stopPropagation()}
-                    className="hover:underline hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    {h.horseName}
-                  </Link>
+                  <span className="inline-flex items-center gap-1">
+                    <Link
+                      href={`/horses/${h.horseId}`}
+                      target="_blank"
+                      onClick={(e) => e.stopPropagation()}
+                      className="hover:underline hover:text-blue-600 dark:hover:text-blue-400"
+                    >
+                      {h.horseName}
+                    </Link>
+                    {h.isVb && (
+                      <span
+                        className="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1 py-0.5 rounded font-bold text-[10px]"
+                        title="ML的Value Bet候補"
+                      >
+                        VB
+                      </span>
+                    )}
+                    {surgeMap.get(h.horseNumber) === 'hot' && (
+                      <span
+                        className="bg-red-500 text-white px-1 py-0.5 rounded text-[10px]"
+                        title="直前急騰 (-15%以上下落)"
+                      >
+                        🔥
+                      </span>
+                    )}
+                    {surgeMap.get(h.horseNumber) === 'warm' && (
+                      <span
+                        className="bg-orange-400 text-white px-1 py-0.5 rounded text-[10px]"
+                        title="人気上昇 (-5%〜-15%下落)"
+                      >
+                        ↗
+                      </span>
+                    )}
+                  </span>
                 </td>
                 <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.latestIdm, allLatestIdm)}`}>
                   {h.latestIdm ?? '-'}
@@ -834,8 +945,26 @@ function SummaryTable({
                 <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.arDeviation, allArd)}`}>
                   {h.arDeviation != null ? h.arDeviation.toFixed(1) : '-'}
                 </td>
+                {/* 単EV */}
+                <td className={`px-3 py-1.5 text-center font-mono font-bold ${rankColorClass(h.winEv ?? null, allWinEv)}`}>
+                  {h.winEv != null ? h.winEv.toFixed(2) : '-'}
+                </td>
                 <td className="px-3 py-1.5 text-center text-muted-foreground">
                   {h.raceCount}
+                </td>
+                {/* 買い度判定 */}
+                <td className="px-2 py-1.5 text-center">
+                  {(() => {
+                    const zone: BuyZone = judgeBuyZone(h.winEv);
+                    if (zone === 'unknown') return <span className="text-gray-300">-</span>;
+                    const d = getBuyZoneDisplay(zone);
+                    return (
+                      <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap ${d.className}`}>
+                        <span>{d.icon}</span>
+                        <span>{d.label}</span>
+                      </span>
+                    );
+                  })()}
                 </td>
                 {/* 市場シグナル */}
                 <td className="px-3 py-1.5 text-center">

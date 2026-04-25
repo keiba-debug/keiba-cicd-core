@@ -11,4 +11,4 @@ export { RaceDetailContent } from './race-detail-content';
 export { PredictionSection } from './PredictionSection';
 export { PurchasePlanSection } from './PurchasePlanSection';
 export { TargetCommentsModal, type TargetCommentSavedData } from './TargetCommentsModal';
-export { TargetMarkInputModal, type TargetMarksSavedData } from './TargetMarkInputModal';
+export { TargetMarkInputModal, type TargetMarksSavedData, type TargetMarkEntry } from './TargetMarkInputModal';

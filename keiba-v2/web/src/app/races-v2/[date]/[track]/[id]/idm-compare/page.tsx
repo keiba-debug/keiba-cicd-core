@@ -14,6 +14,7 @@ import { adaptV4ToIntegrated } from '@/lib/data/v4-race-adapter';
 import { getHorseFullData } from '@/lib/data/horse-data-reader';
 import { getPredictionsByDate } from '@/lib/data/predictions-reader';
 import { getIDMStandards, resolveIDMGradeKey, getWinnerIDMByRaceName } from '@/lib/data/idm-standards-reader';
+import { getRaceMarks } from '@/lib/data/target-mark-reader';
 import { getRaceNavigation } from '@/lib/data';
 import { IDMComparisonChart, type HorseIDMData } from '@/components/race-v2/IDMComparisonChart';
 
@@ -152,7 +153,7 @@ export default async function IDMComparePage({ params }: PageParams) {
   const raceName = raceData.race_info.race_name || raceData.race_info.race_condition || '';
   const raceTitle = `${track}${raceNumber}R ${raceName}`;
 
-  // predictions.json から ARd・オッズ取得
+  // predictions.json から ARd・オッズ・EV取得
   const predictions = getPredictionsByDate(date);
   const predRace = predictions?.races.find(r => r.race_id === raceId16);
   const predMap = new Map<number, {
@@ -161,6 +162,9 @@ export default async function IDMComparePage({ params }: PageParams) {
     predProbaP: number | null;
     predProbaW: number | null;
     marketSignal: string | null;
+    winEv: number | null;
+    placeEv: number | null;
+    isVb: boolean;
   }>();
   if (predRace) {
     for (const e of predRace.entries) {
@@ -170,9 +174,20 @@ export default async function IDMComparePage({ params }: PageParams) {
         predProbaP: e.pred_proba_p != null ? Math.round(e.pred_proba_p * 1000) / 10 : null,
         predProbaW: e.pred_proba_w != null ? Math.round(e.pred_proba_w * 1000) / 10 : null,
         marketSignal: e.market_signal ?? null,
+        winEv: e.win_ev ?? null,
+        placeEv: e.place_ev ?? null,
+        isVb: e.is_value_bet ?? false,
       });
     }
   }
+
+  // TARGET馬印（馬印1+2）取得 — raceId16 = YYYYMMDDJJKKNNRR
+  const yearNum = parseInt(raceId16.substring(0, 4), 10);
+  const kaiNum = parseInt(raceId16.substring(10, 12), 10);
+  const dayNum = parseInt(raceId16.substring(12, 14), 10);
+  const raceNum16 = parseInt(raceId16.substring(14, 16), 10);
+  const myMarks1 = getRaceMarks(yearNum, kaiNum, dayNum, raceNum16, track, 1)?.horseMarks ?? {};
+  const myMarks2 = getRaceMarks(yearNum, kaiNum, dayNum, raceNum16, track, 2)?.horseMarks ?? {};
 
   // 全馬の過去走データを並列取得
   const horseDataResults = await Promise.all(
@@ -213,6 +228,11 @@ export default async function IDMComparePage({ params }: PageParams) {
         predProbaP: pred0?.predProbaP ?? null,
         predProbaW: pred0?.predProbaW ?? null,
         marketSignal: pred0?.marketSignal ?? null,
+        myMark1: myMarks1[entry.horse_number] || null,
+        myMark2: myMarks2[entry.horse_number] || null,
+        winEv: pred0?.winEv ?? null,
+        placeEv: pred0?.placeEv ?? null,
+        isVb: pred0?.isVb ?? false,
       });
       continue;
     }
@@ -284,6 +304,11 @@ export default async function IDMComparePage({ params }: PageParams) {
       predProbaP: pred?.predProbaP ?? null,
       predProbaW: pred?.predProbaW ?? null,
       marketSignal: pred?.marketSignal ?? null,
+      myMark1: myMarks1[entry.horse_number] || null,
+      myMark2: myMarks2[entry.horse_number] || null,
+      winEv: pred?.winEv ?? null,
+      placeEv: pred?.placeEv ?? null,
+      isVb: pred?.isVb ?? false,
     });
   }
 
@@ -476,6 +501,7 @@ export default async function IDMComparePage({ params }: PageParams) {
         raceName={raceTitle}
         winnerIdmStandard={winnerIdmStandard}
         gradeLabel={gradeLabel}
+        raceId={raceId16}
       />
     </div>
   );

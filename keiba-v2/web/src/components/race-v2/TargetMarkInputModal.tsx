@@ -24,8 +24,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { getWakuColor, type HorseEntry } from '@/types/race-data';
+import { getWakuColor } from '@/types/race-data';
 import { cn } from '@/lib/utils';
+
+/** モーダル内部で実際に必要な最小限のフィールドのみ要求 */
+export type TargetMarkEntry = {
+  horse_number: number;
+  horse_name: string;
+  entry_data: { waku?: number | string | null };
+};
 
 // 印の定義
 const MARK_OPTIONS = [
@@ -54,8 +61,8 @@ interface TargetMarkInputModalProps {
     raceNumber: number;
     raceName?: string;
   };
-  /** 出走馬リスト */
-  entries: HorseEntry[];
+  /** 出走馬リスト（最小限: horse_number, horse_name, entry_data.waku のみ参照） */
+  entries: TargetMarkEntry[];
   /** モーダルを開くトリガー */
   trigger?: React.ReactNode;
   /** 保存後のコールバック（保存されたmarkSetとmarksを受け取る） */
@@ -260,9 +267,15 @@ export function TargetMarkInputModal({
               <tbody>
                 {[...entries].sort((a, b) => a.horse_number - b.horse_number).map((entry) => {
                   const currentMark = marks[entry.horse_number] || '';
-                  const wakuColorClass = entry.entry_data.waku
-                    ? getWakuColor(entry.entry_data.waku)
-                    : '';
+                  const wakuRaw = entry.entry_data.waku;
+                  const wakuNum =
+                    typeof wakuRaw === 'number'
+                      ? wakuRaw
+                      : typeof wakuRaw === 'string'
+                        ? parseInt(wakuRaw, 10)
+                        : null;
+                  const wakuColorClass =
+                    wakuNum != null && !isNaN(wakuNum) ? getWakuColor(wakuNum) : '';
 
                   return (
                     <tr
@@ -270,7 +283,7 @@ export function TargetMarkInputModal({
                       className="border-b hover:bg-muted/30"
                     >
                       <td className={cn("px-2 py-2 text-center font-bold", wakuColorClass)}>
-                        {entry.entry_data.waku || '-'}
+                        {wakuNum != null && !isNaN(wakuNum) ? wakuNum : '-'}
                       </td>
                       <td className="px-2 py-2 text-center font-bold">
                         {entry.horse_number}

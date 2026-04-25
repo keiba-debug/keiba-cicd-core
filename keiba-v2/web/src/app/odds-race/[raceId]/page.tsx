@@ -10,7 +10,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { RefreshCw, ArrowLeft, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, Clock, PieChart } from 'lucide-react';
+import { RefreshCw, ArrowLeft, TrendingUp, Clock, PieChart, Target } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +22,13 @@ import type { ExpectedValueHorse, MyMark, PositionMark, ConfidenceMark } from '@
 import { convertMarkToWinRate } from '@/types/prediction';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { TargetMarkInputModal } from '@/components/race-v2';
+import type { PredictionRace } from '@/lib/data/predictions-reader';
+import { SignalTab } from '@/components/odds-race/SignalTab';
+import { CompositeFilterTab } from '@/components/odds-race/CompositeFilterTab';
+import { ChartTab } from '@/components/odds-race/ChartTab';
+import { enrichHorses } from '@/components/odds-race/buy-zone';
+import { parseRaceIdForMarks, fetchMyMarksBoth } from '@/components/odds-race/my-marks-utils';
 
 /** 直前変動の型 */
 interface LastMinuteInfo {
@@ -83,48 +90,6 @@ function getLastMinuteDisplay(level: LastMinuteInfo['level']): {
   }
 }
 
-/** フィルタモード */
-type FilterMode = 'all' | 'top5' | 'under10' | 'ana' | 'gekisou';
-
-type SortKey = 'ninki' | 'odds' | 'ai' | 'rating' | 'umaban' | 'finish';
-type SortOrder = 'asc' | 'desc';
-
-/** フィルタ適用 */
-function applyFilter(horses: HorseOdds[], mode: FilterMode): HorseOdds[] {
-  switch (mode) {
-    case 'top5':
-      return horses.filter((h) => (h.ninki ?? 99) <= 5);
-    case 'under10':
-      return horses.filter((h) => h.winOdds != null && h.winOdds <= 10);
-    case 'ana':
-      return horses.filter((h) => h.winOdds != null && h.winOdds >= 10 && h.winOdds < 30);
-    case 'gekisou':
-      const withAi = horses.filter((h) => h.aiIndex != null);
-      if (withAi.length === 0) return [];
-      const aiMedian = [...withAi].sort((a, b) => (b.aiIndex ?? 0) - (a.aiIndex ?? 0))[Math.floor(withAi.length / 2)]?.aiIndex ?? 0;
-      return horses.filter((h) => {
-        if (h.aiIndex == null) return false;
-        const isHighAi = h.aiIndex >= aiMedian;
-        const isUnderrated = (h.ninki ?? 0) >= 4;
-        return isHighAi && isUnderrated;
-      });
-    default:
-      return horses;
-  }
-}
-
-/** 印の色を取得 */
-function getMarkColor(mark?: string): string {
-  switch (mark) {
-    case '◎': return 'text-red-600 dark:text-red-400 font-bold';
-    case '○': return 'text-blue-600 dark:text-blue-400 font-bold';
-    case '▲': return 'text-green-600 dark:text-green-400 font-semibold';
-    case '△': return 'text-orange-500 dark:text-orange-400';
-    case '×': return 'text-gray-400';
-    default: return 'text-gray-300';
-  }
-}
-
 /** 着順の色を取得 */
 function getFinishPositionClass(position?: string | null): string {
   if (!position) return '';
@@ -148,191 +113,6 @@ function getFinishPositionIcon(position?: string | null): string {
     case 3: return '🥉';
     default: return String(pos);
   }
-}
-
-/** オッズゾーンの色 */
-function getOddsZoneClass(odds?: number | null): string {
-  if (odds == null) return '';
-  if (odds < 2) return 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 font-bold';
-  if (odds < 5) return 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-semibold';
-  if (odds < 10) return 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300';
-  return '';
-}
-
-interface OddsPanelProps {
-  odds: RaceOdds;
-  filterMode: FilterMode;
-  title: string;
-  description: string;
-}
-
-function OddsPanel({ odds, filterMode, title, description }: OddsPanelProps) {
-  const [sortKey, setSortKey] = useState<SortKey>('ninki');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
-
-  const handleSort = useCallback((key: SortKey) => {
-    if (sortKey === key) {
-      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortOrder(key === 'ai' || key === 'rating' ? 'desc' : 'asc');
-    }
-  }, [sortKey]);
-
-  const SortIcon = ({ columnKey }: { columnKey: SortKey }) => {
-    if (sortKey !== columnKey) {
-      return <ArrowUpDown className="inline h-3 w-3 ml-0.5 opacity-40" />;
-    }
-    return sortOrder === 'asc' 
-      ? <ArrowUp className="inline h-3 w-3 ml-0.5 text-primary" />
-      : <ArrowDown className="inline h-3 w-3 ml-0.5 text-primary" />;
-  };
-
-  const filtered = useMemo(() => {
-    const applied = applyFilter(odds.horses, filterMode);
-    return [...applied].sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case 'ninki':
-          cmp = (a.ninki ?? 99) - (b.ninki ?? 99);
-          break;
-        case 'odds':
-          cmp = (a.winOdds ?? 9999) - (b.winOdds ?? 9999);
-          break;
-        case 'ai':
-          cmp = (b.aiIndex ?? 0) - (a.aiIndex ?? 0);
-          break;
-        case 'rating':
-          cmp = (b.rating ?? 0) - (a.rating ?? 0);
-          break;
-        case 'umaban':
-          cmp = parseInt(a.umaban, 10) - parseInt(b.umaban, 10);
-          break;
-        case 'finish':
-          const posA = a.finishPosition ? parseInt(a.finishPosition.replace(/[^\d]/g, ''), 10) : 999;
-          const posB = b.finishPosition ? parseInt(b.finishPosition.replace(/[^\d]/g, ''), 10) : 999;
-          cmp = (isNaN(posA) ? 999 : posA) - (isNaN(posB) ? 999 : posB);
-          break;
-      }
-      return sortOrder === 'asc' ? cmp : -cmp;
-    });
-  }, [odds.horses, filterMode, sortKey, sortOrder]);
-
-  const hasResults = useMemo(
-    () => odds.horses.some((h) => h.finishPosition != null && h.finishPosition !== ''),
-    [odds.horses]
-  );
-
-  if (filtered.length === 0) {
-    return (
-      <Card className="h-full">
-        <CardHeader className="py-3 px-4">
-          <CardTitle className="text-sm font-bold">{title}</CardTitle>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </CardHeader>
-        <CardContent className="py-4 text-center text-muted-foreground text-sm">
-          該当馬なし
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="h-full">
-      <CardHeader className="py-3 px-4 border-b">
-        <CardTitle className="text-sm font-bold">{title}</CardTitle>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </CardHeader>
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-1 py-1.5 text-center font-bold w-6">枠</th>
-                <th
-                  className="px-1 py-1.5 text-center font-bold w-8 cursor-pointer hover:bg-muted/70"
-                  onClick={() => handleSort('umaban')}
-                >
-                  番<SortIcon columnKey="umaban" />
-                </th>
-                <th className="px-1 py-1.5 text-center font-bold w-6">印</th>
-                <th className="px-1 py-1.5 text-left font-bold min-w-[3rem]">馬名</th>
-                <th
-                  className="px-1 py-1.5 text-right font-bold w-12 cursor-pointer hover:bg-muted/70"
-                  onClick={() => handleSort('odds')}
-                >
-                  単勝<SortIcon columnKey="odds" />
-                </th>
-                <th
-                  className="px-1 py-1.5 text-right font-bold w-10 cursor-pointer hover:bg-muted/70"
-                  onClick={() => handleSort('ai')}
-                >
-                  AI<SortIcon columnKey="ai" />
-                </th>
-                <th
-                  className="px-1 py-1.5 text-center font-bold w-8 cursor-pointer hover:bg-muted/70"
-                  onClick={() => handleSort('ninki')}
-                >
-                  人気<SortIcon columnKey="ninki" />
-                </th>
-                {hasResults && (
-                  <th
-                    className="px-1 py-1.5 text-center font-bold w-8 cursor-pointer hover:bg-muted/70"
-                    onClick={() => handleSort('finish')}
-                  >
-                    着<SortIcon columnKey="finish" />
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((h) => {
-                const wakuNum = h.waku ? parseInt(h.waku, 10) : null;
-                const wakuColorClass = wakuNum ? getWakuColor(wakuNum) : 'bg-gray-100';
-                const oddsZoneClass = getOddsZoneClass(h.winOdds);
-                const markClass = getMarkColor(h.honshiMark);
-
-                return (
-                  <tr key={h.umaban} className="border-b hover:bg-muted/30">
-                    <td className={`px-1 py-1 text-center text-[10px] font-bold border ${wakuColorClass}`}>
-                      {h.waku || '-'}
-                    </td>
-                    <td className="px-1 py-1 text-center font-mono font-semibold">
-                      {parseInt(h.umaban, 10)}
-                    </td>
-                    <td className={`px-1 py-1 text-center ${markClass}`}>
-                      {h.honshiMark || '-'}
-                    </td>
-                    <td className="px-1 py-1 truncate max-w-[4rem]" title={h.horseName}>
-                      {h.horseName || '-'}
-                    </td>
-                    <td className={`px-1 py-1 text-right font-mono tabular-nums ${oddsZoneClass}`}>
-                      {h.winOdds != null ? h.winOdds.toFixed(1) : '-'}
-                    </td>
-                    <td className="px-1 py-1 text-right font-mono tabular-nums text-muted-foreground">
-                      {h.aiIndex != null ? h.aiIndex.toFixed(0) : '-'}
-                    </td>
-                    <td className="px-1 py-1 text-center">
-                      {h.ninki != null ? (
-                        <Badge variant={h.ninki <= 3 ? 'default' : 'secondary'} className="text-[10px] px-1">
-                          {h.ninki}
-                        </Badge>
-                      ) : '-'}
-                    </td>
-                    {hasResults && (
-                      <td className={`px-1 py-1 text-center text-[10px] ${getFinishPositionClass(h.finishPosition)}`}>
-                        {h.finishPosition ? getFinishPositionIcon(h.finishPosition) : '-'}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 /** シェア表示コンポーネント */
@@ -994,6 +774,24 @@ export default function OddsRacePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // ML予測 + My印 + 直前変動
+  const [predictions, setPredictions] = useState<PredictionRace | null>(null);
+  const [myMarks1, setMyMarks1] = useState<Record<number, string>>({});
+  const [myMarks2, setMyMarks2] = useState<Record<number, string>>({});
+  const [surgeMap, setSurgeMap] = useState<
+    Map<
+      string,
+      {
+        level: 'hot' | 'warm' | 'cold' | 'stable' | 'unknown';
+        changePercent: number | null;
+        beforeOdds: number | null;
+        finalOdds: number | null;
+      }
+    >
+  >(new Map());
+
+  const raceInfoForMarks = useMemo(() => parseRaceIdForMarks(raceId), [raceId]);
+
   const fetchOdds = useCallback(async () => {
     if (!raceId) return;
     setLoading(true);
@@ -1010,9 +808,78 @@ export default function OddsRacePage() {
     }
   }, [raceId]);
 
+  // ML予測
+  const fetchPredictions = useCallback(async () => {
+    if (!raceId || raceId.length !== 16) return;
+    const d = `${raceId.slice(0, 4)}-${raceId.slice(4, 6)}-${raceId.slice(6, 8)}`;
+    try {
+      const res = await fetch(`/api/ml/predictions-raw?date=${d}`);
+      if (!res.ok) {
+        setPredictions(null);
+        return;
+      }
+      const data = await res.json();
+      const race = (data.races as PredictionRace[] | undefined)?.find((r) => r.race_id === raceId);
+      setPredictions(race ?? null);
+    } catch {
+      setPredictions(null);
+    }
+  }, [raceId]);
+
+  // My印（馬印1+2）
+  const fetchMyMarks = useCallback(async () => {
+    if (!raceInfoForMarks) return;
+    const { marks1, marks2 } = await fetchMyMarksBoth(raceInfoForMarks);
+    setMyMarks1(marks1);
+    setMyMarks2(marks2);
+  }, [raceInfoForMarks]);
+
+  // 直前変動（ji-timeseries APIから lastMinute 抽出）
+  const fetchSurge = useCallback(async () => {
+    if (!raceId) return;
+    try {
+      const res = await fetch(`/api/odds/ji-timeseries?raceId=${raceId}`);
+      if (!res.ok) {
+        setSurgeMap(new Map());
+        return;
+      }
+      const data = await res.json();
+      const m = new Map<string, {
+        level: 'hot' | 'warm' | 'cold' | 'stable' | 'unknown';
+        changePercent: number | null;
+        beforeOdds: number | null;
+        finalOdds: number | null;
+      }>();
+      for (const h of data.horses ?? []) {
+        if (h.lastMinute) {
+          m.set(String(h.umaban), {
+            level: h.lastMinute.level,
+            changePercent: h.lastMinute.changePercent,
+            beforeOdds: h.lastMinute.beforeOdds,
+            finalOdds: h.lastMinute.finalOdds,
+          });
+        }
+      }
+      setSurgeMap(m);
+    } catch {
+      setSurgeMap(new Map());
+    }
+  }, [raceId]);
+
   useEffect(() => {
     fetchOdds();
-  }, [fetchOdds]);
+    fetchPredictions();
+    fetchMyMarks();
+    fetchSurge();
+  }, [fetchOdds, fetchPredictions, fetchMyMarks, fetchSurge]);
+
+  // EnrichedHorse[] の計算
+  const enrichedHorses = useMemo(() => {
+    if (!odds) return [];
+    return enrichHorses(odds.horses, predictions, myMarks1, myMarks2);
+  }, [odds, predictions, myMarks1, myMarks2]);
+
+  const hasMl = predictions != null && predictions.entries.length > 0;
 
   const trackName = getTrackNameFromRaceId(raceId);
   const raceNum = raceId.length >= 16 ? parseInt(raceId.substring(14, 16), 10) : 0;
@@ -1077,7 +944,33 @@ export default function OddsRacePage() {
               {analysisLabel}
             </Badge>
           )}
-          <Button onClick={fetchOdds} variant="outline" size="sm">
+          {raceInfoForMarks && (
+            <TargetMarkInputModal
+              raceInfo={raceInfoForMarks}
+              entries={odds.horses.map((h) => ({
+                horse_number: parseInt(h.umaban, 10),
+                horse_name: h.horseName ?? `${parseInt(h.umaban, 10)}番`,
+                entry_data: { waku: h.waku ?? null },
+              }))}
+              trigger={
+                <Button variant="outline" size="sm">
+                  <Target className="h-4 w-4 mr-1" />
+                  My印を編集
+                </Button>
+              }
+              onSaved={() => fetchMyMarks()}
+            />
+          )}
+          <Button
+            onClick={() => {
+              fetchOdds();
+              fetchPredictions();
+              fetchMyMarks();
+              fetchSurge();
+            }}
+            variant="outline"
+            size="sm"
+          >
             <RefreshCw className="h-4 w-4 mr-1" />
             更新
           </Button>
@@ -1094,49 +987,61 @@ export default function OddsRacePage() {
         </div>
       </div>
 
+      {/* My印サマリー（どのタブからも見える） */}
+      {(Object.keys(myMarks1).length > 0 || Object.keys(myMarks2).length > 0) && (
+        <Card className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+          <CardContent className="py-2 px-4 flex flex-wrap items-center gap-3 text-xs">
+            <span className="font-bold">🎯 My印:</span>
+            {Object.keys(myMarks1).length > 0 ? (
+              <span>
+                <span className="text-muted-foreground">[1] </span>
+                {Object.entries(myMarks1)
+                  .filter(([, m]) => m)
+                  .sort(([a], [b]) => parseInt(a, 10) - parseInt(b, 10))
+                  .map(([n, m]) => `${m}${n}`)
+                  .join(' ') || '(なし)'}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">[1] (なし)</span>
+            )}
+            {Object.keys(myMarks2).length > 0 && (
+              <span>
+                <span className="text-muted-foreground">[2] </span>
+                {Object.entries(myMarks2)
+                  .filter(([, m]) => m)
+                  .sort(([a], [b]) => parseInt(a, 10) - parseInt(b, 10))
+                  .map(([n, m]) => `${m}${n}`)
+                  .join(' ')}
+              </span>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* タブ切替 */}
-      <Tabs defaultValue="timeseries" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="filter">フィルタ分析</TabsTrigger>
-          <TabsTrigger value="share">シェア分析</TabsTrigger>
-          <TabsTrigger value="timeseries">時系列</TabsTrigger>
+      <Tabs defaultValue="signal" className="w-full">
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="signal">🎯 シグナル</TabsTrigger>
+          <TabsTrigger value="chart">📈 チャート</TabsTrigger>
+          <TabsTrigger value="filter">🔍 複合フィルタ</TabsTrigger>
+          <TabsTrigger value="share">📊 シェア</TabsTrigger>
+          <TabsTrigger value="timeseries">⏱ 時系列表</TabsTrigger>
           <TabsTrigger value="prediction">💰 予想支援</TabsTrigger>
         </TabsList>
 
-        {/* フィルタ分析タブ */}
-        <TabsContent value="filter" className="mt-4 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <OddsPanel
-              odds={odds}
-              filterMode="top5"
-              title="🔥 上位人気"
-              description="人気順Top5"
-            />
-            <OddsPanel
-              odds={odds}
-              filterMode="under10"
-              title="💰 10倍以下"
-              description="単勝10倍以下"
-            />
-            <OddsPanel
-              odds={odds}
-              filterMode="ana"
-              title="🎯 穴馬候補"
-              description="10-30倍ゾーン"
-            />
-            <OddsPanel
-              odds={odds}
-              filterMode="gekisou"
-              title="⚡ 激走候補"
-              description="AI高×人気薄"
-            />
-          </div>
-          <OddsPanel
-            odds={odds}
-            filterMode="all"
-            title="📋 全馬リスト"
-            description="全出走馬一覧"
-          />
+        {/* シグナルタブ（新規・デフォルト） */}
+        <TabsContent value="signal" className="mt-4">
+          <SignalTab horses={enrichedHorses} surgeMap={surgeMap} hasMl={hasMl} />
+        </TabsContent>
+
+        {/* チャートタブ（新規・lightweight-charts） */}
+        <TabsContent value="chart" className="mt-4">
+          <ChartTab raceId={raceId} horses={enrichedHorses} />
+        </TabsContent>
+
+        {/* 複合フィルタタブ（新規） */}
+        <TabsContent value="filter" className="mt-4">
+          <CompositeFilterTab horses={enrichedHorses} surgeMap={surgeMap} hasMl={hasMl} />
         </TabsContent>
 
         {/* シェア分析タブ */}

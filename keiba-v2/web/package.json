@@ -28,6 +28,7 @@
     "clsx": "^2.1.1",
     "gray-matter": "^4.0.3",
     "iconv-lite": "^0.7.2",
+    "lightweight-charts": "^5.2.0",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.12.2",
     "mysql2": "^3.17.1",
