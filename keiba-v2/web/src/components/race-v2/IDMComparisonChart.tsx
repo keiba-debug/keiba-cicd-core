@@ -18,6 +18,7 @@ import {
   getMyMarkColor,
   type BuyZone,
 } from '@/components/odds-race/buy-zone';
+import { NoveltyBadges } from './NoveltyBadges';
 
 // ── 型定義 ──
 
@@ -55,6 +56,14 @@ export interface HorseIDMData {
   winEv?: number | null;       // 単勝EV
   placeEv?: number | null;     // 複勝EV
   isVb?: boolean;              // ML的Value Bet候補
+  // ── Session 119: 未知数度 ──
+  novelty_score?: number;
+  novelty_career_short?: number;
+  novelty_first_surface?: number;
+  novelty_first_distance?: number;
+  novelty_first_venue?: number;
+  novelty_long_layoff?: number;
+  novelty_jockey_change?: number;
 }
 
 // ── 定数 ──
@@ -897,6 +906,7 @@ function SummaryTable({
                         VB
                       </span>
                     )}
+                    <NoveltyBadges entry={h} variant="compact" />
                     {surgeMap.get(h.horseNumber) === 'hot' && (
                       <span
                         className="bg-red-500 text-white px-1 py-0.5 rounded text-[10px]"

@@ -2537,6 +2537,16 @@ def main():
                         help='血統統計カットオフ日 (YYYY-MM-DD)。cutoff付きインデックスを使用')
     parser.add_argument('--perf-stack', action='store_true',
                         help='Perfモデル予測をスタッキング特徴量として追加')
+    parser.add_argument('--ar-stack', action='store_true',
+                        help='ARの ability_score を W のスタッキング特徴量として追加 (K-fold OOF). '
+                             'NOTE: polaris 2.2でROI悪化が確認されたため非推奨。'
+                             '詳細: docs/ml-experiments/v8.2_polaris2.2_ar_stack.md')
+    parser.add_argument('--margin-mode', default='raw',
+                        choices=['raw', 'adjusted', 'zscore', 'adj_zscore'],
+                        help='AR target margin の計算モード。raw=従来、adjusted=不利補正、'
+                             'zscore=レース内標準化、adj_zscore=不利補正+標準化(推奨)')
+    parser.add_argument('--furi-scale', type=float, default=0.1,
+                        help='不利1単位あたりの秒換算 (--margin-mode adjusted/adj_zscore で使用)')
     parser.add_argument('--time-decay', type=float, default=0,
                         help='時間重みの半減期（年）。0=重みなし（従来動作）。例: 2.0=2年で重み半減')
     args = parser.parse_args()
@@ -2961,22 +2971,111 @@ def main():
         sample_weight=train_sample_weight,
     )
 
+    # === Aura モデル AR (着差回帰) ===
+    # NOTE: --ar-stack のときは AR を W より先に学習する必要があるため、順序を入れ替えた。
+    from ml.features.margin_target import add_margin_target_to_df
+    margin_mode = args.margin_mode
+    print(f"\n[Margin] Computing target_margin (mode={margin_mode}, furi_scale={args.furi_scale})...")
+    sed_for_margin = jrdb_sed_index if margin_mode in ('adjusted', 'adj_zscore') else None
+    for label, df in [('train', df_train), ('val', df_val), ('test', df_test)]:
+        add_margin_target_to_df(
+            df, date_index, load_race_json, cap=5.0,
+            mode=margin_mode, sed_index=sed_for_margin, furi_scale=args.furi_scale,
+        )
+
+    # --- --ar-stack: K-fold OOF で df_train の ar_ability_score を生成 (リーク防止) ---
+    if args.ar_stack:
+        from sklearn.model_selection import KFold
+        import lightgbm as lgb
+
+        AR_OOF_FOLDS = 5
+        print(f"\n[ARStack] K-fold OOF: {AR_OOF_FOLDS} folds, "
+              f"{len(features_ar)} features")
+
+        mask_tr_margin = df_train['target_margin'].notna()
+        n_valid_tr = int(mask_tr_margin.sum())
+        n_total_tr = len(df_train)
+        print(f"  [ARStack] Train target_margin: {n_valid_tr:,}/{n_total_tr:,} valid "
+              f"({n_valid_tr/n_total_tr*100:.1f}%)")
+
+        # OOFスコア初期化 (target_margin予測値 → 後で符号反転して ability_score)
+        oof_margin = np.full(len(df_train), np.nan)
+        valid_positions = np.where(mask_tr_margin.values)[0]
+        df_train_valid = df_train.loc[mask_tr_margin]
+
+        kf = KFold(n_splits=AR_OOF_FOLDS, shuffle=True, random_state=42)
+        t_oof_ar = time.time()
+
+        for fold_i, (fold_tr, fold_vl) in enumerate(kf.split(df_train_valid)):
+            X_ftr = df_train_valid.iloc[fold_tr][features_ar]
+            y_ftr = df_train_valid.iloc[fold_tr]['target_margin']
+            X_fvl = df_train_valid.iloc[fold_vl][features_ar]
+            y_fvl = df_train_valid.iloc[fold_vl]['target_margin']
+
+            w_ftr = None
+            if train_sample_weight is not None:
+                fold_tr_positions = valid_positions[fold_tr]
+                w_ftr = train_sample_weight[fold_tr_positions]
+
+            ds_ftr = lgb.Dataset(X_ftr, label=y_ftr, weight=w_ftr)
+            ds_fvl = lgb.Dataset(X_fvl, label=y_fvl, reference=ds_ftr)
+
+            fold_model = lgb.train(
+                params_ar, ds_ftr,
+                num_boost_round=optuna_num_boost_round.get('ar', 1500),
+                valid_sets=[ds_fvl],
+                callbacks=[
+                    lgb.early_stopping(stopping_rounds=50),
+                    lgb.log_evaluation(period=0),
+                ],
+            )
+            fold_pred = fold_model.predict(X_fvl)
+
+            # OOF格納 (df_train上の正しい位置)
+            for j, vl_pos in enumerate(fold_vl):
+                oof_margin[valid_positions[vl_pos]] = fold_pred[j]
+
+            from sklearn.metrics import mean_absolute_error
+            fold_mae = mean_absolute_error(y_fvl, fold_pred)
+            print(f"  [ARStack] Fold {fold_i+1}/{AR_OOF_FOLDS}: "
+                  f"MAE={fold_mae:.4f}, best_iter={fold_model.best_iteration}")
+
+        elapsed_oof_ar = time.time() - t_oof_ar
+        print(f"  [ARStack] OOF done: {elapsed_oof_ar:.0f}s")
+
+    # AR本番モデル学習 (df_train全体)
+    model_ar, metrics_ar, importance_ar, pred_ar = train_regression_model(
+        df_train, df_val, df_test, features_ar, params_ar, 'Aura',
+        num_boost_round=optuna_num_boost_round.get('ar', 1500),
+        sample_weight=train_sample_weight,
+    )
+
+    # --- --ar-stack: ar_ability_score を全splitに格納し、features_w に追加 ---
+    if args.ar_stack:
+        # train: OOF (target_margin が無い行は full-model 予測で埋める)
+        nan_mask_oof = np.isnan(oof_margin)
+        n_oof_nan = int(nan_mask_oof.sum())
+        if n_oof_nan > 0:
+            X_nan = df_train.loc[df_train.index[nan_mask_oof], features_ar]
+            oof_margin[nan_mask_oof] = model_ar.predict(X_nan)
+            print(f"  [ARStack] Filled {n_oof_nan:,} train rows w/o target_margin "
+                  f"using full AR model")
+        df_train['ar_ability_score'] = -oof_margin
+
+        # val/test: full-model 予測 (推論時と同じ流れ)
+        for split_name, df_split in [('Val', df_val), ('Test', df_test)]:
+            pred_split = model_ar.predict(df_split[features_ar])
+            df_split['ar_ability_score'] = -pred_split
+            print(f"  [ARStack] {split_name}: ar_ability_score injected via full AR model")
+
+        if 'ar_ability_score' not in features_w:
+            features_w = list(features_w) + ['ar_ability_score']
+            print(f"  [ARStack] features_w now {len(features_w)} (added ar_ability_score)")
+
     # === Win モデル W (is_win) ===
     model_w, metrics_w, importance_w, pred_w, cal_w, pred_w_raw = train_model(
         df_train, df_val, df_test, features_w, params_w, 'is_win', 'Win',
         num_boost_round=optuna_num_boost_round.get('w', 1500),
-        sample_weight=train_sample_weight,
-    )
-
-    # === Aura モデル AR (着差回帰) ===
-    from ml.features.margin_target import add_margin_target_to_df
-    print("\n[Margin] Computing target_margin...")
-    for label, df in [('train', df_train), ('val', df_val), ('test', df_test)]:
-        add_margin_target_to_df(df, date_index, load_race_json, cap=5.0)
-
-    model_ar, metrics_ar, importance_ar, pred_ar = train_regression_model(
-        df_train, df_val, df_test, features_ar, params_ar, 'Aura',
-        num_boost_round=optuna_num_boost_round.get('ar', 1500),
         sample_weight=train_sample_weight,
     )
 
@@ -3311,6 +3410,9 @@ def main():
         'optuna_optimized': optuna_optimized,
         'sire_cutoff': args.sire_cutoff,
         'time_decay_half_life': args.time_decay if args.time_decay > 0 else None,
+        'ar_stack': bool(args.ar_stack),
+        'margin_mode': args.margin_mode,
+        'furi_scale': args.furi_scale if args.margin_mode in ('adjusted', 'adj_zscore') else None,
     }
     # モデル別特徴量が異なる場合、個別リストを保存（Optuna or P_ONLY_FEATURES）
     if features_p != features_w or features_p != features_ar:
@@ -3325,8 +3427,32 @@ def main():
 
     # === 新構造: models/polaris/live/ にも保存 ===
     new_live_dir = model_dir / "models" / "polaris" / "live"
-    new_live_dir.mkdir(parents=True, exist_ok=True)
+    archive_root = model_dir / "models" / "polaris" / "archive"
     import shutil
+
+    # Session 119: 上書き前に既存 live を archive/v{prev_version}/ に退避
+    # （ロールバック保証 — 旧モデルの重みを失わない）
+    existing_meta_path = new_live_dir / "meta.json"
+    if existing_meta_path.exists():
+        try:
+            prev_meta = json.loads(existing_meta_path.read_text(encoding='utf-8'))
+            prev_version = prev_meta.get('version', 'unknown')
+            if prev_version and prev_version != experiment_version:
+                archive_dir = archive_root / f"v{prev_version}"
+                if not archive_dir.exists():
+                    archive_dir.mkdir(parents=True, exist_ok=True)
+                    for fname in ["model_p.txt", "model_w.txt", "model_ar.txt",
+                                  "calibrators.pkl", "meta.json"]:
+                        src = new_live_dir / fname
+                        if src.exists():
+                            shutil.copy2(str(src), str(archive_dir / fname))
+                    print(f"  [Archive] live(v{prev_version}) → {archive_dir}")
+                else:
+                    print(f"  [Archive] v{prev_version} already exists, skipping backup")
+        except Exception as ex:
+            print(f"  [WARN] live archive backup failed: {ex}")
+
+    new_live_dir.mkdir(parents=True, exist_ok=True)
     for fname in ["model_p.txt", "model_w.txt", "model_ar.txt", "calibrators.pkl"]:
         src = model_dir / fname
         if src.exists():

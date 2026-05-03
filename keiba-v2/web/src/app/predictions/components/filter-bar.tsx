@@ -13,6 +13,8 @@ interface FilterBarProps {
   setMinArd: (m: number | null) => void;
   betOnly: boolean;
   setBetOnly: (b: boolean) => void;
+  noveltyFilter: 'all' | 'safe' | 'novel';
+  setNoveltyFilter: (v: 'all' | 'safe' | 'novel') => void;
   filteredCount: number;
   totalCount: number;
 }
@@ -24,6 +26,7 @@ export function FilterBar({
   minEv, setMinEv,
   minArd, setMinArd,
   betOnly, setBetOnly,
+  noveltyFilter, setNoveltyFilter,
   filteredCount, totalCount,
 }: FilterBarProps) {
   return (
@@ -161,6 +164,33 @@ export function FilterBar({
         />
         <span className="text-xs text-muted-foreground">投資対象のみ</span>
       </label>
+
+      {/* 未知数度フィルタ (Session 119) */}
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-muted-foreground mr-1">未知数:</span>
+        {([
+          { v: 'all', label: '全て', cls: 'bg-blue-600' },
+          { v: 'safe', label: '低 (≤1)', cls: 'bg-emerald-600' },
+          { v: 'novel', label: '高 (≥3)', cls: 'bg-rose-600' },
+        ] as const).map((opt) => (
+          <button
+            key={opt.v}
+            onClick={() => setNoveltyFilter(opt.v)}
+            title={
+              opt.v === 'safe' ? '初芝/初距離/初コース等が少ない安定馬のみ' :
+              opt.v === 'novel' ? '未知数フラグが3つ以上立っている馬のみ (人間判断補強用)' :
+              '全ての注目馬'
+            }
+            className={`px-2.5 py-1 text-xs rounded transition-colors ${
+              noveltyFilter === opt.v
+                ? `${opt.cls} text-white shadow-sm`
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
 
       {/* 件数表示 */}
       <span className="text-xs text-muted-foreground ml-auto">

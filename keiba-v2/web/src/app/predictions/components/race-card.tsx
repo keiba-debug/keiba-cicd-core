@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PredictionRace, RaceResultsMap } from '@/lib/data/predictions-reader';
+import { NoveltyBadges } from '@/components/race-v2/NoveltyBadges';
 import type { OddsMap, DbResultsMap, SortState } from '../lib/types';
 import {
   getWinOdds, calcWinEv, getGapColor, getGapBg, getEvColor, getMarkColor,
@@ -195,8 +196,11 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
                   >
                     <td className="px-2 py-1 text-center font-mono text-xs">{entry.umaban}</td>
                     <td className="px-2 py-1 font-bold text-xs">
-                      {entry.horse_name}
-                      {isVB && <span className="ml-1 text-amber-500 text-[10px]">VB</span>}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span>{entry.horse_name}</span>
+                        {isVB && <span className="text-amber-500 text-[10px]">VB</span>}
+                        <NoveltyBadges entry={entry} variant="compact" />
+                      </div>
                     </td>
                     <td className={`px-2 py-1 text-center ${getMarkColor(entry.kb_mark)}`}>
                       {entry.kb_mark || '-'}

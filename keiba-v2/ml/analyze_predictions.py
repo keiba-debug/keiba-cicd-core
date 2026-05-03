@@ -190,10 +190,10 @@ def analyze_predictions(start_month: str = "2025-01", end_month: str = "2026-02"
                 if entry.get("is_value_bet"):
                     vb_stats["total"] += 1
                     vb_stats["wagered"] += 100
-                    if is_win:
+                    if is_win and actual_win_odds:
                         vb_stats["win"] += 1
                         vb_stats["returned_win"] += int(actual_win_odds * 100)
-                    if is_place:
+                    if is_place and actual_place_odds:
                         vb_stats["place"] += 1
                         vb_stats["returned_place"] += int(actual_place_odds * 100)
 
@@ -201,10 +201,10 @@ def analyze_predictions(start_month: str = "2025-01", end_month: str = "2026-02"
                     ms = monthly_stats[month_str]
                     ms["vb_total"] += 1
                     ms["vb_wagered"] += 100
-                    if is_win:
+                    if is_win and actual_win_odds:
                         ms["vb_win"] += 1
                         ms["vb_returned_win"] += int(actual_win_odds * 100)
-                    if is_place:
+                    if is_place and actual_place_odds:
                         ms["vb_place"] += 1
                         ms["vb_returned_place"] += int(actual_place_odds * 100)
 
@@ -212,12 +212,12 @@ def analyze_predictions(start_month: str = "2025-01", end_month: str = "2026-02"
                     vs = venue_stats[venue]
                     vs["vb_total"] += 1
                     vs["vb_wagered"] += 100
-                    if is_win:
+                    if is_win and actual_win_odds:
                         vs["vb_win"] += 1
                         vs["vb_returned"] += int(actual_win_odds * 100)
 
                     # 高配当ヒット
-                    if is_win and actual_win_odds >= 10:
+                    if is_win and actual_win_odds and actual_win_odds >= 10:
                         vb_big_hits.append({
                             "date": date_str, "venue": venue,
                             "race": race.get("race_number"),
@@ -229,20 +229,20 @@ def analyze_predictions(start_month: str = "2025-01", end_month: str = "2026-02"
                         })
 
                     # EV帯別
-                    ev = entry.get("win_ev", 0)
+                    ev = entry.get("win_ev") or 0
                     band = "<1.0" if ev < 1.0 else "1.0-1.5" if ev < 1.5 else \
                            "1.5-2.0" if ev < 2.0 else "2.0-3.0" if ev < 3.0 else "3.0+"
                     ev_bands[band][0] += 1
-                    if is_win:
+                    if is_win and actual_win_odds:
                         ev_bands[band][1] += 1
                         ev_bands[band][2] += int(actual_win_odds * 100)
 
                     # AR偏差値帯別
-                    ar = entry.get("ar_deviation", 0)
+                    ar = entry.get("ar_deviation") or 0
                     band = "<50" if ar < 50 else "50-55" if ar < 55 else \
                            "55-60" if ar < 60 else "60-65" if ar < 65 else "65+"
                     ar_bands[band][0] += 1
-                    if is_win:
+                    if is_win and actual_win_odds:
                         ar_bands[band][1] += 1
                         ar_bands[band][2] += int(actual_win_odds * 100)
 
@@ -251,7 +251,7 @@ def analyze_predictions(start_month: str = "2025-01", end_month: str = "2026-02"
                     band = "3-4" if gap <= 4 else "5-6" if gap <= 6 else \
                            "7-8" if gap <= 8 else "9+"
                     gap_bands[band][0] += 1
-                    if is_win:
+                    if is_win and actual_win_odds:
                         gap_bands[band][1] += 1
                         gap_bands[band][2] += int(actual_win_odds * 100)
                 else:

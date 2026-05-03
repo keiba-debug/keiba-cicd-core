@@ -41,6 +41,7 @@ from ml.features.training_features import compute_training_features
 from ml.features.speed_features import compute_speed_features
 from ml.features.comment_features import compute_comment_features
 from ml.features.slow_start_features import compute_slow_start_features
+from ml.features.career_features import compute_career_features, CAREER_FEATURE_COLS
 from ml.features.obstacle_features import (
     compute_obstacle_experience, compute_jockey_selection,
     compute_obstacle_level, compute_obstacle_exp_tier,
@@ -60,6 +61,7 @@ from ml.bet_engine import (
     VB_FLOOR_MIN_WIN_EV, VB_FLOOR_MIN_ARD,
     VB_FLOOR_ARD_VB_MIN_ARD, VB_FLOOR_ARD_VB_MIN_ODDS,
     VB_FLOOR_MIN_DEV_GAP, VB_FLOOR_DEV_MIN_ARD,
+    passes_novelty_filter,
 )
 
 # === Value Bet閾値 ===
@@ -1066,6 +1068,19 @@ def predict_race(
             )
             feat.update(horse_bias)
 
+        # キャリア + 不確実性フラグ (Session 119: 未知数度)
+        career_feat = compute_career_features(
+            ketto_num=ketto_num,
+            race_date=race_date,
+            history_cache=history_cache,
+            jrdb_sed_index=jrdb_sed_index or {},
+            current_track_type=track_type,
+            current_distance=distance,
+            current_venue_code=venue_code,
+            current_jockey_code=entry.get('jockey_code', ''),
+        )
+        feat.update(career_feat)
+
         # odds_rank（レース内順位）は全馬のoddsが揃ってから計算
         feat['odds_rank'] = np.nan  # placeholder — real oddsがあればランク化される
 
@@ -1169,8 +1184,10 @@ def predict_race(
     arr_v = np.array(feature_rows_v, dtype=np.float64)
 
     # === 特徴量NaN検証: 全値NaNの特徴量があれば警告 ===
+    # ar_ability_score はAR予測後に注入されるため、入力段階でNaNなのは想定通り
+    DERIVED_FEATURES = {'ar_ability_score'}
     nan_cols_v = [f for j, f in enumerate(features_value)
-                  if np.all(np.isnan(arr_v[:, j]))]
+                  if f not in DERIVED_FEATURES and np.all(np.isnan(arr_v[:, j]))]
     if nan_cols_v:
         print(f"[WARN] 全値NaNの特徴量 ({len(nan_cols_v)}件): {nan_cols_v}")
 
@@ -1199,6 +1216,30 @@ def predict_race(
     sum_p = pred_p_raw.sum()
     pred_p = pred_p_raw / sum_p if sum_p > 0 else pred_p_raw
 
+    # === ability_score → rating_display (Method A: グレードオフセット付き) ===
+    # 符号反転: 高い=強い。RATING_BASE + ability * RATING_SCALE + grade_offset
+    # IDMスケール（Session 90: 0.92*R-11.84 キャリブレーション適用）
+    # NOTE: AR→Wスタッキング (polaris-2.2+) のため、AR予測をW予測より先に実行する
+    RATING_SCALE = 13.5
+    RATING_BASE = 56.4
+    ability_score = None
+    rating_display = None
+    if model_ar is not None:
+        ability_score = -model_ar.predict(_build_model_array('ar'))
+        rating_display = RATING_BASE + ability_score * RATING_SCALE
+        # Method A: グレードオフセット適用
+        grade_key = get_grade_key(current_grade, current_age_class)
+        grade_offset = (grade_offsets or {}).get(grade_key, 0.0)
+        if grade_offset != 0.0:
+            rating_display = rating_display + grade_offset
+
+        # AR→Wスタッキング: features_per_model['w'] に ar_ability_score が含まれる場合、
+        # 各馬の features 辞書に注入してから W を呼ぶ (符号反転前: -pred_margin_ar)
+        if (features_per_model and 'w' in features_per_model
+                and 'ar_ability_score' in features_per_model['w']):
+            for i, p in enumerate(predictions):
+                p['features']['ar_ability_score'] = float(ability_score[i])
+
     # === Win予測 W (is_win) ===
     has_win_model = model_w is not None
     pred_w = None
@@ -1216,22 +1257,6 @@ def predict_race(
         sum_w = pred_w_raw.sum()
         pred_w = pred_w_raw / sum_w if sum_w > 0 else pred_w_raw
         rank_w_dict = {i: r for r, i in enumerate(np.argsort(-pred_w), 1)}
-
-    # === ability_score → rating_display (Method A: グレードオフセット付き) ===
-    # 符号反転: 高い=強い。RATING_BASE + ability * RATING_SCALE + grade_offset
-    # IDMスケール（Session 90: 0.92*R-11.84 キャリブレーション適用）
-    RATING_SCALE = 13.5
-    RATING_BASE = 56.4
-    ability_score = None
-    rating_display = None
-    if model_ar is not None:
-        ability_score = -model_ar.predict(_build_model_array('ar'))
-        rating_display = RATING_BASE + ability_score * RATING_SCALE
-        # Method A: グレードオフセット適用
-        grade_key = get_grade_key(current_grade, current_age_class)
-        grade_offset = (grade_offsets or {}).get(grade_key, 0.0)
-        if grade_offset != 0.0:
-            rating_display = rating_display + grade_offset
 
     if verbose:
         print(f"\n  [モデル推論]")
@@ -1342,6 +1367,14 @@ def predict_race(
             # 差し追込指標 (closing model連携, v6.3)
             'closing_strength': p['features'].get('closing_strength', -1),
             'avg_first_corner_ratio': p['features'].get('avg_first_corner_ratio', -1),
+            # 未知数度フラグ (Session 119: novelty)
+            'novelty_score': int(p['features'].get('uncertainty_score', 0) or 0),
+            'novelty_career_short': int(p['features'].get('uncertainty_career_short', 0) or 0),
+            'novelty_first_surface': int(p['features'].get('uncertainty_first_surface', 0) or 0),
+            'novelty_first_distance': int(p['features'].get('uncertainty_first_distance', 0) or 0),
+            'novelty_first_venue': int(p['features'].get('uncertainty_first_venue', 0) or 0),
+            'novelty_long_layoff': int(p['features'].get('uncertainty_long_layoff', 0) or 0),
+            'novelty_jockey_change': int(p['features'].get('uncertainty_jockey_change', 0) or 0),
         }
         entry['is_value_bet'] = False  # AR偏差値計算後に更新
         result_entries.append(entry)
@@ -1363,6 +1396,19 @@ def predict_race(
     else:
         for e in result_entries:
             e['ar_deviation'] = 50.0  # AR情報不足時は全員50
+
+    # AR偏差値の未知数度補正（Session 119）
+    # ARd_adj = 50 + (ARd - 50) × (1 - NOVELTY_DECAY × novelty_score)
+    # 50からの距離（=能力評価）を未知数度に応じて減衰させる
+    NOVELTY_DECAY = 0.05  # score 1段階で5%減衰、最大30%減衰（score=6時）
+    for e in result_entries:
+        ard = e.get('ar_deviation')
+        score = e.get('novelty_score', 0) or 0
+        if ard is None:
+            e['ar_deviation_adj'] = None
+        else:
+            decay = max(0.0, 1.0 - NOVELTY_DECAY * score)
+            e['ar_deviation_adj'] = round(50 + (ard - 50) * decay, 1)
 
     # dev_gap計算（偏差値ベースの乖離: モデル評価 vs 市場評価）
     # model_dev: pred_proba_p のレース内z-score
@@ -1404,6 +1450,7 @@ def predict_race(
     # 条件A: EV >= 1.0 AND ARd >= 50（期待値＋能力）
     # 条件B: ARd >= 65 AND odds >= 10（ARd VBルート: 能力 vs 市場乖離）
     # 条件C: dev_gap >= 0.7 AND ARd >= 45（偏差値ベースの真の乖離）
+    # Session 119: novelty フィルタ (高未知数馬は除外)
     for e in result_entries:
         ev_ok = (e.get('win_ev') or 0) >= VB_FLOOR_MIN_WIN_EV
         ard_ok = (e.get('ar_deviation') or 0) >= VB_FLOOR_MIN_ARD
@@ -1411,7 +1458,8 @@ def predict_race(
                      and (e.get('odds') or 0) >= VB_FLOOR_ARD_VB_MIN_ODDS)
         dev_ok = ((e.get('dev_gap') or 0) >= VB_FLOOR_MIN_DEV_GAP
                   and (e.get('ar_deviation') or 0) >= VB_FLOOR_DEV_MIN_ARD)
-        e['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok or dev_ok)
+        novelty_ok = passes_novelty_filter(e)
+        e['is_value_bet'] = bool(((ev_ok and ard_ok) or ard_vb_ok or dev_ok) and novelty_ok)
 
     if verbose:
         print(f"\n  [最終評価]")

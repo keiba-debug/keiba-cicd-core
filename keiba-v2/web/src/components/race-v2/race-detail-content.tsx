@@ -94,11 +94,13 @@ interface RaceDetailContentProps {
   raceConfidence?: RaceConfidence;
   /** チェック馬（馬番→エントリ） */
   checkUmaMap?: Record<number, { month: number; day: number; level: number; comment: string }>;
+  /** 馬番→kettoNum（JRA-VAN 10桁）チェック馬登録APIで使用 */
+  kettoNumMap?: Record<number, string>;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap, kettoNumMap }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -260,6 +262,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 mlPredictions={mlPredictions}
                 raceId={raceData.meta?.race_id}
                 checkUmaMap={checkUmaMap}
+                kettoNumMap={kettoNumMap}
                 courseInfo={courseInfoForBias}
               />
             </div>
@@ -380,6 +383,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               mlPredictions={mlPredictions}
               raceId={raceData.meta?.race_id}
               checkUmaMap={checkUmaMap}
+              kettoNumMap={kettoNumMap}
               courseInfo={courseInfoForBias}
             />
           </div>

@@ -6,7 +6,8 @@
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Wallet } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   getIntegratedRaceData,
   hasRaceResults,
@@ -312,16 +313,19 @@ export default async function RaceDetailPage({ params }: PageParams) {
   }
 
   // TARGETコメント取得（馬コメント）
-  // trainingSummaryMapからkettoNum（JRA-VAN 10桁ID）を取得して使用
-  // 競馬ブックのhorse_idではなく、kettoNumで検索する必要がある
-  const kettoNumList = raceData.entries
-    .map(e => {
-      // normalizeHorseNameはrace-data.tsからインポート済みと想定
-      const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
-      const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
-      return summary?.kettoNum;
-    })
-    .filter((id): id is string => !!id);
+  // kettoNum（JRA-VAN 10桁ID）を各馬ごとに確定: entry.horse_id (v4 adapter) 優先、trainingSummaryMapフォールバック
+  const resolveKettoNum = (e: typeof raceData.entries[number]): string | undefined => {
+    if (e.horse_id && /^\d{10}$/.test(e.horse_id)) return e.horse_id;
+    const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
+    const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
+    return summary?.kettoNum;
+  };
+  const entryKettoMap: Record<number, string> = {};
+  for (const e of raceData.entries) {
+    const k = resolveKettoNum(e);
+    if (k) entryKettoMap[e.horse_number] = k;
+  }
+  const kettoNumList = Object.values(entryKettoMap);
   const horseCommentsMap = getHorseCommentsBatch(kettoNumList);
 
   // チェック馬取得
@@ -329,23 +333,18 @@ export default async function RaceDetailPage({ params }: PageParams) {
   // 馬番→CheckUmaEntry に変換
   const checkUmaByHorseNum: Record<number, CheckUmaEntry> = {};
   for (const e of raceData.entries) {
-    const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
-    const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
-    if (summary?.kettoNum) {
-      const entry = checkUmaRaw.get(summary.kettoNum);
+    const k = entryKettoMap[e.horse_number];
+    if (k) {
+      const entry = checkUmaRaw.get(k);
       if (entry) checkUmaByHorseNum[e.horse_number] = entry;
     }
   }
 
   // 直近戦績取得（SE_DATA）
-  // 馬番→kettoNumマッピングを構築
+  // 馬番→kettoNumマッピング（entry.horse_id優先、trainingSummaryMapフォールバック）
   const horseNumToKettoNum = new Map<number, string>();
-  for (const e of raceData.entries) {
-    const normalized = e.horse_name.replace(/^[\(（][外地父市][）\)]/g, '');
-    const summary = trainingSummaryMap[e.horse_name] || trainingSummaryMap[normalized];
-    if (summary?.kettoNum) {
-      horseNumToKettoNum.set(e.horse_number, summary.kettoNum);
-    }
+  for (const [hn, k] of Object.entries(entryKettoMap)) {
+    horseNumToKettoNum.set(Number(hn), k);
   }
   const beforeDate = date.replace(/-/g, ''); // YYYYMMDD
   const recentFormRaw = getRecentFormBatch(
@@ -527,6 +526,14 @@ export default async function RaceDetailPage({ params }: PageParams) {
 
       {/* データ更新ボタン */}
       <div className="flex justify-end gap-2 mb-2">
+        {jraRaceId && (
+          <Link href={`/my-bets/${jraRaceId}`} target="_blank">
+            <Button variant="outline" size="sm">
+              <Wallet className="w-4 h-4 mr-1" />
+              My印買い目
+            </Button>
+          </Link>
+        )}
         <RefreshButton size="sm" />
       </div>
 
@@ -600,6 +607,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
           mlPredictions={mlPredictions ?? undefined}
           raceConfidence={raceConfidence ?? undefined}
           checkUmaMap={Object.keys(checkUmaByHorseNum).length > 0 ? checkUmaByHorseNum : undefined}
+          kettoNumMap={entryKettoMap}
         />
 
         {/* データ情報（フッター） */}

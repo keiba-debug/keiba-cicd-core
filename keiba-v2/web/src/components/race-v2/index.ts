@@ -12,3 +12,4 @@ export { PredictionSection } from './PredictionSection';
 export { PurchasePlanSection } from './PurchasePlanSection';
 export { TargetCommentsModal, type TargetCommentSavedData } from './TargetCommentsModal';
 export { TargetMarkInputModal, type TargetMarksSavedData, type TargetMarkEntry } from './TargetMarkInputModal';
+export { RaceNavBar } from './RaceNavBar';

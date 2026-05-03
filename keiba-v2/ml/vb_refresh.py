@@ -25,6 +25,7 @@ from core import config
 from ml.bet_engine import (
     VB_FLOOR_MIN_WIN_EV, VB_FLOOR_MIN_ARD,
     VB_FLOOR_ARD_VB_MIN_ARD, VB_FLOOR_ARD_VB_MIN_ODDS,
+    passes_novelty_filter,
 )
 from ml.generate_bets import apply_bet_engine, save_bets
 from ml.predict import compute_market_signal
@@ -111,14 +112,15 @@ def refresh_race_vb(race: dict, db_odds: Dict[int, dict],
         else:
             entry['place_ev'] = None
 
-        # VB Floor判定
+        # VB Floor判定 (Session 119: novelty フィルタ追加)
         ev_ok = (entry.get('win_ev') or 0) >= VB_FLOOR_MIN_WIN_EV
         ard_ok = (entry.get('ar_deviation') or 0) >= VB_FLOOR_MIN_ARD
         ard_vb_ok = (
             (entry.get('ar_deviation') or 0) >= VB_FLOOR_ARD_VB_MIN_ARD
             and (entry.get('odds') or 0) >= VB_FLOOR_ARD_VB_MIN_ODDS
         )
-        entry['is_value_bet'] = bool((ev_ok and ard_ok) or ard_vb_ok)
+        novelty_ok = passes_novelty_filter(entry)
+        entry['is_value_bet'] = bool(((ev_ok and ard_ok) or ard_vb_ok) and novelty_ok)
         if entry['is_value_bet']:
             vb_count += 1
 

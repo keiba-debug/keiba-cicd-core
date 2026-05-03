@@ -73,6 +73,49 @@ export interface TrainingSummaryFile {
 }
 
 /**
+ * キャッシュの鮮度チェック
+ *
+ * 最終追い切り期間(finalEnd)のCK_DATAが反映されているか判定。
+ * created_at が finalEnd の日付より前 → まだデータが届いていない時期に生成された古いキャッシュ。
+ * CK_DATAの更新(ファイルmtime)がcreated_atより後 → 新しい調教データが追加された。
+ */
+function isCacheStale(data: TrainingSummaryFile, dateStr: string): boolean {
+  const { created_at, ranges } = data.meta;
+  if (!created_at || !ranges?.finalEnd) return false;
+
+  // 1. created_at が finalEnd より前なら確実に古い
+  // finalEnd=20260402 → 4/2の23:59までのデータが反映されるべき
+  const createdDate = new Date(created_at);
+  const finalEndDate = new Date(
+    `${ranges.finalEnd.slice(0, 4)}-${ranges.finalEnd.slice(4, 6)}-${ranges.finalEnd.slice(6, 8)}T23:59:59`
+  );
+  if (createdDate < finalEndDate) {
+    return true;
+  }
+
+  // 2. CK_DATAファイルがcreated_at以降に更新されていれば再生成
+  try {
+    const jvRoot = process.env.JV_DATA_ROOT_DIR || process.env.JV_DATA_ROOT || 'C:/TFJV';
+    const yyyy = ranges.finalEnd.slice(0, 4);
+    const yyyymm = ranges.finalEnd.slice(0, 6);
+    const ckDir = path.join(jvRoot, 'CK_DATA', yyyy, yyyymm);
+    if (fs.existsSync(ckDir)) {
+      const files = fs.readdirSync(ckDir);
+      for (const f of files) {
+        const stat = fs.statSync(path.join(ckDir, f));
+        if (stat.mtime > createdDate) {
+          return true;
+        }
+      }
+    }
+  } catch {
+    // ファイルチェック失敗は無視
+  }
+
+  return false;
+}
+
+/**
  * 指定日の調教サマリーを読み込む
  * @param date 日付（YYYY-MM-DD形式）
  * @returns 馬名をキーにした調教サマリーマップ
@@ -95,21 +138,35 @@ export async function getTrainingSummaryMap(date: string): Promise<Record<string
       'training_summary.json'
     );
 
+    const dateStr = `${year}${month}${day}`;
+
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, 'utf-8');
       const data: TrainingSummaryFile = JSON.parse(content);
-      console.log(`[TrainingSummaryReader] Loaded ${Object.keys(data.summaries).length} summaries from ${filePath}`);
-      return data.summaries;
+
+      // 鮮度チェック: キャッシュ生成時刻が最終追い切り期間終了日より前なら古い
+      // 例: 3/27生成だがfinalEnd=20260402 → 4/2のCK_DATAが未反映なので再生成
+      const stale = isCacheStale(data, dateStr);
+      if (!stale) {
+        console.log(`[TrainingSummaryReader] Loaded ${Object.keys(data.summaries).length} summaries from ${filePath}`);
+        return data.summaries;
+      }
+
+      console.log(`[TrainingSummaryReader] Cache stale (created=${data.meta.created_at}, finalEnd=${data.meta.ranges?.finalEnd}), regenerating...`);
     }
 
-    // ファイルがない場合: CK_DATAからオンデマンド生成
+    // ファイルがない or 古い場合: CK_DATAからオンデマンド生成
     if (!isTrainingDataAvailable()) {
-      console.log(`[TrainingSummaryReader] File not found and CK_DATA unavailable: ${filePath}`);
+      console.log(`[TrainingSummaryReader] CK_DATA unavailable, cannot regenerate: ${filePath}`);
+      // 古いキャッシュがあればそれを返す（ないよりマシ）
+      if (fs.existsSync(filePath)) {
+        const data: TrainingSummaryFile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        return data.summaries;
+      }
       return {};
     }
 
-    const dateStr = `${year}${month}${day}`;
-    console.log(`[TrainingSummaryReader] Auto-generating training summary for ${dateStr}...`);
+    console.log(`[TrainingSummaryReader] Generating training summary for ${dateStr}...`);
     const summaries = await generateTrainingSummary(dateStr);
 
     if (summaries.length === 0) {

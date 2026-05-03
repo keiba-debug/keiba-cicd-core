@@ -631,7 +631,7 @@ export default function AdminPage() {
     batch_after_race: { label: '成績情報登録', description: 'レース結果（着順・タイム）を取得' },
     v4_pipeline: { label: 'データ前処理', description: 'レースJSON構築→調教補強（スクレイプなし・データ再処理用）' },
     v4_predict: { label: 'ML予測', description: 'MLモデルで予測を再生成（最新オッズ反映）' },
-    vb_refresh: { label: 'VB/買い目抽出', description: '最新オッズでValueBet判定・買い目を再生成' },
+    vb_refresh: { label: '最新オッズで再計算', description: '最新オッズでValueBet判定・買い目を再生成' },
   };
 
   // データ準備セクション

@@ -36,6 +36,15 @@ export interface MlHorsePrediction {
   // 脚質指標 (Session 113: コースバイアスアラート用)
   avg_first_corner_ratio: number | null;  // 平均1角通過位置 (0=最前, 1=最後尾)
   closing_strength: number | null;         // 末脚力
+  // 未知数度 (Session 119)
+  novelty_score?: number;
+  novelty_career_short?: number;
+  novelty_first_surface?: number;
+  novelty_first_distance?: number;
+  novelty_first_venue?: number;
+  novelty_long_layoff?: number;
+  novelty_jockey_change?: number;
+  ar_deviation_adj?: number | null;
 }
 
 export interface MlRacePrediction {
@@ -90,6 +99,15 @@ interface V4Entry {
   // 脚質指標 (Session 113: コースバイアスアラート用)
   avg_first_corner_ratio?: number | null;
   closing_strength?: number | null;
+  // 未知数度 (Session 119)
+  novelty_score?: number;
+  novelty_career_short?: number;
+  novelty_first_surface?: number;
+  novelty_first_distance?: number;
+  novelty_first_venue?: number;
+  novelty_long_layoff?: number;
+  novelty_jockey_change?: number;
+  ar_deviation_adj?: number | null;
 }
 
 interface V4Race {
@@ -156,6 +174,14 @@ function convertV4Entry(e: V4Entry): MlHorsePrediction {
     market_signal: e.market_signal ?? null,
     avg_first_corner_ratio: e.avg_first_corner_ratio ?? null,
     closing_strength: e.closing_strength ?? null,
+    novelty_score: e.novelty_score,
+    novelty_career_short: e.novelty_career_short,
+    novelty_first_surface: e.novelty_first_surface,
+    novelty_first_distance: e.novelty_first_distance,
+    novelty_first_venue: e.novelty_first_venue,
+    novelty_long_layoff: e.novelty_long_layoff,
+    novelty_jockey_change: e.novelty_jockey_change,
+    ar_deviation_adj: e.ar_deviation_adj ?? null,
   };
 }
 

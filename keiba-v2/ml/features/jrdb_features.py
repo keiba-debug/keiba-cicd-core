@@ -97,7 +97,8 @@ def compute_jrdb_features(
         'jrdb_baba_sa_last': 0.0,    # 前走・馬場差補正
         'jrdb_baba_sa_avg3': 0.0,    # 直近3走・馬場差補正平均
         # G. ペース適性 (SED + KYI)
-        'jrdb_pace_match': None,     # 馬のペース vs レースペース適合度
+        'jrdb_pace_match': None,     # 馬のペース vs レースペース完全一致率 (0-1)
+        'jrdb_pace_mismatch_avg': None,  # 馬-レース ペース絶対差の平均 (0=一致, 2=真逆)
         'jrdb_kyakushitsu': None,    # 脚質コード (1=逃げ,2=先行,3=差し,4=追込)
         'jrdb_distance_apt': None,   # 距離適性
         # H. 調教分析 (CYB)
@@ -252,19 +253,25 @@ def compute_jrdb_features(
                 result['jrdb_baba_sa_avg3'] = round(
                     sum(baba_vals) / len(baba_vals), 1)
 
-            # ペース適合度: 直近3走で馬ペースとレースペースが合ってた割合
+            # ペース適合度: 直近3走で馬ペースとレースペースの一致度 (Session 119 修正)
+            # 旧ロジックは「abs(hp - rp) <= 1」で73%が1.0に張り付き分散ゼロ → 死特徴量化
+            # A: jrdb_pace_match を完全一致のみに厳格化
+            # B: jrdb_pace_mismatch_avg 新規 — 平均絶対差 (0=完全一致, 2=真逆)
             _PACE_MAP = {'H': 0, 'M': 1, 'S': 2}
             pace_matches = 0
             pace_total = 0
+            mismatch_sum = 0.0
             for s in sed_recs[-3:]:
                 hp = _PACE_MAP.get(s.get('horse_pace'))
                 rp = _PACE_MAP.get(s.get('race_pace'))
                 if hp is not None and rp is not None:
                     pace_total += 1
-                    if abs(hp - rp) <= 1:  # 1段階以内のズレはOK
+                    if hp == rp:  # 厳格: 完全一致のみ
                         pace_matches += 1
+                    mismatch_sum += abs(hp - rp)
             if pace_total > 0:
                 result['jrdb_pace_match'] = round(pace_matches / pace_total, 2)
+                result['jrdb_pace_mismatch_avg'] = round(mismatch_sum / pace_total, 2)
 
     # === G: 脚質・距離適性 (KYI) ===
     if kyi:
@@ -402,7 +409,7 @@ JRDB_FEATURE_COLS = [
     'jrdb_mae_furi_last', 'jrdb_naka_furi_last', 'jrdb_ato_furi_last',
     'jrdb_furi_total_last', 'jrdb_baba_sa_last', 'jrdb_baba_sa_avg3',
     # G. ペース適性 + 脚質 + 距離適性
-    'jrdb_pace_match', 'jrdb_kyakushitsu', 'jrdb_distance_apt',
+    'jrdb_pace_match', 'jrdb_pace_mismatch_avg', 'jrdb_kyakushitsu', 'jrdb_distance_apt',
     # H. 調教分析 (CYB)
     'jrdb_cyb_oikiri_idx', 'jrdb_cyb_shiage_idx', 'jrdb_cyb_shiage_change',
     'jrdb_cyb_training_eval', 'jrdb_cyb_oikiri_prev',

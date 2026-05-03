@@ -68,20 +68,28 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('line');
   const [bucket, setBucket] = useState<Bucket>('15m');
+  // ライン用: 複数選択
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // ローソク用: 単一選択（モード切替時に互いに干渉しないよう独立）
+  const [candleUmaban, setCandleUmaban] = useState<string | null>(null);
   const [showSurgeMarkers, setShowSurgeMarkers] = useState(true);
+  // 株/FX流: 上=人気(オッズ低)・下=不人気(オッズ高) になるよう Y軸反転
+  const [invertedScale, setInvertedScale] = useState(true);
 
   const raceIdYear = raceId.substring(0, 4);
 
   // 初期選択: 人気1-3番（horses が来たタイミング）
   useEffect(() => {
     if (horses.length === 0 || selected.size > 0) return;
-    const top3 = horses
+    const sortedByNinki = horses
       .filter((h) => h.ninki != null)
-      .sort((a, b) => (a.ninki ?? 99) - (b.ninki ?? 99))
-      .slice(0, 3)
-      .map((h) => h.umaban);
+      .sort((a, b) => (a.ninki ?? 99) - (b.ninki ?? 99));
+    const top3 = sortedByNinki.slice(0, 3).map((h) => h.umaban);
     setSelected(new Set(top3));
+    // ローソク用は単勝1番人気を初期表示
+    if (candleUmaban == null && sortedByNinki.length > 0) {
+      setCandleUmaban(sortedByNinki[0].umaban);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [horses]);
 
@@ -158,13 +166,14 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
     };
   }, []);
 
-  // モード切替時に priceScale モードを更新
+  // モード/反転切替時に priceScale を更新
   useEffect(() => {
     if (!chartRef.current) return;
     chartRef.current.priceScale('right').applyOptions({
       mode: mode === 'line' ? 1 : 0, // 1=Logarithmic, 0=Normal
+      invertScale: invertedScale,
     });
-  }, [mode]);
+  }, [mode, invertedScale]);
 
   // データ更新時にシリーズを再構築
   useEffect(() => {
@@ -213,16 +222,21 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
         seriesRef.current.set(h.umaban, series);
       });
     } else {
-      // ローソク足: 1馬のみ表示（複数選んでても先頭1頭）
-      const target = selectedHorses[0];
+      // ローソク足: candleUmaban で指定した1頭のみ表示
+      const target = horses.find((h) => h.umaban === candleUmaban) ?? selectedHorses[0];
       if (target) {
         const data = toCandleSeries(snapshots, target.umaban, raceIdYear, bucket);
         if (data.length > 0) {
+          // 反転時: 視覚的"上"=データ下落=人気上昇 → 陽線として青
+          //         視覚的"下"=データ上昇=不人気    → 陰線として赤
+          // 通常時: データ上昇=オッズ上昇=不人気 → 青、データ下落=人気=赤
+          const upColor = invertedScale ? '#ef4444' : '#3b82f6';
+          const downColor = invertedScale ? '#3b82f6' : '#ef4444';
           const series = chart.addSeries(CandlestickSeries, {
-            upColor: '#3b82f6', // 青 = オッズ上昇 (人気落)
-            downColor: '#ef4444', // 赤 = オッズ下落 (人気上昇)
-            wickUpColor: '#3b82f6',
-            wickDownColor: '#ef4444',
+            upColor,
+            downColor,
+            wickUpColor: upColor,
+            wickDownColor: downColor,
             borderVisible: false,
             priceLineVisible: false,
             lastValueVisible: true,
@@ -248,7 +262,7 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
 
     // 時間軸を全データにフィット
     chart.timeScale().fitContent();
-  }, [snapshots, horses, selected, mode, bucket, showSurgeMarkers, raceIdYear]);
+  }, [snapshots, horses, selected, candleUmaban, mode, bucket, showSurgeMarkers, raceIdYear, invertedScale]);
 
   // クイック選択
   const selectQuick = useCallback(
@@ -287,19 +301,28 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
   );
 
   const toggleHorse = useCallback((umaban: string) => {
+    // ローソク足モードは独立した単一選択 (selected には触れない)
+    if (mode === 'candle') {
+      setCandleUmaban(umaban);
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(umaban)) next.delete(umaban);
       else next.add(umaban);
       return next;
     });
-  }, []);
+  }, [mode]);
 
-  // ローソク時の表示馬（先頭1頭）
+  // ローソク時の表示馬
   const candleTarget = useMemo(() => {
     if (mode !== 'candle') return null;
-    return horses.find((h) => selected.has(h.umaban)) ?? null;
-  }, [mode, horses, selected]);
+    return (
+      horses.find((h) => h.umaban === candleUmaban) ??
+      horses.find((h) => selected.has(h.umaban)) ??
+      null
+    );
+  }, [mode, horses, candleUmaban, selected]);
 
   return (
     <div className="space-y-4">
@@ -355,6 +378,15 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
             >
               🔥 急騰マーカー
             </Button>
+            <Button
+              size="sm"
+              variant={invertedScale ? 'default' : 'outline'}
+              onClick={() => setInvertedScale((v) => !v)}
+              className="h-7 text-xs"
+              title="株/FX流: 上=人気(オッズ低)、下=不人気(オッズ高)"
+            >
+              {invertedScale ? '🔃 反転中(人気↑)' : '↕ Y軸反転'}
+            </Button>
           </div>
           {/* ローソク時間枠 */}
           {mode === 'candle' && (
@@ -373,31 +405,38 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
               ))}
             </div>
           )}
-          {/* クイック選択 */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-muted-foreground min-w-[5rem]">クイック:</span>
-            <Button size="sm" variant="outline" onClick={() => selectQuick('top3')} className="h-7 text-xs">
-              人気Top3
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => selectQuick('top5')} className="h-7 text-xs">
-              人気Top5
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => selectQuick('vb')} className="h-7 text-xs">
-              VB馬
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => selectQuick('my')} className="h-7 text-xs">
-              My印あり
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => selectQuick('all')} className="h-7 text-xs">
-              全馬
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => selectQuick('none')} className="h-7 text-xs">
-              クリア
-            </Button>
-            <span className="ml-auto text-xs text-muted-foreground">
-              選択: <strong>{selected.size}</strong> / {horses.length}頭
-            </span>
-          </div>
+          {/* クイック選択（ライン時のみ） */}
+          {mode === 'line' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-muted-foreground min-w-[5rem]">クイック:</span>
+              <Button size="sm" variant="outline" onClick={() => selectQuick('top3')} className="h-7 text-xs">
+                人気Top3
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => selectQuick('top5')} className="h-7 text-xs">
+                人気Top5
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => selectQuick('vb')} className="h-7 text-xs">
+                VB馬
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => selectQuick('my')} className="h-7 text-xs">
+                My印あり
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => selectQuick('all')} className="h-7 text-xs">
+                全馬
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => selectQuick('none')} className="h-7 text-xs">
+                クリア
+              </Button>
+              <span className="ml-auto text-xs text-muted-foreground">
+                選択: <strong>{selected.size}</strong> / {horses.length}頭
+              </span>
+            </div>
+          )}
+          {mode === 'candle' && (
+            <p className="text-xs text-muted-foreground">
+              ローソク足は1頭のみ表示。下の馬選択ボタンで切替できます。
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -408,27 +447,41 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
             <p className="text-xs text-muted-foreground mb-2">
               ローソク足表示中: <strong>{parseInt(candleTarget.umaban, 10)}番 {candleTarget.horseName}</strong>
               （複数選択時は先頭1頭のみ表示）
-              <span className="ml-3">
-                <span className="inline-block w-3 h-2 bg-red-500 mr-1 align-middle" />赤=人気上昇
-                <span className="inline-block w-3 h-2 bg-blue-500 ml-2 mr-1 align-middle" />青=人気低下
-              </span>
+              {invertedScale ? (
+                <span className="ml-3">
+                  <span className="inline-block w-3 h-2 bg-blue-500 mr-1 align-middle" />青=陽線(人気↑)
+                  <span className="inline-block w-3 h-2 bg-red-500 ml-2 mr-1 align-middle" />赤=陰線(人気↓)
+                  <span className="ml-2 text-[10px]">※Y軸反転中: 上=低オッズ</span>
+                </span>
+              ) : (
+                <span className="ml-3">
+                  <span className="inline-block w-3 h-2 bg-red-500 mr-1 align-middle" />赤=人気上昇
+                  <span className="inline-block w-3 h-2 bg-blue-500 ml-2 mr-1 align-middle" />青=人気低下
+                </span>
+              )}
             </p>
           )}
           <div className="relative w-full" style={{ height: '420px' }}>
             <div ref={containerRef} className="absolute inset-0" />
-            {(loading || error || snapshots.length === 0 || selected.size === 0) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm text-sm text-muted-foreground">
-                {loading ? (
-                  <RefreshCw className="animate-spin h-6 w-6" />
-                ) : error ? (
-                  error
-                ) : snapshots.length === 0 ? (
-                  '時系列データなし'
-                ) : (
-                  '下のリストまたはクイック選択ボタンから馬を選んでください'
-                )}
-              </div>
-            )}
+            {(() => {
+              const noSelection =
+                mode === 'candle' ? candleTarget == null : selected.size === 0;
+              const showOverlay = loading || error || snapshots.length === 0 || noSelection;
+              if (!showOverlay) return null;
+              return (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm text-sm text-muted-foreground">
+                  {loading ? (
+                    <RefreshCw className="animate-spin h-6 w-6" />
+                  ) : error ? (
+                    error
+                  ) : snapshots.length === 0 ? (
+                    '時系列データなし'
+                  ) : (
+                    '下のリストから馬を選んでください'
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </CardContent>
       </Card>
@@ -441,7 +494,9 @@ export function ChartTab({ raceId, horses }: ChartTabProps) {
         <CardContent className="p-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
             {horses.map((h, idx) => {
-              const isSelected = selected.has(h.umaban);
+              const isSelected = mode === 'candle'
+                ? h.umaban === candleUmaban
+                : selected.has(h.umaban);
               const wakuNum = h.waku ? parseInt(h.waku, 10) : null;
               const wakuColorClass = wakuNum ? getWakuColor(wakuNum) : 'bg-gray-100';
               const color = colorForUmaban(h.umaban, idx);

@@ -374,13 +374,18 @@ def main():
         add_margin_target_to_df(df_test, date_index, load_race_json, cap=5.0)
 
         # Predict using loaded models (per-model features if Optuna optimized)
+        # NOTE: AR→Wスタッキング対応のため、AR を W より先に予測する
         features_per_model = meta.get('features_per_model')
         feats_p = features_per_model['p'] if features_per_model and 'p' in features_per_model else features_value
         feats_w = features_per_model['w'] if features_per_model and 'w' in features_per_model else features_value
         feats_ar = features_per_model['ar'] if features_per_model and 'ar' in features_per_model else features_value
         pred_p = model_p.predict(df_test[feats_p].values)
-        pred_w = model_w.predict(df_test[feats_w].values)
         pred_ar = model_ar.predict(df_test[feats_ar].values)
+
+        # AR-stack: ar_ability_score を df_test に注入してから W を予測
+        if 'ar_ability_score' in feats_w:
+            df_test['ar_ability_score'] = -pred_ar
+        pred_w = model_w.predict(df_test[feats_w].values)
 
         print(f'[Predict] P: mean={pred_p.mean():.4f}, W: mean={pred_w.mean():.4f}, '
               f'AR: mean={pred_ar.mean():.2f}')

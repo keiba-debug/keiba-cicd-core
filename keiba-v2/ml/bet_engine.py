@@ -74,6 +74,32 @@ GEKISEN_WIDE_MAX_ENTRIES = 14
 GEKISEN_WIDE_MIN_PAIR_AGREE = 3
 GEKISEN_WIDE_MIN_ODDS = 2.0  # ワイドオッズフロア (BT: <2.0→ROI 72%, >=2.0→ROI 103%)
 
+# Novelty フィルタ (Session 119, バックテストv7.9 polaris-2.1b)
+# 2025-05〜2026-04 集計（track_type正規化バグ修正後）:
+#   - novelty_score>=4: VB ROI 0-20% → カット
+#   - first_distance: VB ROI 56.7% → カット
+#   - first_surface: VB ROI 85.9% (他VB馬と同等) → カットしない
+NOVELTY_VB_MAX_SCORE = 3        # novelty_score がこの値以下のみVB候補
+NOVELTY_VB_BLOCK_FIRST_SURFACE = False  # 初芝/初ダ: 真の値で見ると弱くないので除外しない
+NOVELTY_VB_BLOCK_FIRST_DISTANCE = True  # 初距離帯はVB候補から除外
+
+
+def passes_novelty_filter(entry: dict) -> bool:
+    """高未知数馬を VB候補から除外する判定
+
+    Returns:
+        True: VB候補として通過 (フィルタpass)
+        False: VB候補から除外 (フィルタblock)
+    """
+    score = int(entry.get("novelty_score", 0) or 0)
+    if score > NOVELTY_VB_MAX_SCORE:
+        return False
+    if NOVELTY_VB_BLOCK_FIRST_SURFACE and int(entry.get("novelty_first_surface", 0) or 0):
+        return False
+    if NOVELTY_VB_BLOCK_FIRST_DISTANCE and int(entry.get("novelty_first_distance", 0) or 0):
+        return False
+    return True
+
 
 def load_grade_offsets(path: str = None) -> Dict[str, float]:
     """rating_standards.jsonからグレードオフセットマップを読み込み
@@ -929,6 +955,9 @@ def generate_recommendations(
                                 and odds >= VB_FLOOR_ARD_VB_MIN_ODDS)
                 vb_dev_route = (entry_dev_gap >= VB_FLOOR_MIN_DEV_GAP
                                 and (ar_dev or 0) >= VB_FLOOR_DEV_MIN_ARD)
+                # Session 119: novelty 失敗時は market_signal バイパスも禁止
+                if not passes_novelty_filter(e):
+                    continue
                 if not (vb_ev_ok and vb_ard_ok) and not vb_ard_route and not vb_dev_route:
                     # --- market_signalバイパス: VB不通過でも推奨 ---
                     # 鉄板: 複勝→廃止（鉄板軸馬連に移行, Session 116）
@@ -2208,6 +2237,9 @@ def generate_adaptive_recommendations(
 
                 # VB Floor Gate
                 if rule.apply_vb_floor:
+                    # Session 119: novelty 失敗時はVB候補・market_signalバイパス両方禁止
+                    if not passes_novelty_filter(e):
+                        continue
                     vb_ev_ok = (win_ev or 0) >= VB_FLOOR_MIN_WIN_EV
                     vb_ard_ok = (ar_dev or 0) >= VB_FLOOR_MIN_ARD
                     vb_ard_route = ((ar_dev or 0) >= VB_FLOOR_ARD_VB_MIN_ARD

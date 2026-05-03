@@ -318,18 +318,18 @@ def print_picks(date: str, win5_races: list, pred_index: dict, race_infos: dict)
             print(f"\n  R{i+1}: {venue}{race_num}R {race_name}  "
                   f"({num_r}頭, ARd1位={ard_1st:.1f}) → {n}頭")
 
-            picks = [e for e in entries if int(e.get('umaban', 0)) in selected_umaban]
-            picks.sort(key=lambda e: (e.get('rank_w', 99) + e.get('rank_p', 99)))
+            picks = [e for e in entries if int(e.get('umaban', 0) or 0) in selected_umaban]
+            picks.sort(key=lambda e: ((e.get('rank_w') or 99) + (e.get('rank_p') or 99)))
 
             for e in picks:
                 mark = f" {e.get('kb_mark','')}" if e.get('kb_mark') else ""
-                idm_v = float(e.get('jrdb_idm', 0) or 0)
+                idm_v = float(e.get('jrdb_idm') or 0)
                 idm_s = f" IDM={idm_v:.0f}" if idm_v else ""
-                print(f"       {int(e.get('umaban',0)):>2}番 {e.get('horse_name',''):<10} "
-                      f"Rw={int(e.get('rank_w',0))} Rp={int(e.get('rank_p',0))} "
-                      f"ARd={float(e.get('ar_deviation',0)):>5.1f} "
-                      f"odds={float(e.get('odds',0)):>5.1f}({e.get('odds_rank',0)}人) "
-                      f"WEV={float(e.get('win_ev',0)):.2f}{mark}{idm_s}")
+                print(f"       {int(e.get('umaban') or 0):>2}番 {e.get('horse_name',''):<10} "
+                      f"Rw={int(e.get('rank_w') or 0)} Rp={int(e.get('rank_p') or 0)} "
+                      f"ARd={float(e.get('ar_deviation') or 0):>5.1f} "
+                      f"odds={float(e.get('odds') or 0):>5.1f}({e.get('odds_rank') or 0}人) "
+                      f"WEV={float(e.get('win_ev') or 0):.2f}{mark}{idm_s}")
 
         print(f"\n  → 合計 {total_tickets}点 (¥{total_tickets * 100:,})")
 
@@ -352,10 +352,10 @@ def print_picks(date: str, win5_races: list, pred_index: dict, race_infos: dict)
         print(f"    WP合算:")
         for e in top_wps:
             mark = f" {e.get('kb_mark','')}" if e.get('kb_mark') else ""
-            print(f"      Rw+Rp={e['rank_w']+e['rank_p']:>2} {int(e.get('umaban',0)):>2}番 "
+            print(f"      Rw+Rp={(e.get('rank_w') or 0)+(e.get('rank_p') or 0):>2} {int(e.get('umaban') or 0):>2}番 "
                   f"{e.get('horse_name',''):<10} "
-                  f"ARd={float(e.get('ar_deviation',0)):>5.1f} "
-                  f"odds={float(e.get('odds',0)):>5.1f}({e.get('odds_rank',0)}人){mark}")
+                  f"ARd={float(e.get('ar_deviation') or 0):>5.1f} "
+                  f"odds={float(e.get('odds') or 0):>5.1f}({e.get('odds_rank') or 0}人){mark}")
 
 
 def save_json(date: str, win5_races: list, pred_index: dict, race_infos: dict):

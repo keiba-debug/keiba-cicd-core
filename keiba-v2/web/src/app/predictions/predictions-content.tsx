@@ -57,6 +57,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [minEv, setMinEv] = useState<number>(0);
   const [minArd, setMinArd] = useState<number | null>(null);
   const [betOnly, setBetOnly] = useState<boolean>(false);
+  // novelty フィルタ (Session 119): 'all'=全部 / 'safe'=score<=1のみ / 'novel'=score>=3のみ
+  const [noveltyFilter, setNoveltyFilter] = useState<'all' | 'safe' | 'novel'>('all');
 
   // ソート
   const [vbSort, setVbSort] = useState<SortState>({ key: 'race_number', dir: 'asc' });
@@ -603,8 +605,13 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     if (betOnly) {
       entries = entries.filter(e => betRecMap.has(`${e.race.race_id}-${e.entry.umaban}`));
     }
+    if (noveltyFilter === 'safe') {
+      entries = entries.filter(e => (e.entry.novelty_score ?? 0) <= 1);
+    } else if (noveltyFilter === 'novel') {
+      entries = entries.filter(e => (e.entry.novelty_score ?? 0) >= 3);
+    }
     return entries;
-  }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minEv, minArd, betOnly, oddsMap, getLiveGap, betRecMap]);
+  }, [allVBEntries, venueFilter, trackFilter, raceNumFilter, minEv, minArd, betOnly, noveltyFilter, oddsMap, getLiveGap, betRecMap]);
 
   // 注目馬リストもフィルタ適用
   const filteredFeaturedEntries = useMemo(() => {
@@ -616,8 +623,13 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
       );
     }
     if (raceNumFilter !== 0) entries = entries.filter(e => matchRaceNum(raceNumFilter, e.race.race_number));
+    if (noveltyFilter === 'safe') {
+      entries = entries.filter(e => (e.entry.novelty_score ?? 0) <= 1);
+    } else if (noveltyFilter === 'novel') {
+      entries = entries.filter(e => (e.entry.novelty_score ?? 0) >= 3);
+    }
     return entries;
-  }, [featuredEntries, venueFilter, trackFilter, raceNumFilter]);
+  }, [featuredEntries, venueFilter, trackFilter, raceNumFilter, noveltyFilter]);
 
   const betSummary = useMemo(() => {
     let winCount = 0, placeCount = 0, winTotal = 0, placeTotal = 0;
@@ -1038,7 +1050,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
             className={vbRefreshStatus === 'success' ? 'border-green-500 text-green-600' : vbRefreshStatus === 'error' ? 'border-red-500 text-red-600' : ''}
           >
             <RefreshCw className={`h-4 w-4 mr-1.5 ${vbRefreshing ? 'animate-spin' : ''}`} />
-            {vbRefreshing ? 'VB再計算中...' : 'VB再計算'}
+            {vbRefreshing ? '再計算中...' : '最新オッズで再計算'}
           </Button>
           <div className="text-right text-sm text-muted-foreground">
             <div>生成: {new Date(data.created_at).toLocaleString('ja-JP')}</div>
@@ -1086,6 +1098,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
         setMinArd={setMinArd}
         betOnly={betOnly}
         setBetOnly={setBetOnly}
+        noveltyFilter={noveltyFilter}
+        setNoveltyFilter={setNoveltyFilter}
         filteredCount={filteredFeaturedEntries.length}
         totalCount={featuredEntries.length}
       />

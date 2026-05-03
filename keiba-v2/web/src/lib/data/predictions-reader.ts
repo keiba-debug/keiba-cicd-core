@@ -66,6 +66,15 @@ export interface PredictionEntry {
   base_odds?: number;                  // JRDB基準オッズ（朝オッズ推定）
   odds_move?: number;                  // 実オッズ/基準オッズ (>1=人気落ち, <1=人気上昇)
   market_signal?: string;              // 市場シグナル (鉄板/軸向き/妙味/想定通り/人気しすぎ/穴注目)
+  // 未知数度 (Session 119)
+  novelty_score?: number;              // 0-6 合計スコア
+  novelty_career_short?: number;       // キャリア3走以下 (0/1)
+  novelty_first_surface?: number;      // 初芝 or 初ダート (0/1)
+  novelty_first_distance?: number;     // 初距離帯 ±200m経験なし (0/1)
+  novelty_first_venue?: number;        // 初コース (0/1)
+  novelty_long_layoff?: number;        // 長期休養 140日+ (0/1)
+  novelty_jockey_change?: number;      // 騎手乗替 (0/1)
+  ar_deviation_adj?: number | null;    // AR偏差値の未知数度補正版
 }
 
 export interface PredictionRace {

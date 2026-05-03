@@ -165,6 +165,13 @@ export default async function IDMComparePage({ params }: PageParams) {
     winEv: number | null;
     placeEv: number | null;
     isVb: boolean;
+    novelty_score?: number;
+    novelty_career_short?: number;
+    novelty_first_surface?: number;
+    novelty_first_distance?: number;
+    novelty_first_venue?: number;
+    novelty_long_layoff?: number;
+    novelty_jockey_change?: number;
   }>();
   if (predRace) {
     for (const e of predRace.entries) {
@@ -177,6 +184,13 @@ export default async function IDMComparePage({ params }: PageParams) {
         winEv: e.win_ev ?? null,
         placeEv: e.place_ev ?? null,
         isVb: e.is_value_bet ?? false,
+        novelty_score: e.novelty_score,
+        novelty_career_short: e.novelty_career_short,
+        novelty_first_surface: e.novelty_first_surface,
+        novelty_first_distance: e.novelty_first_distance,
+        novelty_first_venue: e.novelty_first_venue,
+        novelty_long_layoff: e.novelty_long_layoff,
+        novelty_jockey_change: e.novelty_jockey_change,
       });
     }
   }
@@ -233,6 +247,13 @@ export default async function IDMComparePage({ params }: PageParams) {
         winEv: pred0?.winEv ?? null,
         placeEv: pred0?.placeEv ?? null,
         isVb: pred0?.isVb ?? false,
+        novelty_score: pred0?.novelty_score,
+        novelty_career_short: pred0?.novelty_career_short,
+        novelty_first_surface: pred0?.novelty_first_surface,
+        novelty_first_distance: pred0?.novelty_first_distance,
+        novelty_first_venue: pred0?.novelty_first_venue,
+        novelty_long_layoff: pred0?.novelty_long_layoff,
+        novelty_jockey_change: pred0?.novelty_jockey_change,
       });
       continue;
     }
@@ -309,6 +330,13 @@ export default async function IDMComparePage({ params }: PageParams) {
       winEv: pred?.winEv ?? null,
       placeEv: pred?.placeEv ?? null,
       isVb: pred?.isVb ?? false,
+      novelty_score: pred?.novelty_score,
+      novelty_career_short: pred?.novelty_career_short,
+      novelty_first_surface: pred?.novelty_first_surface,
+      novelty_first_distance: pred?.novelty_first_distance,
+      novelty_first_venue: pred?.novelty_first_venue,
+      novelty_long_layoff: pred?.novelty_long_layoff,
+      novelty_jockey_change: pred?.novelty_jockey_change,
     });
   }
 

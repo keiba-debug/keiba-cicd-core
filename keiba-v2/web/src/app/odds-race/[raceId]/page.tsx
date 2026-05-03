@@ -10,7 +10,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { RefreshCw, ArrowLeft, TrendingUp, Clock, PieChart, Target } from 'lucide-react';
+import { RefreshCw, ArrowLeft, TrendingUp, Clock, PieChart, Target, Wallet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +22,7 @@ import type { ExpectedValueHorse, MyMark, PositionMark, ConfidenceMark } from '@
 import { convertMarkToWinRate } from '@/types/prediction';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { TargetMarkInputModal } from '@/components/race-v2';
+import { TargetMarkInputModal, RaceNavBar } from '@/components/race-v2';
 import type { PredictionRace } from '@/lib/data/predictions-reader';
 import { SignalTab } from '@/components/odds-race/SignalTab';
 import { CompositeFilterTab } from '@/components/odds-race/CompositeFilterTab';
@@ -897,6 +897,14 @@ export default function OddsRacePage() {
   // 分析コメント
   const analysisLabel = odds?.analysis?.label;
 
+  // ブラウザタブのタイトルを更新
+  useEffect(() => {
+    if (!trackName || raceNum <= 0) return;
+    const head = `${trackName}${raceNum}R`;
+    const cond = raceConditionLabel ? ` ${raceConditionLabel}` : '';
+    document.title = `${head}${cond} | オッズ`;
+  }, [trackName, raceNum, raceConditionLabel]);
+
   if (loading) {
     return (
       <div className="py-12 text-center">
@@ -917,8 +925,23 @@ export default function OddsRacePage() {
     );
   }
 
+  // 同日ナビゲーション用パラメータ
+  const navDate = raceId.length >= 8
+    ? `${raceId.substring(0, 4)}-${raceId.substring(4, 6)}-${raceId.substring(6, 8)}`
+    : '';
+
   return (
     <div className="py-6 space-y-6">
+      {/* レースナビゲーション（競馬場×レース番号タブ） */}
+      {navDate && trackName && raceNum > 0 && (
+        <RaceNavBar
+          date={navDate}
+          track={trackName}
+          raceId={raceId}
+          raceNumber={raceNum}
+        />
+      )}
+
       {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -961,6 +984,12 @@ export default function OddsRacePage() {
               onSaved={() => fetchMyMarks()}
             />
           )}
+          <Link href={`/my-bets/${raceId}`} target="_blank">
+            <Button variant="outline" size="sm">
+              <Wallet className="h-4 w-4 mr-1" />
+              My印買い目
+            </Button>
+          </Link>
           <Button
             onClick={() => {
               fetchOdds();

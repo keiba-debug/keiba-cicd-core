@@ -209,9 +209,9 @@ export const ACTIONS: ActionConfig[] = [
   },
   {
     id: 'vb_refresh',
-    label: 'VB/買い目抽出',
+    label: '最新オッズで再計算',
     description: '最新オッズでValueBet判定・買い目を再生成',
-    icon: '💰',
+    icon: '🔄',
     category: 'generate',
   },
 ];

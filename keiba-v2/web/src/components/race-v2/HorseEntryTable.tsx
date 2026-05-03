@@ -18,6 +18,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import {
   HorseEntry,
@@ -31,6 +32,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { MessageSquareText } from 'lucide-react';
 import { getCourseBiasAlert, type CourseBiasAlert } from '@/lib/course-bias';
+import { NoveltyBadges } from './NoveltyBadges';
 import { TrendIndicator, StreakBadge, calculateStreak, calculateStreakWithCurrent, toRaceResult, type RecentFormEntry } from '@/components/ui/visualization';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
@@ -71,6 +73,15 @@ export interface MlPredictionEntry {
   // 脚質指標 (Session 113: コースバイアスアラート用)
   avg_first_corner_ratio?: number | null;
   closing_strength?: number | null;
+  // 未知数度 (Session 119)
+  novelty_score?: number;
+  novelty_career_short?: number;
+  novelty_first_surface?: number;
+  novelty_first_distance?: number;
+  novelty_first_venue?: number;
+  novelty_long_layoff?: number;
+  novelty_jockey_change?: number;
+  ar_deviation_adj?: number | null;
 }
 
 /** DB odds レスポンス型 */
@@ -139,6 +150,8 @@ interface HorseEntryTableProps {
   raceId?: string;
   /** チェック馬（馬番→エントリ） */
   checkUmaMap?: Record<number, { month: number; day: number; level: number; comment: string }>;
+  /** 馬番→kettoNum（JRA-VAN 10桁）チェック馬登録APIで使用 */
+  kettoNumMap?: Record<number, string>;
   /** コースバイアスアラート用レース情報 (Session 113) */
   courseInfo?: CourseInfoForBias;
 }
@@ -475,6 +488,8 @@ interface HorseEntryRowProps {
   jrdb?: JrdbEntry;
   hasJrdb?: boolean;
   checkUma?: { month: number; day: number; level: number; comment: string };
+  /** JRA-VAN 10桁ketto_num（チェック馬登録APIで使用） */
+  kettoNum?: string;
   /** コースバイアスアラート (Session 113) */
   courseBiasAlert?: CourseBiasAlert | null;
 }
@@ -502,10 +517,85 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   jrdb,
   hasJrdb,
   checkUma,
+  kettoNum,
   courseBiasAlert,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
+  const router = useRouter();
+  const [localCheckUma, setLocalCheckUma] = useState(checkUma);
+  const [checkUmaUpdating, setCheckUmaUpdating] = useState(false);
+
+  useEffect(() => {
+    setLocalCheckUma(checkUma);
+  }, [checkUma]);
+
+  const handleCheckUmaClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (checkUmaUpdating) return;
+    if (!kettoNum) {
+      console.warn('[CheckUma] kettoNum unavailable for horse', entry.horse_number, entry.horse_name);
+      return;
+    }
+    setCheckUmaUpdating(true);
+    try {
+      const currentLevel = localCheckUma?.level ?? -1;
+      // サイクル: なし → Lv1 → Lv2 → Lv3 → 削除
+      if (currentLevel < 0) {
+        const res = await fetch('/api/checkuma', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ horseId: kettoNum, level: 1 }),
+        });
+        if (res.ok) {
+          const now = new Date();
+          setLocalCheckUma({
+            month: now.getMonth() + 1,
+            day: now.getDate(),
+            level: 1,
+            comment: '',
+          });
+          router.refresh();
+        } else {
+          console.error('[CheckUma] add failed', await res.text());
+        }
+      } else if (currentLevel < 3) {
+        const nextLevel = currentLevel + 1;
+        const res = await fetch('/api/checkuma', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            horseId: kettoNum,
+            level: nextLevel,
+            comment: localCheckUma?.comment ?? '',
+          }),
+        });
+        if (res.ok) {
+          setLocalCheckUma(prev => (prev ? { ...prev, level: nextLevel } : prev));
+          router.refresh();
+        } else {
+          console.error('[CheckUma] update failed', await res.text());
+        }
+      } else {
+        const res = await fetch('/api/checkuma', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ horseId: kettoNum }),
+        });
+        if (res.ok) {
+          setLocalCheckUma(undefined);
+          router.refresh();
+        } else {
+          console.error('[CheckUma] delete failed', await res.text());
+        }
+      }
+    } catch (err) {
+      console.error('[CheckUma] click error:', err);
+    } finally {
+      setCheckUmaUpdating(false);
+    }
+  };
 
   // DB odds優先: オッズ・人気を決定
   const displayOdds = dbOdds?.winOdds != null ? String(dbOdds.winOdds.toFixed(1)) : entry_data.odds;
@@ -519,14 +609,21 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
     && (mlPrediction.ar_deviation ?? 999) < 53
     && (mlPrediction.pred_proba_p ?? 0) < 0.15;
   const oddsRank = isNaN(oddsRankRaw) ? 0 : oddsRankRaw;
-  const rowBgClass = oddsRank === 1
-    ? 'bg-amber-50 dark:bg-amber-900/10'
-    : oddsRank <= 3
-      ? 'bg-blue-50/50 dark:bg-blue-900/5'
-      : '';
+  // チェック馬の行ハイライト（オッズランクより優先）
+  const rowBgClass = localCheckUma
+    ? 'bg-yellow-100/70 dark:bg-yellow-900/20'
+    : oddsRank === 1
+      ? 'bg-amber-50 dark:bg-amber-900/10'
+      : oddsRank <= 3
+        ? 'bg-blue-50/50 dark:bg-blue-900/5'
+        : '';
 
   return (
-    <tr className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${rowBgClass}`}>
+    <tr className={cn(
+      'hover:bg-gray-50 dark:hover:bg-gray-800/50',
+      rowBgClass,
+      localCheckUma && 'border-l-4 border-l-yellow-400 dark:border-l-yellow-500',
+    )}>
       {/* 枠番 */}
       <td className={`px-2 py-1.5 text-center border ${wakuColorClass}`}>
         {entry_data.waku}
@@ -684,14 +781,38 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
             >
               {entry.horse_name}
             </Link>
-            {/* チェック馬バッジ */}
-            {checkUma && (
-              <span
-                className="inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold flex-shrink-0 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-700"
-                title={`チェック馬 Lv${checkUma.level}${checkUma.comment ? ` — ${checkUma.comment}` : ''} (${checkUma.month}/${checkUma.day})`}
+            {/* チェック馬バッジ（クリックでサイクル: なし→Lv1→Lv2→Lv3→削除） */}
+            {localCheckUma ? (
+              <button
+                type="button"
+                onClick={handleCheckUmaClick}
+                disabled={checkUmaUpdating}
+                className={cn(
+                  "inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 border-2 shadow-sm transition-colors",
+                  "bg-yellow-300 text-yellow-900 border-yellow-500 dark:bg-yellow-500/80 dark:text-yellow-950 dark:border-yellow-400",
+                  "hover:bg-yellow-400 dark:hover:bg-yellow-500 cursor-pointer",
+                  checkUmaUpdating && "opacity-50 cursor-wait",
+                )}
+                title={`チェック馬 Lv${localCheckUma.level}${localCheckUma.comment ? ` — ${localCheckUma.comment}` : ''} (${localCheckUma.month}/${localCheckUma.day})\nクリックでレベル変更 (Lv3→削除)`}
               >
-                {checkUma.level > 0 ? `${checkUma.level}` : 'CK'}
-              </span>
+                {localCheckUma.level > 0 ? `★${localCheckUma.level}` : '★CK'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleCheckUmaClick}
+                disabled={checkUmaUpdating || !kettoNum}
+                className={cn(
+                  "inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold flex-shrink-0 border transition-opacity",
+                  "bg-transparent text-gray-500 dark:text-gray-400 border-gray-400 dark:border-gray-500 border-dashed",
+                  "opacity-70 hover:opacity-100 hover:text-yellow-700 hover:border-yellow-500 dark:hover:text-yellow-300 dark:hover:border-yellow-500 cursor-pointer",
+                  checkUmaUpdating && "opacity-50 cursor-wait",
+                  !kettoNum && "opacity-20 cursor-not-allowed",
+                )}
+                title={kettoNum ? "クリックでチェック馬登録" : "kettoNum未取得（登録不可）"}
+              >
+                +CK
+              </button>
             )}
             {/* コースバイアスアラート (Session 113) */}
             {courseBiasAlert && courseBiasAlert.totalScore !== 0 && (
@@ -713,6 +834,10 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
                   : courseBiasAlert.totalScore <= -2 ? 'C✕'
                   : 'C-'}
               </span>
+            )}
+            {/* 未知数度バッジ (Session 119) */}
+            {mlPrediction !== undefined && (
+              <NoveltyBadges entry={mlPrediction} variant="compact" />
             )}
             {/* TARGETコメントアイコン */}
             {(horseComment || predictionComment || resultComment) && (
@@ -965,6 +1090,7 @@ export default function HorseEntryTable({
   mlPredictions,
   raceId,
   checkUmaMap,
+  kettoNumMap,
   courseInfo,
 }: HorseEntryTableProps) {
   const hasMlPredictions = mlPredictions && Object.keys(mlPredictions).length > 0;
@@ -1256,6 +1382,7 @@ export default function HorseEntryTable({
               jrdb={jrdbMap.get(entry.horse_number)}
               hasJrdb={hasJrdbData}
               checkUma={checkUmaMap?.[entry.horse_number]}
+              kettoNum={kettoNumMap?.[entry.horse_number]}
               courseBiasAlert={courseBiasAlertMap.get(entry.horse_number)}
             />
           ))}

@@ -14,6 +14,24 @@ from typing import Dict, Optional
 import statistics
 
 
+def _normalize_track_type(tt) -> str:
+    """track_type を 'turf' / 'dirt' / 'obstacle' に正規化。
+
+    race_*.json には日本語('芝'/'ダ'/'ダート')と英字('turf'/'dirt')が混在する。
+    horse_history_cache は英字統一なので、両側を正規化して比較する。
+    """
+    if not tt:
+        return ''
+    s = str(tt).strip()
+    if s in ('turf', '芝'):
+        return 'turf'
+    if s in ('dirt', 'ダ', 'ダート'):
+        return 'dirt'
+    if s in ('obstacle', '障', '障害'):
+        return 'obstacle'
+    return s
+
+
 def compute_career_features(
     ketto_num: str,
     race_date: str,
@@ -90,6 +108,9 @@ def compute_career_features(
         'uncertainty_jockey_change': 0,    # 騎手乗替
         'uncertainty_score': 0,            # 不確実性合計スコア(0-6)
     }
+
+    # track_type 正規化（日本語/英字混在対策）
+    current_track_type = _normalize_track_type(current_track_type)
 
     past_runs = history_cache.get(ketto_num, [])
     past = [r for r in past_runs if r.get('race_date', '') < race_date]
@@ -213,7 +234,8 @@ def compute_career_features(
         r_idm = idm_by_run.get(i)
 
         # 同馬場IDM蓄積（今回と同じ芝/ダート）
-        if current_track_type and r.get('track_type', '') == current_track_type and r_idm is not None:
+        r_tt_norm = _normalize_track_type(r.get('track_type', ''))
+        if current_track_type and r_tt_norm == current_track_type and r_idm is not None:
             same_surface_idms.append(r_idm)
 
         # 同距離帯IDM蓄積（今回と±200m以内）
@@ -231,8 +253,8 @@ def compute_career_features(
         idm_diff = r_idm - prev_idm
 
         # 芝↔ダート替わり
-        r_tt = r.get('track_type', '')
-        prev_tt = prev.get('track_type', '')
+        r_tt = _normalize_track_type(r.get('track_type', ''))
+        prev_tt = _normalize_track_type(prev.get('track_type', ''))
         if r_tt and prev_tt and r_tt != prev_tt:
             surface_switch_diffs.append(idm_diff)
 
@@ -290,7 +312,7 @@ def compute_career_features(
         last_run = past_sorted[-1]
 
         # 今回芝↔ダート替わり
-        last_tt = last_run.get('track_type', '')
+        last_tt = _normalize_track_type(last_run.get('track_type', ''))
         if current_track_type and last_tt and current_track_type != last_tt:
             result['cond_now_surface_switch'] = result['cond_surface_switch_idm_avg']
 
@@ -330,7 +352,7 @@ def compute_career_features(
 
     # 初芝/初ダート
     if current_track_type:
-        tt_history = set(r.get('track_type', '') for r in past_sorted)
+        tt_history = set(_normalize_track_type(r.get('track_type', '')) for r in past_sorted)
         if current_track_type not in tt_history:
             result['uncertainty_first_surface'] = 1
 

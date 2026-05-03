@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  Zap, Play, Loader2, CheckCircle2, XCircle,
+  Play, Loader2, CheckCircle2, XCircle,
   ChevronLeft, ChevronRight, Calendar, RefreshCw,
   ArrowRight, TrendingUp, ChevronDown, ChevronUp, Layers,
   Download, Bookmark, BookmarkCheck,
@@ -885,9 +885,9 @@ export function ExecuteTab() {
               <Button onClick={executeGenerateBets} disabled={executing}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white">
                 {executing ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />実行中...</>
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />再計算中...</>
                 ) : (
-                  <><Zap className="h-4 w-4 mr-2" />買い目生成</>
+                  <><RefreshCw className="h-4 w-4 mr-2" />最新オッズで再計算</>
                 )}
               </Button>
             </div>
