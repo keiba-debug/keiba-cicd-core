@@ -639,7 +639,7 @@ export default function AdminPage() {
     ['batch_prepare', 'batch_morning', 'batch_after_race'].includes(a.id)
   );
   const dataPrepSecondary = ACTIONS.filter((a) =>
-    ['sunpyo_update'].includes(a.id)
+    ['sunpyo_update', 'patch_race_results'].includes(a.id)
   );
 
   // AI分析セクション（順序を明示的に制御: 前処理→予測→買い目）

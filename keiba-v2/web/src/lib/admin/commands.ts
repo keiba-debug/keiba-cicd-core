@@ -25,7 +25,8 @@ export type ActionType =
   | 'v4_build_race'              // JRA-VAN → data3/races/
   | 'v4_predict'                 // ML予測 → races/YYYY/MM/DD/predictions.json
   | 'v4_pipeline'                // 上記を連結実行
-  | 'vb_refresh';                // VB/買い目再計算（最新オッズ）
+  | 'vb_refresh'                 // VB/買い目再計算（最新オッズ）
+  | 'patch_race_results';        // mykeibadbから着順等を補完
 
 export interface ActionConfig {
   id: ActionType;
@@ -98,8 +99,15 @@ export const ACTIONS: ActionConfig[] = [
   {
     id: 'batch_after_race',
     label: 'レース後更新',
-    description: 'パドック→成績→レースJSON更新→ML予測（レース後に実行）',
+    description: 'パドック→成績→レースJSON更新（レース後に実行）',
     icon: '🏁',
+    category: 'batch',
+  },
+  {
+    id: 'patch_race_results',
+    label: '結果補完(DB)',
+    description: 'mykeibadbから着順・タイム・オッズ等をrace_*.jsonに補完（TARGET取得失敗時の救済）',
+    icon: '🩹',
     category: 'batch',
   },
   // --- 補助 ---
@@ -286,6 +294,9 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
       // Note: execute/route.ts で特別に処理される
       return [];
 
+    case 'patch_race_results':
+      return [['-m', 'builders.patch_race_results', '--date', date]];
+
     case 'calc_race_type_standards':
     case 'calc_rating_standards':
     case 'build_horse_name_index':
@@ -354,6 +365,11 @@ export function getCommandArgsRange(
     case 'sunpyo_update':
       // Note: execute/route.ts で特別に処理される
       return [];
+
+    case 'patch_race_results':
+      return [
+        ['-m', 'builders.patch_race_results', '--start', startDate, '--end', endDate],
+      ];
 
     case 'build_horse_name_index':
     case 'build_trainer_index':
