@@ -13,3 +13,5 @@ export { PurchasePlanSection } from './PurchasePlanSection';
 export { TargetCommentsModal, type TargetCommentSavedData } from './TargetCommentsModal';
 export { TargetMarkInputModal, type TargetMarksSavedData, type TargetMarkEntry } from './TargetMarkInputModal';
 export { RaceNavBar } from './RaceNavBar';
+// NB: NiigataChokuBanner は server component (fs を使う) のため barrel から外す。
+// 使うときは `@/components/race-v2/NiigataChokuBanner` から直接 import すること。

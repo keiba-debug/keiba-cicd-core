@@ -1,8 +1,17 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useMemo } from 'react';
 import { ALL_COURSES, VENUES, VENUE_INFO, COURSE_TIPS, type VenueInfo } from '@/data/course-data';
 import type { CourseInfo } from '@/components/course-card';
+
+// 専門解説ページがあるコース (Phase 3d で追加)
+function hasSpecialPage(c: CourseInfo): { href: string; label: string } | null {
+  if (c.trackName === '新潟' && c.surface === '芝' && c.distanceMeters === 1000) {
+    return { href: '/analysis/specialists/niigata-1000m', label: '千直' };
+  }
+  return null;
+}
 
 // =====================================================
 // ヘルパー関数
@@ -262,13 +271,18 @@ function EnhancedCourseCard({ course, venueColor }: { course: CourseInfo; venueC
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-bold">
                 {course.trackName} {course.surface}{course.distanceMeters}m
                 {course.courseVariant && course.courseVariant !== 'なし' && (
                   <span className="text-gray-500 text-xs font-normal ml-1">({course.courseVariant})</span>
                 )}
               </h3>
+              {hasSpecialPage(course) && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-600 text-white">
+                  {hasSpecialPage(course)!.label}
+                </span>
+              )}
             </div>
             {tip && (
               <p className="text-xs text-gray-600 mt-0.5 truncate">{tip.headline}</p>
@@ -303,6 +317,26 @@ function EnhancedCourseCard({ course, venueColor }: { course: CourseInfo; venueC
       {/* 展開コンテンツ */}
       {isExpanded && (
         <div className="px-4 py-4 space-y-4">
+          {/* 専門解説リンク (千直など) */}
+          {hasSpecialPage(course) && (
+            <Link
+              href={hasSpecialPage(course)!.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="block rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-4 py-3 hover:shadow-md hover:border-blue-300 transition-all"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-blue-900">vega-niigata1000 専門解説 →</div>
+                  <div className="text-[11px] text-blue-700">枠順バイアス・強馬製造元・ルールエンジン v0.2</div>
+                </div>
+                <span className="text-blue-600 text-lg">›</span>
+              </div>
+            </Link>
+          )}
+
+
           {/* バイアスバー */}
           {baba && (
             <div className="space-y-2">

@@ -108,6 +108,28 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
             <Badge className={`text-[10px] ${getTrackBadgeClass(race.track_type)}`}>
               {getTrackLabel(race.track_type)}{race.distance}m
             </Badge>
+            {race.niigata1000_applied && (
+              <>
+                <Link
+                  href={`/odds-race/${race.race_id}`}
+                  target="_blank"
+                  title="vega-niigata1000 ルール補正適用済み — オッズ画面の千直タブへ"
+                >
+                  <Badge className="text-[10px] bg-blue-600 text-white hover:bg-blue-700">
+                    🌪 千直
+                  </Badge>
+                </Link>
+                <Link
+                  href={`/specialist/${race.race_id}`}
+                  target="_blank"
+                  title="Specialist 専用予想画面へ"
+                >
+                  <Badge variant="outline" className="text-[10px] border-indigo-400 text-indigo-700 hover:bg-indigo-50">
+                    ⭐ 専用
+                  </Badge>
+                </Link>
+              </>
+            )}
             {race.grade && (
               <Badge variant="outline" className={`text-[10px] ${getGradeBadgeClass(race.grade)}`}>
                 {race.grade}{race.age_class ? ` ${race.age_class}` : ''}

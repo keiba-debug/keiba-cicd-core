@@ -2,13 +2,14 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { getAvailableDates, getRacesByDate } from '@/lib/data';
 import { getVenueBabaSummary, type VenueBabaSummary } from '@/lib/data/baba-reader';
+import { getNiigataChokuRaceIdsForDate } from '@/lib/data/niigata1000-overlay-reader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TabsContent } from '@/components/ui/tabs';
 import { DateTabs } from '@/components/DateTabs';
 import { JraViewerMiniLinks } from '@/components/jra-viewer-mini-links';
 import { BabaInputForm } from '@/components/baba/BabaInputForm';
-import { ChevronLeft, ChevronRight, MessageCircle, TrendingUp, BarChart3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react';
 import { RefreshButton } from '@/components/ui/refresh-button';
 
 // 日付を年月でグループ化
@@ -231,6 +232,9 @@ async function DateRaces({ date }: { date: string }) {
     }
   }
 
+  // 千直 (vega-niigata1000) overlay 適用済み race_id Set
+  const niigataAppliedRaceIds = getNiigataChokuRaceIdsForDate(date);
+
   const trackCodes: Record<string, string> = {
     '札幌': '01',
     '函館': '02',
@@ -424,6 +428,21 @@ async function DateRaces({ date }: { date: string }) {
                               {race.className}
                             </span>
                           )}
+                          {/* スペシャリストモデル適用バッジ (千直など) */}
+                          {(() => {
+                            const rid = jraRaceId(race);
+                            if (rid && niigataAppliedRaceIds.has(rid)) {
+                              return (
+                                <span
+                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-sm whitespace-nowrap bg-blue-600 text-white"
+                                  title="vega-niigata1000 ルール補正適用済み"
+                                >
+                                  🌪 千直
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                           {/* ペース分析バッジ */}
                           {race.paceType && (
                             <span 
@@ -444,73 +463,82 @@ async function DateRaces({ date }: { date: string }) {
 
                       {/* 外部リンク + JRAビュアーリンク */}
                       <div className="flex flex-col gap-1 pt-0.5">
-                        {/* 1行目: 外部サービスリンク */}
+                        {/* 1行目: 自社機能 (指数・オッズ・Specialist) */}
                         <div className="flex items-center gap-1">
-                          {keibabookRaceId(race) && (
-                          <a
-                            href={`https://p.keibabook.co.jp/cyuou/syutuba/${keibabookRaceId(race)}`}
+                          {/* 指数表リンク */}
+                          <Link
+                            href={`/races-v2/${date}/${trackGroup.track}/${race.id}/idm-compare`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
-                            title="競馬ブック"
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors whitespace-nowrap leading-none"
+                            title="指数表"
                           >
-                            <Image src="/keibabook.ico" alt="競馬ブック" width={16} height={16} className="object-contain opacity-80" />
-                          </a>
-                          )}
-                          {netkeibaRaceId(race) && (
-                            <>
-                              <a
-                                href={`https://race.netkeiba.com/race/shutuba.html?race_id=${netkeibaRaceId(race)}&rf=race_submenu`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
-                                title="netkeiba"
-                              >
-                                <Image src="/netkeiba.png" alt="netkeiba" width={16} height={16} className="object-contain opacity-80" />
-                              </a>
-                              <a
-                                href={`https://race.netkeiba.com/race/bbs.html?race_id=${netkeibaRaceId(race)}&rf=race_submenu`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
-                                title="netkeiba BBS"
-                              >
-                                <MessageCircle className="w-4 h-4 text-blue-500" />
-                              </a>
-                            </>
-                          )}
+                            指数
+                          </Link>
                           {/* オッズ表リンク */}
                           {jraRaceId(race) && (
                             <Link
                               href={`/odds-race/${jraRaceId(race)}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                              className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap leading-none"
                               title="オッズ表"
                             >
-                              <TrendingUp className="w-4 h-4 text-emerald-500" />
+                              ｵｯｽﾞ
                             </Link>
                           )}
-                          {/* 指数表リンク */}
-                          <Link
-                            href={`/races-v2/${date}/${trackGroup.track}/${race.id}/idm-compare`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
-                            title="指数表"
-                          >
-                            <BarChart3 className="w-4 h-4 text-purple-500" />
-                          </Link>
+                          {/* Specialist 専用予想画面リンク (千直など適用時のみ表示) */}
+                          {(() => {
+                            const rid = jraRaceId(race);
+                            if (rid && niigataAppliedRaceIds.has(rid)) {
+                              return (
+                                <Link
+                                  href={`/specialist/${rid}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap leading-none"
+                                  title="Specialist 専用予想画面"
+                                >
+                                  予想
+                                </Link>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
-                        {/* 2行目: JRAビュアーリンク */}
-                        <JraViewerMiniLinks
-                          date={date}
-                          track={trackGroup.track}
-                          raceNumber={race.raceNumber}
-                          raceName={race.raceName}
-                          kai={race.kai}
-                          nichi={race.nichi}
-                        />
+                        {/* 2行目: 外部サービス + JRAビュアーリンク */}
+                        <div className="flex items-center gap-1">
+                          {keibabookRaceId(race) && (
+                            <a
+                              href={`https://p.keibabook.co.jp/cyuou/syutuba/${keibabookRaceId(race)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center overflow-hidden"
+                              title="競馬ブック"
+                            >
+                              <Image src="/keibabook.ico" alt="競馬ブック" width={16} height={16} className="object-contain opacity-80" />
+                            </a>
+                          )}
+                          {netkeibaRaceId(race) && (
+                            <a
+                              href={`https://race.netkeiba.com/race/bbs.html?race_id=${netkeibaRaceId(race)}&rf=race_submenu`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-5 h-5 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                              title="netkeiba BBS"
+                            >
+                              <MessageCircle className="w-4 h-4 text-blue-500" />
+                            </a>
+                          )}
+                          <JraViewerMiniLinks
+                            date={date}
+                            track={trackGroup.track}
+                            raceNumber={race.raceNumber}
+                            raceName={race.raceName}
+                            kai={race.kai}
+                            nichi={race.nichi}
+                          />
+                        </div>
                       </div>
                     </div>
                   );

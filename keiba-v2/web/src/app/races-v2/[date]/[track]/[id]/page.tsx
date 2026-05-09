@@ -35,6 +35,8 @@ import {
   RaceHeader,
   RaceDetailContent,
 } from '@/components/race-v2';
+import { NiigataChokuBanner } from '@/components/race-v2/NiigataChokuBanner';
+import { RaceHeaderSpecialistLink } from '@/components/race-v2/RaceHeaderSpecialistLink';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import {
   generatePaddockUrl,
@@ -51,6 +53,9 @@ interface PageParams {
     id: string;
   }>;
 }
+
+// 出走表は常に最新の predictions.json を読み込む (キャッシュさせない)
+export const dynamic = 'force-dynamic';
 
 // 競馬場背景カラー（タブ用）
 const getTrackBgClass = (trackName: string) => {
@@ -560,6 +565,12 @@ export default async function RaceDetailPage({ params }: PageParams) {
         closingRaceProba={closingRaceProba}
         idmCompareUrl={`/races-v2/${date}/${encodeURIComponent(track)}/${id}/idm-compare`}
       />
+
+      {/* スペシャリストモデルへの目立つ導線 (タイトル直下、千直など適用時のみ) */}
+      <RaceHeaderSpecialistLink raceId16={raceId16} date={date} />
+
+      {/* 千直バナー (vega-niigata1000 専用、千直開催時のみ表示) */}
+      <NiigataChokuBanner raceId16={raceId16} date={date} />
 
       {/* メインコンテンツ */}
       <main className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
