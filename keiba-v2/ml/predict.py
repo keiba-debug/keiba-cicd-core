@@ -1879,6 +1879,20 @@ def main():
                 'entries': snap,
             })
 
+    # vega-niigata1000: 千直レースに rule_engine v0_2 オーバーレイ
+    niigata_overlay_count = 0
+    try:
+        from analysis.niigata1000.predict_overlay import overlay_niigata_rules
+        niigata_overlay_count = overlay_niigata_rules(
+            predicted_races=all_predictions,
+            original_races=races,
+            history_cache=history_cache,
+            pedigree_index=pedigree_index,
+            sire_stats=sire_stats_index,
+        )
+    except Exception as _e:
+        print(f"  WARN niigata1000 overlay failed: {_e}")
+
     # 結果保存
     actual_model_version = model_version if model_version else meta.get('version', '?')
     models_used = {
@@ -1937,6 +1951,9 @@ def main():
             ),
         },
     }
+
+    if niigata_overlay_count > 0:
+        output['niigata1000_overlay'] = {'applied_races': niigata_overlay_count}
 
     out_json = json.dumps(output, ensure_ascii=False, indent=2)
 

@@ -191,6 +191,20 @@ def predict_date(
     for pred in all_predictions:
         pred.pop('_feature_snapshot', None)
 
+    # vega-niigata1000: 千直レースに rule_engine v0_2 オーバーレイ
+    niigata_overlay_count = 0
+    try:
+        from analysis.niigata1000.predict_overlay import overlay_niigata_rules
+        niigata_overlay_count = overlay_niigata_rules(
+            predicted_races=all_predictions,
+            original_races=races,
+            history_cache=history_cache,
+            pedigree_index=pedigree_index,
+            sire_stats=sire_stats_index,
+        )
+    except Exception as _e:
+        print(f"  WARN niigata1000 overlay failed: {_e}")
+
     # 買い目生成
     all_recommendations = {}
     multi_leg_output = []
@@ -282,6 +296,9 @@ def predict_date(
             ),
         },
     }
+
+    if niigata_overlay_count > 0:
+        output['niigata1000_overlay'] = {'applied_races': niigata_overlay_count}
 
     # 保存
     date_parts = date.split('-')

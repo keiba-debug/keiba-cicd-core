@@ -228,6 +228,41 @@ def main():
         if (e.get('place_ev') or 0) > 1.0
     )
 
+    # vega-niigata1000: 千直レースに rule_engine v0_2 オーバーレイ再適用
+    # (vb_refresh は dict を維持するので既存 overlay は通常残るが、
+    #  上流で overlay 無しの predictions.json が書かれた場合の fallback として実行)
+    try:
+        from analysis.niigata1000.predict_overlay import overlay_niigata_rules, is_niigata_1000m_race
+        choku_races = [r for r in races if is_niigata_1000m_race(r)]
+        if choku_races:
+            from analysis.niigata1000 import features as _n1k_features
+            date_parts_nk = date.split('-')
+            races_dir = config.races_dir() / date_parts_nk[0] / date_parts_nk[1] / date_parts_nk[2]
+            original_races = []
+            for r in choku_races:
+                rid = r.get('race_id')
+                if rid:
+                    rpath = races_dir / f"race_{rid}.json"
+                    if rpath.exists():
+                        with rpath.open(encoding='utf-8') as f:
+                            original_races.append(json.load(f))
+            if original_races:
+                history_cache = _n1k_features.load_history_cache()
+                pedigree_index = _n1k_features.load_pedigree_index()
+                sire_stats = _n1k_features.load_sire_stats()
+                n = overlay_niigata_rules(
+                    predicted_races=races,
+                    original_races=original_races,
+                    history_cache=history_cache,
+                    pedigree_index=pedigree_index,
+                    sire_stats=sire_stats,
+                )
+                if n > 0:
+                    predictions_data['niigata1000_overlay'] = {'applied_races': n}
+                    print(f"[Niigata1000] Overlay applied to {n} race(s)")
+    except Exception as _e:
+        print(f"  WARN niigata1000 overlay failed: {_e}")
+
     # 保存（日別アーカイブのみ）
     out_json = json.dumps(predictions_data, ensure_ascii=False, indent=2)
 
