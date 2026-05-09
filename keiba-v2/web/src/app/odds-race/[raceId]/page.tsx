@@ -27,8 +27,20 @@ import type { PredictionRace } from '@/lib/data/predictions-reader';
 import { SignalTab } from '@/components/odds-race/SignalTab';
 import { CompositeFilterTab } from '@/components/odds-race/CompositeFilterTab';
 import { ChartTab } from '@/components/odds-race/ChartTab';
+import { NiigataChokuTab } from '@/components/odds-race/NiigataChokuTab';
 import { enrichHorses } from '@/components/odds-race/buy-zone';
 import { parseRaceIdForMarks, fetchMyMarksBoth } from '@/components/odds-race/my-marks-utils';
+
+/** 新潟芝1000m直線（千直）判定 */
+function isNiigataChoku(
+  raceId: string,
+  raceCond?: { track?: string; distance?: number } | null
+): boolean {
+  if (!raceCond) return false;
+  if (raceId.length !== 16 || raceId.substring(8, 10) !== '04') return false;
+  if (raceCond.distance !== 1000) return false;
+  return raceCond.track === '芝' || raceCond.track === 'turf';
+}
 
 /** 直前変動の型 */
 interface LastMinuteInfo {
@@ -952,9 +964,20 @@ export default function OddsRacePage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="text-2xl font-bold flex items-center gap-2 flex-wrap">
               <TrendingUp className="h-6 w-6" />
               {trackName} {raceNum}R オッズ表
+              {isNiigataChoku(raceId, odds?.raceCondition) && (
+                <Link
+                  href="/analysis/specialists/niigata-1000m"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                  title="新潟芝1000m直線（千直）専門解説へ"
+                >
+                  千直 →
+                </Link>
+              )}
             </h1>
             {raceConditionLabel && (
               <p className="text-sm text-muted-foreground mt-1">{raceConditionLabel}</p>
@@ -1049,10 +1072,13 @@ export default function OddsRacePage() {
 
       {/* タブ切替 */}
       <Tabs defaultValue="signal" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className={`grid w-full ${isNiigataChoku(raceId, odds?.raceCondition) ? 'grid-cols-7' : 'grid-cols-6'}`}>
           <TabsTrigger value="signal">🎯 シグナル</TabsTrigger>
           <TabsTrigger value="chart">📈 チャート</TabsTrigger>
           <TabsTrigger value="filter">🔍 複合フィルタ</TabsTrigger>
+          {isNiigataChoku(raceId, odds?.raceCondition) && (
+            <TabsTrigger value="niigata-choku">🌪 千直</TabsTrigger>
+          )}
           <TabsTrigger value="share">📊 シェア</TabsTrigger>
           <TabsTrigger value="timeseries">⏱ 時系列表</TabsTrigger>
           <TabsTrigger value="prediction">💰 予想支援</TabsTrigger>
@@ -1072,6 +1098,13 @@ export default function OddsRacePage() {
         <TabsContent value="filter" className="mt-4">
           <CompositeFilterTab horses={enrichedHorses} surgeMap={surgeMap} hasMl={hasMl} />
         </TabsContent>
+
+        {/* 千直タブ（新潟芝1000m直線時のみ・Phase 3d） */}
+        {isNiigataChoku(raceId, odds?.raceCondition) && (
+          <TabsContent value="niigata-choku" className="mt-4">
+            <NiigataChokuTab entries={predictions?.entries ?? []} raceId={raceId} />
+          </TabsContent>
+        )}
 
         {/* シェア分析タブ */}
         <TabsContent value="share" className="mt-4">
