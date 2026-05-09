@@ -1,0 +1,31 @@
+{
+  "metrics": {
+    "polaris_only": {
+      "n_races": 46,
+      "top3_hit_rate": 0.9782608695652174,
+      "top1_wins": 11,
+      "top1_count": 46,
+      "top1_win_rate": 0.2391304347826087,
+      "top1_roi": 1.076086956521739,
+      "top3_count": 138,
+      "top3_roi": 1.4021739130434783
+    },
+    "polaris_rule": {
+      "n_races": 46,
+      "top3_hit_rate": 0.9347826086956522,
+      "top1_wins": 16,
+      "top1_count": 46,
+      "top1_win_rate": 0.34782608695652173,
+      "top1_roi": 1.4086956521739131,
+      "top3_count": 138,
+      "top3_roi": 1.1579710144927535
+    },
+    "rejected_analysis": {
+      "n_rejected": 24,
+      "rejected_top3_rate": 0.125,
+      "n_non_rejected": 714,
+      "non_rejected_top3_rate": 0.18907563025210083
+    }
+  },
+  "n_races": 46
+}

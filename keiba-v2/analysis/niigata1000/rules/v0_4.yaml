@@ -1,0 +1,269 @@
+clip_groups:
+  C-1: 0.5
+  C-2: 0.3
+  C-3: 0.15
+  D: 0.6
+  E: 0.3
+global_clip:
+  min: -1.5
+  max: 2.0
+rules:
+- id: frame_8
+  step: B
+  branch: wakuban_base
+  priority: 1
+  condition: wakuban == 8
+  logit_score: 0.83
+  explanation: 枠8（外枠最強、3着内36.6%）
+  source: Phase 1 §1 全体集計 | auto-cal v0.3
+- id: frame_7_late
+  step: B
+  branch: wakuban_base
+  priority: 2
+  condition: wakuban == 7 and era == '2023-2026'
+  logit_score: 0.38
+  explanation: 後期7枠（ROI 107%、前期から劇的改善）
+  source: Phase 1 §3 era別 | auto-cal v0.3
+- id: frame_7_early
+  step: B
+  branch: wakuban_base
+  priority: 3
+  condition: wakuban == 7 and era == '2020-2022'
+  logit_score: 0.6
+  explanation: 前期7枠（中堅、参考値）
+  source: Phase 1 §3 era別 | auto-cal v0.3
+- id: frame_6
+  step: B
+  branch: wakuban_base
+  priority: 4
+  condition: wakuban == 6
+  logit_score: 0.2
+  explanation: 枠6（中間枠）
+  source: Phase 1 §1 全体集計 | auto-cal v0.3
+- id: frame_3_to_5
+  step: B
+  branch: wakuban_base
+  priority: 5
+  condition: wakuban in (3, 4, 5)
+  logit_score: -0.57
+  explanation: 枠3-5（中弱、馬場ロス）
+  source: Phase 1 §1 全体集計 | auto-cal v0.3
+- id: frame_outer_heavy_track
+  step: B
+  condition: track_condition_grp == '稍重以上' and wakuban >= 7
+  logit_score: 0.81
+  explanation: 稍重以上×外枠（馬場悪化で外枠さらに有利）
+  source: Phase 1 §1 馬場別 | auto-cal v0.3
+- id: bp_choku_master
+  step: B'
+  branch: bp_internal
+  priority: 1
+  condition: wakuban in (1, 2) and past_choku_top3_rate is not None and past_choku_top3_rate
+    >= 0.5 and niigata_1000m_count >= 2
+  logit_score: -0.49
+  explanation: 内枠だが過去千直巧者（top3率50%以上＆2戦以上）
+  source: Phase 1 §4 リピーター | auto-cal v0.3
+- id: bp_front_runner
+  step: B'
+  branch: bp_internal
+  priority: 2
+  condition: wakuban in (1, 2) and past_corner_first_avg_5 is not None and past_corner_first_avg_5
+    < 4.0
+  logit_score: -0.74
+  explanation: 内枠だが先行型（内ラチ走り抜けの可能性）
+  source: 設計書 §3 STEP B' | auto-cal v0.3
+- id: bp_unknown
+  step: B'
+  branch: bp_internal
+  priority: 3
+  condition: wakuban in (1, 2)
+  logit_score: -0.69
+  explanation: 内枠×実力不明（強い割引）
+  source: Phase 1 §1 内枠不利 | auto-cal v0.3
+- id: sire_kanaroa
+  step: C-1
+  condition: sire_name == 'ロードカナロア'
+  logit_score: 0.41
+  explanation: 父ロードカナロア（千直ROI 179%、3着内27.6%）
+  source: Phase 1 §6 父馬ランキング | auto-cal v0.3
+- id: sire_big_arthur
+  step: C-1
+  condition: sire_name == 'ビッグアーサー'
+  logit_score: 0.16
+  explanation: 父ビッグアーサー（3着内33%）
+  source: Phase 1 §6 父馬ランキング | auto-cal v0.3
+- id: sire_top_others
+  step: C-1
+  condition: sire_name in ('ダイワメジャー', 'スクリーンヒーロー', 'ディスクリートキャット')
+  logit_score: 0.37
+  explanation: 父TOP陣（ダイワメジャー/スクリーンヒーロー/ディスクリートキャット）
+  source: Phase 1 §6 父馬ランキング | auto-cal v0.3
+- id: sire_kkm_filly
+  step: C-1
+  condition: sire_line == 'キングカメハメハ系' and sex == '牝'
+  logit_score: 0.23
+  explanation: キンカメ系×牝馬（ROI 176%）
+  source: Phase 1 §6.5 父系×性別 | auto-cal v0.3
+- id: sire_sunday_male
+  step: C-1
+  condition: sire_line == 'サンデー系' and sex == '牡'
+  logit_score: -0.03
+  explanation: サンデー系×牡馬（千直は鈍足傾向）
+  source: Phase 1 §6.5 父系×性別 | auto-cal v0.3
+- id: bms_kkm
+  step: C-1
+  condition: bms_line == 'キングカメハメハ系'
+  logit_score: 0.67
+  explanation: 母父キングカメハメハ系
+  source: Phase 1 §6 母父系統 | auto-cal v0.3
+- id: sire_minor_negative
+  step: C-1
+  condition: sire_name in ('キンシャサノキセキ', 'モーリス', 'キズナ')
+  logit_score: -0.41
+  explanation: 千直で弱い父（キンシャサノキセキ/モーリス/キズナ）
+  source: Phase 1 §6 父馬ランキング | auto-cal v0.3
+- id: c2_front_runner
+  step: C-2
+  condition: past_corner_first_avg_5 is not None and past_corner_first_avg_5 <= 4.0
+  logit_score: 0.31
+  explanation: 過去5走 前半通過順位<=4.0（先行型）
+  source: Phase 2 強馬プロファイル | auto-cal v0.3
+- id: c2_fast_finisher
+  step: C-2
+  condition: past_last_3f_min_5 is not None and past_last_3f_min_5 <= 33.5
+  logit_score: 0.1
+  explanation: 過去5走 ベスト上がり3F<=33.5（末脚速い）
+  source: Phase 1 §2 上がり3F | auto-cal v0.3
+- id: c2_strong_candidate_bonus
+  step: C-2
+  condition: past_corner_first_avg_5 is not None and past_corner_first_avg_5 <= 4.0
+    and past_last_3f_min_5 is not None and past_last_3f_min_5 <= 33.5
+  logit_score: 0.41
+  explanation: 強馬候補ボーナス（先行型×末脚速い両立）
+  source: Phase 2 強馬プロファイル | auto-cal v0.3
+- id: c2_closer_penalty
+  step: C-2
+  condition: past_corner_first_avg_5 is not None and past_corner_first_avg_5 >= 8.0
+  logit_score: -0.37
+  explanation: 追込型は不利（前半通過順位>=8）
+  source: Phase 1 §2 結果脚質 | auto-cal v0.3
+- id: c3_3yo_filly
+  step: C-3
+  condition: age == 3 and sex == '牝'
+  logit_score: 0.07
+  explanation: 3歳牝馬（軽量・成長期）
+  source: Phase 1 §3 性別×年齢 | auto-cal v0.3
+- id: c3_old_horse
+  step: C-3
+  condition: age >= 7
+  logit_score: -0.67
+  explanation: 高齢馬（7歳以上、衰え）
+  source: Phase 1 §3 年齢別 | auto-cal v0.3
+- id: c3_gelding_penalty
+  step: C-3
+  condition: sex == 'セン'
+  logit_score: 0.15
+  explanation: セン馬（近年弱い）
+  source: Phase 1 §3 性別 | auto-cal v0.3
+- id: d1_kikusawa_combo
+  step: D-1
+  condition: jockey_name == '菊沢一樹' and trainer_name == '菊沢隆徳'
+  logit_score: 0.66
+  explanation: 菊沢一樹×菊沢隆徳コンビ（勝率30%、ROI 347%）
+  source: Phase 1 §7 騎手×厩舎 | auto-cal v0.3
+- id: d2_jockey_strong_threshold
+  step: D-2
+  condition: jockey_choku_strong_rate is not None and jockey_choku_strong_rate >=
+    0.25
+  logit_score: 0.32
+  explanation: 騎手の千直強馬率>=25%（鮫島・荻野・丹内クラス）
+  source: Phase 2 §3 騎手別強馬率 | auto-cal v0.3
+- id: d2_naga_outer
+  step: D-2
+  condition: jockey_name == '永島まなみ' and wakuban >= 6
+  logit_score: 0.25
+  explanation: 永島まなみ×6枠以上（ROI 376%）
+  source: Phase 1 §7 騎手別
+- id: d2_jockey_top3_high
+  step: D-2
+  condition: jockey_choku_top3_rate is not None and jockey_choku_top3_rate >= 0.30
+    and jockey_choku_n >= 30
+  logit_score: -0.31
+  explanation: 騎手の千直3着内率>=30%かつ30走以上（実績豊富）
+  source: Phase 1 §7 騎手別 | auto-cal v0.3
+- id: d2_jockey_top3_low
+  step: D-2
+  condition: jockey_choku_top3_rate is not None and jockey_choku_top3_rate < 0.10
+    and jockey_choku_n >= 15
+  logit_score: -0.08
+  explanation: 騎手の千直3着内率<10%かつ15走以上（不振）
+  source: Phase 1 §7 騎手別 | auto-cal v0.3
+- id: d3_trainer_strong_threshold
+  step: D-3
+  condition: trainer_choku_strong_rate is not None and trainer_choku_strong_rate >=
+    0.25
+  logit_score: 0.29
+  explanation: 厩舎の千直強馬率>=25%（斎藤誠・嘉藤貴行クラス）
+  source: Phase 2 §3 厩舎別強馬率 | auto-cal v0.3
+- id: d3_trainer_top3_high
+  step: D-3
+  condition: trainer_choku_top3_rate is not None and trainer_choku_top3_rate >= 0.30
+    and trainer_choku_n >= 15
+  logit_score: 0.01
+  explanation: 厩舎の千直3着内率>=30%かつ15走以上（実績豊富）
+  source: Phase 1 §7 厩舎別 | auto-cal v0.3
+- id: e_short_to_choku
+  step: E
+  condition: prev_distance in (1000, 1100, 1200)
+  logit_score: 0.08
+  explanation: 前走短距離（1000-1200m）からの転戦
+  source: Phase 1 §4 前走距離 | auto-cal v0.3
+- id: e_long_to_choku
+  step: E
+  condition: prev_distance is not None and prev_distance >= 1700
+  logit_score: -0.38
+  explanation: 前走中長距離（1700m以上）からの距離短縮（不利）
+  source: Phase 1 §4 前走距離 | auto-cal v0.3
+- id: e_kiriyaeshi_ana
+  step: E
+  condition: prev_finish in (4, 5)
+  logit_score: 0.74
+  explanation: 前走4-5着（巻き返し穴、ROI 99.5%）
+  source: Phase 1 §4 前走着順 | auto-cal v0.3
+- id: e_overpopular_penalty
+  step: E
+  condition: prev_finish == 1 and prev_distance is not None and prev_distance <= 1200
+  logit_score: 0.27
+  explanation: 前走1着（短距離）は過剰人気（割引）
+  source: Phase 1 §4 前走着順 | auto-cal v0.3
+- id: e_optimal_rotation
+  step: E
+  condition: days_since_prev is not None and 35 <= days_since_prev <= 56
+  logit_score: -0.06
+  explanation: 中5-8週ローテ（ROI 78%）
+  source: Phase 1 §4 ローテ | auto-cal v0.3
+- id: e_long_layoff
+  step: E
+  condition: days_since_prev is not None and days_since_prev >= 91
+  logit_score: -0.53
+  explanation: 休み明け（91日以上、千直は弱い）
+  source: Phase 1 §4 ローテ | auto-cal v0.3
+- id: f_choku_loser
+  step: F
+  condition: niigata_1000m_count >= 3 and niigata_1000m_top3_count == 0
+  logit_score: null
+  explanation: 千直3戦以上で3着内0回（適性なし）
+  source: Phase 1 §4 リピーター
+- id: f_old_with_bad_prev
+  step: F
+  condition: age >= 8 and prev_finish is not None and prev_finish >= 6
+  logit_score: null
+  explanation: 8歳以上×前走6着以下（衰退期）
+  source: Phase 1 §3 年齢×前走
+- id: f_sunday_male_long_range
+  step: F
+  condition: sire_line == 'サンデー系' and sex == '牡' and age >= 5 and past_short_count
+    == 0
+  logit_score: null
+  explanation: サンデー系×牡馬×古馬×短距離未経験（千直適性不明）
+  source: Phase 1 §6.5 父系×性別
