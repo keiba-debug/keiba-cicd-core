@@ -35,6 +35,8 @@ def build_index() -> dict:
     name_to_id = {}
     duplicates = 0
     errors = 0
+    error_samples: list[str] = []
+    skipped_no_match = 0
 
     json_files = sorted(horses_dir.glob("*.json"))
     total = len(json_files)
@@ -50,11 +52,15 @@ def build_index() -> dict:
             nm = name_pat.search(raw)
             km = ketto_pat.search(raw)
             if not nm or not km:
+                skipped_no_match += 1
+                if len(error_samples) < 10:
+                    error_samples.append(f"  no match: {json_file.name}")
                 continue
 
             name = nm.group(1).decode('utf-8').strip()
             ketto_num = km.group(1).decode('utf-8')
             if not name:
+                skipped_no_match += 1
                 continue
 
             if name in name_to_id:
@@ -64,16 +70,28 @@ def build_index() -> dict:
             else:
                 name_to_id[name] = ketto_num
 
-        except Exception:
+        except Exception as e:
             errors += 1
+            if len(error_samples) < 10:
+                error_samples.append(f"  read error: {json_file.name}: {e}")
 
         if (i + 1) % 50000 == 0:
             print(f"  ... {i+1:,}/{total:,}")
 
     print(f"  Unique names: {len(name_to_id):,}")
     print(f"  Duplicates (same name): {duplicates:,}")
-    if errors:
-        print(f"  Errors: {errors}")
+    if errors or skipped_no_match:
+        # silent skip 防止: I/Oエラー・無マッチ件数を必ず出す
+        print(f"  Errors (read failures): {errors:,}")
+        print(f"  Skipped (no name/ketto in JSON): {skipped_no_match:,}")
+        if error_samples:
+            print("  Samples:")
+            for s in error_samples:
+                print(s)
+        # しきい値: 100件以上のスキップは異常 (build_horse_master との競合疑い)
+        if errors + skipped_no_match >= 100:
+            print(f"\n  [WARNING] {errors + skipped_no_match} files skipped — possible I/O race")
+            print(f"  build_horse_master と並行実行していないか確認してください")
 
     return name_to_id
 

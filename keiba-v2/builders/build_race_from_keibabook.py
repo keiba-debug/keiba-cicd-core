@@ -261,9 +261,10 @@ def build_race_json_from_syutuba(
         horse_name = horse.get("馬名_clean", horse.get("馬名", ""))
         kb_horse_code = horse.get("umacd", "")  # keibabook 7桁コード（参考用）
         ketto_num = horse_name_to_id.get(horse_name, "")
-        # (地)/(外) プレフィックス除去して再検索
+        # (地)/(外)/[地]/[外] プレフィックス除去して再検索（半角・全角両対応、複数プレフィックス対応）
+        # 例: "(外)(地)ザングウィル" → "ザングウィル"
         if not ketto_num:
-            clean_name = re.sub(r"^\((?:地|外)\)", "", horse_name)
+            clean_name = re.sub(r"^(?:[\(（\[［](?:地|外|父|市)[\)）\]］])+", "", horse_name)
             if clean_name != horse_name:
                 ketto_num = horse_name_to_id.get(clean_name, "")
                 if ketto_num:

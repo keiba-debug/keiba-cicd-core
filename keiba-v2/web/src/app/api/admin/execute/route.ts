@@ -146,9 +146,13 @@ export async function POST(request: NextRequest) {
         let commands: string[][] = [];
 
         if (action === 'batch_prepare') {
-          // 前日準備: スクレイピング(basic) → v4パイプライン(race_build→cyokyo_enrich→predict)
+          // 前日準備: 馬マスタ更新 → 馬名インデックス再生成 → スクレイピング(basic) → v4パイプライン
+          // ★馬マスタ→名前インデックス を必ず race_from_keibabook の前に直列実行（並行I/O競合回避）
+          // これを忘れると新馬・新規命名馬の ketto_num が race JSON で空になり、ML 過去走 join が失敗する。
           if (isRangeAction && startDate && endDate) {
             commands = [
+              ['-m', 'builders.build_horse_master'],
+              ['-m', 'builders.build_horse_name_index'],
               ['-m', 'keibabook.batch_scraper', '--start', startDate, '--end', endDate, '--types', 'basic'],
             ];
             for (const d of expandDateRange(startDate, endDate)) {
@@ -157,6 +161,8 @@ export async function POST(request: NextRequest) {
           } else {
             const dateArg = date || '';
             commands = [
+              ['-m', 'builders.build_horse_master'],
+              ['-m', 'builders.build_horse_name_index'],
               ['-m', 'keibabook.batch_scraper', '--date', dateArg, '--types', 'basic'],
               ...buildV4AfterScrapeCommands(dateArg, true),
             ];
