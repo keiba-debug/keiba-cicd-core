@@ -17,6 +17,7 @@ from ml.utils.race_io import (
     iter_date_dirs, date_dir_for,
     iter_race_files, load_race, load_race_results,
     load_predictions, iter_predictions,
+    fetch_race_meta, enrich_with_race_meta,
 )
 
 
@@ -31,9 +32,15 @@ def fake_races_root(tmp_path):
             rid = f"20260124060102{race_no:02d}" if day == "24" else f"20260125060102{race_no:02d}"
             data = {
                 "race_id": rid,
+                "venue_code": "06",
+                "distance": 1800,
+                "race_name": f"Test Race {race_no}",
+                "track_type": "turf" if race_no == 1 else "dirt",
                 "entries": [
-                    {"umaban": 1, "finish_position": 1, "odds": 2.5},
-                    {"umaban": 2, "finish_position": 5, "odds": 12.0},
+                    {"umaban": 1, "finish_position": 1, "odds": 2.5,
+                     "jockey_code": "01091", "trainer_code": "01001"},
+                    {"umaban": 2, "finish_position": 5, "odds": 12.0,
+                     "jockey_code": "01100", "trainer_code": "01002"},
                 ],
             }
             (day_dir / f"race_{rid}.json").write_text(
@@ -144,3 +151,48 @@ class TestPredictions:
             assert len(tup) == 3
             _, _, results = tup
             assert isinstance(results, dict)
+
+
+class TestFetchRaceMeta:
+    def test_basic(self, fake_races_root):
+        rids = ["2026012406010201", "2026012406010202"]
+        meta = fetch_race_meta(rids, root=fake_races_root)
+        assert len(meta) == 2
+        assert meta["2026012406010201"]["race"]["venue_code"] == "06"
+        assert meta["2026012406010201"]["race"]["distance"] == 1800
+        assert meta["2026012406010201"]["race"]["track_type"] == "turf"
+        assert meta["2026012406010201"]["entries"][1]["jockey_code"] == "01091"
+
+    def test_missing_race_skip(self, fake_races_root):
+        rids = ["2026012406010201", "9999999999999999"]
+        meta = fetch_race_meta(rids, root=fake_races_root)
+        assert len(meta) == 1
+        assert "9999999999999999" not in meta
+
+
+class TestEnrichWithRaceMeta:
+    @pytest.fixture
+    def base_df(self, fake_races_root):
+        pd = pytest.importorskip("pandas")
+        return pd.DataFrame({
+            "race_id": ["2026012406010201", "2026012406010201", "2026012406010202"],
+            "umaban":  [1, 2, 1],
+            "track_type": ["", "", ""],     # 空文字 → meta から fillna
+        })
+
+    def test_enrich_adds_columns(self, fake_races_root, base_df):
+        out = enrich_with_race_meta(base_df, root=fake_races_root)
+        for col in ("venue_code", "distance", "race_name", "jockey_code", "trainer_code"):
+            assert col in out.columns
+
+    def test_enrich_fillna_blank(self, fake_races_root, base_df):
+        # 元の track_type が空文字 → meta の値で上書きされる
+        out = enrich_with_race_meta(base_df, root=fake_races_root)
+        assert out.loc[0, "track_type"] == "turf"   # race 01
+        assert out.loc[2, "track_type"] == "dirt"   # race 02
+
+    def test_enrich_per_entry(self, fake_races_root, base_df):
+        out = enrich_with_race_meta(base_df, root=fake_races_root)
+        # race 01 の馬1 は jockey_code "01091"、馬2 は "01100"
+        r01 = out[out["race_id"] == "2026012406010201"]
+        assert set(r01["jockey_code"].tolist()) == {"01091", "01100"}

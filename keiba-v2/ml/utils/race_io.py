@@ -188,3 +188,117 @@ def iter_predictions(
             yield d, data, results
         else:
             yield d, data
+
+
+# ===========================================================================
+# Race metadata enrichment (backtest_cache に欠けてる属性を race_*.json から補完)
+# ===========================================================================
+
+_RACE_META_KEYS = (
+    "venue_code", "venue_name", "distance", "race_name", "weight_type",
+    "track_condition", "weather", "race_grade", "kai_no", "nichi_no",
+    # backtest_cache に欠けていることがあるもの (空文字なら meta 側で fillna)
+    "track_type", "age_class",
+)
+_ENTRY_META_KEYS = ("jockey_code", "jockey_name", "trainer_code", "trainer_name", "ketto_num")
+
+
+def fetch_race_meta(race_ids, *, root=None, verbose: bool = False) -> dict:
+    """race_id 群について race_*.json から metadata を一括取得
+
+    Args:
+        race_ids: 16桁 race_id のイテラブル
+        root:     races_dir() override
+        verbose:  True で進捗 print
+
+    Returns:
+        {race_id: {"race": {...}, "entries": {umaban: {...}}}}
+        race の値は venue_code/distance/race_name/weight_type 等
+        entries[umaban] の値は jockey_code/trainer_code/ketto_num 等
+    """
+    base = Path(root) if root else races_root()
+    out: dict = {}
+    rids = list(race_ids)
+    total = len(rids)
+    hit = 0
+    for i, rid in enumerate(rids):
+        srid = str(rid)
+        if len(srid) < 8:
+            continue
+        day_dir = base / srid[:4] / srid[4:6] / srid[6:8]
+        rj = load_race(day_dir, srid)
+        if rj is None:
+            continue
+        hit += 1
+        race_meta = {k: rj.get(k) for k in _RACE_META_KEYS}
+        entries_meta: dict = {}
+        for e in rj.get("entries", []):
+            um = e.get("umaban")
+            if um is None:
+                continue
+            entries_meta[um] = {k: e.get(k) for k in _ENTRY_META_KEYS}
+        out[srid] = {"race": race_meta, "entries": entries_meta}
+        if verbose and (i + 1) % 500 == 0:
+            print(f"  [enrich] {i + 1:,}/{total:,} ({hit:,} hits)")
+    if verbose:
+        print(f"  [enrich] {total:,} requested, {hit:,} fetched, {total - hit:,} missing")
+    return out
+
+
+def enrich_with_race_meta(df, *, root=None, verbose: bool = False):
+    """flatten_to_df の DataFrame に race/jockey/trainer meta 列を joins
+
+    Args:
+        df: ml.utils.backtest_cache.flatten_to_df の出力 (race_id, umaban を含む)
+        root: races_dir() override
+
+    Adds columns: venue_code, venue_name, distance, race_name, weight_type,
+                  track_condition, weather, race_grade, kai_no, nichi_no,
+                  jockey_code, jockey_name, trainer_code, trainer_name, ketto_num
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        raise ImportError("pandas is required for enrich_with_race_meta")
+    if df.empty:
+        return df
+
+    race_ids = df["race_id"].astype(str).unique().tolist()
+    meta = fetch_race_meta(race_ids, root=root, verbose=verbose)
+
+    race_rows = []
+    for rid, m in meta.items():
+        row = {"race_id": rid, **m["race"]}
+        race_rows.append(row)
+    race_df = pd.DataFrame(race_rows)
+
+    entry_rows = []
+    for rid, m in meta.items():
+        for um, em in m["entries"].items():
+            entry_rows.append({"race_id": rid, "umaban": um, **em})
+    entry_df = pd.DataFrame(entry_rows)
+
+    out = df.copy()
+    out["race_id"] = out["race_id"].astype(str)
+    if not race_df.empty:
+        out = out.merge(race_df, on="race_id", how="left", suffixes=("", "_meta"))
+        # 元の列が空文字なら meta 値で上書き (backtest_cache の欠損補完)
+        for col in race_df.columns:
+            if col == "race_id":
+                continue
+            meta_col = f"{col}_meta"
+            if meta_col in out.columns:
+                blank_mask = out[col].astype(str).isin(["", "nan", "None"])
+                out.loc[blank_mask, col] = out.loc[blank_mask, meta_col]
+                out = out.drop(columns=[meta_col])
+    if not entry_df.empty:
+        out = out.merge(entry_df, on=["race_id", "umaban"], how="left", suffixes=("", "_meta"))
+        for col in entry_df.columns:
+            if col in ("race_id", "umaban"):
+                continue
+            meta_col = f"{col}_meta"
+            if meta_col in out.columns:
+                blank_mask = out[col].astype(str).isin(["", "nan", "None"])
+                out.loc[blank_mask, col] = out.loc[blank_mask, meta_col]
+                out = out.drop(columns=[meta_col])
+    return out
