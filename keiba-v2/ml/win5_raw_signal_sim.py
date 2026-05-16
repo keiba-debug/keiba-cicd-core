@@ -82,12 +82,11 @@ def load_predictions_for_date(date_str: str) -> dict:
 
 def load_race_results(date_str: str, race_id: str) -> dict:
     """race_{id}.json から馬番→着順マップを返す"""
-    y, m, d = date_str[:4], date_str[4:6], date_str[6:8]
-    race_path = races_dir() / y / m / d / f"race_{race_id}.json"
-    if not race_path.exists():
+    from ml.utils.race_io import load_race, date_dir_for
+    day_dir = date_dir_for(date_str)
+    rj = load_race(day_dir, race_id)
+    if rj is None:
         return {}
-    with open(race_path, encoding='utf-8') as f:
-        rj = json.load(f)
     return {e.get('umaban'): e.get('finish_position', 0)
             for e in rj.get('entries', []) if e.get('finish_position')}
 

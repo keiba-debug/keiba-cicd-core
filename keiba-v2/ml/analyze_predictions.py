@@ -25,24 +25,7 @@ DATA_DIR = Path(r"C:\KEIBA-CICD\data3\races")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-def load_race_results(date_dir: Path) -> dict:
-    """日付ディレクトリからレース結果を読み込む。
-    Returns: {race_id: {umaban: {finish_position, odds}}}
-    """
-    results = {}
-    for rf in sorted(date_dir.glob("race_[0-9]*.json")):
-        with open(rf, encoding="utf-8") as f:
-            rd = json.load(f)
-        race_id = rd["race_id"]
-        entry_map = {}
-        for e in rd.get("entries", []):
-            entry_map[e["umaban"]] = {
-                "finish_position": e.get("finish_position"),
-                "odds": e.get("odds"),
-            }
-        results[race_id] = entry_map
-    return results
+from ml.utils.race_io import load_race_results
 
 
 def load_confirmed_place_odds(race_codes: list) -> dict:

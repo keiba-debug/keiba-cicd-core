@@ -16,6 +16,8 @@ if sys.stdout.encoding != "utf-8":
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
+from ml.utils.race_io import load_race, date_dir_for
+from ml.utils.filters import is_obstacle
 
 
 def collect_data():
@@ -32,23 +34,19 @@ def collect_data():
         if isinstance(races_list, str):
             continue
         for race in races_list:
-            if not isinstance(race, dict) or race.get("track_type") == "obstacle":
+            if not isinstance(race, dict) or is_obstacle(race):
                 continue
             entries = race.get("entries", [])
             rid = race.get("race_id", "")
             date = race.get("date", "")
             if not date:
                 continue
-            parts = date.split("-")
-            if len(parts) != 3:
-                continue
-            race_path = (
-                races_dir / parts[0] / parts[1] / parts[2] / f"race_{rid}.json"
-            )
             try:
-                with open(race_path, encoding="utf-8") as f:
-                    rd = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
+                day_dir = date_dir_for(date, root=races_dir)
+            except ValueError:
+                continue
+            rd = load_race(day_dir, rid)
+            if rd is None:
                 continue
             actual = {}
             for e in rd.get("entries", []):

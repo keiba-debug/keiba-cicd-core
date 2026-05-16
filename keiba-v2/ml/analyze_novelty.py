@@ -30,47 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
 
 
-def iter_date_dirs(start: str, end: str):
-    root = Path(config.races_dir())
-    for year_dir in sorted(root.iterdir()):
-        if not year_dir.is_dir() or not year_dir.name.isdigit():
-            continue
-        for month_dir in sorted(year_dir.iterdir()):
-            if not month_dir.is_dir():
-                continue
-            ym = f"{year_dir.name}-{month_dir.name}"
-            if start and ym < start:
-                continue
-            if end and ym > end:
-                continue
-            for day_dir in sorted(month_dir.iterdir()):
-                if day_dir.is_dir():
-                    yield day_dir
-
-
-def build_results(date_dir: Path) -> dict:
-    """{race_id: {umaban: {finish_position, odds}}}"""
-    out = {}
-    for rf in date_dir.glob("race_[0-9]*.json"):
-        try:
-            with open(rf, encoding="utf-8") as f:
-                rd = json.load(f)
-        except Exception:
-            continue
-        rid = rd.get("race_id")
-        if not rid:
-            continue
-        emap = {}
-        for e in rd.get("entries", []):
-            um = e.get("umaban")
-            if um is None:
-                continue
-            emap[um] = {
-                "finish": e.get("finish_position"),
-                "odds": e.get("odds") or 0,
-            }
-        out[rid] = emap
-    return out
+from ml.utils.race_io import iter_date_dirs, load_race_results as build_results  # noqa: F401
 
 
 def fmt_pct(num, den):

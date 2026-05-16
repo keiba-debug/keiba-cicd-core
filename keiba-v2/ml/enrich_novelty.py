@@ -66,23 +66,7 @@ def load_indexes():
     return history_cache, jrdb_sed_index
 
 
-def iter_date_dirs(start: str, end: str):
-    root = Path(config.races_dir())
-    for year_dir in sorted(root.iterdir()):
-        if not year_dir.is_dir() or not year_dir.name.isdigit():
-            continue
-        for month_dir in sorted(year_dir.iterdir()):
-            if not month_dir.is_dir():
-                continue
-            ym = f"{year_dir.name}-{month_dir.name}"
-            if start and ym < start:
-                continue
-            if end and ym > end:
-                continue
-            for day_dir in sorted(month_dir.iterdir()):
-                if not day_dir.is_dir():
-                    continue
-                yield day_dir
+from ml.utils.race_io import iter_date_dirs  # noqa: E402,F401
 
 
 def build_race_meta(date_dir: Path) -> dict:

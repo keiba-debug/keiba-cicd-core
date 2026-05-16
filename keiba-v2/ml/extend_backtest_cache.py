@@ -47,28 +47,25 @@ def find_available_dates() -> list[str]:
     return dates
 
 
+from ml.utils.race_io import load_race  # noqa: E402
+
+
 def load_results_from_race_json(day_dir: Path, race_id: str) -> dict:
-    """race_{id}.json から馬番→結果データを取得"""
-    race_path = day_dir / f"race_{race_id}.json"
-    if not race_path.exists():
+    """race_{id}.json から馬番→結果データを取得 (is_win/is_top3 付き)"""
+    rj = load_race(day_dir, race_id)
+    if rj is None:
         return {}
-    try:
-        with open(race_path, encoding="utf-8") as f:
-            rj = json.load(f)
-        result = {}
-        for e in rj.get("entries", []):
-            uma = e.get("umaban")
-            fp = e.get("finish_position")
-            result[uma] = {
-                "finish_position": fp,
-                "is_win": 1 if fp == 1 else 0,
-                "is_top3": 1 if fp is not None and fp <= 3 else 0,
-                "place_odds_min": None,  # race JSONにはplace_oddsがない場合あり
-            }
-        return result
-    except Exception as ex:
-        print(f"  [WARN] Failed to load {race_path}: {ex}")
-        return {}
+    result = {}
+    for e in rj.get("entries", []):
+        uma = e.get("umaban")
+        fp = e.get("finish_position")
+        result[uma] = {
+            "finish_position": fp,
+            "is_win": 1 if fp == 1 else 0,
+            "is_top3": 1 if fp is not None and fp <= 3 else 0,
+            "place_odds_min": None,  # race JSONにはplace_oddsがない場合あり
+        }
+    return result
 
 
 def pred_to_cache_race(race: dict, day_dir: Path) -> dict | None:
