@@ -140,6 +140,70 @@ def strat_selective(race: dict) -> Optional[Bet]:
     return make_bet(race["race_id"], top) if top else None
 
 
+def make_selective_v2(min_prob: float):
+    """Selective_v2: 重賞 + Top1 pred_proba_p_raw >= min_prob"""
+    def picker(race: dict) -> Optional[Bet]:
+        grade = race.get("grade", "")
+        if grade not in GRADE_KEISHOU:
+            return None
+        top = get_top1(race["entries"], "rank_p")
+        if top is None:
+            return None
+        p = float(top.get("pred_proba_p_raw") or 0)
+        if p < min_prob:
+            return None
+        return make_bet(race["race_id"], top)
+    return picker
+
+
+def make_selective_v3_vbgap(min_gap: int):
+    """Selective_v3: 重賞 + Top1 の vb_gap (odds_rank - rank_p) >= min_gap (市場との乖離)"""
+    def picker(race: dict) -> Optional[Bet]:
+        grade = race.get("grade", "")
+        if grade not in GRADE_KEISHOU:
+            return None
+        top = get_top1(race["entries"], "rank_p")
+        if top is None:
+            return None
+        gap = int(top.get("vb_gap") or 0)
+        if gap < min_gap:
+            return None
+        return make_bet(race["race_id"], top)
+    return picker
+
+
+def make_selective_v3_notfav(max_odds_rank_excluded: int):
+    """Selective_v3: 重賞 + Top1 の odds_rank > max_odds_rank_excluded (人気上位を除外)"""
+    def picker(race: dict) -> Optional[Bet]:
+        grade = race.get("grade", "")
+        if grade not in GRADE_KEISHOU:
+            return None
+        top = get_top1(race["entries"], "rank_p")
+        if top is None:
+            return None
+        odds_rank = int(top.get("odds_rank") or 99)
+        if odds_rank <= max_odds_rank_excluded:
+            return None
+        return make_bet(race["race_id"], top)
+    return picker
+
+
+def make_selective_v3_minprob(max_prob: float):
+    """Selective_v3 (逆): 重賞 + Top1 pred_proba_p_raw <= max_prob (確信度低めだけ)"""
+    def picker(race: dict) -> Optional[Bet]:
+        grade = race.get("grade", "")
+        if grade not in GRADE_KEISHOU:
+            return None
+        top = get_top1(race["entries"], "rank_p")
+        if top is None:
+            return None
+        p = float(top.get("pred_proba_p_raw") or 0)
+        if p > max_prob:
+            return None
+        return make_bet(race["race_id"], top)
+    return picker
+
+
 STRATEGIES: list[tuple[str, str, Callable[[dict], Optional[Bet]]]] = [
     ("P_only",          "rank_p==1 全レース",                                 strat_p_only),
     ("W_only",          "rank_w==1 全レース",                                 strat_w_only),
@@ -148,6 +212,17 @@ STRATEGIES: list[tuple[str, str, Callable[[dict], Optional[Bet]]]] = [
     ("Hybrid-Concur",   "P top1 == W top1 のみ (両モデル一致)",              strat_hybrid_concur),
     ("Concur+Grade",    "両モデル一致 AND 重賞",                              strat_concur_grade),
     ("Selective",       "重賞のみ P (新馬/1勝/3勝完全スキップ)",              strat_selective),
+    # Selective_v2 sweep: 重賞 + Top1 pred_proba_p_raw 閾値
+    ("Sel_v2 p>=0.40",  "重賞 + Top1複勝確率 >= 0.40",                       make_selective_v2(0.40)),
+    ("Sel_v2 p>=0.45",  "重賞 + Top1複勝確率 >= 0.45",                       make_selective_v2(0.45)),
+    ("Sel_v2 p>=0.50",  "重賞 + Top1複勝確率 >= 0.50",                       make_selective_v2(0.50)),
+    # Selective_v3 sweep: 市場乖離 (vb_gap, odds_rank, low_prob)
+    ("Sel_v3 gap>=2",   "重賞 + Top1 vb_gap (odds_rank-rank_p) >= 2",        make_selective_v3_vbgap(2)),
+    ("Sel_v3 gap>=3",   "重賞 + Top1 vb_gap >= 3",                            make_selective_v3_vbgap(3)),
+    ("Sel_v3 gap>=4",   "重賞 + Top1 vb_gap >= 4",                            make_selective_v3_vbgap(4)),
+    ("Sel_v3 not_fav1", "重賞 + Top1 odds_rank != 1 (1番人気除外)",          make_selective_v3_notfav(1)),
+    ("Sel_v3 not_top2", "重賞 + Top1 odds_rank > 2 (1,2番人気除外)",         make_selective_v3_notfav(2)),
+    ("Sel_v3 p<=0.40",  "重賞 + Top1複勝確率 <= 0.40 (確信度低)",            make_selective_v3_minprob(0.40)),
 ]
 
 
