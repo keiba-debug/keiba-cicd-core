@@ -32,6 +32,28 @@ interface SelectiveBet {
   pred_proba_p_raw: number | null;
   win_ev: number | null;
   confidence: number | null;
+  odds_rank: number | null;
+  vb_gap: number | null;
+}
+
+// Sel_v3 戦略タグを判定 (Phase 4.3 で BT 確認済)
+function deriveStrategyTags(bet: SelectiveBet): { name: string; label: string; bt_roi: string; color: string }[] {
+  const tags: { name: string; label: string; bt_roi: string; color: string }[] = [
+    { name: 'baseline', label: 'Selective', bt_roi: '+203%', color: 'bg-rose-600' },
+  ];
+  if (bet.odds_rank != null && bet.odds_rank !== 1) {
+    tags.push({ name: 'not_fav1', label: 'not_fav1', bt_roi: '+247%', color: 'bg-orange-600' });
+  }
+  if (bet.odds_rank != null && bet.odds_rank > 2) {
+    tags.push({ name: 'not_top2', label: 'not_top2', bt_roi: '+263%', color: 'bg-amber-600' });
+  }
+  if (bet.vb_gap != null && bet.vb_gap >= 3) {
+    tags.push({ name: 'gap3', label: 'gap≥3', bt_roi: '+320%', color: 'bg-emerald-600' });
+  }
+  if (bet.vb_gap != null && bet.vb_gap >= 4) {
+    tags.push({ name: 'gap4', label: 'gap≥4', bt_roi: '+381%', color: 'bg-emerald-700' });
+  }
+  return tags;
 }
 
 interface SelectiveResponse {
@@ -242,9 +264,23 @@ export default function SelectiveBetsPage() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                  <TrendingUp className="w-3 h-3 text-emerald-500" />
-                  推奨: 100円単勝 → 想定戻り ¥{Math.round(bet.odds * 100).toLocaleString()}
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <TrendingUp className="w-3 h-3 text-emerald-500" />
+                    100円 → 想定戻り ¥{Math.round(bet.odds * 100).toLocaleString()}
+                  </div>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-xs text-slate-400">戦略マッチ:</span>
+                    {deriveStrategyTags(bet).map((tag) => (
+                      <Badge
+                        key={tag.name}
+                        className={`text-[10px] ${tag.color} text-white`}
+                        title={`Sel_v3 ${tag.label}: BT ROI ${tag.bt_roi}`}
+                      >
+                        {tag.label} ({tag.bt_roi})
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
               </CardContent>
             </Card>

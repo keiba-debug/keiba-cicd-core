@@ -55,6 +55,8 @@ class SelectiveBet:
     pred_proba_p_raw: Optional[float]
     win_ev: Optional[float]
     confidence: Optional[float]  # race_confidence
+    odds_rank: Optional[int] = None  # 人気順 (Sel_v3 not_fav1 等のフィルタ用)
+    vb_gap: Optional[int] = None     # odds_rank - rank_p (市場乖離度、Sel_v3 gap>=N 用)
 
 
 def is_selective_race(race: dict) -> bool:
@@ -102,6 +104,8 @@ def extract_selective_bets(predictions: dict) -> list[SelectiveBet]:
             pred_proba_p_raw=horse.get("pred_proba_p_raw"),
             win_ev=horse.get("win_ev"),
             confidence=race.get("race_confidence"),
+            odds_rank=horse.get("odds_rank"),
+            vb_gap=horse.get("vb_gap"),
         ))
     return bets
 
