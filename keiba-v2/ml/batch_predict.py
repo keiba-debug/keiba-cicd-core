@@ -24,6 +24,7 @@ if sys.platform == 'win32':
 
 from core import config
 from ml.model_loader import load_model, load_model_safe
+from ml.utils.filters import is_obstacle, split_by_obstacle
 from ml.predict import (
     load_master_data,
     get_races_for_date, load_keibabook_ext,
@@ -101,15 +102,7 @@ def predict_date(
             pass
 
     # 障害/平地分離
-    obstacle_races = []
-    flat_races = []
-    for race in races:
-        race_name = race.get('race_name', '')
-        track_type = race.get('track_type', '')
-        if '障害' in race_name or track_type == 'obstacle':
-            obstacle_races.append(race)
-        else:
-            flat_races.append(race)
+    flat_races, obstacle_races = split_by_obstacle(races)
 
     if not has_obstacle_model:
         obstacle_races = []

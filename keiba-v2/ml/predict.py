@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from ml.model_loader import load_model, load_model_safe, ModelBundle
+from ml.utils.filters import is_obstacle, split_by_obstacle
 from ml.features.base_features import extract_base_features
 from ml.features.baba_features import load_baba_index, get_baba_features
 from ml.features.past_features import compute_past_features
@@ -1742,15 +1743,7 @@ def main():
                     race['distance'] = db_race['distance']
 
     # 障害レースを分離（障害モデルがあれば予測、なければ除外）
-    obstacle_races = []
-    flat_races = []
-    for race in races:
-        race_name = race.get('race_name', '')
-        track_type = race.get('track_type', '')
-        if '障害' in race_name or track_type == 'obstacle':
-            obstacle_races.append(race)
-        else:
-            flat_races.append(race)
+    flat_races, obstacle_races = split_by_obstacle(races)
     if obstacle_races:
         if has_obstacle_model:
             print(f"[Obstacle] {len(obstacle_races)} obstacle races → obstacle model")

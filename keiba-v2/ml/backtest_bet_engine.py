@@ -37,6 +37,7 @@ from ml.experiment import (
 )
 from ml.features.margin_target import add_margin_target_to_df
 from ml.features.baba_features import load_baba_index, get_baba_features
+from ml.utils.filters import is_obstacle
 from ml.bet_engine import (
     PRESETS, BetStrategyParams,
     generate_recommendations, recommendations_summary,
@@ -124,8 +125,7 @@ def compute_closing_probas(
                 skipped += 1
                 continue
 
-            track_type = race.get('track_type', '')
-            if track_type == 'obstacle' or '障害' in race.get('race_name', ''):
+            if is_obstacle(race):
                 skipped += 1
                 continue
             if race.get('num_runners', 0) < 8:

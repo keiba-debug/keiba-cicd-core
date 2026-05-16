@@ -37,6 +37,7 @@ from ml.features.closing_race_features import (
     compute_closing_race_features,
 )
 from ml.features.baba_features import get_baba_features, load_baba_index
+from ml.utils.filters import is_obstacle
 
 
 def load_closing_model():
@@ -116,7 +117,7 @@ def predict_closing_for_date(
             num_runners = race.get('num_runners', 0)
 
             # 障害・少頭数はスキップ
-            if track_type == 'obstacle' or '障害' in race.get('race_name', ''):
+            if is_obstacle(race):
                 continue
             if num_runners < 8:
                 continue

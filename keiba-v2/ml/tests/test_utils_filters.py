@@ -31,6 +31,10 @@ class TestIsObstacle:
     def test_track_type_japanese(self):
         assert is_obstacle({"track_type": "障害"})
 
+    def test_track_type_steeplechase(self):
+        # legacy value
+        assert is_obstacle({"track_type": "steeplechase"})
+
     def test_race_name_contains_obstacle(self):
         assert is_obstacle({"track_type": "芝", "race_name": "障害4歳以上未勝利"})
 

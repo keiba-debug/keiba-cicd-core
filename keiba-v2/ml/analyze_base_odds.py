@@ -15,6 +15,9 @@ import numpy as np
 from collections import defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ml.utils.filters import is_obstacle
+
 DATA_DIR = "C:/KEIBA-CICD/data3"
 
 
@@ -78,7 +81,7 @@ def analyze(kyi, races, pred_index):
         track_type = race.get("track_type", "")
 
         # Obstacle skip
-        if "障" in race.get("race_name", "") or track_type == "障害":
+        if is_obstacle(race):
             continue
 
         pred_entries = pred_index.get(race_id, {})

@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from ml.simulate_sanrentan_ev import load_sanrentan_payouts
+from ml.utils.filters import is_obstacle
 
 # ===========================================================================
 # Extended strategies (base + combined filters)
@@ -261,7 +262,7 @@ def run_backtest(races: List[dict], payouts: dict) -> dict:
 
         for race in races:
             race_id = race["race_id"]
-            if race.get("track_type") in ("obstacle", "steeplechase"):
+            if is_obstacle(race):
                 continue
 
             rp = payouts.get(race_id)

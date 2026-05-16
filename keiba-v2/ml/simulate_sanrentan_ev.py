@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
 from core.db import get_connection
 from ml.utils.backtest_cache import load_backtest_cache
+from ml.utils.filters import is_obstacle
 
 
 # ===========================================================================
@@ -296,7 +297,7 @@ def run_ev_backtest(cache: list, payouts: Dict[str, list]) -> Dict[str, Strategy
         entries = race.get("entries", [])
 
         # 障害レーススキップ
-        if race.get("track_type") in ("obstacle", "steeplechase"):
+        if is_obstacle(race):
             continue
 
         race_payouts = payouts.get(race_id)
@@ -401,7 +402,7 @@ def analyze_winning_distortions(cache: list, payouts: Dict[str, list]):
     for race in cache:
         race_id = race["race_id"]
         entries = race.get("entries", [])
-        if race.get("track_type") in ("obstacle", "steeplechase"):
+        if is_obstacle(race):
             continue
 
         race_payouts = payouts.get(race_id)

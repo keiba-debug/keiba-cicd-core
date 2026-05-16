@@ -20,6 +20,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
+from ml.utils.filters import is_obstacle
 
 
 def main():
@@ -62,7 +63,7 @@ def main():
             prev = sorted_runs[i - 1]
 
             # 障害レースを除外
-            if curr.get('track_type') == 'obstacle' or prev.get('track_type') == 'obstacle':
+            if is_obstacle(curr) or is_obstacle(prev):
                 continue
 
             # SED IDMを取得

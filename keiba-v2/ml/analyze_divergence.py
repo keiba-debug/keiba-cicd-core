@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ml.utils.backtest_cache import load_backtest_cache
+from ml.utils.filters import exclude_obstacle
 
 def analyze_divergence(races):
     """V×AR乖離パターン分析"""
@@ -175,7 +176,7 @@ def main():
     print(f"Loaded {len(races)} races")
 
     # 平地のみ
-    flat_races = [r for r in races if r.get('track_type', '') != 'obstacle']
+    flat_races = exclude_obstacle(races)
     print(f"Flat races: {len(flat_races)}")
 
     patterns = analyze_divergence(flat_races)

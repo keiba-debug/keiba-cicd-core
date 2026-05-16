@@ -22,7 +22,7 @@ except ImportError:
 # Obstacle race detection
 # ===========================================================================
 
-_OBSTACLE_TRACK_VALUES = {"obstacle", "障害"}
+_OBSTACLE_TRACK_VALUES = {"obstacle", "障害", "steeplechase"}
 
 
 def is_obstacle(race: dict) -> bool:

@@ -28,6 +28,7 @@ if sys.stdout.encoding != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from ml.utils.filters import is_obstacle
 from ml.simulate_sanrentan_ev import (
     load_backtest_cache, load_sanrentan_payouts,
     extract_win_probs, extract_market_probs, harville_prob,
@@ -692,7 +693,7 @@ def run_formation_backtest(
         race_id = race["race_id"]
         entries = race.get("entries", [])
 
-        if race.get("track_type") in ("obstacle", "steeplechase"):
+        if is_obstacle(race):
             continue
 
         race_payouts = payouts.get(race_id)

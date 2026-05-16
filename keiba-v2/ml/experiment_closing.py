@@ -43,6 +43,7 @@ from ml.features.closing_race_features import (
     compute_closing_race_features,
 )
 from ml.features.baba_features import get_baba_features, load_baba_index, race_id_to_baba_key
+from ml.utils.filters import is_obstacle
 from core.jravan import race_id as rid
 
 # === ハイパーパラメータ ===
@@ -239,7 +240,7 @@ def build_closing_dataset(
             race = load_race_json(race_id, date_str)
 
             # 障害レースは除外
-            if race.get('track_type') == 'obstacle' or '障害' in race.get('race_name', ''):
+            if is_obstacle(race):
                 skipped_obstacle += 1
                 continue
 

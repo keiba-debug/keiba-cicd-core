@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
 from core.db import get_connection
 from ml.utils.backtest_cache import load_backtest_cache
+from ml.utils.filters import is_obstacle
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +524,7 @@ def run_all_strategies(cache: list, payouts: dict) -> Dict[str, StrategyStats]:
             continue
 
         # 障害レースをスキップ
-        if race.get("track_type") in ("obstacle", "steeplechase"):
+        if is_obstacle(race):
             continue
 
         # race_idからYYYY-MM抽出 (race_id[:8] = "20250105")
@@ -690,7 +691,7 @@ def generate_recommendations(races: list) -> List[Recommendation]:
 
     for race in races:
         # 障害レーススキップ
-        if race.get("track_type") in ("obstacle", "steeplechase"):
+        if is_obstacle(race):
             continue
 
         venue = race.get("venue_name", "?")
@@ -773,7 +774,7 @@ def generate_sanrentan_formation(races: list) -> List[Recommendation]:
         return {e["umaban"]: e.get("horse_name", f"#{e['umaban']}") for e in entries}
 
     for race in races:
-        if race.get("track_type") in ("obstacle", "steeplechase"):
+        if is_obstacle(race):
             continue
 
         entries = race.get("entries", [])
@@ -939,8 +940,7 @@ def generate_distortion_sanrentan(
       - require_model_top3=True: 1着がrank_w Top3の組み合わせのみ
     """
     # O6オッズ一括取得
-    race_ids = [r["race_id"] for r in races
-                if r.get("track_type") not in ("obstacle", "steeplechase")]
+    race_ids = [r["race_id"] for r in races if not is_obstacle(r)]
     if not race_ids:
         return []
 
@@ -955,7 +955,7 @@ def generate_distortion_sanrentan(
         return {e["umaban"]: e.get("horse_name", f"#{e['umaban']}") for e in entries}
 
     for race in races:
-        if race.get("track_type") in ("obstacle", "steeplechase"):
+        if is_obstacle(race):
             continue
 
         rid = race["race_id"]

@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from core.db import get_connection
+from ml.utils.filters import is_obstacle
 
 
 # ===========================================================================
@@ -172,7 +173,7 @@ def load_predictions_with_results() -> List[dict]:
         for race in races_list:
             if not isinstance(race, dict):
                 continue
-            if race.get('track_type') == 'obstacle':
+            if is_obstacle(race):
                 continue
             entries = race.get('entries', [])
             if not entries or len(entries) < 6:

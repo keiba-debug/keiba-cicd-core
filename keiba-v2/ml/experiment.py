@@ -195,6 +195,7 @@ JRDB_FEATURES = JRDB_FEATURE_COLS
 
 # トラックバイアス特徴量 (v7.2): KAA馬場状態 + SED前崩れ経験
 from ml.features.track_bias_features import TRACK_BIAS_FEATURE_COLS
+from ml.utils.filters import is_obstacle
 TRACK_BIAS_FEATURES = TRACK_BIAS_FEATURE_COLS
 
 # 市場系特徴量（Model Bでは除外）
@@ -1428,7 +1429,7 @@ def build_dataset(
         try:
             race = load_race_json(race_id, date_str)
             # 障害レースを除外（平地モデル専用）
-            if '障害' in race.get('race_name', '') or race.get('track_type') == 'obstacle':
+            if is_obstacle(race):
                 obstacle_count += 1
                 continue
             rows = compute_features_for_race(

@@ -27,6 +27,7 @@ except Exception:
     HAS_ODDS_DB = False
 
 from ml.utils.backtest_cache import load_backtest_cache
+from ml.utils.filters import is_obstacle as _is_obstacle
 
 
 def check_wide_hit(entries, i, j):
@@ -82,7 +83,7 @@ def estimate_wide_odds(entries, i, j):
 def compute_race_data(race):
     entries = race["entries"]
     n = len(entries)
-    is_obstacle = race.get("track_type") == "obstacle" or "障害" in race.get("race_name", "")
+    is_obstacle = _is_obstacle(race)
 
     by_p = sorted(range(n), key=lambda i: entries[i].get("rank_p", 99))
     by_w = sorted(range(n), key=lambda i: entries[i].get("rank_w", 99))
