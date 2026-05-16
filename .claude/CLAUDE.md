@@ -98,10 +98,26 @@ python -m ml.predict
 
 # テスト
 python test_parsers.py
+python -m pytest ml/tests/ -v
 
 # Linter: ruff (line-length=100)
 ruff check .
 ```
+
+**Python venv 実体**: `keiba-cicd-core/keiba-v2/.venv/Scripts/python.exe`
+(Session 121 で keiba-v1 venv から独立化済。 14パッケージのみのスリム構成)
+
+### 推論→買い目 運用フロー
+
+```bash
+# 日次フル実行 (各コマンド内部で predictions.json を順次追記)
+python -m ml.predict          --date YYYY-MM-DD   # predictions.json 生成
+python -m ml.predict_closing  --date YYYY-MM-DD   # closing_race_proba 追記
+python -m ml.generate_bets    --date YYYY-MM-DD   # recommendations 追記
+python -m ml.vb_refresh       --date YYYY-MM-DD   # オッズ更新+買い目再計算
+```
+
+vb_refresh は task scheduler (`scripts/vb_refresh_auto.bat`) で定時自動実行。
 
 ### データ取得パイプライン (PowerShell)
 
@@ -157,11 +173,23 @@ Python側の設定管理: `keiba-v2/core/config.py`
 
 | ID種別 | 形式 | 例 |
 |---|---|---|
-| JRA-VAN 馬ID | 10桁数値 | `2019103487` (ドウデュース) |
+| JRA-VAN 馬ID (ketto_num) | 10桁数値 | `2019103487` (ドウデュース) |
 | JRA-VAN レースID | 16桁 `YYYYMMDDJJKKNNRR` | `2026012406010208` |
+| 調教師コード | 5桁 | `01075` |
+| 騎手コード | 5桁 | `01073` |
 
 - ID変換は必ず `common.jravan` ライブラリ経由で行う
 - 既存スクリプト（`parse_ck_data.py` 等）は直接インポートしない
+
+### モデル命名 (Stars系)
+- **Place (P)**: is_top3 分類 — `model_p.txt`, `pred_proba_p`, `rank_p`
+- **Win (W)**: is_win 分類 — `model_w.txt`, `pred_proba_w_cal`, `rank_w`
+- **Aura (AR)**: 着差回帰(Huber) — `model_ar.txt`, `pred_margin_ar`, `ar_deviation`
+- **Closing**: レースレベル差し決着 — `model_closing.txt`, `closing_race_proba`
+
+### EV 計算
+- 単勝EV = `pred_proba_w_cal × 単勝オッズ`
+- 複勝EV = `pred_proba_p_raw × 複勝最低オッズ` (**生確率を使う**、sum≈3.0)
 
 ---
 
