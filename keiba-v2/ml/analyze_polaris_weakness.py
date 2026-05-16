@@ -21,6 +21,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
 from core.jravan import race_id as rid_mod
 from ml.utils.backtest_cache import load_backtest_cache, flatten_to_df
+from ml.utils.segments import (
+    bin_runners, bin_ev, bin_gap, bin_closing_strength,
+    RUNNER_LABELS, EV_LABELS, GAP_LABELS, CS_LABELS,
+)
 
 DATA_ROOT = Path(config.data_root())
 
@@ -184,11 +188,9 @@ def analyze_condition_weakness(df):
 
     # 頭数帯
     print("\n  ● 頭数帯別:")
-    runner_bins = [0, 8, 12, 16, 99]
-    runner_labels = ["~8頭", "9-12頭", "13-16頭", "17頭~"]
     top1_c = top1.copy()
-    top1_c["runner_band"] = pd.cut(top1_c["num_runners"], bins=runner_bins, labels=runner_labels)
-    for band in runner_labels:
+    top1_c["runner_band"] = bin_runners(top1_c["num_runners"])
+    for band in RUNNER_LABELS:
         sub = top1_c[top1_c["runner_band"] == band]
         if len(sub) >= 10:
             diff_w = sub["is_win"].mean() - overall_win
@@ -286,15 +288,13 @@ def analyze_ev_effectiveness(df):
         print("  win_ev データなし")
         return
 
-    ev_bins = [0, 0.5, 0.8, 1.0, 1.3, 1.5, 2.0, 99]
-    ev_labels = ["<0.5", "0.5-0.8", "0.8-1.0", "1.0-1.3", "1.3-1.5", "1.5-2.0", "2.0+"]
     valid = valid.copy()
-    valid["ev_band"] = pd.cut(valid["win_ev"], bins=ev_bins, labels=ev_labels)
+    valid["ev_band"] = bin_ev(valid["win_ev"])
 
     print(f"\n  {'EV帯':>10s}  {'頭数':>6s}  {'勝率':>6s}  {'単勝ROI':>8s}  {'平均odds':>8s}")
     print("  " + "-" * 48)
 
-    for band in ev_labels:
+    for band in EV_LABELS:
         sub = valid[valid["ev_band"] == band]
         if len(sub) == 0:
             continue
@@ -316,15 +316,13 @@ def analyze_vb_gap_value(df):
         print("  VBギャップデータなし")
         return
 
-    gap_bins = [0, 2, 4, 6, 8, 99]
-    gap_labels = ["1-2", "3-4", "5-6", "7-8", "9+"]
     valid = valid.copy()
-    valid["gap_band"] = pd.cut(valid["vb_gap"], bins=gap_bins, labels=gap_labels)
+    valid["gap_band"] = bin_gap(valid["vb_gap"])
 
     print(f"\n  {'Gap帯':>6s}  {'頭数':>6s}  {'複勝率':>8s}  {'勝率':>6s}  {'単ROI':>7s}  {'平均odds':>8s}")
     print("  " + "-" * 52)
 
-    for band in gap_labels:
+    for band in GAP_LABELS:
         sub = valid[valid["gap_band"] == band]
         if len(sub) == 0:
             continue
@@ -346,15 +344,13 @@ def analyze_closing_strength_impact(df):
         print("  closing_strengthデータなし")
         return
 
-    cs_bins = [0, 0.5, 1.0, 1.5, 2.0, 99]
-    cs_labels = ["~0.5", "0.5-1.0", "1.0-1.5", "1.5-2.0", "2.0+"]
     valid = valid.copy()
-    valid["cs_band"] = pd.cut(valid["closing_strength"], bins=cs_bins, labels=cs_labels)
+    valid["cs_band"] = bin_closing_strength(valid["closing_strength"])
 
     print(f"\n  {'末脚帯':>8s}  {'頭数':>6s}  {'複勝率':>8s}  {'勝率':>6s}  {'平均rank_p':>10s}  {'激走率':>6s}")
     print("  " + "-" * 55)
 
-    for band in cs_labels:
+    for band in CS_LABELS:
         sub = valid[valid["cs_band"] == band]
         if len(sub) == 0:
             continue
