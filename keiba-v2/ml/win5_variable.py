@@ -130,10 +130,8 @@ def load_win5_schedule() -> list:
 
 
 def load_backtest_cache() -> dict:
-    cache_path = ml_dir() / "backtest_cache.json"
-    with open(cache_path, encoding='utf-8') as f:
-        cache = json.load(f)
-
+    from ml.utils.backtest_cache import load_backtest_cache as _load
+    cache = _load(quiet=True)
     pred_index = {}
     race_list = cache if isinstance(cache, list) else cache.values()
     for race_data in race_list:

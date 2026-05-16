@@ -26,9 +26,9 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 from core.config import data_root
+from ml.utils.backtest_cache import load_backtest_cache
 
 DATA3 = Path(data_root())
-CACHE_PATH = DATA3 / "ml" / "backtest_cache.json"
 REPORT_PATH = DATA3 / "ml" / "bankroll_sim_report.md"
 
 
@@ -154,15 +154,6 @@ FILTERS = {
 # ============================================================
 # ベット抽出
 # ============================================================
-
-def load_cache() -> list:
-    """backtest_cache.jsonを読み込み"""
-    print(f"Loading {CACHE_PATH}...")
-    with open(CACHE_PATH, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    print(f"  {len(data)} races loaded")
-    return data
-
 
 def extract_bets(cache: list, filter_name: str) -> list[Bet]:
     """フィルタ条件に合うベットを抽出（日付順）"""
@@ -543,7 +534,7 @@ def main():
     print("=" * 60)
 
     # キャッシュ読み込み
-    cache = load_cache()
+    cache = load_backtest_cache()
 
     # 戦略定義
     configs = [

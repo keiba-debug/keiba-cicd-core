@@ -221,9 +221,8 @@ def load_backtest_predictions() -> dict:
     """
     backtest_cache.json を読み込み、race_id → RacePrediction の辞書を返す。
     """
-    cache_path = ml_dir() / 'backtest_cache.json'
-    with open(cache_path, encoding='utf-8') as f:
-        data = json.load(f)
+    from ml.utils.backtest_cache import load_backtest_cache
+    data = load_backtest_cache(quiet=True)
 
     index = {}
     for race in data:

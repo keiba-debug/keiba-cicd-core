@@ -7,12 +7,10 @@ V×AR乖離分析スクリプト
 import json
 import sys
 from collections import defaultdict
+from pathlib import Path
 
-CACHE_PATH = "C:/KEIBA-CICD/data3/ml/backtest_cache.json"
-
-def load_cache():
-    with open(CACHE_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ml.utils.backtest_cache import load_backtest_cache
 
 def analyze_divergence(races):
     """V×AR乖離パターン分析"""
@@ -173,7 +171,7 @@ def analyze_odds_band(patterns):
 
 def main():
     print("Loading backtest cache...")
-    races = load_cache()
+    races = load_backtest_cache()
     print(f"Loaded {len(races)} races")
 
     # 平地のみ

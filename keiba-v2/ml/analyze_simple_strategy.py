@@ -16,11 +16,8 @@ from collections import defaultdict
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-
-def load_cache() -> list:
-    cache_path = Path('C:/KEIBA-CICD/data3/ml/backtest_cache.json')
-    with open(cache_path, encoding='utf-8') as f:
-        return json.load(f)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ml.utils.backtest_cache import load_backtest_cache
 
 
 def calc_roi(bets: list) -> dict:
@@ -49,7 +46,7 @@ def fmt_roi(r: dict, marker=True) -> str:
 
 
 def main():
-    races = load_cache()
+    races = load_backtest_cache()
     print(f'Loaded {len(races)} races, {sum(len(r["entries"]) for r in races):,} entries')
     dates = sorted(set(r['race_id'][:8] for r in races))
     print(f'Period: {dates[0]} ~ {dates[-1]}')

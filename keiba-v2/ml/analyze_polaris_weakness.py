@@ -20,64 +20,15 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
 from core.jravan import race_id as rid_mod
+from ml.utils.backtest_cache import load_backtest_cache, flatten_to_df
 
 DATA_ROOT = Path(config.data_root())
-BACKTEST_CACHE = DATA_ROOT / "ml" / "backtest_cache.json"
 
 
 def load_backtest_flat():
     """backtest_cacheを馬単位のフラットDataFrameに変換"""
-    with open(BACKTEST_CACHE, "r", encoding="utf-8") as f:
-        races = json.load(f)
-
-    rows = []
-    for race in races:
-        race_id = race["race_id"]
-        # race_idからdate等を抽出
-        date_str = race_id[:8]
-        date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-
-        race_info = {
-            "race_id": race_id,
-            "date": date,
-            "track_type": race.get("track_type", ""),
-            "grade": race.get("grade", ""),
-            "age_class": race.get("age_class", ""),
-            "num_runners": len(race.get("entries", [])),
-        }
-        for e in race.get("entries", []):
-            row = {**race_info}
-            row["umaban"] = e.get("umaban", 0)
-            row["horse_name"] = e.get("horse_name", "")
-            row["finish"] = e.get("finish_position", 99)
-            row["odds"] = e.get("odds", 0)
-            row["odds_rank"] = e.get("odds_rank", 0)
-            row["pred_p"] = e.get("pred_proba_p_raw", 0)
-            row["rank_p"] = e.get("rank_p", 0)
-            row["rank_w"] = e.get("rank_w", 0)
-            row["vb_gap"] = e.get("vb_gap", 0)
-            row["win_vb_gap"] = e.get("win_vb_gap", 0)
-            row["win_ev"] = e.get("win_ev", 0)
-            row["place_ev"] = e.get("place_ev", 0)
-            row["ar_deviation"] = e.get("ar_deviation", 0)
-            row["dev_gap"] = e.get("dev_gap", 0)
-            row["closing_strength"] = e.get("closing_strength", 0)
-            row["is_top3"] = e.get("is_top3", 0)
-            row["is_win"] = e.get("is_win", 0)
-            rows.append(row)
-
-    df = pd.DataFrame(rows)
-    df["is_top3"] = df["is_top3"].astype(bool)
-    df["is_win"] = df["is_win"].astype(bool)
-    df["is_upset"] = df["is_top3"] & (df["odds"] >= 10.0)
-    df["is_big_upset"] = df["is_top3"] & (df["odds"] >= 20.0)
-
-    # odds band
-    bins = [0, 3, 5, 10, 20, 50, 9999]
-    labels = ["~3.0", "3.1~5.0", "5.1~10", "10.1~20", "20.1~50", "50+"]
-    df["odds_band"] = pd.cut(df["odds"], bins=bins, labels=labels, right=True)
-
-    return df
+    races = load_backtest_cache(quiet=True)
+    return flatten_to_df(races)
 
 
 def analyze_market_correlation(df):

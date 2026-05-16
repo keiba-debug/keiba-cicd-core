@@ -23,16 +23,14 @@ from ml.bet_engine import (
     PRESETS, BetStrategyParams,
     generate_recommendations, calc_bet_engine_roi,
 )
+from ml.utils.backtest_cache import load_backtest_cache
 
 
 def main():
     # === キャッシュロード ===
-    cache_path = Path('C:/KEIBA-CICD/data3/ml/backtest_cache.json')
-    print(f'Loading backtest cache: {cache_path}')
-    with open(cache_path, 'r', encoding='utf-8') as f:
-        race_preds = json.load(f)
+    race_preds = load_backtest_cache()
     total_entries = sum(len(r['entries']) for r in race_preds)
-    print(f'  {len(race_preds)} races, {total_entries:,} entries\n')
+    print(f'  {total_entries:,} entries\n')
 
     # === ティア定義 ===
     current_tiers = [(65, 3), (55, 4), (45, 5)]

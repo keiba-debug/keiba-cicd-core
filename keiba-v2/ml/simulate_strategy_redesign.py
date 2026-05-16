@@ -34,6 +34,7 @@ if sys.stdout.encoding != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import config
 from core.db import get_connection
+from ml.utils.backtest_cache import load_backtest_cache as _load_bt
 
 
 # ============================================================
@@ -41,12 +42,7 @@ from core.db import get_connection
 # ============================================================
 
 def load_cache(cache_path: Optional[str] = None) -> list:
-    path = Path(cache_path) if cache_path else config.ml_dir() / "backtest_cache.json"
-    print(f"[Load] backtest_cache: {path}")
-    with open(path, encoding="utf-8") as f:
-        cache = json.load(f)
-    print(f"  {len(cache):,} races")
-    return cache
+    return _load_bt(path=Path(cache_path) if cache_path else None)
 
 
 def load_haraimodoshi(race_codes: List[str]) -> Dict[str, dict]:

@@ -7,11 +7,12 @@ Focus on:
 4. Hybrid: 1-2 ticket strategies with agreement + entry count filters
 """
 import json
+import sys
 from collections import defaultdict
+from pathlib import Path
 
-def load_data():
-    with open("C:/KEIBA-CICD/data3/ml/backtest_cache.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ml.utils.backtest_cache import load_backtest_cache
 
 def check_wide_hit(entries, i, j):
     return entries[i]["is_top3"] == 1 and entries[j]["is_top3"] == 1
@@ -119,7 +120,7 @@ def print_table(title, bins, bin_order, cols=("Races", "Hit", "Rate")):
             print(f"  {b:<25} {s['total']:>6} {s['hit']:>6} {rate:>6.1f}%")
 
 def main():
-    data = load_data()
+    data = load_backtest_cache()
     races_raw = [r for r in data if len(r["entries"]) >= 5]
     races = [compute_race_features(r) for r in races_raw]
     print(f"Total races: {len(races)}")

@@ -54,9 +54,8 @@ BUDGET_CONFIGS = [
 
 
 def load_cache():
-    path = Path("C:/KEIBA-CICD/data3/ml/backtest_cache.json")
-    with open(path, encoding="utf-8") as f:
-        cache = json.load(f)
+    from ml.utils.backtest_cache import load_backtest_cache
+    cache = load_backtest_cache()
     # 障害レースをpredictions.jsonアーカイブから追加
     obstacle_races = _load_obstacle_races(cache)
     if obstacle_races:

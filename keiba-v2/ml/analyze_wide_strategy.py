@@ -6,10 +6,10 @@ Wide = pick 2 horses, both must finish top 3
 import json
 import sys
 from collections import defaultdict
+from pathlib import Path
 
-def load_data():
-    with open("C:/KEIBA-CICD/data3/ml/backtest_cache.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ml.utils.backtest_cache import load_backtest_cache
 
 def get_entry_count_bin(n):
     if n <= 10:
@@ -46,7 +46,7 @@ def check_wide_hit(entries, idx1, idx2):
     return entries[idx1]["is_top3"] == 1 and entries[idx2]["is_top3"] == 1
 
 def analyze():
-    data = load_data()
+    data = load_backtest_cache()
     print(f"Total races in backtest_cache: {len(data)}")
 
     # Filter: skip obstacle races and races with too few entries

@@ -19,13 +19,15 @@ from pathlib import Path
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ml.utils.backtest_cache import load_backtest_cache as _load_bt
+
 CACHE_PATH = Path("C:/KEIBA-CICD/data3/ml/backtest_cache.json")
 RACES_DIR = Path("C:/KEIBA-CICD/data3/races")
 
 
 def load_cache() -> list:
-    with open(CACHE_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    return _load_bt(path=CACHE_PATH, quiet=True)
 
 
 def find_available_dates() -> list[str]:

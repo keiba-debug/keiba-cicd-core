@@ -23,13 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
+from ml.utils.backtest_cache import load_backtest_cache
+
 
 def main():
-    cache_path = Path('C:/KEIBA-CICD/data3/ml/backtest_cache.json')
-    print(f'Loading: {cache_path}')
-    with open(cache_path, 'r', encoding='utf-8') as f:
-        race_preds = json.load(f)
-    print(f'  {len(race_preds)} races\n')
+    race_preds = load_backtest_cache()
+    print()
 
     # 全エントリをフラット化
     all_entries = []

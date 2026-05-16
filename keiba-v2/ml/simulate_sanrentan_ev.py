@@ -30,18 +30,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from core.db import get_connection
+from ml.utils.backtest_cache import load_backtest_cache
 
 
 # ===========================================================================
 # Data loading
 # ===========================================================================
-
-def load_backtest_cache() -> list:
-    path = config.ml_dir() / "backtest_cache.json"
-    with open(path, encoding="utf-8") as f:
-        cache = json.load(f)
-    print(f"[Load] backtest_cache: {len(cache):,} races")
-    return cache
 
 
 def load_sanrentan_payouts(race_codes: List[str]) -> Dict[str, list]:

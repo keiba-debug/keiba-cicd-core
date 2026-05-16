@@ -5,13 +5,14 @@ Analyzes race-level features that predict winner's rank_w position.
 import json
 import sys
 from collections import defaultdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ml.utils.backtest_cache import load_backtest_cache
 
 def main():
     # Load backtest cache
-    with open("C:/KEIBA-CICD/data3/ml/backtest_cache.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    print(f"Total races in backtest cache: {len(data)}")
+    data = load_backtest_cache()
 
     # Process each race
     rows = []

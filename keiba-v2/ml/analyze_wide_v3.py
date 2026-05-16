@@ -26,10 +26,7 @@ try:
 except Exception:
     HAS_ODDS_DB = False
 
-
-def load_data():
-    with open("C:/KEIBA-CICD/data3/ml/backtest_cache.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+from ml.utils.backtest_cache import load_backtest_cache
 
 
 def check_wide_hit(entries, i, j):
@@ -172,7 +169,7 @@ def print_row(label, bets, extra=""):
 
 
 def main():
-    data = load_data()
+    data = load_backtest_cache()
     print(f"Total races in cache: {len(data)}")
     print(f"Wide odds DB available: {HAS_ODDS_DB}")
 

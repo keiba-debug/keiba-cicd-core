@@ -12,45 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from ml.bet_engine import PRESETS, generate_recommendations
-
-
-def load_cache():
-    cache_path = Path("C:/KEIBA-CICD/data3/ml/backtest_cache.json")
-    with open(cache_path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def cache_to_predictions(cache_races):
-    """backtest_cache -> generate_recommendations用List[dict]"""
-    preds = []
-    for race in cache_races:
-        entries = []
-        for e in race["entries"]:
-            entries.append({
-                "umaban": e["umaban"],
-                "horse_name": e.get("horse_name", ""),
-                "odds": e.get("odds", 0),
-                "odds_rank": e.get("odds_rank", 99),
-                "vb_gap": e.get("vb_gap", 0),
-                "win_vb_gap": e.get("win_vb_gap", e.get("vb_gap", 0)),
-                "rank_p": e.get("rank_p", 99),
-                "rank_w": e.get("rank_w", 99),
-                "place_odds_min": e.get("place_odds_min"),
-                "pred_proba_p_raw": e.get("pred_proba_p_raw"),
-                "predicted_margin": e.get("predicted_margin"),
-                "win_ev": e.get("win_ev"),
-                "place_ev": e.get("place_ev"),
-                "comment_memo_trouble_score": e.get("comment_memo_trouble_score", 0),
-                "ar_deviation": e.get("ar_deviation"),
-            })
-        preds.append({
-            "race_id": race["race_id"],
-            "track_type": race.get("track_type", ""),
-            "grade": race.get("grade", ""),
-            "grade_offset": race.get("grade_offset", 0),
-            "entries": entries,
-        })
-    return preds
+from ml.utils.backtest_cache import load_backtest_cache, cache_to_predictions
 
 
 def calc_roi(recs, cache_lookup):
@@ -200,7 +162,7 @@ def main():
     print("  Allocation Strategy Comparison")
     print("=" * 70)
 
-    cache = load_cache()
+    cache = load_backtest_cache()
     print(f"  Cache: {len(cache)} races")
 
     preds = cache_to_predictions(cache)
