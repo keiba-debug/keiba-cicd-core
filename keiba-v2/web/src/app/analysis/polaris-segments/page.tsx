@@ -11,7 +11,7 @@
 import { useState, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { ArrowLeft, ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus, Activity, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus, Activity, AlertTriangle, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 // ===========================================================================
@@ -192,14 +192,26 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
+function diffCellStyle(diff: number): string {
+  if (diff >= 30) return 'text-emerald-700 dark:text-emerald-400 font-bold';
+  if (diff >= 15) return 'text-emerald-600 dark:text-emerald-500';
+  if (diff <= -30) return 'text-rose-700 dark:text-rose-300 font-bold';
+  if (diff <= -15) return 'text-rose-500 dark:text-rose-400';
+  return 'text-slate-500';
+}
+
 function AxisCard({
   axisKey,
   segments,
   periodCompare,
+  compareSegments,
+  compareLabel,
 }: {
   axisKey: string;
   segments: Record<string, SegmentStats>;
   periodCompare?: Record<string, PeriodCompareEntry>;
+  compareSegments?: Record<string, SegmentStats>;
+  compareLabel?: string;
 }) {
   const [expanded, setExpanded] = useState(true);
   const labels = Object.keys(segments);
@@ -210,6 +222,7 @@ function AxisCard({
 
   const totalBets = labels.reduce((s, l) => s + (segments[l].win_roi?.n || 0), 0);
   const hasPeriod = !!periodCompare && Object.keys(periodCompare).length > 0;
+  const hasCompare = !!compareSegments && Object.keys(compareSegments).length > 0;
 
   return (
     <Card>
@@ -237,9 +250,20 @@ function AxisCard({
                   <th className="text-right py-1 px-2">races</th>
                   <th className="text-right py-1 px-2">bets</th>
                   <th className="text-right py-1 px-2">勝率</th>
-                  <th className="text-right py-1 px-2">単勝ROI</th>
-                  {hasPeriod && <th className="text-right py-1 px-2">ΔROI (B-A)</th>}
-                  <th className="text-right py-1 px-2">P&L</th>
+                  <th className="text-right py-1 px-2">ROI</th>
+                  {hasCompare && (
+                    <>
+                      <th className="text-right py-1 px-2 border-l text-slate-400" title={compareLabel}>
+                        bets_B
+                      </th>
+                      <th className="text-right py-1 px-2 text-slate-400" title={compareLabel}>
+                        ROI_B
+                      </th>
+                      <th className="text-right py-1 px-2 text-slate-400">B-A</th>
+                    </>
+                  )}
+                  {!hasCompare && hasPeriod && <th className="text-right py-1 px-2">ΔROI (B-A)</th>}
+                  <th className={`text-right py-1 px-2 ${hasCompare ? 'border-l' : ''}`}>P&L</th>
                   <th className="text-right py-1 px-2">Brier</th>
                   <th className="text-right py-1 px-2">ECE</th>
                   <th className="text-left py-1 px-2">警告</th>
@@ -250,6 +274,9 @@ function AxisCard({
                   const s = segments[label];
                   const roi = s.win_roi;
                   const pc = periodCompare?.[label];
+                  const sB = compareSegments?.[label];
+                  const roiB = sB?.win_roi;
+                  const diffAB = roiB ? roiB.roi - roi.roi : 0;
                   return (
                     <tr key={label} className="border-b border-slate-100 dark:border-slate-800">
                       <td className="py-1 px-2 font-mono">{label}</td>
@@ -259,13 +286,26 @@ function AxisCard({
                       <td className={`text-right py-1 px-2 tabular-nums ${roiStyle(roi.roi)}`}>
                         {roi.roi >= 0 ? '+' : ''}{roi.roi.toFixed(1)}%
                       </td>
-                      {hasPeriod && (
+                      {hasCompare && (
+                        <>
+                          <td className="text-right py-1 px-2 tabular-nums border-l text-slate-600 dark:text-slate-400">
+                            {roiB ? roiB.n.toLocaleString() : '—'}
+                          </td>
+                          <td className={`text-right py-1 px-2 tabular-nums ${roiB ? roiStyle(roiB.roi) : 'text-slate-400'}`}>
+                            {roiB ? (roiB.roi >= 0 ? '+' : '') + roiB.roi.toFixed(1) + '%' : '—'}
+                          </td>
+                          <td className={`text-right py-1 px-2 tabular-nums text-xs ${roiB ? diffCellStyle(diffAB) : 'text-slate-400'}`}>
+                            {roiB ? (diffAB >= 0 ? '+' : '') + diffAB.toFixed(1) : '—'}
+                          </td>
+                        </>
+                      )}
+                      {!hasCompare && hasPeriod && (
                         <td className="text-right py-1 px-2 tabular-nums text-xs">
                           {deltaIcon(pc?.delta_roi)}{' '}
                           {pc ? (pc.delta_roi >= 0 ? '+' : '') + pc.delta_roi.toFixed(1) : '—'}
                         </td>
                       )}
-                      <td className={`text-right py-1 px-2 tabular-nums ${roi.pnl < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                      <td className={`text-right py-1 px-2 tabular-nums ${hasCompare ? 'border-l' : ''} ${roi.pnl < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
                         {roi.pnl >= 0 ? '+' : ''}{Math.round(roi.pnl).toLocaleString()}
                       </td>
                       <td className="text-right py-1 px-2 tabular-nums text-xs text-slate-500">
@@ -352,12 +392,20 @@ export default function PolarisSegmentsPage() {
 
   const runs = runsData?.runs ?? [];
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [compareRunId, setCompareRunId] = useState<string | null>(null);
 
   // default to newest run
   const activeRunId = selectedRunId ?? runs[0]?.run_id ?? null;
 
   const { data: detail, error } = useSWR<RunDetail>(
     activeRunId ? `/api/analysis/polaris-segments?run_id=${activeRunId}` : null,
+    fetcher,
+  );
+
+  const { data: compareDetail } = useSWR<RunDetail>(
+    compareRunId && compareRunId !== activeRunId
+      ? `/api/analysis/polaris-segments?run_id=${compareRunId}`
+      : null,
     fetcher,
   );
 
@@ -389,17 +437,45 @@ export default function PolarisSegmentsPage() {
         </div>
 
         {runs.length > 0 && (
-          <select
-            value={activeRunId ?? ''}
-            onChange={(e) => setSelectedRunId(e.target.value)}
-            className="border rounded px-3 py-1 text-sm bg-white dark:bg-slate-800 dark:border-slate-700"
-          >
-            {runs.map((r) => (
-              <option key={r.run_id} value={r.run_id}>
-                {r.run_id} ({r.model?.toUpperCase() || '?'}, {r.total_races?.toLocaleString() || '?'}R)
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-xs text-slate-500">A (基準):</label>
+            <select
+              value={activeRunId ?? ''}
+              onChange={(e) => setSelectedRunId(e.target.value)}
+              className="border rounded px-3 py-1 text-sm bg-white dark:bg-slate-800 dark:border-slate-700"
+            >
+              {runs.map((r) => (
+                <option key={r.run_id} value={r.run_id}>
+                  {r.run_id} ({r.model?.toUpperCase() || '?'}, {r.total_races?.toLocaleString() || '?'}R)
+                </option>
+              ))}
+            </select>
+            <label className="text-xs text-slate-500 ml-2">B (比較):</label>
+            <select
+              value={compareRunId ?? ''}
+              onChange={(e) => setCompareRunId(e.target.value || null)}
+              className="border rounded px-3 py-1 text-sm bg-white dark:bg-slate-800 dark:border-slate-700"
+            >
+              <option value="">— (比較なし)</option>
+              {runs
+                .filter((r) => r.run_id !== activeRunId)
+                .map((r) => (
+                  <option key={r.run_id} value={r.run_id}>
+                    {r.run_id} ({r.model?.toUpperCase() || '?'})
+                  </option>
+                ))}
+            </select>
+            {compareRunId && (
+              <button
+                onClick={() => setCompareRunId(null)}
+                className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 flex items-center gap-1"
+                title="比較解除"
+              >
+                <X className="w-3 h-3" />
+                解除
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -430,6 +506,51 @@ export default function PolarisSegmentsPage() {
             <MonthlyTrendCard monthly={detail.segments.monthly.monthly} />
           )}
 
+          {compareDetail && (
+            <Card>
+              <CardHeader className="py-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  比較 B: {compareDetail.run_id}
+                  <span className="text-xs font-normal text-slate-500">
+                    ({compareDetail.segments.model.toUpperCase()},
+                    {' '}{compareDetail.segments.total_races.toLocaleString()} races)
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  {compareDetail.segments.monthly && (
+                    <>
+                      <Stat
+                        label="Sharpe B"
+                        value={compareDetail.segments.monthly.sharpe.toFixed(2)}
+                        hint={`A: ${detail.segments.monthly?.sharpe.toFixed(2) ?? '—'}`}
+                      />
+                      <Stat
+                        label="MaxDD B"
+                        value={`¥${compareDetail.segments.monthly.max_dd_amount.toLocaleString()}`}
+                        hint={`A: ¥${detail.segments.monthly?.max_dd_amount.toLocaleString() ?? '—'}`}
+                      />
+                      {compareDetail.segments.monthly.losing_streaks && (
+                        <Stat
+                          label="最長連敗 B"
+                          value={`${compareDetail.segments.monthly.losing_streaks.max_streak}`}
+                          hint={`A: ${detail.segments.monthly?.losing_streaks?.max_streak ?? '—'}`}
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-3">
+                  各軸テーブルに「bets_B / ROI_B / B-A」の列が追加されます。
+                  色付け: <span className="text-emerald-600">+15% 以上</span> /
+                  <span className="text-rose-500"> -15% 以下</span>
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           <div className="space-y-3">
             {sortedAxes.map((axisKey) => (
               <AxisCard
@@ -437,6 +558,8 @@ export default function PolarisSegmentsPage() {
                 axisKey={axisKey}
                 segments={detail.segments.axes[axisKey]}
                 periodCompare={detail.period_compare?.[axisKey]}
+                compareSegments={compareDetail?.segments.axes[axisKey]}
+                compareLabel={compareDetail?.run_id}
               />
             ))}
           </div>
