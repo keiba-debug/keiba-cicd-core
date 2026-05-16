@@ -270,6 +270,24 @@ def main():
     out_path = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2] / "predictions.json"
     out_path.write_text(out_json, encoding='utf-8')
 
+    # Selective 候補生成 (Session 122 Phase 4.1)
+    # BT ROI 203% の「重賞のみ rank_p==1 単勝」戦略の当日候補を出力
+    try:
+        from ml.strategies.selective import extract_selective_bets, write_selective_bets
+        selective_bets = extract_selective_bets(predictions_data)
+        if selective_bets:
+            day_dir = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2]
+            sel_path = write_selective_bets(day_dir, selective_bets)
+            print(f"\n[Selective] {len(selective_bets)} 重賞候補 → {sel_path.name}")
+            for b in selective_bets:
+                ev_str = f"EV={b.win_ev:.2f}" if b.win_ev else ""
+                print(f"  {b.venue_name or '?'} {b.race_number}R {b.grade}: "
+                      f"{b.umaban}番 {b.horse_name} odds={b.odds:.1f}  {ev_str}")
+        else:
+            print(f"\n[Selective] 重賞対象なし")
+    except Exception as _e:
+        print(f"  WARN selective generation failed: {_e}")
+
     elapsed = time.time() - t0
 
     print(f"\n[Summary]")

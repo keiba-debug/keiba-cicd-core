@@ -19,9 +19,10 @@ interface RaceCardProps {
   results?: RaceResultsMap;
   dbResults?: DbResultsMap;
   targetMarks?: Record<number, string>;
+  selectiveUmaban?: number;  // Session 122 Phase 4.1: Selective候補があれば umaban
 }
 
-export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: RaceCardProps) {
+export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selectiveUmaban }: RaceCardProps) {
   const dbRaceResult = dbResults?.[race.race_id];
   const jsonRaceResult = results?.[race.race_id];
   const hasResults = (dbRaceResult ? Object.keys(dbRaceResult).length > 0 : false) || (jsonRaceResult ? Object.keys(jsonRaceResult).length > 0 : false);
@@ -134,6 +135,17 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks }: Rac
               <Badge variant="outline" className={`text-[10px] ${getGradeBadgeClass(race.grade)}`}>
                 {race.grade}{race.age_class ? ` ${race.age_class}` : ''}
               </Badge>
+            )}
+            {selectiveUmaban != null && (
+              <Link
+                href={`/analysis/selective-bets?date=${race.race_id.slice(0, 4)}-${race.race_id.slice(4, 6)}-${race.race_id.slice(6, 8)}`}
+                target="_blank"
+                title={`Selective 戦略候補 (BT ROI 203%) — ${selectiveUmaban}番を100円単勝`}
+              >
+                <Badge className="text-[10px] bg-rose-600 text-white hover:bg-rose-700">
+                  🎯 Selective {selectiveUmaban}番
+                </Badge>
+              </Link>
             )}
             <span className="text-sm text-muted-foreground">{race.num_runners}頭</span>
           </div>
