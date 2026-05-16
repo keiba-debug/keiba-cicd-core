@@ -185,6 +185,19 @@ export function Header() {
                     </span>
                   </span>
                 </Link>
+                <Link
+                  href="/analysis/polaris-segments"
+                  onClick={() => { if (vbMenuRef.current) vbMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📊</span>
+                    <span>
+                      <span className="font-medium">polaris セグメント分析</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">条件別ROI/Brier/Calibration</span>
+                    </span>
+                  </span>
+                </Link>
               </div>
             </details>
 
