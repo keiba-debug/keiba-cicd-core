@@ -19,10 +19,19 @@ interface RaceCardProps {
   results?: RaceResultsMap;
   dbResults?: DbResultsMap;
   targetMarks?: Record<number, string>;
-  selectiveUmaban?: number;  // Session 122 Phase 4.1: Selective候補があれば umaban
+  selectiveBet?: { umaban: number; odds_rank: number | null; vb_gap: number | null };  // Phase 4.1/4.4
 }
 
-export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selectiveUmaban }: RaceCardProps) {
+export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selectiveBet }: RaceCardProps) {
+  // Sel_v3 最強タグを決定 (gap>=4 が最高ROI 381%、次が gap>=3 320%、次が not_top2 263%、次が not_fav1 247%)
+  const v3Tag = (() => {
+    if (!selectiveBet) return null;
+    if (selectiveBet.vb_gap != null && selectiveBet.vb_gap >= 4) return { label: 'gap≥4', roi: '+381%', color: 'bg-emerald-700' };
+    if (selectiveBet.vb_gap != null && selectiveBet.vb_gap >= 3) return { label: 'gap≥3', roi: '+320%', color: 'bg-emerald-600' };
+    if (selectiveBet.odds_rank != null && selectiveBet.odds_rank > 2) return { label: 'not_top2', roi: '+263%', color: 'bg-amber-600' };
+    if (selectiveBet.odds_rank != null && selectiveBet.odds_rank !== 1) return { label: 'not_fav1', roi: '+247%', color: 'bg-orange-600' };
+    return null;
+  })();
   const dbRaceResult = dbResults?.[race.race_id];
   const jsonRaceResult = results?.[race.race_id];
   const hasResults = (dbRaceResult ? Object.keys(dbRaceResult).length > 0 : false) || (jsonRaceResult ? Object.keys(jsonRaceResult).length > 0 : false);
@@ -136,15 +145,21 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                 {race.grade}{race.age_class ? ` ${race.age_class}` : ''}
               </Badge>
             )}
-            {selectiveUmaban != null && (
+            {selectiveBet && (
               <Link
                 href={`/analysis/selective-bets?date=${race.race_id.slice(0, 4)}-${race.race_id.slice(4, 6)}-${race.race_id.slice(6, 8)}`}
                 target="_blank"
-                title={`Selective 戦略候補 (BT ROI 203%) — ${selectiveUmaban}番を100円単勝`}
+                title={`Selective ${selectiveBet.umaban}番 (BT ROI 203%)${v3Tag ? ` — ${v3Tag.label} マッチ (BT ROI ${v3Tag.roi})` : ''}`}
+                className="flex items-center gap-1"
               >
                 <Badge className="text-[10px] bg-rose-600 text-white hover:bg-rose-700">
-                  🎯 Selective {selectiveUmaban}番
+                  🎯 Selective {selectiveBet.umaban}番
                 </Badge>
+                {v3Tag && (
+                  <Badge className={`text-[10px] ${v3Tag.color} text-white`}>
+                    🔥 {v3Tag.label} {v3Tag.roi}
+                  </Badge>
+                )}
               </Link>
             )}
             <span className="text-sm text-muted-foreground">{race.num_runners}頭</span>

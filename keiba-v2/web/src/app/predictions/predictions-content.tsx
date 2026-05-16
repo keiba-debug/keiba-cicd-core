@@ -64,8 +64,8 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [vbSort, setVbSort] = useState<SortState>({ key: 'race_number', dir: 'asc' });
   const [betSort, setBetSort] = useState<SortState>({ key: 'race_number', dir: 'asc' });
 
-  // Selective 候補 (Session 122 Phase 4.1) — race_id → umaban
-  const [selectiveBets, setSelectiveBets] = useState<Map<string, number>>(new Map());
+  // Selective 候補 (Session 122 Phase 4.1/4.4) — race_id → bet info (umaban + v3 タグ判定用)
+  const [selectiveBets, setSelectiveBets] = useState<Map<string, { umaban: number; odds_rank: number | null; vb_gap: number | null }>>(new Map());
 
   // TARGET馬印2 VB印反映
   const [markSyncing, setMarkSyncing] = useState(false);
@@ -183,16 +183,22 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
   const raceIds = useMemo(() => data.races.map(r => r.race_id), [data.races]);
 
-  // Selective 候補 fetch (Session 122 Phase 4.1)
+  // Selective 候補 fetch (Session 122 Phase 4.1/4.4)
   useEffect(() => {
     let alive = true;
     fetch(`/api/selective-bets?date=${data.date}`)
       .then(r => r.json())
       .then(j => {
         if (!alive) return;
-        const m = new Map<string, number>();
+        const m = new Map<string, { umaban: number; odds_rank: number | null; vb_gap: number | null }>();
         for (const b of (j.bets || [])) {
-          if (b.race_id && b.umaban != null) m.set(String(b.race_id), Number(b.umaban));
+          if (b.race_id && b.umaban != null) {
+            m.set(String(b.race_id), {
+              umaban: Number(b.umaban),
+              odds_rank: b.odds_rank ?? null,
+              vb_gap: b.vb_gap ?? null,
+            });
+          }
         }
         setSelectiveBets(m);
       })
@@ -1212,7 +1218,7 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
 
               <div className="space-y-4">
                 {venueRaces.sort((a, b) => a.race_number - b.race_number).map((race) => (
-                  <RaceCard key={race.race_id} race={race} oddsMap={oddsMap} results={results} dbResults={dbResults} targetMarks={targetMarks[race.race_id]} selectiveUmaban={selectiveBets.get(race.race_id)} />
+                  <RaceCard key={race.race_id} race={race} oddsMap={oddsMap} results={results} dbResults={dbResults} targetMarks={targetMarks[race.race_id]} selectiveBet={selectiveBets.get(race.race_id)} />
                 ))}
               </div>
             </div>
