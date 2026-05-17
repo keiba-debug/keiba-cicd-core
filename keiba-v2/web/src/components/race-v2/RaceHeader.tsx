@@ -9,7 +9,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { RaceInfo, RaceMeta, getTrackLabel } from '@/types/race-data';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, MapPin, Clock, MessageCircle, TrendingUp, TrendingDown, Minus, Activity, BarChart3 } from 'lucide-react';
+import { MessageCircle, TrendingUp, TrendingDown, Minus, Activity, Binoculars, Play, Video } from 'lucide-react';
 import type { CourseRpciInfo, RpciTrend } from '@/lib/data/rpci-standards-reader';
 import type { BabaCondition } from '@/lib/data/baba-reader';
 import type { TrackBias } from '@/lib/data/jrdb-kaa-reader';
@@ -215,10 +215,10 @@ export default function RaceHeader({
                     href={externalLinks.paddockUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-8 h-8 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs font-bold hover:opacity-80 transition-opacity"
+                    className="w-5 h-5 rounded bg-orange-500 hover:bg-orange-600 hover:scale-110 hover:shadow-md text-white transition-all flex items-center justify-center"
                     title="JRAレーシングビュアー パドック"
                   >
-                    パ
+                    <Binoculars className="w-3 h-3" />
                   </a>
                 )}
                 {externalLinks.raceUrl && (
@@ -226,10 +226,10 @@ export default function RaceHeader({
                     href={externalLinks.raceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center text-xs font-bold hover:opacity-80 transition-opacity"
+                    className="w-5 h-5 rounded bg-green-600 hover:bg-green-700 hover:scale-110 hover:shadow-md text-white transition-all flex items-center justify-center"
                     title="JRAレーシングビュアー レース"
                   >
-                    レ
+                    <Play className="w-3 h-3" />
                   </a>
                 )}
                 {externalLinks.patrolUrl && (
@@ -237,10 +237,10 @@ export default function RaceHeader({
                     href={externalLinks.patrolUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center text-xs font-bold hover:opacity-80 transition-opacity"
+                    className="w-5 h-5 rounded bg-red-500 hover:bg-red-600 hover:scale-110 hover:shadow-md text-white transition-all flex items-center justify-center"
                     title="JRAレーシングビュアー パトロール"
                   >
-                    T
+                    <Video className="w-3 h-3" />
                   </a>
                 )}
               </div>
@@ -289,10 +289,10 @@ export default function RaceHeader({
                     href={`/odds-race/${jraRaceId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap leading-none"
                     title="オッズ表"
                   >
-                    <TrendingUp className="w-5 h-5 text-emerald-500" />
+                    ｵｯｽﾞ
                   </Link>
                 )}
                 {/* 指数表リンク */}
@@ -301,10 +301,10 @@ export default function RaceHeader({
                     href={idmCompareUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-6 h-6 rounded hover:opacity-80 transition-opacity flex items-center justify-center"
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors whitespace-nowrap leading-none"
                     title="指数表"
                   >
-                    <BarChart3 className="w-5 h-5 text-purple-500" />
+                    指数
                   </Link>
                 )}
               </div>
