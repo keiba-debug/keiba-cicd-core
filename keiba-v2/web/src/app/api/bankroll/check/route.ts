@@ -8,32 +8,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
-import fs from 'fs/promises';
-import { AI_DATA_PATH } from '@/lib/config';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
+import { loadConfig, resolveLimits, isValidRaceId } from '@/lib/bankroll/limit-resolver';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/**
- * 設定ファイルを読み込む
- */
-async function loadConfig(): Promise<any> {
-  try {
-    const configPath = path.join(AI_DATA_PATH, 'bankroll', 'config.json');
-    const configData = await fs.readFile(configPath, 'utf-8');
-    return JSON.parse(configData);
-  } catch (error) {
-    return {
-      settings: {
-        total_bankroll: 100000,
-        daily_limit_percent: 5.0,
-        race_limit_percent: 2.0,
-        consecutive_loss_limit: 3,
-      },
-    };
-  }
-}
 
 /**
  * Pythonスクリプトを実行してJSONを取得
@@ -100,7 +79,7 @@ function executePythonScript(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { betType, amount } = body;
+    const { betType, amount, raceId } = body as { betType?: string; amount?: number; raceId?: string };
 
     if (!betType || typeof amount !== 'number' || amount <= 0) {
       return NextResponse.json(
@@ -109,16 +88,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // raceId は省略可。 指定時のみ race_overrides を引く
+    const validRaceId = raceId && isValidRaceId(raceId) ? raceId : undefined;
+
     const config = await loadConfig();
     const today = new Date();
     const year = today.getFullYear();
     const month = today.getMonth() + 1;
     const dateStr = `${year}${String(month).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
 
-    // 馬券種別統計を取得
     const scriptPath = path.join(ADMIN_CONFIG.aiToolsPath, 'target_reader.py');
 
-    let betTypeStats: any = {};
+    let betTypeStats: Record<string, { recovery_rate?: number }> = {};
     try {
       betTypeStats = await executePythonScript(scriptPath, [
         '--year',
@@ -131,21 +112,16 @@ export async function POST(request: NextRequest) {
       console.error('統計取得エラー:', error);
     }
 
-    // 日別サマリーを取得
-    let dailySummary: any = {};
+    let dailySummary: { total_bet?: number } = {};
     try {
       dailySummary = await executePythonScript(scriptPath, ['--date', dateStr]);
     } catch (error) {
       console.error('日別サマリー取得エラー:', error);
     }
 
-    const totalBankroll = config.settings?.total_bankroll || 100000;
-    const dailyLimitPercent = config.settings?.daily_limit_percent || 5.0;
-    const raceLimitPercent = config.settings?.race_limit_percent || 2.0;
-    const dailyLimit = Math.floor(totalBankroll * (dailyLimitPercent / 100));
-    const raceLimit = Math.floor(totalBankroll * (raceLimitPercent / 100));
+    const limits = resolveLimits(config, validRaceId);
     const todaySpent = dailySummary.total_bet || 0;
-    const remaining = dailyLimit - todaySpent;
+    const remaining = limits.dailyLimit - todaySpent;
 
     const warnings: string[] = [];
     const errors: string[] = [];
@@ -153,16 +129,18 @@ export async function POST(request: NextRequest) {
     // 1. 馬券種別回収率チェック
     if (betTypeStats && betTypeStats[betType]) {
       const stats = betTypeStats[betType];
-      if (stats.recovery_rate < 50) {
+      if (typeof stats.recovery_rate === 'number' && stats.recovery_rate < 50) {
         warnings.push(
           `${betType}は回収率${stats.recovery_rate.toFixed(1)}%です`
         );
       }
     }
 
-    // 2. 1レース上限チェック
-    if (amount > raceLimit) {
-      errors.push(`1レース上限(${raceLimit.toLocaleString()}円)を超過しています`);
+    // 2. 1レース上限チェック (race_overrides 適用済みの限度額)
+    if (amount > limits.raceLimit) {
+      const srcLabel = limits.raceLimitSource === 'override' ? '上書き' :
+        limits.raceLimitSource === 'absolute' ? '絶対額' : 'percent';
+      errors.push(`1レース上限(${limits.raceLimit.toLocaleString()}円, src=${srcLabel})を超過しています`);
     }
 
     // 3. 1日上限チェック
@@ -173,8 +151,13 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. 残り予算が少ない場合の警告
-    if (remaining < raceLimit && amount > remaining * 0.5) {
+    if (remaining < limits.raceLimit && amount > remaining * 0.5) {
       warnings.push('残り予算が少なくなっています');
+    }
+
+    // 5. override 適用時の透明性 (10 §5.3): 上書きが効いてることをユーザーに見せる
+    if (limits.raceLimitSource === 'override' && limits.overrideReason) {
+      warnings.push(`レース上書き適用中: ${limits.overrideReason}`);
     }
 
     const canBet = errors.length === 0;
@@ -184,10 +167,14 @@ export async function POST(request: NextRequest) {
       warnings,
       errors,
       limits: {
-        dailyLimit,
-        raceLimit,
+        dailyLimit: limits.dailyLimit,
+        raceLimit: limits.raceLimit,
         remaining,
         todaySpent,
+        raceLimitSource: limits.raceLimitSource,
+        dailyLimitSource: limits.dailyLimitSource,
+        overrideReason: limits.overrideReason,
+        detail: limits.detail,
       },
       betTypeStats: betTypeStats[betType] || null,
     });

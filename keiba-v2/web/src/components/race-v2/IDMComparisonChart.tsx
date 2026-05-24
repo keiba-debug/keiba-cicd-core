@@ -734,9 +734,10 @@ interface SummaryTableProps {
   surgeMap: Map<number, 'hot' | 'warm'>;
 }
 
-// My印優先度（ソート用）
+// My印優先度（ソート用） buy-zone.ts の markPriority と同じ序列
+// 未指定/未知の印は 0、消は -1 (無印より下に沈める)
 const MY_MARK_ORDER: Record<string, number> = {
-  '◎': 6, '○': 5, '▲': 4, '△': 3, '★': 2, '穴': 1,
+  '◎': 6, '○': 5, '▲': 4, '△': 3, 'Ⅲ': 2, '穴': 1, '消': -1,
 };
 
 function SummaryTable({
@@ -762,8 +763,8 @@ function SummaryTable({
         case 'predProbaP': va = a.predProbaP ?? -1; vb = b.predProbaP ?? -1; break;
         case 'predProbaW': va = a.predProbaW ?? -1; vb = b.predProbaW ?? -1; break;
         case 'winEv': va = a.winEv ?? -1; vb = b.winEv ?? -1; break;
-        case 'myMark1': va = MY_MARK_ORDER[a.myMark1 ?? ''] ?? -1; vb = MY_MARK_ORDER[b.myMark1 ?? ''] ?? -1; break;
-        case 'myMark2': va = MY_MARK_ORDER[a.myMark2 ?? ''] ?? -1; vb = MY_MARK_ORDER[b.myMark2 ?? ''] ?? -1; break;
+        case 'myMark1': va = MY_MARK_ORDER[a.myMark1 ?? ''] ?? 0; vb = MY_MARK_ORDER[b.myMark1 ?? ''] ?? 0; break;
+        case 'myMark2': va = MY_MARK_ORDER[a.myMark2 ?? ''] ?? 0; vb = MY_MARK_ORDER[b.myMark2 ?? ''] ?? 0; break;
         default: va = a.horseNumber; vb = b.horseNumber;
       }
       return sortDesc ? vb - va : va - vb;

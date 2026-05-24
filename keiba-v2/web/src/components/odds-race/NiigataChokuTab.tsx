@@ -30,7 +30,7 @@ type SortDir = 'asc' | 'desc';
 
 const CONFIDENCE_ORDER: Record<string, number> = { '高': 3, '中': 2, '低': 1 };
 const MARK_ORDER: Record<string, number> = {
-  '◎': 9, '○': 8, '▲': 7, '△': 6, '★': 5, '注': 4, '穴': 3, '消': 1,
+  '◎': 9, '○': 8, '▲': 7, '△': 6, 'Ⅲ': 5, '注': 4, '穴': 3, '消': 1,
 };
 
 function confidenceColor(c: string): string {
@@ -45,7 +45,7 @@ function markColor(mark: string): string {
     case '○': return 'bg-blue-500 text-white';
     case '▲': return 'bg-yellow-500 text-white';
     case '△': return 'bg-gray-400 text-white';
-    case '★': return 'bg-purple-500 text-white';
+    case 'Ⅲ': return 'bg-purple-500 text-white';
     case '穴': return 'bg-pink-500 text-white';
     default: return 'bg-gray-100 text-gray-400';
   }
@@ -91,10 +91,10 @@ export function NiigataChokuTab({ entries, raceId }: Props) {
 
   const reloadMarks = useCallback(async () => {
     if (!raceInfoForMarks) return;
-    const { marks1: m1, marks2: m2 } = await fetchMyMarksBoth(raceInfoForMarks);
+    const { marks1: m1, marks2: m2 } = await fetchMyMarksBoth(raceInfoForMarks, raceId);
     setMarks1(m1);
     setMarks2(m2);
-  }, [raceInfoForMarks]);
+  }, [raceInfoForMarks, raceId]);
 
   useEffect(() => {
     reloadMarks();
@@ -194,6 +194,7 @@ export function NiigataChokuTab({ entries, raceId }: Props) {
               {myMarksEnabled && raceInfoForMarks && (
                 <TargetMarkInputModal
                   raceInfo={raceInfoForMarks}
+                  raceId={raceId}
                   entries={modalEntries}
                   trigger={
                     <Button variant="outline" size="sm">

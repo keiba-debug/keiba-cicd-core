@@ -15,6 +15,7 @@ import { getHorseFullData } from '@/lib/data/horse-data-reader';
 import { getPredictionsByDate } from '@/lib/data/predictions-reader';
 import { getIDMStandards, resolveIDMGradeKey, getWinnerIDMByRaceName } from '@/lib/data/idm-standards-reader';
 import { getRaceMarks } from '@/lib/data/target-mark-reader';
+import { readMyMarksV2, mergeWithEraseMarks } from '@/lib/data/my-marks-v2-reader';
 import { getRaceNavigation } from '@/lib/data';
 import { IDMComparisonChart, type HorseIDMData } from '@/components/race-v2/IDMComparisonChart';
 
@@ -196,11 +197,16 @@ export default async function IDMComparePage({ params }: PageParams) {
   }
 
   // TARGET馬印（馬印1+2）取得 — raceId16 = YYYYMMDDJJKKNNRR
+  // markSet=1 には my_marks_v2 (明示消) も合成する
   const yearNum = parseInt(raceId16.substring(0, 4), 10);
   const kaiNum = parseInt(raceId16.substring(10, 12), 10);
   const dayNum = parseInt(raceId16.substring(12, 14), 10);
   const raceNum16 = parseInt(raceId16.substring(14, 16), 10);
-  const myMarks1 = getRaceMarks(yearNum, kaiNum, dayNum, raceNum16, track, 1)?.horseMarks ?? {};
+  const v2 = readMyMarksV2(raceId16);
+  const myMarks1 = mergeWithEraseMarks(
+    getRaceMarks(yearNum, kaiNum, dayNum, raceNum16, track, 1)?.horseMarks ?? {},
+    v2
+  );
   const myMarks2 = getRaceMarks(yearNum, kaiNum, dayNum, raceNum16, track, 2)?.horseMarks ?? {};
 
   // 全馬の過去走データを並列取得

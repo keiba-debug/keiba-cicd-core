@@ -25,7 +25,7 @@ import { ComboOdds, pairKey, orderedPairKey, trioKey, orderedTrioKey } from '../
 
 export interface HorseInput {
   umaban: number;
-  mark: string; // '◎','○','▲','△','★','穴',''
+  mark: string; // '◎','○','▲','△','Ⅲ','穴',''
   /** ML予測 1着確率（pred_proba_w_cal）。無印馬の主要ソース */
   mlWinProba?: number | null;
   /** ML予測 複勝確率（pred_proba_p）。無印馬の3着内確率近似 */

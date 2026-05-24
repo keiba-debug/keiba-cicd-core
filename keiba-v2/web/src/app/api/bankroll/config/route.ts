@@ -6,34 +6,35 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
-import { AI_DATA_PATH } from '@/lib/config';
+import {
+  loadConfig,
+  resolveLimits,
+  updateConfigLocked,
+  type BankrollConfig,
+  type LimitMode,
+} from '@/lib/bankroll/limit-resolver';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const CONFIG_PATH = path.join(AI_DATA_PATH, 'bankroll', 'config.json');
-
 export async function GET() {
   try {
-    const configData = await fs.readFile(CONFIG_PATH, 'utf-8');
-    const config = JSON.parse(configData);
-
-    // 計算値を追加
-    const totalBankroll = config.settings?.total_bankroll || 0;
-    const dailyLimitPercent = config.settings?.daily_limit_percent || 5.0;
-    const raceLimitPercent = config.settings?.race_limit_percent || 2.0;
-
+    const config = await loadConfig();
+    const limits = resolveLimits(config);
     return NextResponse.json({
       ...config,
       calculated: {
-        dailyLimit: Math.floor(totalBankroll * (dailyLimitPercent / 100)),
-        raceLimit: Math.floor(totalBankroll * (raceLimitPercent / 100)),
+        // 後方互換: 既存呼び出し元が依存しているフィールド
+        dailyLimit: limits.dailyLimit,
+        raceLimit: limits.raceLimit,
+        // 新規: 限度額がどこから来たかの透明性 (10 §5.3)
+        raceLimitSource: limits.raceLimitSource,
+        dailyLimitSource: limits.dailyLimitSource,
+        detail: limits.detail,
       },
     });
   } catch (error) {
-    console.error('[BankrollConfigAPI] Error:', error);
+    console.error('[BankrollConfigAPI] GET Error:', error);
     return NextResponse.json(
       {
         error: '設定の取得に失敗しました',
@@ -44,74 +45,73 @@ export async function GET() {
   }
 }
 
+interface ConfigPatchBody {
+  total_bankroll?: number;
+  daily_limit_percent?: number;
+  race_limit_percent?: number;
+  today_budget_override?: number | null;
+  use_current_balance?: boolean;
+  per_race_max_yen?: number | null;
+  per_day_max_yen?: number | null;
+  limit_mode?: LimitMode;
+  limit_priority?: 'absolute_first' | 'percent_first' | 'min';
+}
+
+function applyPatch(config: BankrollConfig, patch: ConfigPatchBody): BankrollConfig {
+  const next: BankrollConfig = JSON.parse(JSON.stringify(config));
+  next.settings = next.settings ?? {};
+  if (patch.total_bankroll !== undefined) next.settings.total_bankroll = patch.total_bankroll;
+  if (patch.daily_limit_percent !== undefined) next.settings.daily_limit_percent = patch.daily_limit_percent;
+  if (patch.race_limit_percent !== undefined) next.settings.race_limit_percent = patch.race_limit_percent;
+  if (patch.use_current_balance !== undefined) next.settings.use_current_balance = patch.use_current_balance;
+  if (patch.today_budget_override !== undefined) {
+    if (patch.today_budget_override === null) {
+      delete next.settings.today_budget_override;
+    } else {
+      next.settings.today_budget_override = patch.today_budget_override;
+    }
+  }
+  if (patch.per_race_max_yen !== undefined) {
+    if (patch.per_race_max_yen === null) {
+      delete next.settings.per_race_max_yen;
+    } else {
+      next.settings.per_race_max_yen = patch.per_race_max_yen;
+    }
+  }
+  if (patch.per_day_max_yen !== undefined) {
+    if (patch.per_day_max_yen === null) {
+      delete next.settings.per_day_max_yen;
+    } else {
+      next.settings.per_day_max_yen = patch.per_day_max_yen;
+    }
+  }
+  if (patch.limit_mode !== undefined) next.settings.limit_mode = patch.limit_mode;
+  if (patch.limit_priority !== undefined) next.settings.limit_priority = patch.limit_priority;
+  next.updated_at = new Date().toISOString().split('T')[0];
+  return next;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { total_bankroll, daily_limit_percent, race_limit_percent, use_current_balance } = body;
+    const patch = (await request.json()) as ConfigPatchBody;
+    const after = await updateConfigLocked(
+      (before) => applyPatch(before, patch),
+      'config_post'
+    );
 
-    // 既存の設定を読み込む
-    let config: any = {};
-    try {
-      const configData = await fs.readFile(CONFIG_PATH, 'utf-8');
-      config = JSON.parse(configData);
-    } catch (error) {
-      // ファイルが存在しない場合はデフォルト設定を使用
-      config = {
-        created_at: new Date().toISOString().split('T')[0],
-        updated_at: new Date().toISOString().split('T')[0],
-        settings: {
-          total_bankroll: 100000,
-          daily_limit_percent: 5.0,
-          race_limit_percent: 2.0,
-          consecutive_loss_limit: 3,
-          kelly_fraction: 0.25,
-          use_current_balance: true, // デフォルトは現在資金ベース
-        },
-        rules: {
-          no_increase_after_loss: true,
-          confidence_adjustment: true,
-        },
-        target_integration: {
-          enabled: true,
-          data_root: process.env.JV_DATA_ROOT ?? '',
-          my_data_folder: 'MY_DATA',
-        },
-      };
-    }
-
-    // 設定を更新
-    if (total_bankroll !== undefined) {
-      config.settings.total_bankroll = total_bankroll;
-    }
-    if (daily_limit_percent !== undefined) {
-      config.settings.daily_limit_percent = daily_limit_percent;
-    }
-    if (race_limit_percent !== undefined) {
-      config.settings.race_limit_percent = race_limit_percent;
-    }
-    if (use_current_balance !== undefined) {
-      config.settings.use_current_balance = use_current_balance;
-    }
-
-    config.updated_at = new Date().toISOString().split('T')[0];
-
-    // 設定を保存
-    await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
-
-    // 計算値を追加して返す
-    const totalBankroll = config.settings.total_bankroll || 0;
-    const dailyLimitPercent = config.settings.daily_limit_percent || 5.0;
-    const raceLimitPercent = config.settings.race_limit_percent || 2.0;
-
+    const limits = resolveLimits(after);
     return NextResponse.json({
-      ...config,
+      ...after,
       calculated: {
-        dailyLimit: Math.floor(totalBankroll * (dailyLimitPercent / 100)),
-        raceLimit: Math.floor(totalBankroll * (raceLimitPercent / 100)),
+        dailyLimit: limits.dailyLimit,
+        raceLimit: limits.raceLimit,
+        raceLimitSource: limits.raceLimitSource,
+        dailyLimitSource: limits.dailyLimitSource,
+        detail: limits.detail,
       },
     });
   } catch (error) {
-    console.error('[BankrollConfigAPI] Error:', error);
+    console.error('[BankrollConfigAPI] POST Error:', error);
     return NextResponse.json(
       {
         error: '設定の更新に失敗しました',

@@ -35,15 +35,23 @@ export type TargetMarkEntry = {
 };
 
 // 印の定義
-const MARK_OPTIONS = [
+// '消' は内部値も '消' (文字列) で扱う。
+// 物理層 (TARGET DAT) には書かず、my_marks_v2/{raceId}.json の explicit_erase に保存する。
+// markSet=1 + raceId 指定時のみ表示される。
+const MARK_OPTIONS_BASE = [
   { value: '◎', label: '◎', color: 'bg-red-500 hover:bg-red-600 text-white' },
   { value: '○', label: '○', color: 'bg-blue-500 hover:bg-blue-600 text-white' },
   { value: '▲', label: '▲', color: 'bg-yellow-500 hover:bg-yellow-600 text-white' },
   { value: '△', label: '△', color: 'bg-gray-400 hover:bg-gray-500 text-white' },
-  { value: '★', label: '★', color: 'bg-purple-500 hover:bg-purple-600 text-white' },
+  { value: 'Ⅲ', label: 'Ⅲ', color: 'bg-purple-500 hover:bg-purple-600 text-white' },
   { value: '穴', label: '穴', color: 'bg-pink-500 hover:bg-pink-600 text-white' },
-  { value: '', label: '消', color: 'bg-gray-200 hover:bg-gray-300 text-gray-700' },
+  { value: '', label: '無', color: 'bg-gray-100 hover:bg-gray-200 text-gray-500' },
 ] as const;
+const ERASE_OPTION = {
+  value: '消',
+  label: '消',
+  color: 'bg-gray-300 hover:bg-gray-400 text-gray-800 line-through',
+} as const;
 
 /** 保存後に返されるデータ */
 export interface TargetMarksSavedData {
@@ -63,6 +71,11 @@ interface TargetMarkInputModalProps {
   };
   /** 出走馬リスト（最小限: horse_number, horse_name, entry_data.waku のみ参照） */
   entries: TargetMarkEntry[];
+  /**
+   * 16桁 raceId (YYYYMMDDJJKKNNRR)。
+   * 指定時のみ markSet=1 で '消' ボタンが有効化される (my_marks_v2 への保存)。
+   */
+  raceId?: string;
   /** モーダルを開くトリガー */
   trigger?: React.ReactNode;
   /** 保存後のコールバック（保存されたmarkSetとmarksを受け取る） */
@@ -72,6 +85,7 @@ interface TargetMarkInputModalProps {
 export function TargetMarkInputModal({
   raceInfo,
   entries,
+  raceId,
   trigger,
   onSaved,
 }: TargetMarkInputModalProps) {
@@ -82,11 +96,19 @@ export function TargetMarkInputModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // 印データを取得
+  // markSet=1 + raceId 指定時のみ「消」ボタンが有効になる (v2 ファイル経由)
+  const eraseEnabled = markSet === 1 && !!raceId && /^\d{16}$/.test(raceId);
+  const markOptions = useMemo(
+    () => (eraseEnabled ? [...MARK_OPTIONS_BASE, ERASE_OPTION] : MARK_OPTIONS_BASE),
+    [eraseEnabled]
+  );
+
+  // 印データを取得 (markSet=1 + raceId 指定時は v2 explicit_erase も合成)
   const fetchMarks = useCallback(async () => {
     if (!raceInfo.venue || !raceInfo.kai || !raceInfo.nichi) return;
-    
+
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -97,25 +119,44 @@ export function TargetMarkInputModal({
         venue: raceInfo.venue,
         markSet: String(markSet),
       });
-      
-      const res = await fetch(`/api/target-marks?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setMarks(data.data.horseMarks || {});
-        setOriginalMarks(data.data.horseMarks || {});
+
+      const fetches: Promise<Response>[] = [fetch(`/api/target-marks?${params}`)];
+      if (eraseEnabled && raceId) {
+        fetches.push(fetch(`/api/my-marks-v2/${raceId}`));
       }
+
+      const [datRes, v2Res] = await Promise.all(fetches);
+
+      let merged: Record<number, string> = {};
+      if (datRes.ok) {
+        const datJson = await datRes.json();
+        merged = { ...(datJson.data.horseMarks || {}) };
+      }
+      if (v2Res && v2Res.ok) {
+        const v2Json = await v2Res.json();
+        const explicitErase: number[] = Array.isArray(v2Json?.data?.explicit_erase)
+          ? v2Json.data.explicit_erase
+          : [];
+        for (const uma of explicitErase) {
+          merged[uma] = '消';
+        }
+      }
+
+      setMarks(merged);
+      setOriginalMarks(merged);
     } catch (error) {
       console.error('Failed to fetch marks:', error);
     } finally {
       setLoading(false);
     }
-  }, [raceInfo, markSet]);
+  }, [raceInfo, markSet, eraseEnabled, raceId]);
 
   // モーダルを開いた時にデータ取得
   useEffect(() => {
     if (open) {
       fetchMarks();
       setSaved(false);
+      setSaveError(null);
     }
   }, [open, fetchMarks]);
 
@@ -133,11 +174,35 @@ export function TargetMarkInputModal({
       [horseNumber]: mark,
     }));
     setSaved(false);
+    setSaveError(null);
   };
 
   // 保存
+  // markSet=1 + raceId 指定時:
+  //  - '消' の馬番は v2 API (PUT /api/my-marks-v2/{raceId}) に explicit_erase として送る
+  //  - DAT には '消' の馬番に '' (空文字) を書いて元印を取り除く
+  //  - DAT には '◎○▲△Ⅲ穴' をそのまま書く
+  // それ以外 (markSet >= 2 or raceId 無し):
+  //  - 従来通り DAT への PUT のみ
+  const putDatMarks = async (marksToWrite: Record<number, string>) => {
+    return fetch('/api/target-marks', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        year: parseInt(raceInfo.year, 10),
+        kai: raceInfo.kai,
+        nichi: raceInfo.nichi,
+        raceNumber: raceInfo.raceNumber,
+        venue: raceInfo.venue,
+        marks: marksToWrite,
+        markSet,
+      }),
+    });
+  };
+
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       // 変更があった印のみ送信
       const changedMarks: Record<number, string> = {};
@@ -160,32 +225,99 @@ export function TargetMarkInputModal({
         return;
       }
 
-      const res = await fetch('/api/target-marks', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          year: parseInt(raceInfo.year, 10),
-          kai: raceInfo.kai,
-          nichi: raceInfo.nichi,
-          raceNumber: raceInfo.raceNumber,
-          venue: raceInfo.venue,
-          marks: changedMarks,
-          markSet,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const updatedMarks = data.data.horseMarks || {};
-        setMarks(updatedMarks);
-        setOriginalMarks(updatedMarks);
-        setSaved(true);
-        onSaved?.({ markSet, horseMarks: updatedMarks });
+      // DAT に書き込む印 — '消' は空文字に変換 (DAT 上では未入力扱い)
+      const datMarks: Record<number, string> = {};
+      for (const [horseNum, mark] of Object.entries(changedMarks)) {
+        datMarks[parseInt(horseNum, 10)] = mark === '消' ? '' : mark;
       }
+
+      // DAT 書き込み
+      const datRes = await putDatMarks(datMarks);
+
+      if (!datRes.ok) {
+        const errText = await datRes.text();
+        console.error('DAT write failed', errText);
+        setSaveError(`TARGET DAT 保存に失敗: ${errText}`);
+        return;
+      }
+      const datJson = await datRes.json();
+      const updatedMarks: Record<number, string> = datJson.data.horseMarks || {};
+
+      // v2 への書き込み (markSet=1 + raceId 指定時のみ)
+      if (eraseEnabled && raceId) {
+        const explicitErase = Object.entries(marks)
+          .filter(([, m]) => m === '消')
+          .map(([n]) => parseInt(n, 10))
+          .filter((n) => Number.isInteger(n));
+
+        let v2Res: Response;
+        try {
+          v2Res = await fetch(`/api/my-marks-v2/${raceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ explicit_erase: explicitErase, source: 'manual' }),
+          });
+        } catch (netErr) {
+          console.error('v2 write network error', netErr);
+          await rollbackDat(changedMarks);
+          return;
+        }
+
+        if (v2Res.ok) {
+          // 表示用の合成: DAT 反映後の marks に explicit_erase を上書き
+          for (const uma of explicitErase) {
+            updatedMarks[uma] = '消';
+          }
+        } else {
+          const errText = await v2Res.text();
+          console.error('v2 write failed', errText);
+          await rollbackDat(changedMarks, errText);
+          return;
+        }
+      }
+
+      setMarks(updatedMarks);
+      setOriginalMarks(updatedMarks);
+      setSaved(true);
+      onSaved?.({ markSet, horseMarks: updatedMarks });
     } catch (error) {
       console.error('Failed to save marks:', error);
+      setSaveError(`保存処理で予期しないエラー: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // v2 失敗時の rollback: DAT 上の変更分を originalMarks の値で書き戻す
+  // 失敗の不整合 (DAT 反映済 + v2 反映なし) を残さない
+  const rollbackDat = async (changedMarks: Record<number, string>, v2ErrText?: string) => {
+    const rollbackMarks: Record<number, string> = {};
+    for (const horseNum of Object.keys(changedMarks)) {
+      const num = parseInt(horseNum, 10);
+      // 元印が無ければ空文字を送って消す
+      rollbackMarks[num] = originalMarks[num] ?? '';
+    }
+
+    try {
+      const rbRes = await putDatMarks(rollbackMarks);
+      if (rbRes.ok) {
+        // 表示も rollback 後の状態に戻す
+        setMarks(originalMarks);
+        setSaveError(
+          `My印v2 保存に失敗したため、TARGET DAT の変更を元に戻しました。${v2ErrText ? ` (詳細: ${v2ErrText})` : ''}`
+        );
+      } else {
+        const rbErr = await rbRes.text();
+        console.error('DAT rollback failed', rbErr);
+        setSaveError(
+          `🚨 My印v2 保存に失敗し、TARGET DAT のロールバックも失敗しました。手動で TARGET 側を確認してください。 (v2: ${v2ErrText ?? 'network'} / rollback: ${rbErr})`
+        );
+      }
+    } catch (rbNetErr) {
+      console.error('DAT rollback network error', rbNetErr);
+      setSaveError(
+        `🚨 My印v2 保存に失敗し、TARGET DAT のロールバックも通信エラーで失敗。手動で TARGET 側を確認してください。`
+      );
     }
   };
 
@@ -291,9 +423,9 @@ export function TargetMarkInputModal({
                       <td className="px-2 py-2">{entry.horse_name}</td>
                       <td className="px-2 py-2">
                         <div className="flex gap-1 justify-center flex-wrap">
-                          {MARK_OPTIONS.map((opt) => (
+                          {markOptions.map((opt) => (
                             <Button
-                              key={opt.value}
+                              key={opt.value || '__erase__'}
                               size="sm"
                               variant={currentMark === opt.value ? 'default' : 'outline'}
                               className={cn(
@@ -316,12 +448,17 @@ export function TargetMarkInputModal({
         </div>
 
         {/* フッター */}
+        {saveError && (
+          <div className="px-3 py-2 mt-2 bg-red-50 border border-red-300 rounded text-sm text-red-700 flex-shrink-0">
+            {saveError}
+          </div>
+        )}
         <div className="flex items-center justify-between pt-4 border-t flex-shrink-0">
           <div className="text-sm text-muted-foreground">
-            {hasChanges && !saved && (
+            {hasChanges && !saved && !saveError && (
               <span className="text-orange-500">未保存の変更があります</span>
             )}
-            {saved && (
+            {saved && !saveError && (
               <span className="text-green-500 flex items-center gap-1">
                 <Check className="h-4 w-4" />
                 保存しました

@@ -62,7 +62,7 @@ export interface RaceMarksContext {
   /** 馬番→印 */
   horseToMark: Record<number, string>;
   /** 印別 馬番リスト */
-  byMark: Record<string, number[]>; // ◎/○/▲/△/★/穴
+  byMark: Record<string, number[]>; // ◎/○/▲/△/Ⅲ/穴
   /** 印有り頭数 */
   markedCount: number;
   /** 全頭数 */
@@ -115,7 +115,7 @@ export function buildRaceMarksContext(
     '○': [],
     '▲': [],
     '△': [],
-    '★': [],
+    'Ⅲ': [],
     '穴': [],
   };
   let markedCount = 0;
@@ -192,11 +192,11 @@ export const STRATEGIES: Strategy[] = [
     stake: DEFAULT_STAKE,
   },
 
-  // s04: ワイド広め（◎-○▲△★穴）
+  // s04: ワイド広め（◎-○▲△Ⅲ穴）
   {
     id: 's04_wide_box',
     name: 'ワイド広め',
-    description: '◎軸ワイド ◎-○▲△★穴、EV1.0超',
+    description: '◎軸ワイド ◎-○▲△Ⅲ穴、EV1.0超',
     shouldActivate: (ctx) =>
       ctx.byMark['◎'].length > 0 && ctx.markedCount >= 3,
     pickCandidates: (ctx, cands) =>
@@ -205,14 +205,14 @@ export const STRATEGIES: Strategy[] = [
           (c) =>
             c.betType === 'wide' &&
             anyMarkIn(c, ['◎']) &&
-            anyMarkIn(c, ['○', '▲', '△', '★', '穴']) &&
+            anyMarkIn(c, ['○', '▲', '△', 'Ⅲ', '穴']) &&
             c.ev >= 1.0
         )
         .sort(evDesc),
     stake: DEFAULT_STAKE,
   },
 
-  // s05: 三連複軸（◎-○▲-○▲△★）
+  // s05: 三連複軸（◎-○▲-○▲△Ⅲ）
   {
     id: 's05_sanrenpuku_honmei',
     name: '三連複本線',
@@ -225,38 +225,38 @@ export const STRATEGIES: Strategy[] = [
           (c) =>
             c.betType === 'sanrenpuku' &&
             anyMarkIn(c, ['◎']) &&
-            allMarksIn(c, ['◎', '○', '▲', '△', '★']) &&
+            allMarksIn(c, ['◎', '○', '▲', '△', 'Ⅲ']) &&
             c.ev >= 1.0
         )
         .sort(evDesc),
     stake: DEFAULT_STAKE,
   },
 
-  // s06: 三連複★絡み
+  // s06: 三連複Ⅲ絡み
   {
     id: 's06_sanrenpuku_star',
-    name: '三連複★絡み',
-    description: '★を3着候補とした三連複、EV1.2超',
+    name: '三連複Ⅲ絡み',
+    description: 'Ⅲを3着候補とした三連複、EV1.2超',
     shouldActivate: (ctx) =>
-      ctx.byMark['★'].length > 0 && ctx.byMark['◎'].length > 0,
+      ctx.byMark['Ⅲ'].length > 0 && ctx.byMark['◎'].length > 0,
     pickCandidates: (ctx, cands) =>
       cands
         .filter(
           (c) =>
             c.betType === 'sanrenpuku' &&
             anyMarkIn(c, ['◎']) &&
-            anyMarkIn(c, ['★']) &&
+            anyMarkIn(c, ['Ⅲ']) &&
             c.ev >= 1.2
         )
         .sort(evDesc),
     stake: DEFAULT_STAKE,
   },
 
-  // s07: 三連単本線（◎→○▲△→○▲△★）
+  // s07: 三連単本線（◎→○▲△→○▲△Ⅲ）
   {
     id: 's07_sanrentan_honmei',
     name: '三連単本線',
-    description: '◎1着固定→○▲△→○▲△★、印4頭以上、EV1.0超',
+    description: '◎1着固定→○▲△→○▲△Ⅲ、印4頭以上、EV1.0超',
     shouldActivate: (ctx) =>
       ctx.byMark['◎'].length > 0 && ctx.markedCount >= 4,
     pickCandidates: (ctx, cands) =>
@@ -268,7 +268,7 @@ export const STRATEGIES: Strategy[] = [
             (ctx.byMark['○'].includes(c.horses[1]) ||
               ctx.byMark['▲'].includes(c.horses[1]) ||
               ctx.byMark['△'].includes(c.horses[1])) &&
-            allMarksIn(c, ['◎', '○', '▲', '△', '★']) &&
+            allMarksIn(c, ['◎', '○', '▲', '△', 'Ⅲ']) &&
             c.ev >= 1.0
         )
         .sort(evDesc),

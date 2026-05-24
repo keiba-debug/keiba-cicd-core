@@ -28,8 +28,8 @@ interface CompositeFilterTabProps {
 
 interface FilterState {
   oddsBand: 'any' | 'le2' | '2to5' | '5to10' | '10to30' | 'ge30';
-  myMark1: 'any' | '◎' | '○' | '▲' | '△' | '★' | '穴' | 'has' | 'none';
-  myMark2: 'any' | '◎' | '○' | '▲' | '△' | '★' | '穴' | 'has';
+  myMark1: 'any' | '◎' | '○' | '▲' | '△' | 'Ⅲ' | '穴' | '消' | 'has' | 'none';
+  myMark2: 'any' | '◎' | '○' | '▲' | '△' | 'Ⅲ' | '穴' | '消' | 'has';
   mlJudge: 'any' | 'vb' | 'hot' | 'buy_plus' | 'ard55' | 'ard60';
   honshi: 'any' | '◎' | '○' | '▲' | 'has';
   surge: 'any' | 'hot' | 'warm_plus';
@@ -196,8 +196,9 @@ export function CompositeFilterTab({ horses, surgeMap, hasMl }: CompositeFilterT
               { value: '○', label: '○' },
               { value: '▲', label: '▲' },
               { value: '△', label: '△' },
-              { value: '★', label: '★' },
+              { value: 'Ⅲ', label: 'Ⅲ' },
               { value: '穴', label: '穴' },
+              { value: '消', label: '消' },
               { value: 'has', label: '印あり' },
               { value: 'none', label: '印なし' },
             ]}
@@ -213,8 +214,9 @@ export function CompositeFilterTab({ horses, surgeMap, hasMl }: CompositeFilterT
               { value: '○', label: '○' },
               { value: '▲', label: '▲' },
               { value: '△', label: '△' },
-              { value: '★', label: '★' },
+              { value: 'Ⅲ', label: 'Ⅲ' },
               { value: '穴', label: '穴' },
+              { value: '消', label: '消' },
               { value: 'has', label: '印あり' },
             ]}
           />

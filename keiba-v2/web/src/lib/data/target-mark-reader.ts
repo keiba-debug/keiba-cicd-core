@@ -18,7 +18,7 @@ const MARK_BYTES_TO_SYMBOL: Record<string, string> = {
   '819b': '○',  // 対抗
   '81a3': '▲',  // 単穴
   '81a2': '△',  // 連下
-  '8756': '★',  // 注意
+  '8756': 'Ⅲ',  // 3着押さえ (Shift-JIS でこのバイト列は U+2162 ローマ数字 III)
   '8c8a': '穴',  // 穴馬
   '2020': '',    // 無印
 };
@@ -29,7 +29,7 @@ const SYMBOL_TO_MARK_BYTES: Record<string, Buffer> = {
   '○': Buffer.from([0x81, 0x9b]),
   '▲': Buffer.from([0x81, 0xa3]),
   '△': Buffer.from([0x81, 0xa2]),
-  '★': Buffer.from([0x87, 0x56]),
+  'Ⅲ': Buffer.from([0x87, 0x56]),
   '穴': Buffer.from([0x8c, 0x8a]),
   '危': Buffer.from([0x8a, 0xeb]),
   'Ａ': Buffer.from([0x82, 0x60]),
@@ -41,7 +41,7 @@ const SYMBOL_TO_MARK_BYTES: Record<string, Buffer> = {
 
 /**
  * 印文字列→2バイトバッファ変換（Shift-JIS or ASCII 2文字）
- * 定義済み印（◎○▲△★穴）に加え、半角2文字（"+5","10"等）にも対応
+ * 定義済み印（◎○▲△Ⅲ穴）に加え、半角2文字（"+5","10"等）にも対応
  */
 function encodeMarkBytes(mark: string): Buffer | null {
   const predefined = SYMBOL_TO_MARK_BYTES[mark];
@@ -226,7 +226,7 @@ export function writeHorseMark(
   raceNumber: number,
   venue: string,
   horseNumber: number,
-  mark: string,  // '◎', '○', '▲', '△', '★', '穴', '' (無印)
+  mark: string,  // '◎', '○', '▲', '△', 'Ⅲ', '穴', '' (無印)
   markSet: number = 1  // 印セット番号（1-8）
 ): boolean {
   const markBytes = encodeMarkBytes(mark);
@@ -362,5 +362,5 @@ export function batchWriteHorseMarks(
 }
 
 // 有効な印一覧
-export const VALID_MARKS = ['◎', '○', '▲', '△', '★', '穴', ''] as const;
+export const VALID_MARKS = ['◎', '○', '▲', '△', 'Ⅲ', '穴', ''] as const;
 export type MarkSymbol = typeof VALID_MARKS[number];

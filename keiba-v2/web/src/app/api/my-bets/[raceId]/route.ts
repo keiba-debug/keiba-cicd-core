@@ -277,7 +277,7 @@ export async function GET(
       '○': ctx.byMark['○'].length,
       '▲': ctx.byMark['▲'].length,
       '△': ctx.byMark['△'].length,
-      '★': ctx.byMark['★'].length,
+      'Ⅲ': ctx.byMark['Ⅲ'].length,
       '穴': ctx.byMark['穴'].length,
       '無印': entries.length - ctx.markedCount,
     },

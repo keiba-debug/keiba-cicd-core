@@ -21,7 +21,7 @@ const MARK_COLOR: Record<string, string> = {
   '○': 'bg-blue-500 text-white',
   '▲': 'bg-green-600 text-white',
   '△': 'bg-yellow-500 text-black',
-  '★': 'bg-purple-500 text-white',
+  'Ⅲ': 'bg-purple-500 text-white',
   '穴': 'bg-pink-600 text-white',
 };
 

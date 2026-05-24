@@ -28,7 +28,7 @@ import { SignalTab } from '@/components/odds-race/SignalTab';
 import { CompositeFilterTab } from '@/components/odds-race/CompositeFilterTab';
 import { ChartTab } from '@/components/odds-race/ChartTab';
 import { NiigataChokuTab } from '@/components/odds-race/NiigataChokuTab';
-import { enrichHorses } from '@/components/odds-race/buy-zone';
+import { enrichHorses, getMyMarkColor } from '@/components/odds-race/buy-zone';
 import { parseRaceIdForMarks, fetchMyMarksBoth } from '@/components/odds-race/my-marks-utils';
 
 /** 新潟芝1000m直線（千直）判定 */
@@ -426,6 +426,41 @@ function TimeSeriesTable({ raceId }: { raceId: string }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** My印1セット分のサマリー表示（色付き印リスト + 印あり数 + うち消し数の内訳）
+ *  消し馬は印あり数に含めつつ、(うち消: N) で内訳を明示する。
+ *  「消したつもりが残ってた」事故と「印無しと混同」を同時に防ぐため。 */
+function MyMarkSetSummary({ label, marks }: { label: string; marks: Record<number, string> }) {
+  const entries = Object.entries(marks)
+    .filter(([, m]) => m)
+    .sort(([a], [b]) => parseInt(a, 10) - parseInt(b, 10));
+  const eraseCount = entries.filter(([, m]) => m === '消').length;
+  const total = entries.length;
+
+  if (total === 0) {
+    return (
+      <span>
+        <span className="text-muted-foreground">{label} </span>
+        <span className="text-muted-foreground">(なし)</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap">
+      <span className="text-muted-foreground">{label}</span>
+      {entries.map(([n, m]) => (
+        <span key={n} className={getMyMarkColor(m)}>
+          {m}
+          {n}
+        </span>
+      ))}
+      <span className="text-[10px] text-muted-foreground ml-1">
+        (印あり: {total}頭{eraseCount > 0 && ` / うち消: ${eraseCount}`})
+      </span>
+    </span>
   );
 }
 
@@ -838,13 +873,13 @@ export default function OddsRacePage() {
     }
   }, [raceId]);
 
-  // My印（馬印1+2）
+  // My印（馬印1+2 + v2 明示消）
   const fetchMyMarks = useCallback(async () => {
     if (!raceInfoForMarks) return;
-    const { marks1, marks2 } = await fetchMyMarksBoth(raceInfoForMarks);
+    const { marks1, marks2 } = await fetchMyMarksBoth(raceInfoForMarks, raceId);
     setMyMarks1(marks1);
     setMyMarks2(marks2);
-  }, [raceInfoForMarks]);
+  }, [raceInfoForMarks, raceId]);
 
   // 直前変動（ji-timeseries APIから lastMinute 抽出）
   const fetchSurge = useCallback(async () => {
@@ -993,6 +1028,7 @@ export default function OddsRacePage() {
           {raceInfoForMarks && (
             <TargetMarkInputModal
               raceInfo={raceInfoForMarks}
+              raceId={raceId}
               entries={odds.horses.map((h) => ({
                 horse_number: parseInt(h.umaban, 10),
                 horse_name: h.horseName ?? `${parseInt(h.umaban, 10)}番`,
@@ -1044,27 +1080,9 @@ export default function OddsRacePage() {
         <Card className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
           <CardContent className="py-2 px-4 flex flex-wrap items-center gap-3 text-xs">
             <span className="font-bold">🎯 My印:</span>
-            {Object.keys(myMarks1).length > 0 ? (
-              <span>
-                <span className="text-muted-foreground">[1] </span>
-                {Object.entries(myMarks1)
-                  .filter(([, m]) => m)
-                  .sort(([a], [b]) => parseInt(a, 10) - parseInt(b, 10))
-                  .map(([n, m]) => `${m}${n}`)
-                  .join(' ') || '(なし)'}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">[1] (なし)</span>
-            )}
+            <MyMarkSetSummary label="[1]" marks={myMarks1} />
             {Object.keys(myMarks2).length > 0 && (
-              <span>
-                <span className="text-muted-foreground">[2] </span>
-                {Object.entries(myMarks2)
-                  .filter(([, m]) => m)
-                  .sort(([a], [b]) => parseInt(a, 10) - parseInt(b, 10))
-                  .map(([n, m]) => `${m}${n}`)
-                  .join(' ')}
-              </span>
+              <MyMarkSetSummary label="[2]" marks={myMarks2} />
             )}
           </CardContent>
         </Card>

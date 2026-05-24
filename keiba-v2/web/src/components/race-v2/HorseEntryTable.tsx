@@ -47,7 +47,7 @@ interface TargetCommentsMap {
 
 /** TARGET馬印（馬番→印） */
 export interface TargetMarksMap {
-  horseMarks: Record<number, string>;  // 馬番 → 印（◎, ○, ▲, △, ★, 穴）
+  horseMarks: Record<number, string>;  // 馬番 → 印（◎, ○, ▲, △, Ⅲ, 穴）
   horseMarks2?: Record<number, string>;  // 馬印2
 }
 
@@ -217,7 +217,7 @@ function getMyMarkBgColor(mark?: string): string {
     case '○': return 'bg-purple-100 dark:bg-purple-800/30 text-purple-800 dark:text-purple-300';
     case '▲': return 'bg-violet-100 dark:bg-violet-800/30 text-violet-800 dark:text-violet-300';
     case '△': return 'bg-violet-50 dark:bg-violet-700/20 text-violet-700 dark:text-violet-400';
-    case '★': return 'bg-fuchsia-100 dark:bg-fuchsia-800/30 text-fuchsia-800 dark:text-fuchsia-300';
+    case 'Ⅲ': return 'bg-fuchsia-100 dark:bg-fuchsia-800/30 text-fuchsia-800 dark:text-fuchsia-300';
     case '穴': return 'bg-pink-100 dark:bg-pink-800/30 text-pink-800 dark:text-pink-300';
     default: return '';
   }
@@ -231,7 +231,7 @@ function getMyMark2BgColor(mark?: string): string {
     case '○': return 'bg-teal-100 dark:bg-teal-800/30 text-teal-800 dark:text-teal-300';
     case '▲': return 'bg-cyan-100 dark:bg-cyan-800/30 text-cyan-800 dark:text-cyan-300';
     case '△': return 'bg-cyan-50 dark:bg-cyan-700/20 text-cyan-700 dark:text-cyan-400';
-    case '★': return 'bg-emerald-100 dark:bg-emerald-800/30 text-emerald-800 dark:text-emerald-300';
+    case 'Ⅲ': return 'bg-emerald-100 dark:bg-emerald-800/30 text-emerald-800 dark:text-emerald-300';
     case '穴': return 'bg-green-100 dark:bg-green-800/30 text-green-800 dark:text-green-300';
     default: return '';
   }

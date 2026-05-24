@@ -23,6 +23,9 @@ let availableDates: string[] = [];
 let indexLoaded = false;
 let indexBuildInProgress = false;
 let indexLoadInFlight: Promise<void> | null = null;
+// 直近にロードしたインデックスファイルの mtime(ms)。
+// 外部 (rebuild-index API / Python等) でファイルが更新されたら自動で再読込するための判定に使う。
+let lastLoadedMtime = 0;
 
 interface DateIndexEntry {
   date: string;
@@ -89,6 +92,9 @@ function loadIndexFromFile(): boolean {
       console.log(`[RaceDateIndex] Loaded from file: ${meta.dateCount} dates, ${meta.raceCount} races (built: ${meta.builtAt})`);
     }
     indexLoaded = true;
+    try {
+      lastLoadedMtime = fs.statSync(INDEX_FILE).mtimeMs;
+    } catch { /* mtime取れなくても致命的ではない */ }
     return true;
   } catch (error) {
     console.error('[RaceDateIndex] Failed to load index:', error);
@@ -100,8 +106,9 @@ function loadIndexFromFile(): boolean {
  * インデックスを非同期でファイルから読み込み（リクエスト経路用・イベントループをブロックしない）
  */
 async function loadIndexFromFileAsync(): Promise<boolean> {
+  let mtimeMs = 0;
   try {
-    await fsp.access(INDEX_FILE);
+    mtimeMs = (await fsp.stat(INDEX_FILE)).mtimeMs;
   } catch {
     return false;
   }
@@ -125,6 +132,7 @@ async function loadIndexFromFileAsync(): Promise<boolean> {
       // meta が無くてもインデックスは使う
     }
     indexLoaded = true;
+    lastLoadedMtime = mtimeMs;
     return true;
   } catch (error) {
     console.error('[RaceDateIndex] Failed to load index (async):', error);
@@ -135,12 +143,29 @@ async function loadIndexFromFileAsync(): Promise<boolean> {
 /**
  * リクエスト経路で必ず先に呼ぶ。インデックスが未読み込みなら非同期で1回だけ読み込む。
  * これにより isRaceIndexAvailable / getAvailableDatesFromIndex は sync 読みをせずメモリだけ参照する。
+ *
+ * mtime チェックで「外部 (rebuild-index API / Python等) によるインデックス更新」を自動検知し、
+ * サーバ再起動なしでメモリキャッシュを再読込する。fs.stat 1回 (≒数十µs) の追加コスト。
  */
 export async function ensureRaceDateIndexLoaded(): Promise<void> {
-  if (indexLoaded) return;
+  // 進行中の読み込みがあれば優先で待つ
   if (indexLoadInFlight) {
     await indexLoadInFlight;
     return;
+  }
+
+  // 既にロード済みでも、ファイルが外部更新されていれば再読込する
+  if (indexLoaded) {
+    let currentMtime = 0;
+    try {
+      currentMtime = (await fsp.stat(INDEX_FILE)).mtimeMs;
+    } catch {
+      // ファイルが消えていてもメモリの内容で当面サービスする (再読込はしない)
+      return;
+    }
+    if (currentMtime === lastLoadedMtime) return;
+    console.log(`[RaceDateIndex] Detected external update (mtime ${lastLoadedMtime} -> ${currentMtime}), reloading`);
+    indexLoaded = false; // 強制再読込
   }
 
   // 読み込み失敗時も次回リクエストで再試行できるよう、単発フラグは持たない
@@ -175,6 +200,12 @@ function saveIndexToFile(raceCount: number): void {
       version: INDEX_VERSION,
     };
     fs.writeFileSync(INDEX_META_FILE, JSON.stringify(meta, null, 2), 'utf-8');
+
+    // 書いた直後の mtime を記録しておくと、同一プロセス内で次回 stat した時に
+    // 「外部更新あり」と誤検知して無駄な再読込を防げる。
+    try {
+      lastLoadedMtime = fs.statSync(INDEX_FILE).mtimeMs;
+    } catch { /* mtime 取れなくても致命的ではない */ }
 
     console.log(`[RaceDateIndex] Saved to file: ${meta.dateCount} dates, ${raceCount} races`);
   } catch (error) {
@@ -598,6 +629,7 @@ export function clearRaceDateIndex(): void {
   availableDates = [];
   indexLoaded = false;
   indexLoadInFlight = null;
+  lastLoadedMtime = 0;
 
   try {
     if (fs.existsSync(INDEX_FILE)) {

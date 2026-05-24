@@ -245,6 +245,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                         ...raceInfoForComments,
                         raceName: raceData.race_info.race_name,
                       }}
+                      raceId={raceData.meta?.race_id}
                       entries={raceData.entries}
                       onSaved={handleMarksSaved}
                     />

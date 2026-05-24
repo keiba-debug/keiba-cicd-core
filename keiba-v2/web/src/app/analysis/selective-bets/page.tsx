@@ -28,16 +28,24 @@ interface SelectiveBet {
   umaban: number;
   horse_name: string;
   odds: number;
-  rank_p: number;
+  rank_p: number | null;
   pred_proba_p_raw: number | null;
   win_ev: number | null;
   confidence: number | null;
   odds_rank: number | null;
   vb_gap: number | null;
+  source?: 'grade_top_p' | 'emerging_w_not_top2'; // v2.0
+  rank_w?: number | null;                          // v2.0
 }
 
-// Sel_v3 戦略タグを判定 (Phase 4.3 で BT 確認済)
+// Sel_v3 戦略タグを判定 (重賞 v1.0 のみ)。 1勝クラス (emerging_w_not_top2) は別表示
 function deriveStrategyTags(bet: SelectiveBet): { name: string; label: string; bt_roi: string; color: string }[] {
+  // 1勝クラス出自は固有戦略タグ
+  if (bet.source === 'emerging_w_not_top2') {
+    return [
+      { name: 'emerging_w', label: '1勝穴(rank_w + not_top2)', bt_roi: '+115.7%', color: 'bg-fuchsia-600' },
+    ];
+  }
   const tags: { name: string; label: string; bt_roi: string; color: string }[] = [
     { name: 'baseline', label: 'Selective', bt_roi: '+203%', color: 'bg-rose-600' },
   ];
@@ -63,6 +71,8 @@ interface SelectiveResponse {
   generated_at?: string;
   date: string;
   n_bets: number;
+  n_grade_top_p?: number;
+  n_emerging_w_not_top2?: number;
   bets: SelectiveBet[];
   exists: boolean;
 }
@@ -82,7 +92,15 @@ function gradeStyle(grade: string): string {
   if (grade === 'G2') return 'bg-amber-500 text-white border-amber-500';
   if (grade === 'G3') return 'bg-blue-600 text-white border-blue-600';
   if (grade === 'Listed') return 'bg-violet-600 text-white border-violet-600';
+  if (grade === '1勝クラス') return 'bg-fuchsia-200 dark:bg-fuchsia-900 text-fuchsia-800 dark:text-fuchsia-100 border-fuchsia-300';
   return 'bg-slate-300 text-slate-800';
+}
+
+function sourceLabel(src?: string): { tag: string; tip: string } {
+  if (src === 'emerging_w_not_top2') {
+    return { tag: '💎', tip: '1勝クラス rank_w==1 && odds_rank>2 (BT ROI 115.7%)' };
+  }
+  return { tag: '🏆', tip: '重賞 rank_p==1 (BT ROI 203%)' };
 }
 
 function evStyle(ev: number | null): string {
@@ -133,9 +151,10 @@ export default function SelectiveBetsPage() {
           </Link>
           <h1 className="text-xl font-bold flex items-center gap-2">
             <Target className="w-5 h-5 text-rose-500" />
-            Selective 候補
+            Selective 候補 <span className="text-xs text-slate-400">v2.0</span>
           </h1>
-          <Badge variant="outline" className="text-xs">BT ROI 203%</Badge>
+          <Badge variant="outline" className="text-xs">🏆 重賞 ROI 203%</Badge>
+          <Badge variant="outline" className="text-xs">💎 1勝穴 ROI 115.7%</Badge>
         </div>
 
         <div className="flex items-center gap-2">
@@ -151,12 +170,18 @@ export default function SelectiveBetsPage() {
       </div>
 
       <Card>
-        <CardContent className="py-3 text-sm text-slate-600 dark:text-slate-400">
+        <CardContent className="py-3 text-sm text-slate-600 dark:text-slate-400 space-y-1">
           <p>
-            <strong className="text-slate-800 dark:text-slate-200">Selective 戦略</strong>:
-            重賞 (G1/G2/G3/Listed) のみ <code>rank_p==1</code> 馬を単勝買い。
-            バックテスト (2025-05〜2026-03 / 2,934 races) で
-            <strong className="text-emerald-700 dark:text-emerald-400"> 166 bets / ROI +203.1% / P&L +¥17,110 / MaxDD -¥1,060</strong>。
+            <strong className="text-slate-800 dark:text-slate-200">🏆 重賞 (v1.0)</strong>:
+            G1/G2/G3/Listed のみ <code>rank_p==1</code> 単勝買い。
+            BT (2025-05〜2026-03 / 166 bets) で
+            <strong className="text-emerald-700 dark:text-emerald-400"> ROI +203%</strong>。
+          </p>
+          <p>
+            <strong className="text-slate-800 dark:text-slate-200">💎 1勝クラス (v2.0 NEW)</strong>:
+            1勝クラスで <code>rank_w==1 && odds_rank&gt;2</code> (3番人気以下) 単勝買い。
+            BT 同期間 (92 bets) で
+            <strong className="text-emerald-700 dark:text-emerald-400"> ROI +115.7%</strong>。
           </p>
           <p className="mt-2 text-xs">
             生成: <code>python -m ml.strategies.selective --date {date}</code>
@@ -187,9 +212,9 @@ export default function SelectiveBetsPage() {
       {data && data.exists && !hasBets && (
         <Card>
           <CardContent className="py-8 text-center text-slate-500">
-            <p>この日は重賞対象レースなし</p>
+            <p>この日は対象レースなし</p>
             <p className="text-xs mt-2 text-slate-400">
-              (Selective は G1/G2/G3/Listed のみ対象)
+              (Selective は 重賞 + 1勝クラス が対象)
             </p>
           </CardContent>
         </Card>
@@ -200,6 +225,11 @@ export default function SelectiveBetsPage() {
           <div className="text-sm text-slate-500">
             <strong className="text-slate-800 dark:text-slate-200">{data.n_bets}件</strong>の候補 ・
             投資合計: <strong>¥{(data.n_bets * 100).toLocaleString()}</strong> (各100円)
+            {(data.n_grade_top_p != null || data.n_emerging_w_not_top2 != null) && (
+              <span className="ml-2 text-xs">
+                (🏆 重賞 {data.n_grade_top_p ?? 0} 件 / 💎 1勝穴 {data.n_emerging_w_not_top2 ?? 0} 件)
+              </span>
+            )}
             {data.generated_at && (
               <span className="text-xs ml-2 text-slate-400">
                 (生成: {data.generated_at})

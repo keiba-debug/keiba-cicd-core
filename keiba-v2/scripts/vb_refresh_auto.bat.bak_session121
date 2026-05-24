@@ -9,7 +9,7 @@ setlocal
 
 REM --- パス定義 ---
 set KEIBA_V2=C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2
-set VENV=C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2\.venv\Scripts\activate.bat
+set VENV=C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v1\KeibaCICD.keibabook\.venv\Scripts\activate.bat
 set LOG_DIR=C:\KEIBA-CICD\data3\logs\vb_refresh
 
 REM --- ログディレクトリ作成 ---

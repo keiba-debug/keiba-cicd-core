@@ -37,15 +37,17 @@ type QuickFilter =
   | 'my_top3_buy'
   | 'my_honmei_risk'
   | 'my_ana_vb'
-  | 'surge_my';
+  | 'surge_my'
+  | 'my_keshi';
 
 const QUICK_FILTERS: { value: QuickFilter; label: string; description: string; icon: string }[] = [
   { value: 'all', label: '全馬', description: '全ての馬を表示', icon: '📋' },
   { value: 'my_honmei_hot', label: 'My◎ × 激アツ', description: 'My本命でEV≥1.30', icon: '⭐' },
   { value: 'my_top3_buy', label: 'My◎○▲ × 買い+', description: 'My上位印×EV≥1.10', icon: '🎯' },
   { value: 'my_honmei_risk', label: 'My◎ × リスク', description: 'My本命がEV<0.70（要再考）', icon: '⚠️' },
-  { value: 'my_ana_vb', label: 'My★/穴 × VB', description: '穴狙いとML一致', icon: '💎' },
+  { value: 'my_ana_vb', label: 'MyⅢ/穴 × VB', description: '穴狙いとML一致', icon: '💎' },
   { value: 'surge_my', label: '直前急騰 × My', description: '急騰した自分の印馬', icon: '🔥' },
+  { value: 'my_keshi', label: 'My消のみ', description: '切り捨て候補（消印を付けた馬）だけ表示', icon: '🚫' },
 ];
 
 function applyQuickFilter(
@@ -66,7 +68,7 @@ function applyQuickFilter(
       return horses.filter((h) => h.myMark1 === '◎' && h.winZone === 'risk');
     case 'my_ana_vb':
       return horses.filter(
-        (h) => (h.myMark1 === '★' || h.myMark1 === '穴' || h.myMark2 === '★' || h.myMark2 === '穴') && h.isVb
+        (h) => (h.myMark1 === 'Ⅲ' || h.myMark1 === '穴' || h.myMark2 === 'Ⅲ' || h.myMark2 === '穴') && h.isVb
       );
     case 'surge_my':
       return horses.filter((h) => {
@@ -74,6 +76,8 @@ function applyQuickFilter(
         const isSurging = surge?.level === 'hot' || surge?.level === 'warm';
         return isSurging && (h.myMark1 || h.myMark2);
       });
+    case 'my_keshi':
+      return horses.filter((h) => h.myMark1 === '消' || h.myMark2 === '消');
     default:
       return horses;
   }
@@ -215,6 +219,16 @@ export function SignalTab({ horses, surgeMap, hasMl }: SignalTabProps) {
           <CardTitle className="text-sm font-bold">🎯 買い度判定</CardTitle>
           <p className="text-xs text-muted-foreground">
             ML予測 EV による5段階判定。並びは My印優先度 → 単EV降順
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            <span className="font-semibold">My印:</span>{' '}
+            <span className={getMyMarkColor('◎')}>◎</span>本命{' / '}
+            <span className={getMyMarkColor('○')}>○</span>対抗{' / '}
+            <span className={getMyMarkColor('▲')}>▲</span>単穴{' / '}
+            <span className={getMyMarkColor('△')}>△</span>連下{' / '}
+            <span className={getMyMarkColor('Ⅲ')}>Ⅲ</span>3着押さえ{' / '}
+            <span className={getMyMarkColor('穴')}>穴</span>穴馬{' / '}
+            <span className={getMyMarkColor('消')}>消</span>切り捨て候補
           </p>
         </CardHeader>
         <CardContent className="p-0">

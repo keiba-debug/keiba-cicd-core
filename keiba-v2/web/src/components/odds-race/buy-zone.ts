@@ -69,7 +69,7 @@ export function getBuyZoneDisplay(zone: BuyZone): BuyZoneInfo {
   }
 }
 
-/** TARGET印の優先度（◎が最強、消が最弱） */
+/** TARGET印の優先度（◎が最強、消は負値 — ソートで最下部に沈める） */
 export function markPriority(mark: string | null | undefined): number {
   switch (mark) {
     case '◎':
@@ -80,10 +80,12 @@ export function markPriority(mark: string | null | undefined): number {
       return 4;
     case '△':
       return 3;
-    case '★':
+    case 'Ⅲ':
       return 2;
     case '穴':
       return 1;
+    case '消':
+      return -1;
     default:
       return 0;
   }
@@ -100,10 +102,13 @@ export function getMyMarkColor(mark: string | null | undefined): string {
       return 'text-yellow-600 dark:text-yellow-500 font-semibold';
     case '△':
       return 'text-gray-500 dark:text-gray-400';
-    case '★':
+    case 'Ⅲ':
       return 'text-purple-600 dark:text-purple-400 font-semibold';
     case '穴':
       return 'text-pink-600 dark:text-pink-400 font-semibold';
+    case '消':
+      // 切り捨て候補: 無印より薄い + 取り消し線で「外した」感を出す
+      return 'text-gray-400 dark:text-gray-600 line-through';
     default:
       return 'text-gray-300';
   }

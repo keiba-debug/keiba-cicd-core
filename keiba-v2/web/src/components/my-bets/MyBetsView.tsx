@@ -123,7 +123,7 @@ export default function MyBetsView({ raceId, markSet }: Props) {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2 text-sm">
-            {(['◎', '○', '▲', '△', '★', '穴'] as const).map((m) => {
+            {(['◎', '○', '▲', '△', 'Ⅲ', '穴'] as const).map((m) => {
               const cnt = data.markCounts[m] ?? 0;
               if (cnt === 0)
                 return (
