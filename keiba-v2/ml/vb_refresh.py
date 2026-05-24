@@ -270,21 +270,26 @@ def main():
     out_path = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2] / "predictions.json"
     out_path.write_text(out_json, encoding='utf-8')
 
-    # Selective 候補生成 (Session 122 Phase 4.1)
-    # BT ROI 203% の「重賞のみ rank_p==1 単勝」戦略の当日候補を出力
+    # Selective 候補生成 (Session 122 Phase 4.1 → Session 123 Phase 1.5 で v2.0 拡張)
+    # v1.0: 重賞 rank_p==1 (BT ROI 203%)
+    # v2.0: + 1勝クラス rank_w==1 && odds_rank>2 (BT ROI 115.7%)
     try:
         from ml.strategies.selective import extract_selective_bets, write_selective_bets
         selective_bets = extract_selective_bets(predictions_data)
         if selective_bets:
             day_dir = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2]
             sel_path = write_selective_bets(day_dir, selective_bets)
-            print(f"\n[Selective] {len(selective_bets)} 重賞候補 → {sel_path.name}")
+            n_grade = sum(1 for b in selective_bets if b.source == "grade_top_p")
+            n_emerging = sum(1 for b in selective_bets if b.source == "emerging_w_not_top2")
+            print(f"\n[Selective] {len(selective_bets)} 候補 "
+                  f"(🏆 重賞 {n_grade} + 💎 1勝穴 {n_emerging}) → {sel_path.name}")
             for b in selective_bets:
                 ev_str = f"EV={b.win_ev:.2f}" if b.win_ev else ""
-                print(f"  {b.venue_name or '?'} {b.race_number}R {b.grade}: "
+                src_tag = "🏆" if b.source == "grade_top_p" else "💎"
+                print(f"  {src_tag} {b.venue_name or '?'} {b.race_number}R {b.grade}: "
                       f"{b.umaban}番 {b.horse_name} odds={b.odds:.1f}  {ev_str}")
         else:
-            print(f"\n[Selective] 重賞対象なし")
+            print(f"\n[Selective] 対象なし")
     except Exception as _e:
         print(f"  WARN selective generation failed: {_e}")
 
