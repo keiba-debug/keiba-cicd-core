@@ -22,9 +22,13 @@
 | 11 | [11_DAILY_CLOSE.md](./11_DAILY_CLOSE.md) | **日次クローズ / ledger × TARGET履歴 × IPAT 三層突合 / 差分レポート**（2026-05-23追加β1） | 1日の購入の最終確定 |
 | 12 | [12_KILL_SWITCH_COOLDOWN.md](./12_KILL_SWITCH_COOLDOWN.md) | **kill switch v2.1: 当日途中停止 + 翌日オプトイン UI（直近7日 ROI スパークライン付き）+ 毎朝 manual 始動 + 「当日終了 = 最終レース+30分」動的決定** | 緊急停止 + 毎朝の人間判断レイヤ |
 | 13 | [13_AUTO_RECONCILIATION.md](./13_AUTO_RECONCILIATION.md) | **自動突合エンジン（IPAT × ledger）/ 通知 / kill switch 連動**（2026-05-23 v2.0 で連続日数判定廃止） | 不一致検出・「沈黙はOK」原則 |
-| 14 | [14_LEDGER_SCHEMA.md](./14_LEDGER_SCHEMA.md) | **Ledger v2 スキーマ / portfolio_id / raw_legs / 22 イベント全登録 / SHA256 追記台帳**（2026-05-23 v1.1）| 戦略メタ・税務・監査 |
+| 14 | [14_LEDGER_SCHEMA.md](./14_LEDGER_SCHEMA.md) | **Ledger v2 スキーマ / portfolio_id / raw_legs / 30 イベント全登録 / SHA256 追記台帳**（2026-05-25 v1.2、 target_clicker / launcher 失敗系 8 種追加 シズネ 🟡 F）| 戦略メタ・税務・監査 |
 | 15 | [15_STEP2_WIDE_PORTFOLIO.md](./15_STEP2_WIDE_PORTFOLIO.md) | **🚫 廃止 (2026-05-24)**：F戦法機械化軸を捨て「印無視 IPAT 自動投票」へピボット | 設計史として保存 |
-| 16 | [16_TARGET_AUTOCLICK.md](./16_TARGET_AUTOCLICK.md) | **TARGET 投票ダイアログ自動押下エンジン (pywinauto)**（2026-05-24 同日に実装+実投票2回成功 0029・0030） | Phase 4 完全自動投票の核心 |
+| 16 | [16_TARGET_AUTOCLICK.md](./16_TARGET_AUTOCLICK.md) | **TARGET 投票ダイアログ自動押下エンジン (pywinauto)**（2026-05-24 実装+実投票2回成功 0029・0030、Session 130 で M/N 対応） | Phase 4 完全自動投票の核心 |
+| 17 | [17_NOTIFICATION_LAYER.md](./17_NOTIFICATION_LAYER.md) | **投票後 TTS 通知レイヤ (notify.py)**（2026-05-24 Session 129 で完成、Microsoft Haruka Desktop で発話） | 「儲かった経路を守る」 防御層 |
+| 18 | [18_TARGET_FULL_AUTOMATION.md](./18_TARGET_FULL_AUTOMATION.md) | **TARGET 起動 + ログイン自動化 + Phase 4-C-full 復旧 + ToS 累積評価**（Session 131 骨格 / Session 132 Phase 4-C-full / Session 133 仕上げ + §7.1 ToS 累積評価追加） | ふくだ操作を IPAT 暗証番号入力のみに圧縮 |
+| 19 | [19_OOS_RUNBOOK.md](./19_OOS_RUNBOOK.md) | **OOS RUNBOOK (5/30-31 段階的検証手順書)**（Session 133 起草、 土AM inspect → 土PM 半自動 → 日AM --auto-launch → 日PM verify loop 観測） | 来週末 OOS の現場手順書 |
+| 20 | [20_CURRENT_CAPABILITIES.md](./20_CURRENT_CAPABILITIES.md) | **現状能力俯瞰サマリ (Session 133 時点)**（Phase 4-A/B/C-min/C-full 実装度マトリクス + 安全機構8層 + 残タスク優先度 + 不明変数6件） | 最新の状態を1ページで把握 / シズネ渡し用 / 朝の状態確認 |
 
 ## 関連既存ドキュメント
 

@@ -507,11 +507,72 @@ Session 127 では「IPAT投票」 を **ツールバーボタン** と仮定し
 ### 11.1 残作業
 
 - [ ] **シズネ**: 本書 §9 リスク観点の追加・差し戻し (Session 129 以降)
-- [ ] **カカシ**: メモリ MEMORY.md / auto-purchase-project.md 更新 (Session 128 結果記録)
+- [x] **カカシ**: メモリ MEMORY.md / auto-purchase-project.md 更新 (Session 128 結果記録)
 - [ ] **ふくだ**: 来週開催 (5/30-31) で §10.3 SOP に沿って **inspect → 攻略ルート確定 → dry-run → 実投票** の Walk-Through
-- [ ] **カカシ**: 5/30-31 結果を見て、 確定した戦略順序を `step3_start_ipat()` のデフォルトに固定 (現状 `uia,menu,win32,shortcut,coords`)
-- [ ] **カカシ**: ledger v2 配線 (target_clicker 監査ログ → ledger.jsonl) は Session 129 以降
-- [ ] **カカシ**: TARGET 起動の自動化と IPAT 連動投票メニュー起動の自動化 (`17_TARGET_FULL_AUTOMATION.md`) は Session 129 以降
+- [ ] **カカシ**: 5/30-31 結果を見て、 確定した戦略順序を `step3_start_ipat()` のデフォルトに固定 (現状 `menu,uia,win32,shortcut,coords` で運用中)
+- [x] **カカシ**: ledger v2 配線 (target_clicker 監査ログ → ledger.jsonl) Session 129 で配線済
+- [x] **カカシ**: シズネ M (finalize_save_to_target 失敗時 rollback) + N (step3 全戦略失敗時 音声警告) — Session 130 で配線完了 (本書 §12 参照)
+- [ ] **カカシ**: TARGET 起動の自動化と IPAT 連動投票メニュー起動の自動化 → [18_TARGET_FULL_AUTOMATION.md](./18_TARGET_FULL_AUTOMATION.md) で起草済 (Session 131+ 実装)
+
+---
+
+## 12. Session 130 拡張 (シズネ M/N 対応)
+
+> **背景**: Session 129 でシズネ並行レビュー (`shizune_review_session129.md`) が「先に直せ」 の I/J/K を全潰し → 残った 🟡 M / 🟡 N (実投票直結ではないが運用時の安全網として重要) を Session 130 で対応。 来週末 (5/30-31) の OOS 検証前に潰すのが目的。
+
+### 12.1 M (finalize_save_to_target 失敗時の音声警告 + ledger 記録)
+
+**問題**: 投票成立 (IPAT 受付済) 後、 `finalize_save_to_target` が False or 例外で TARGET 買い目データ保存に失敗した場合、 stderr に「失敗 (手動で OK 押してください)」 と出すだけで、 ふくだが見落とすと TARGET 履歴と IPAT 履歴が乖離する。
+
+**対応 (Session 130)**:
+- `runner.py:_audit` 同等パスで `notify_target_save_failure()` (notify.py) で音声警告
+- 音声文面: 「注意。 投票は成立しましたが、 TARGET 側の買い目データ保存に失敗しました。 受付番号 〜 は IPAT 側で受付済です。 TARGET ウィンドウで F10 と 「はい」 を手動で押すか、 そのまま無視してください。」
+- ledger v2 に `TARGET_SAVE_FAILED` event 記録 (`record_target_save_failure()`)
+- payload に `ipat_already_committed: true` + `manual_action_required` で「rollback 不可、 手動対応」 を明示
+- ふくだ → 音声で気付く → 手動で TARGET ウィンドウ F10 + 「はい」 押下 (or 無視判断)
+
+**なぜ rollback ではないか**: IPAT 投票は受付済 = JRA 側でお金は動いている。 TARGET 側「買い目データ」 への保存だけが失敗した状態。 投票を「無かったこと」 にはできないため、 唯一の正しい対応は **音声で気付かせて手動操作を求める**。
+
+### 12.2 N (step3_start_ipat 全戦略失敗時の音声警告 + ledger 記録)
+
+**問題**: `step3_start_ipat()` が menu/uia/win32/shortcut/coords 全 5 戦略失敗した場合、 stderr 出力のみで音声通知無し → ふくだが気付かず別操作してしまうリスク。
+
+**対応 (Session 130)**:
+- `runner.py` Step 2 で `step3_start_ipat` が False を返したら `notify_ipat_start_failure()` (notify.py) で音声警告
+- 音声文面: 「IPAT 投票の自動起動に失敗しました。 試行した戦略は 5 件すべて失敗。 TARGET ウィンドウで手動で IPAT 投票ボタンを押してください。」
+- ledger v2 に `IPAT_START_FAILED` event 記録 (各 race_id 単位、 `record_ipat_start_failure()`)
+- payload に `strategies_tried[]` + `attempted_total_yen` で「どの戦略を試したか」 を残す
+
+**特性**: IPAT 連携起動失敗 = 投票ダイアログまで到達できない = お金は動いていない。 「失敗が明確で安全」 なので音声通知だけで OK (ledger 記録は事後分析用)。
+
+### 12.3 ledger v2 拡張 (Session 130)
+
+`ml/purchase_ledger/writer.py` に共通ヘルパ `_record_failure_event()` を追加し、 以下 3 関数を実装:
+
+| 関数 | event_type | ticket 作成 | 用途 |
+|---|---|---|---|
+| `record_vote_failure()` | `VOTE_FAILED` | しない | Session 129 既存 (timeout/rejected/error) |
+| `record_ipat_start_failure()` | `IPAT_START_FAILED` | しない | **Session 130 新規 (N)** |
+| `record_target_save_failure()` | `TARGET_SAVE_FAILED` | しない | **Session 130 新規 (M)** |
+
+3 つとも events_jsonl 追記 + ledger 本体 events[] 追記 + (race_id 有効時のみ) SHA256 index 更新 を行う。
+
+### 12.4 動作確認 (Session 130 同日)
+
+- [x] py_compile syntax check (writer.py / notify.py / runner.py): 全 OK
+- [x] import 確認 (新規 4 関数すべて hasattr OK)
+- [x] notify 文面確認 (enabled=False で text 生成、 受付番号 kana 変換正常)
+- [x] ledger dry-test (dummy race_id で JSON / JSONL 書き込み確認 → クリーンアップ済)
+- [ ] **来週末 (5/30-31)** TARGET 実機で M/N が発火する OOS 検証 (failure injection 不要、 通常運用で偶発的に出れば確認できる)
+
+### 12.5 主要変更ファイル (Session 130)
+
+| ファイル | 内容 |
+|---|---|
+| `ml/purchase_ledger/writer.py` | `_record_failure_event` ヘルパ + `record_ipat_start_failure` + `record_target_save_failure` 追加。 `record_vote_failure` を共通ヘルパ経由に整理 |
+| `ml/target_clicker/notify.py` | `notify_ipat_start_failure()` + `notify_target_save_failure()` 追加 (専用文面、 受付番号 kana 含む) |
+| `ml/target_clicker/runner.py` | step3 失敗時に音声 + ledger 記録、 finalize_save_to_target 失敗時に音声 + ledger 記録。 Optional import 追加 |
+| `docs/auto-purchase/18_TARGET_FULL_AUTOMATION.md` | **新規起草** (Session 131+ 実装の前段オーケストレーション設計書) |
 
 ### 11.2 関連設計書の整理
 
