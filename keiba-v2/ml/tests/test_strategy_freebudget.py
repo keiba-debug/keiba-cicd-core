@@ -14,12 +14,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 
+from datetime import datetime
+
 from ml.strategies.freebudget import (
     BET_UNIT_YEN,
     DEFAULT_BANKROLL,
     DEFAULT_KELLY_FRACTION,
     DEFAULT_PER_BET_CAP_PCT,
     extract_freebudget_bets,
+    resolve_date,
 )
 
 
@@ -210,6 +213,18 @@ class TestExtractFreebudgetBets:
     def test_invalid_preset_raises(self):
         with pytest.raises(ValueError, match="unknown preset"):
             extract_freebudget_bets({"races": []}, preset="nonexistent")
+
+
+class TestResolveDate:
+
+    def test_today_resolves_to_current_date(self):
+        assert resolve_date("today") == datetime.now().strftime("%Y-%m-%d")
+
+    def test_today_case_insensitive(self):
+        assert resolve_date("TODAY") == datetime.now().strftime("%Y-%m-%d")
+
+    def test_explicit_date_passthrough(self):
+        assert resolve_date("2026-05-31") == "2026-05-31"
 
 
 # =====================================================================

@@ -251,6 +251,13 @@ def write_freebudget_bets(date_dir: Path, result: FreebudgetResult) -> Path:
     return out_path
 
 
+def resolve_date(date_str: str) -> str:
+    """'today' を当日 YYYY-MM-DD に解決 (runner.py --from-date と整合)"""
+    if date_str.strip().lower() == "today":
+        return datetime.now().strftime("%Y-%m-%d")
+    return date_str
+
+
 def process_date(
     date_str: str, *,
     bankroll: int = DEFAULT_BANKROLL,
@@ -260,6 +267,7 @@ def process_date(
     dry_run: bool = False,
     verbose: bool = True,
 ) -> dict:
+    date_str = resolve_date(date_str)
     day_dir = date_dir_for(date_str)
     predictions = load_predictions(day_dir)
     if predictions is None:
