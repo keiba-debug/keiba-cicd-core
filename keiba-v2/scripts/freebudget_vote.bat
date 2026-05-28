@@ -3,6 +3,7 @@ REM ============================================
 REM freebudget_bets.json で投票 (Session 134)
 REM デフォルト dry-run、 --confirm 明示で本番 (selective_vote.bat と同じガード)。
 REM 事前に freebudget_gen.bat で生成 + 目視チェック済みであること。
+REM login-timeout は 180 秒固定 (暗証番号入力前の二重認証ゲートで急かさない)。
 REM
 REM 使い方:
 REM   freebudget_vote.bat                                    (今日, dry-run)
@@ -73,7 +74,7 @@ call "%VENV%"
 echo [freebudget_vote] date=%DATE_ARG% mode=%MODE_LABEL%
 echo [freebudget_vote] json=%FB_JSON%
 
-python -m ml.target_clicker.runner --from-json "%FB_JSON%" %RUNNER_ARGS% >> "%LOG_FILE%" 2>&1
+python -m ml.target_clicker.runner --from-json "%FB_JSON%" --login-timeout 180 %RUNNER_ARGS% >> "%LOG_FILE%" 2>&1
 set EXIT_CODE=%ERRORLEVEL%
 
 echo [%date% %time%] freebudget_vote end (exit=%EXIT_CODE%) >> "%LOG_FILE%"

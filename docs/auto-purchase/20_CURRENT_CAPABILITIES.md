@@ -67,7 +67,9 @@
 
 | コマンド | 用途 | モード |
 |---|---|---|
-| `python -m ml.strategies.freebudget --date YYYY-MM-DD --bankroll 10000` | **★ freebudget_bets.json 生成 (Session 134, OOS 主経路)** | 本番準備 |
+| `scripts\freebudget_gen.bat [date] [bankroll]` | **★ ラッパ: freebudget 生成 + シズネ🔴-1 目視チェック自動表示** (Session 134, OOS 朝の第一歩) | 本番準備 |
+| `scripts\freebudget_vote.bat [date] [--confirm / --auto-launch --confirm]` | **★ ラッパ: freebudget_bets.json で投票** (デフォルト dry-run) | 本番 |
+| `python -m ml.strategies.freebudget --date YYYY-MM-DD --bankroll 10000` | freebudget_bets.json 生成 (bat の中身、 直叩き用) | 本番準備 |
 | `python -m ml.target_clicker.runner --from-json {date_dir}/freebudget_bets.json --confirm` | **★ freebudget 経路で投票** (--amount 不要、 bet.amount 優先) | 本番 |
 | `python -m ml.target_clicker.runner --from-json {date_dir}/freebudget_bets.json --auto-launch --confirm` | **★ freebudget × Phase 4-A/B/C フル自動 — OOS 5/31 検証対象** | 本番 |
 | `selective_vote.bat YYYY-MM-DD AMOUNT --confirm` | (フォールバック) selective_bets.json 経由の半自動 — 緊急時のみ | 本番 |
