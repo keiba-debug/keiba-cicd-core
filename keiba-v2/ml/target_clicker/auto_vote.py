@@ -74,6 +74,24 @@ class ReceiptInfo:
     raw_text: str
 
 
+# ============================================================
+# session_expired phase 定数 (シズネ Session 132 🟡-2 / Session 133 実装)
+# ============================================================
+# auto_vote の事後検知が発火するフェーズ識別子。 文字列リテラル直書きは
+# タイポすると常に False に流れて manual_review_required が静かに失われる
+# 罠を構造的に防ぐため、 全箇所で本定数を参照する。
+
+SESSION_EXPIRED_PHASE_VOTE_DIALOG_TIMEOUT = "vote_dialog_timeout"
+SESSION_EXPIRED_PHASE_RESULT_DIALOG_TIMEOUT = "result_dialog_timeout"
+SESSION_EXPIRED_PHASE_EXPLICIT_ERROR_DIALOG = "explicit_error_dialog"
+
+# vote click 実行済 = 受付不明 = ふくだ手動照合必須となる phase の集合
+# (将来 explicit_error_dialog の中で click 後系を分離する場合はここに追加)
+VOTE_ALREADY_CLICKED_PHASES = frozenset({
+    SESSION_EXPIRED_PHASE_RESULT_DIALOG_TIMEOUT,
+})
+
+
 @dataclass
 class ClickResult:
     """投票試行の結果"""
@@ -85,6 +103,16 @@ class ClickResult:
     dialog_handle: Optional[int] = None
     receipt: Optional[ReceiptInfo] = None       # 投票完了後の JRA 受付情報
     result_closed: bool = False                 # 投票終了ダイアログを OK で閉じたか
+    notify_text: Optional[str] = None           # Session 129: TTS で読み上げた文面 (audit 用)
+    notify_spoken: Optional[bool] = None        # Session 129: TTS 成否 (None=未試行)
+    # Session 132 (Phase 4-C-full 事後検知): セッション切れ検出時に set される
+    # phase は SESSION_EXPIRED_PHASE_* 定数のいずれか (上記)
+    session_expired: bool = False
+    session_expired_phase: Optional[str] = None
+    session_expired_title: Optional[str] = None     # 検出したエラーダイアログのタイトル
+    session_expired_keyword: Optional[str] = None   # マッチしたキーワード
+    session_expired_pattern_source: Optional[str] = None  # "default" / "file"
+    race_id: Optional[str] = None               # ledger 記録用 (呼び出し元が set)
 
 
 def _now_iso() -> str:
@@ -302,6 +330,9 @@ def click_vote_button(
     close_result: bool = True,
     result_timeout_sec: int = 10,
     verbose: bool = True,
+    notify: bool = True,
+    detect_session_expired: bool = True,         # Session 132 (Phase 4-C-full)
+    race_id: Optional[str] = None,               # Session 132: ledger 記録用
 ) -> ClickResult:
     """TARGET 投票ダイアログを検出して [投票] ボタンを click する。
 
@@ -311,20 +342,38 @@ def click_vote_button(
         max_bets: このベット数を超えたら reject
         timeout_sec: ダイアログ待機タイムアウト
         verbose: stdout にログ出力
+        notify: Session 129 — True で全 action (success/rejected/timeout/error)
+                を TTS 音声通知する。 audit JSONL にも結果を焼き込む。
+        detect_session_expired: Session 132 — True で timeout / close_result 失敗時に
+                `launcher.detect_session_expired_dialog()` を呼び、 検出時 ClickResult に
+                session_expired=True と各種情報を set + ledger event を記録する。
+        race_id: ledger 記録時の race_id (None なら ledger は events_jsonl のみ追記)。
     """
 
     def vprint(msg: str) -> None:
         if verbose:
             print(msg)
 
+    def aud(r: ClickResult) -> ClickResult:
+        """_audit のラッパ (Session 129: notify 引数を一律伝播)"""
+        if race_id and not r.race_id:
+            r.race_id = race_id
+        return _audit(r, notify=notify)
+
     vprint(f"[{_now_iso()}] dialog wait (timeout={timeout_sec}s) title={DIALOG_TITLE!r}")
     dlg = find_vote_dialog(timeout_sec=timeout_sec)
     if dlg is None:
-        return _audit(ClickResult(
+        timeout_result = ClickResult(
             success=False, action="timeout",
             reason=f"dialog {DIALOG_TITLE!r} not found within {timeout_sec}s",
             content=None,
-        ))
+        )
+        if detect_session_expired:
+            _attach_session_expired_info(
+                timeout_result, phase=SESSION_EXPIRED_PHASE_VOTE_DIALOG_TIMEOUT,
+                vote_already_clicked=False, verbose=verbose,
+            )
+        return aud(timeout_result)
 
     handle = None
     try:
@@ -339,25 +388,25 @@ def click_vote_button(
 
     # 検証
     if content.total_yen <= 0:
-        return _audit(ClickResult(
+        return aud(ClickResult(
             success=False, action="rejected",
             reason=f"合計金額 抽出失敗 (total_yen=0)", content=content,
             dialog_handle=handle,
         ))
     if content.total_yen > max_yen:
-        return _audit(ClickResult(
+        return aud(ClickResult(
             success=False, action="rejected",
             reason=f"合計金額 {content.total_yen}円 > 上限 {max_yen}円",
             content=content, dialog_handle=handle,
         ))
     if content.n_bets > max_bets:
-        return _audit(ClickResult(
+        return aud(ClickResult(
             success=False, action="rejected",
             reason=f"ベット数 {content.n_bets} > 上限 {max_bets}",
             content=content, dialog_handle=handle,
         ))
     if content.limit_yen > 0 and content.total_yen > content.limit_yen:
-        return _audit(ClickResult(
+        return aud(ClickResult(
             success=False, action="rejected",
             reason=f"IPAT 残高不足: 合計 {content.total_yen}円 > 残高 {content.limit_yen}円",
             content=content, dialog_handle=handle,
@@ -366,7 +415,7 @@ def click_vote_button(
     # dry-run
     if not confirm:
         vprint(f"[{_now_iso()}] DRY-RUN: would click [{VOTE_BUTTON_TITLE}]")
-        return _audit(ClickResult(
+        return aud(ClickResult(
             success=True, action="dry_run",
             reason="dry-run mode (--confirm not passed)",
             content=content, dialog_handle=handle,
@@ -382,7 +431,7 @@ def click_vote_button(
         clicked_at = _now_iso()
         vprint(f"[{clicked_at}] CLICKED [{VOTE_BUTTON_TITLE}] button")
     except Exception as e:
-        return _audit(ClickResult(
+        return aud(ClickResult(
             success=False, action="error",
             reason=f"click failed: {type(e).__name__}: {e}",
             content=content, dialog_handle=handle,
@@ -398,19 +447,114 @@ def click_vote_button(
             timeout_sec=result_timeout_sec, verbose=verbose,
         )
 
-    return _audit(ClickResult(
+    final = ClickResult(
         success=True, action="clicked",
         reason="vote button clicked"
                + (" + result dialog closed" if closed else ""),
         content=content, clicked_at=clicked_at, dialog_handle=handle,
         receipt=receipt, result_closed=closed,
-    ))
+    )
+    # Session 132 (Phase 4-C-full): 投票 click 後に「投票終了」 が出ない or
+    # 受付番号取れない場合、 セッション切れの可能性。 投票 click 自体は実行済 = manual_review
+    if detect_session_expired and (not closed or receipt is None
+                                   or not receipt.receipt_number):
+        _attach_session_expired_info(
+            final, phase=SESSION_EXPIRED_PHASE_RESULT_DIALOG_TIMEOUT,
+            vote_already_clicked=True, verbose=verbose,
+        )
+    return aud(final)
 
 
-def _audit(result: ClickResult) -> ClickResult:
-    """JSONL 監査ログ追記 (data3/userdata/target_clicker/audit_{yyyy-mm}.jsonl)"""
+def _attach_session_expired_info(result: ClickResult, *, phase: str,
+                                  vote_already_clicked: bool,
+                                  verbose: bool = True) -> None:
+    """ClickResult にセッション切れ事後検知の結果を attach (Session 132 / Phase 4-C-full)
+
+    `launcher.detect_session_expired_dialog()` を呼んで、 検出時のみ ClickResult を
+    更新する。 検出なしなら ClickResult は変更しない (= session_expired は False のまま)。
+
+    launcher を遅延 import する (循環参照回避 + launcher 未配置時の auto_vote 単独動作維持)
+    """
     try:
-        AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+        from ml.target_clicker.launcher import detect_session_expired_dialog
+    except Exception as e:
+        if verbose:
+            print(f"[auto_vote] launcher import failed (skip session_expired): {e}",
+                  file=sys.stderr)
+        return
+    try:
+        info = detect_session_expired_dialog(verbose=verbose)
+    except Exception as e:
+        if verbose:
+            print(f"[auto_vote] detect_session_expired_dialog raised: "
+                  f"{type(e).__name__}: {e}", file=sys.stderr)
+        return
+    if not info.detected:
+        return
+    result.session_expired = True
+    result.session_expired_phase = phase
+    result.session_expired_title = info.title
+    result.session_expired_keyword = info.matched_keyword
+    result.session_expired_pattern_source = info.pattern_source
+    # vote_already_clicked を理由文に追記 (audit の reason に焼き込む)
+    suffix = f" [session_expired detected: phase={phase}, title={info.title!r}"
+    if vote_already_clicked:
+        suffix += ", vote_already_clicked=True, manual_review_required=True"
+    suffix += "]"
+    result.reason = (result.reason or "") + suffix
+
+
+def _audit(result: ClickResult, *, notify: bool = True) -> ClickResult:
+    """JSONL 監査ログ追記 + TTS 通知 (Session 129 拡張)
+
+    - Session 129 (シズネ指摘 K): `ml.utils.jsonl_append.append_jsonl` を
+      経由してアトミック (mkdir lock + fsync) で書き込む。
+    - Session 129 (TTS 配線): notify=True なら全 action で音声通知。
+      失敗パス (timeout/rejected/error) も通知 (シズネ「失敗の通知が大事」)。
+    - Session 132 (Phase 4-C-full): session_expired 検出時は専用通知 +
+      ledger IPAT_SESSION_EXPIRED_POSTVOTE event を記録 (通常 notify は抑制)。
+    """
+    # 1) TTS 通知 (audit ログに結果を書きたいので 先に呼ぶ)
+    if notify:
+        try:
+            if result.session_expired:
+                # Session 132: 通常の vote_result ではなく session_recovery_attempted を発話
+                from ml.target_clicker.notify import (
+                    notify_ipat_session_recovery_attempted,
+                )
+                outcome = notify_ipat_session_recovery_attempted(
+                    detected_title=result.session_expired_title, enabled=True,
+                )
+            else:
+                from ml.target_clicker.notify import notify_vote_result
+                outcome = notify_vote_result(result, enabled=True)
+            result.notify_text = outcome.text
+            result.notify_spoken = outcome.spoken
+        except Exception as e:
+            # 通知失敗は本体を止めない (best-effort)
+            print(f"[notify] hook failed: {type(e).__name__}: {e}", file=sys.stderr)
+            result.notify_text = None
+            result.notify_spoken = False
+
+    # 2) ledger event 記録 (Session 132: session_expired 検出時のみ)
+    if result.session_expired:
+        try:
+            from ml.purchase_ledger.writer import record_ipat_session_expired_postvote
+            record_ipat_session_expired_postvote(
+                race_id=result.race_id or "",
+                detected_phase=result.session_expired_phase or "unknown",
+                detected_dialog_title=result.session_expired_title,
+                matched_keyword=result.session_expired_keyword,
+                vote_already_clicked=(result.session_expired_phase in VOTE_ALREADY_CLICKED_PHASES),
+                pattern_source=result.session_expired_pattern_source or "default",
+            )
+        except Exception as e:
+            print(f"[ledger] record_ipat_session_expired_postvote failed: {e}",
+                  file=sys.stderr)
+
+    # 3) JSONL 監査ログ追記 (Session 129: jsonl_append でアトミック化)
+    try:
+        from ml.utils.jsonl_append import append_jsonl
         now = datetime.now()
         log_path = AUDIT_DIR / f"audit_{now.strftime('%Y-%m')}.jsonl"
         entry = {
@@ -420,6 +564,7 @@ def _audit(result: ClickResult) -> ClickResult:
             "reason": result.reason,
             "clicked_at": result.clicked_at,
             "dialog_handle": result.dialog_handle,
+            "race_id": result.race_id,
             "total_yen": result.content.total_yen if result.content else None,
             "n_bets": result.content.n_bets if result.content else None,
             "limit_yen": result.content.limit_yen if result.content else None,
@@ -430,9 +575,19 @@ def _audit(result: ClickResult) -> ClickResult:
             "receipt_total_yen": result.receipt.receipt_total_yen if result.receipt else None,
             "receipt_raw_text": result.receipt.raw_text if result.receipt else None,
             "result_closed": result.result_closed,
+            # Session 129: TTS 通知結果も audit に焼き込む (シズネ「通知ログも audit 化」)
+            "notify_text": result.notify_text,
+            "notify_spoken": result.notify_spoken,
+            # Session 132 (Phase 4-C-full): session_expired 事後検知
+            "session_expired": result.session_expired,
+            "session_expired_phase": result.session_expired_phase,
+            "session_expired_title": result.session_expired_title,
+            "session_expired_keyword": result.session_expired_keyword,
+            "session_expired_pattern_source": result.session_expired_pattern_source,
         }
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        ok = append_jsonl(log_path, entry, timeout_sec=5.0)
+        if not ok:
+            print(f"[audit] append_jsonl returned False: {log_path}", file=sys.stderr)
     except Exception as e:
         # 監査ログ失敗は本体を止めない (ログ欠損 < 状態欠損、 シズネ原則)
         print(f"[audit] failed to write: {e}", file=sys.stderr)

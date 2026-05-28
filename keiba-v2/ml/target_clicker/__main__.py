@@ -37,6 +37,8 @@ def parse_args() -> argparse.Namespace:
                    help="投票後の「投票終了」ダイアログを OK で閉じない (デフォルト: 閉じる)")
     p.add_argument("--result-timeout", type=int, default=10,
                    help="「投票終了」ダイアログ待機タイムアウト秒 (default=10)")
+    p.add_argument("--no-notify", action="store_true",
+                   help="TTS 音声通知を抑制 (Session 129)")
     p.add_argument("--quiet", action="store_true")
     return p.parse_args()
 
@@ -51,6 +53,7 @@ def main() -> int:
         close_result=not args.no_close_result,
         result_timeout_sec=args.result_timeout,
         verbose=not args.quiet,
+        notify=not args.no_notify,
     )
     if not args.quiet:
         print(f"\n[result] success={result.success} action={result.action} reason={result.reason}")
