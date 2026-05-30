@@ -110,3 +110,62 @@ def test_vote_one_race_live_passes_exact_max(monkeypatch, tmp_path):
     assert "--max-bets" in cmd and "2" in cmd       # 期待件数ちょうど
     assert "--confirm" in cmd
     assert res["exit_code"] == 0
+
+
+# --- halt_day (Session 139 / web「停止」= 当日 halt) ---
+
+def test_halt_day_creates_halted_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(sch, "date_dir_for", lambda d: tmp_path)
+    out = sch.halt_day("2026-05-30", live=True, reason="manual_stop_via_web")
+    assert out["halted"] is True
+    assert out["already_halted"] is False
+    st = json.loads(sch.state_path(tmp_path, live=True).read_text(encoding="utf-8"))
+    assert st["halted"] is True
+    assert st["halt_reason"] == "manual_stop_via_web"
+    assert "halted_at" in st
+
+
+def test_halt_day_idempotent_keeps_first_reason(tmp_path, monkeypatch):
+    # 既に halted のとき reason を上書きしない (最初の停止理由を保つ)
+    monkeypatch.setattr(sch, "date_dir_for", lambda d: tmp_path)
+    sch.halt_day("2026-05-30", live=True, reason="first_reason")
+    out2 = sch.halt_day("2026-05-30", live=True, reason="second_reason")
+    assert out2["already_halted"] is True
+    st = json.loads(sch.state_path(tmp_path, live=True).read_text(encoding="utf-8"))
+    assert st["halt_reason"] == "first_reason"
+
+
+def test_halt_day_preserves_existing_votes(tmp_path, monkeypatch):
+    # 停止しても既に投票成立した記録は消さない
+    monkeypatch.setattr(sch, "date_dir_for", lambda d: tmp_path)
+    sp = sch.state_path(tmp_path, live=False)
+    sp.write_text(json.dumps({
+        "date": "2026-05-30", "mode": "dry-run", "halted": False,
+        "votes": {"2026053005021101": {"amount": 500, "exit_code": 0}},
+        "consecutive_failures": 0,
+    }), encoding="utf-8")
+    sch.halt_day("2026-05-30", live=False, reason="manual_stop_via_web")
+    st = json.loads(sp.read_text(encoding="utf-8"))
+    assert st["halted"] is True
+    assert st["votes"]["2026053005021101"]["amount"] == 500
+
+
+def test_halt_day_corrupted_state_keeps_corruption_reason(tmp_path, monkeypatch):
+    # 破損 state は load_state が halted=True(破損理由) を返す → halt_day は理由を上書きせず
+    # 破損シグナルを隠さない (already_halted=True 扱い)
+    monkeypatch.setattr(sch, "date_dir_for", lambda d: tmp_path)
+    sp = sch.state_path(tmp_path, live=True)
+    sp.write_text("{ broken", encoding="utf-8")
+    out = sch.halt_day("2026-05-30", live=True, reason="manual_stop_via_web")
+    assert out["already_halted"] is True
+    st = json.loads(sp.read_text(encoding="utf-8"))
+    assert "破損" in st["halt_reason"]
+
+
+def test_halt_day_works_when_day_dir_missing(tmp_path, monkeypatch):
+    # 安全ブレーキは未準備の日付でも効く (親 dir を作って halt を確実に永続化)
+    missing = tmp_path / "races" / "2099" / "01" / "01"   # 未作成
+    monkeypatch.setattr(sch, "date_dir_for", lambda d: missing)
+    out = sch.halt_day("2099-01-01", live=True, reason="manual_stop_via_web")
+    assert out["halted"] is True
+    assert sch.state_path(missing, live=True).exists()

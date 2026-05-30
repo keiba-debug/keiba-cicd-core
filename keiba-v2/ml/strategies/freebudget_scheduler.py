@@ -164,9 +164,15 @@ def vote_one_race(day_dir: Path, race_id: str, sub_result, *,
     # live: filtered JSON を書いて runner --confirm をサブプロセス起動 (テスト済経路)
     out = write_freebudget_bets(day_dir, sub_result,
                                 filename=f"freebudget_bets_{race_id}.json")
-    # 🔴-2 + 🟡-1: 期待値ちょうどを --max-yen / --max-bets で渡す。
-    #   投票ダイアログは「どのレースか」 を露出しない (Session 135 実機確認) ため、
-    #   買い目残り (TARGET 警告あり) で件数/金額が増えたら上限超過で reject させて誤投票を防ぐ。
+    # 🔴-2 + 🟡-1: このレースの期待値 (再計算後の sub.total_yen / 件数) ちょうどを
+    #   --max-yen / --max-bets で渡す = 「このレースに想定外の上乗せが起きたら reject」 の
+    #   ★二次確認 (leftover/idempotency ガード)★。 投票ダイアログは「どのレースか」 を
+    #   露出しない (Session 135 実機確認) ため、 買い目残り (TARGET 警告) で件数/金額が
+    #   増えたら弾く。
+    #   ★per_race ハードキャップ (config per_race_max_yen=3000) の正本は runner の
+    #     _check_per_race_limits (config を直接読む)★。 --max-yen=amount はキャップ値ではなく
+    #     「この再計算結果ちょうど」 なので per_race 上限の番人ではない (シズネ Session139 指摘)。
+    #     日次上限は scheduler の voted_yen+sub.total_yen>per_day_max_yen で別途 skip。
     cmd = [sys.executable, "-m", "ml.target_clicker.runner",
            "--from-json", str(out), "--login-timeout", str(login_timeout),
            "--max-yen", str(amount), "--max-bets", str(len(sub_result.bets)),
@@ -333,6 +339,30 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
             "halted": state.get("halted", False)}
 
 
+def halt_day(date_str: str, *, live: bool, reason: str) -> dict:
+    """当日の state に halted=True を立てて以降のパスを全停止する (web「停止」用)。
+
+    ★state ファイル書き込みは Python 側に集約★ (SoT 単一窓口。 web から JSON を
+    直接書かない)。 単発パスは即終了型のため「停止」= 以後のパスを halt で弾く意味。
+    冪等: 既に halted でも reason を上書きしない (最初の halt 理由を保つ)。
+    """
+    date_str = resolve_date(date_str)
+    day_dir = date_dir_for(date_str)
+    sp = state_path(day_dir, live=live)
+    # 安全ブレーキは必ず効くべき: 当日 dir が未作成 (準備前の日付を停止) でも書けるよう
+    # 親 dir を確保してから書く (save_state の FileNotFoundError で halt が不発になるのを防ぐ)。
+    sp.parent.mkdir(parents=True, exist_ok=True)
+    state = load_state(sp, date_str, "live" if live else "dry-run")
+    already = bool(state.get("halted"))
+    if not already:
+        state["halted"] = True
+        state["halt_reason"] = reason
+        state["halted_at"] = datetime.now().isoformat(timespec="seconds")
+    save_state(sp, state)
+    return {"halted": True, "already_halted": already,
+            "halt_reason": state.get("halt_reason"), "state_path": str(sp)}
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--date", default="today")
@@ -340,6 +370,10 @@ def parse_args():
     p.add_argument("--confirm", action="store_true", help="実 click (live)")
     p.add_argument("--i-understand-live", action="store_true",
                    help="実弾を承認 (--confirm と両方必須 = 金経路の二重フラグ)")
+    p.add_argument("--halt", action="store_true",
+                   help="当日 state を halted=True にして以降のパスを停止 (web「停止」)")
+    p.add_argument("--halt-reason", default="manual_stop_via_web",
+                   help="--halt 時の停止理由")
     p.add_argument("--bankroll", type=int, default=DEFAULT_BANKROLL)
     p.add_argument("--kelly-fraction", type=float, default=DEFAULT_KELLY_FRACTION)
     p.add_argument("--per-bet-cap-pct", type=float, default=DEFAULT_PER_BET_CAP_PCT)
@@ -359,6 +393,18 @@ def main() -> int:
             pass
     args = parse_args()
     live = bool(args.confirm)
+
+    # --halt: 当日の自動投票を停止 (web「停止」)。 live/dry 両方の state を halt する
+    # (どちらのモードで動いていても止める。 二重フラグ不要 = 停止は安全側の操作)。
+    if args.halt:
+        date_str = resolve_date(args.date)
+        out_live = halt_day(date_str, live=True, reason=args.halt_reason)
+        out_dry = halt_day(date_str, live=False, reason=args.halt_reason)
+        print(f"[scheduler] HALTED {date_str}: live={out_live['halt_reason']} "
+              f"(already={out_live['already_halted']}) / "
+              f"dry={out_dry['already_halted']}")
+        return 0
+
     if live and not args.i_understand_live:
         print("[scheduler] --confirm には --i-understand-live も必須 "
               "(実弾の二重フラグ)。 中止。", file=sys.stderr)

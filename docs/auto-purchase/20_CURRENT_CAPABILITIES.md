@@ -42,6 +42,14 @@
 - 🟢 実装済: 6 場面 (vote_result / launch_ready / ipat_login_required / ipat_login_complete / launch_failure / ipat_session_expired / ipat_start_failure / target_save_failure / daily_plan_summary / session_recovery_attempted/succeeded/failed)
 - 🟢 実機発話確認済: Microsoft Haruka Desktop (ja-JP) / 受付番号 1 桁ずつ kana 化
 
+**web 自動投票コントロールパネル** (Session 139 新規, 横断):
+- 🟢 `/bankroll/auto` の `AutoVoteControl.tsx` — 当日 state 監視 (15s ポーリング) + dry-run/LIVE 起動 + 停止(halt)。SoT=Python state、web は API 越しに読む/起動するだけ
+- 🟢 API: `/api/freebudget/status` (fs 読みのみ) / `/start` (単発パス SSE、LIVE は二重ゲート) / `/halt` (当日 halt = 緊急ブレーキ)
+- 🟢 scheduler `halt_day()` + `--halt` — web「停止」用 (live/dry 両 state に halted=True、SoT 単一窓口、安全ブレーキは dir 未作成でも mkdir して必ず効く)
+- 🟢 **dry-run / 監視 = 無条件 GO** (シズネ Session139 2巡)。**web LIVE 実弾は将来「軽微🔴1点 (`vote_one_race --max-yen`) を直してから GO」**、当面の実弾は `freebudget_vote.bat`
+- ★**認識合わせ**: web LIVE の「承認額」は実投票額の上限を保証しない (最新オッズで再計算=ふくだ哲学)。真の上限は config の **per_race=3000 / per_day=10000 ハードキャップ** ([shizune_review_session139_web_panel](./shizune_review_session139_web_panel.md))
+- test: `test_freebudget_scheduler.py` に halt_day 6 件追加 (13 passed)
+
 ---
 
 ## 2. モジュール構成と責務
@@ -223,6 +231,7 @@
 |---|---|---|
 | 133 | 2026-05-26 | 新規作成 (Session 128-132 累積状態のスナップショット) |
 | 134 | 2026-05-28 | freebudget 戦略追加 (1万円フリー予算 + Kelly案分 + amount 検証)、 シズネレビュー 🔴 4 件全潰し (config 衝突 / 金額読み上げ / 払戻タイムラグ / Themis 整合)、 テスト 64→89 件、 CLI 早見表更新 |
+| 139 | 2026-05-31 | **web 自動投票コントロールパネル** 追加 (`/bankroll/auto` + `/api/freebudget/{status,start,halt}` + scheduler `halt_day`)。 シズネ 2 巡 (🔴2+🟡5 全潰し) → dry-run/監視は無条件GO・web LIVE は軽微🔴1点を本稼働前に。認識合わせ=承認額は上限保証でなく config cap が安全弁 ([shizune_review_session139_web_panel](./shizune_review_session139_web_panel.md)) |
 
 **次回更新タイミング**:
 - 5/30-31 OOS 結果反映 (Session 135 内、 §6 不明変数を確定値で更新 + §7 残タスクを再振り分け)
