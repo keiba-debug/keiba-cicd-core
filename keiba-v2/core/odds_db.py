@@ -208,6 +208,112 @@ def get_final_wide_odds(race_code: str) -> Dict[str, dict]:
     return result
 
 
+# === 馬単オッズ ===
+
+def get_final_exacta_odds(race_code: str) -> Dict[str, dict]:
+    """確定馬単オッズを取得 (odds4_umatan)
+
+    Returns:
+        {'1406': {'odds': 10.7, 'ninki': 1}, ...}
+        KUMIBANは4桁・順序あり (例: '1406' = 1着14番→2着6番)
+    """
+    rows = query(
+        "SELECT KUMIBAN, ODDS, NINKI FROM odds4_umatan WHERE RACE_CODE = %s",
+        (race_code,)
+    )
+    result = {}
+    for r in rows:
+        odds = parse_odds_value(r['ODDS'])
+        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        if odds is not None:
+            result[r['KUMIBAN']] = {'odds': odds, 'ninki': ninki}
+    return result
+
+
+# === 三連複オッズ ===
+
+def get_final_trio_odds(race_code: str) -> Dict[str, dict]:
+    """確定三連複オッズを取得 (odds5_sanrenpuku)
+
+    Returns:
+        {'040614': {'odds': 6.7, 'ninki': 1}, ...}
+        KUMIBANは6桁・順不同 (馬番昇順, 例: '040614' = 4-6-14)
+    """
+    rows = query(
+        "SELECT KUMIBAN, ODDS, NINKI FROM odds5_sanrenpuku WHERE RACE_CODE = %s",
+        (race_code,)
+    )
+    result = {}
+    for r in rows:
+        odds = parse_odds_value(r['ODDS'])
+        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        if odds is not None:
+            result[r['KUMIBAN']] = {'odds': odds, 'ninki': ninki}
+    return result
+
+
+# === 三連単オッズ ===
+
+def get_final_trifecta_odds(race_code: str) -> Dict[str, dict]:
+    """確定三連単オッズを取得 (odds6_sanrentan)
+
+    Returns:
+        {'061404': {'odds': 26.1, 'ninki': 1}, ...}
+        KUMIBANは6桁・順序あり (例: '061404' = 1着6番→2着14番→3着4番)
+    """
+    rows = query(
+        "SELECT KUMIBAN, ODDS, NINKI FROM odds6_sanrentan WHERE RACE_CODE = %s",
+        (race_code,)
+    )
+    result = {}
+    for r in rows:
+        odds = parse_odds_value(r['ODDS'])
+        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        if odds is not None:
+            result[r['KUMIBAN']] = {'odds': odds, 'ninki': ninki}
+    return result
+
+
+# === 全券種オッズ一括取得 (券種効率ビュー用) ===
+
+def get_all_combo_odds(race_code: str) -> Dict[str, Dict[str, dict]]:
+    """1レースの全券種オッズを一括取得 (券種効率ビュー / ハーヴィル合成オッズ判断用)
+
+    各券種ごとに KUMIBAN → odds の dict を返す。 ワイドは odds_low/high を持つため
+    キー 'odds' は odds_low を採用 (保守的、 bet_engine._lookup_wide_odds と整合)。
+
+    Returns:
+        {
+          'tansho':   {umaban_int: {'odds': float, 'ninki': int}},        # 単勝 (単一馬)
+          'fukusho':  {umaban_int: {'odds_low','odds_high','ninki'}},     # 複勝
+          'umaren':   {'0102': {'odds','ninki'}},                         # 馬連 (4桁順不同)
+          'wide':     {'0102': {'odds','odds_low','odds_high','ninki'}},  # ワイド (4桁順不同)
+          'umatan':   {'0102': {'odds','ninki'}},                         # 馬単 (4桁順序あり)
+          'sanrenpuku': {'010203': {'odds','ninki'}},                     # 三連複 (6桁順不同)
+          'sanrentan':  {'010203': {'odds','ninki'}},                     # 三連単 (6桁順序あり)
+        }
+
+    注: odds2-6 は「確定 (発走時) オッズ」テーブルで 1 組番 (KUMIBAN) = 1 行 (時系列の
+    重複スナップショット無し。 実データで rows == distinct_kumiban を確認済) のため、
+    各 getter の dict 化で組番が衝突することはない。
+    """
+    wide_raw = get_final_wide_odds(race_code)
+    wide = {
+        k: {'odds': v.get('odds_low'), 'odds_low': v.get('odds_low'),
+            'odds_high': v.get('odds_high'), 'ninki': v.get('ninki')}
+        for k, v in wide_raw.items()
+    }
+    return {
+        'tansho': get_final_win_odds(race_code),
+        'fukusho': get_final_place_odds(race_code),
+        'umaren': get_final_quinella_odds(race_code),
+        'wide': wide,
+        'umatan': get_final_exacta_odds(race_code),
+        'sanrenpuku': get_final_trio_odds(race_code),
+        'sanrentan': get_final_trifecta_odds(race_code),
+    }
+
+
 # === バッチローダー（ML学習用） ===
 
 def batch_get_pre_race_odds(
