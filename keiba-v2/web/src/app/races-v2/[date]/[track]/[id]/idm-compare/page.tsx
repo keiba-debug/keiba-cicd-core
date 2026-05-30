@@ -27,6 +27,11 @@ interface PageParams {
   }>;
 }
 
+// 指数表も最新の predictions.json / レースデータを常に読み込む（キャッシュさせない）
+// ※ これが無いと未来日レースが静的にキャッシュされ、ビルド時点で未生成 → notFound() が
+//   キャッシュされ全レースで404になる（[id]/page.tsx と同じ理由で force-dynamic 必須）
+export const dynamic = 'force-dynamic';
+
 // ── 年齢計算（IDMTimelineChartと同一ロジック） ──
 
 function calcAgeMonths(birthDate: string, raceDate: string): number {
