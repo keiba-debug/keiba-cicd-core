@@ -29,6 +29,7 @@ import { CompositeFilterTab } from '@/components/odds-race/CompositeFilterTab';
 import { ChartTab } from '@/components/odds-race/ChartTab';
 import { NiigataChokuTab } from '@/components/odds-race/NiigataChokuTab';
 import BetTypeEfficiencyTab from '@/components/odds-race/BetTypeEfficiencyTab';
+import BetTypeSelectionTab from '@/components/odds-race/BetTypeSelectionTab';
 import { enrichHorses, getMyMarkColor } from '@/components/odds-race/buy-zone';
 import { parseRaceIdForMarks, fetchMyMarksBoth } from '@/components/odds-race/my-marks-utils';
 
@@ -1091,11 +1092,12 @@ export default function OddsRacePage() {
 
       {/* タブ切替 */}
       <Tabs defaultValue="signal" className="w-full">
-        <TabsList className={`grid w-full ${isNiigataChoku(raceId, odds?.raceCondition) ? 'grid-cols-8' : 'grid-cols-7'}`}>
+        <TabsList className={`grid w-full ${isNiigataChoku(raceId, odds?.raceCondition) ? 'grid-cols-9' : 'grid-cols-8'}`}>
           <TabsTrigger value="signal">🎯 シグナル</TabsTrigger>
           <TabsTrigger value="chart">📈 チャート</TabsTrigger>
           <TabsTrigger value="filter">🔍 複合フィルタ</TabsTrigger>
           <TabsTrigger value="bettype">💵 券種効率</TabsTrigger>
+          <TabsTrigger value="bettype-select">🎫 券種選択</TabsTrigger>
           {isNiigataChoku(raceId, odds?.raceCondition) && (
             <TabsTrigger value="niigata-choku">🌪 千直</TabsTrigger>
           )}
@@ -1122,6 +1124,11 @@ export default function OddsRacePage() {
         {/* 券種効率タブ（Session 138 / ハーヴィル合成オッズ判断） */}
         <TabsContent value="bettype" className="mt-4">
           <BetTypeEfficiencyTab raceId={raceId} />
+        </TabsContent>
+
+        {/* 券種選択タブ（Session 140 / 選択ロジックの決定ビュー） */}
+        <TabsContent value="bettype-select" className="mt-4">
+          <BetTypeSelectionTab raceId={raceId} />
         </TabsContent>
 
         {/* 千直タブ（新潟芝1000m直線時のみ・Phase 3d） */}
