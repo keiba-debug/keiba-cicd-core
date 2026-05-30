@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -81,6 +82,19 @@ def format_yen(yen: int | None) -> str:
 _PYTTSX3_TRIED = False
 _PYTTSX3_AVAILABLE = False
 
+# ============================================================
+# TTS エンジン設定 (Session 135 / ふくだ: 音声調整)
+#   KEIBA_TTS_ENGINE   : "sapi"(既定) | "voicevox"
+#   KEIBA_TTS_PITCH    : SAPI ピッチ (既定 "-20%" = サンプル4 低めトーン採用)
+#   KEIBA_VOICEVOX_URL : VOICEVOX エンジン URL
+#   KEIBA_VOICEVOX_SPEAKER : 話者 ID (3=ずんだもん ノーマル)
+# 既定は SAPI のまま (OOS 経路を変えない)。 VOICEVOX は env で opt-in、 失敗時 SAPI に落ちる。
+# ============================================================
+TTS_ENGINE = os.getenv("KEIBA_TTS_ENGINE", "sapi").strip().lower()
+SAPI_PITCH = os.getenv("KEIBA_TTS_PITCH", "-20%")
+VOICEVOX_URL = os.getenv("KEIBA_VOICEVOX_URL", "http://127.0.0.1:50021").rstrip("/")
+VOICEVOX_SPEAKER = int(os.getenv("KEIBA_VOICEVOX_SPEAKER", "3"))
+
 
 def _try_pyttsx3(text: str, rate: int = 0) -> bool:
     """試行 1: pyttsx3 が import できるなら使う"""
@@ -112,8 +126,8 @@ def _try_pyttsx3(text: str, rate: int = 0) -> bool:
         return False
 
 
-# PowerShell SAPI 用テンプレート — ja-JP voice を優先選択して Speak()
-# {rate} は -10..10、 {text_json} は JSON エスケープ済の引用符付き文字列
+# PowerShell SAPI 用テンプレート — ja-JP voice を優先選択して SpeakSsml() (ピッチ調整可)
+# {rate} は -10..10、 {ssml_json} は JSON エスケープ済の SSML 文字列
 _PS_SAPI_SCRIPT = """
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Speech
@@ -125,15 +139,35 @@ try {{
     if ($jaVoice) {{ $synth.SelectVoice($jaVoice.VoiceInfo.Name) }}
 }} catch {{ }}
 $synth.Rate = {rate}
-$synth.Speak({text_json})
+$synth.SpeakSsml({ssml_json})
 $synth.Dispose()
 """
 
 
-def _try_ps_sapi(text: str, rate: int = 0, timeout_sec: int = 30) -> bool:
-    """試行 2: PowerShell System.Speech.Synthesis (Windows 標準、 依存ゼロ)"""
-    text_json = json.dumps(text, ensure_ascii=False)
-    script = _PS_SAPI_SCRIPT.format(rate=int(rate), text_json=text_json)
+def _build_ssml(text: str, pitch: str) -> str:
+    """text を prosody pitch 付き SSML に包む (サンプル4 = 低めトーン採用)。
+
+    属性は単一引用符。 json.dumps で二重引用符に包んだ際に内部エスケープ (\\") が
+    発生せず PowerShell -Command に安全に渡せる (PS は \\ エスケープ非対応のため)。
+    """
+    import html
+    inner = html.escape(text)        # & < > " ' をエスケープ (quote=True 既定)
+    return ("<speak version='1.0' "
+            "xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='ja-JP'>"
+            f"<prosody pitch='{pitch}'>{inner}</prosody></speak>")
+
+
+def _try_ps_sapi(text: str, rate: int = 0, pitch: Optional[str] = None,
+                 timeout_sec: int = 30) -> bool:
+    """試行 2: PowerShell System.Speech.Synthesis (Windows 標準、 依存ゼロ)。
+
+    Session 135: pitch (既定 SAPI_PITCH=-20%) を SSML prosody で適用 (低めトーン)。
+    """
+    if pitch is None:
+        pitch = SAPI_PITCH
+    ssml = _build_ssml(text, pitch)
+    ssml_json = json.dumps(ssml, ensure_ascii=False)
+    script = _PS_SAPI_SCRIPT.format(rate=int(rate), ssml_json=ssml_json)
     try:
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -153,6 +187,56 @@ def _try_ps_sapi(text: str, rate: int = 0, timeout_sec: int = 30) -> bool:
         return False
 
 
+def voicevox_available(timeout: float = 1.5) -> bool:
+    """VOICEVOX エンジンが起動しているか (GET /version)"""
+    import urllib.request
+    try:
+        urllib.request.urlopen(f"{VOICEVOX_URL}/version", timeout=timeout).read()
+        return True
+    except Exception:
+        return False
+
+
+def _try_voicevox(text: str, *, speaker: Optional[int] = None,
+                  timeout: float = 20.0) -> bool:
+    """試行 0 (opt-in): VOICEVOX で合成して再生 (キャラ音声・ローカル完結)。
+
+    audio_query → synthesis の 2 段。 WAV を temp に書いて winsound で再生。
+    エンジン未起動/失敗時は False (呼び出し側が SAPI にフォールバック)。
+    """
+    import tempfile
+    import urllib.parse
+    import urllib.request
+    sp = VOICEVOX_SPEAKER if speaker is None else speaker
+    try:
+        q = urllib.parse.urlencode({"text": text, "speaker": sp})
+        aq = urllib.request.urlopen(
+            urllib.request.Request(f"{VOICEVOX_URL}/audio_query?{q}", method="POST"),
+            timeout=timeout).read()
+        syn = urllib.request.urlopen(
+            urllib.request.Request(
+                f"{VOICEVOX_URL}/synthesis?{urllib.parse.urlencode({'speaker': sp})}",
+                data=aq, method="POST",
+                headers={"Content-Type": "application/json"}),
+            timeout=timeout).read()
+        path = None
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(syn)
+            path = f.name
+        try:
+            import winsound
+            winsound.PlaySound(path, winsound.SND_FILENAME)
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        return True
+    except Exception as e:
+        print(f"[notify] VOICEVOX failed: {type(e).__name__}: {e}", file=sys.stderr)
+        return False
+
+
 def speak(text: str, *, rate: int = 0, async_: bool = False) -> bool:
     """TTS で 1 メッセージ読み上げる。 成功 True / 失敗 False。
 
@@ -168,6 +252,9 @@ def speak(text: str, *, rate: int = 0, async_: bool = False) -> bool:
         return False
 
     def _run() -> bool:
+        # Session 135: VOICEVOX opt-in (KEIBA_TTS_ENGINE=voicevox)。 失敗時は SAPI に落ちる。
+        if TTS_ENGINE == "voicevox" and _try_voicevox(text):
+            return True
         if _try_pyttsx3(text, rate=rate):
             return True
         return _try_ps_sapi(text, rate=rate)

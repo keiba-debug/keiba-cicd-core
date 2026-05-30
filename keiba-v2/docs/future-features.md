@@ -17,7 +17,12 @@
 - 当日の収支を逐次アナウンス（例: 「現在 ◯勝◯敗、収支 +◯◯円」）
 - 実装の前提 = **ledger v2 settle 拡張**（払戻 / SETTLED event 取得）+ 自動突合
   （[13_AUTO_RECONCILIATION.md](../auto-purchase/13_AUTO_RECONCILIATION.md) / JRA-VAN・mykeibadb のレース確定データと受付番号の突合）
-- 既存 `notify.py`（pyttsx3→SAPI）の発話基盤を流用。投票完了通知の対になる「結果通知」レイヤ
+- 既存 `notify.py`（VOICEVOX/SAPI）の発話基盤を流用。投票完了通知の対になる「結果通知」レイヤ
+- **★結果で声を使い分け（ふくだ案 Session 135）**: ぞん子のスタイルだけで完結する案 —
+  通常/的中=実況風(ID93) / ハズレ=低血圧(ID91、 脱力で逆に面白い) / 万馬券=覚醒(ID92)。
+  notify.py に「文脈→speaker」 マップを足す（VOICEVOX speaker 切替の土台は Session 135 で
+  実装済 = `_try_voicevox(text, speaker=)`、 既定話者は env `KEIBA_VOICEVOX_SPEAKER`）。
+  ※ Session 135 時点の既定 = ぞん子 実況風(ID93) / VOICEVOX 落ち時は SAPI 低めトーンへ自動フォールバック
 
 ## Web UI 改善
 
