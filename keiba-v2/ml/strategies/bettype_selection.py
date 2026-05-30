@@ -163,46 +163,55 @@ def _has_relative_spread_merit(plan: "be.Plan") -> bool:
 # 妙味軸オプション (穴志向)
 # ---------------------------------------------------------------------------
 
-def _zscore_map(values: Dict[int, Optional[float]]) -> Dict[int, float]:
-    """umaban→値 の dict を z-score 化 (None は除外し、 結果からも除外)。"""
-    present = [(k, v) for k, v in values.items() if v is not None]
-    if not present:
-        return {}
-    vals = [v for _, v in present]
-    n = len(vals)
-    mean = sum(vals) / n
-    var = sum((v - mean) ** 2 for v in vals) / n
-    std = var ** 0.5
-    if std <= 1e-12:
-        return {k: 0.0 for k, _ in present}
-    return {k: (v - mean) / std for k, v in present}
-
-
 def find_taste_axis(race_eff: "be.RaceEfficiency", taste: str) -> Optional[int]:
-    """妙味軸 (穴志向) の軸馬番を返す。 該当無しなら None。
+    """妙味軸 (穴志向) の軸馬番を返す。 該当無しなら None (= composite 軸を維持)。
 
     popularity_gap_max:
-        z(勝率) - z(人気) が最大の馬。 予想 (pred_proba_w_cal) は強いのに市場人気が
-        低い = 市場が過小評価する馬。 人気は単勝オッズから算出 (高オッズ=低人気)。
-        z(人気) は「人気が高いほど大きい」向きに揃える = -z(odds)。
-        gap = z(win_prob) - z(popularity) = z(win_prob) + z(odds)。
+        「model は (相応に) 強いと見ているのに 市場人気が低い = 過小評価」 の馬を軸にする。
+        乖離は ★外れ値に頑健な順位差★ で測る:
+            gap = 人気ランク (odds 昇順 1=最人気) − model ランク (win_prob 降順 1=最評価)
+        gap が大 = 市場が model より低く評価 = 過小評価。 gap<=0 (市場 >= model) なら
+        過小評価でないので軸を動かさない (None)。
+
+        ★旧実装 (z(win_prob)+z(odds)) は z(odds) が極端オッズ (例 438倍) で爆発し、
+          model 最下位 (win_prob≈0) の単なる人気薄を軸に選ぶバグがあった。 軸の win_prob は
+          ハーヴィルの全 combo 確率の入力なので、 win_prob≈0 を軸にすると下流のプラン確率・
+          EV が全て無意味になる。 ∴ ① z でなく順位差で頑健化 ② 候補を 2 段フロアで限定:
+          model 上位 (top-third) かつ win_prob>=1/n (一様超え)。 「model が legit な相手と
+          見ている馬」だけを過小評価候補にし、 model 較正の甘い極端な裾を弾く。★
     ev_min:
         合成オッズが最も妙味のある (= EV>=floor を満たし synthetic_odds が最大の)
         プランの軸を返す。 軸そのものは Phase2 の composite 最強と同じだが、
         「広げて妙味を取りに行く」意図を taste で記録する。 → 軸差し替えはしない。
     """
     if taste == "popularity_gap_max":
-        win_z = _zscore_map({s.umaban: s.win_prob for s in race_eff.strengths})
-        # odds が高い = 人気が低い。 z(odds) が大 = 過小評価方向。
-        odds_z = _zscore_map({s.umaban: s.odds for s in race_eff.strengths})
-        gaps: Dict[int, float] = {}
-        for s in race_eff.strengths:
-            if s.umaban in win_z and s.umaban in odds_z:
-                gaps[s.umaban] = win_z[s.umaban] + odds_z[s.umaban]
-        if not gaps:
+        # 候補 = 市場オッズが立ち (odds>0) かつ model が非自明な勝率を与える (win_prob>0) 馬。
+        present = [s for s in race_eff.strengths
+                   if s.odds is not None and s.odds > 0 and s.win_prob > 0]
+        if not present:
             return None
-        # 最大 gap。 同値は馬番昇順で決定的に。
-        return max(sorted(gaps), key=lambda u: gaps[u])
+        n = len(present)
+        # 人気ランク (odds 昇順, 1=最人気) と model ランク (win_prob 降順, 1=最評価)。
+        pop_rank = {s.umaban: i for i, s in
+                    enumerate(sorted(present, key=lambda s: (s.odds, s.umaban)), start=1)}
+        win_rank = {s.umaban: i for i, s in
+                    enumerate(sorted(present, key=lambda s: (-s.win_prob, s.umaban)), start=1)}
+        # 候補フロア (2段)。 単なる人気薄を軸に選ばない & ハーヴィルが意味を保つための必須ガード:
+        #   ① model 順位 floor: model 上位 (top-third, 最低3頭) のみ。
+        #   ② 絶対勝率 floor: win_prob >= 1/n (一様ランダム超え) = model が本物のチャンスを
+        #      見ている馬。 model キャリブレーションの甘い極端な裾 (例 183倍 winp5%) を弾く。
+        support_cut = min(n, max(3, -(-n // 3)))   # ceil(n/3) を最低3で
+        prob_floor = 1.0 / n
+        cands = [s for s in present
+                 if win_rank[s.umaban] <= support_cut and s.win_prob >= prob_floor]
+        if not cands:
+            return None       # 過小評価できる contender 不在 → 軸据え置き (composite 維持)
+        # gap = pop_rank - win_rank の最大。 同値は model 上位 → 馬番昇順 で決定的に。
+        best = max(cands, key=lambda s: (pop_rank[s.umaban] - win_rank[s.umaban],
+                                         -win_rank[s.umaban], -s.umaban))
+        if pop_rank[best.umaban] - win_rank[best.umaban] <= 0:
+            return None       # 過小評価でない (市場 >= model 評価) → 軸据え置き
+        return best.umaban
     if taste == "ev_min":
         # ev_min は軸差し替えしない (合成妙味の高いプラン優先は select 側で扱う)。
         return race_eff.axis_umaban

@@ -219,6 +219,29 @@ class TestFindTasteAxis:
         re_ = _race_eff([_tansho_plan()], strengths=[])
         assert bs.find_taste_axis(re_, "popularity_gap_max") is None
 
+    def test_popularity_gap_max_ignores_extreme_longshot(self):
+        # 旧バグ回帰 (Session 140): z(odds) 爆発で win_prob≈0 の極端人気薄 (438倍, model
+        # 最下位) を軸に選んでいた。 軸の win_prob≈0 はハーヴィルを壊すので絶対に選ばせない。
+        # → model 支持 + 1/n フロアで弾き、 過小評価された contender (#2) を選ぶ。
+        strengths = [
+            _strength(1, 0.40, 2.0),     # 本命 (model1位・最人気)
+            _strength(2, 0.30, 30.0),    # model2位だが人気薄 = 過小評価 (狙い)
+            _strength(3, 0.20, 6.0),
+            _strength(4, 0.001, 438.0),  # winp≈0 の大穴 (旧実装の誤選択先)
+        ]
+        re_ = _race_eff([_tansho_plan()], strengths=strengths)
+        assert bs.find_taste_axis(re_, "popularity_gap_max") == 2
+
+    def test_popularity_gap_max_none_when_favorite_is_most_popular(self):
+        # model 最評価馬が最人気でもある (= 過小評価された contender なし) → 軸据え置き (None)。
+        strengths = [
+            _strength(1, 0.50, 1.5),     # model1位 かつ 最人気
+            _strength(2, 0.20, 4.0),     # model2位 かつ 2番人気 (gap=0)
+            _strength(3, 0.15, 6.0),
+        ]
+        re_ = _race_eff([_tansho_plan()], strengths=strengths)
+        assert bs.find_taste_axis(re_, "popularity_gap_max") is None
+
 
 class TestHoleSeeker:
     def test_ev_min_sorts_by_synthetic_odds(self):
