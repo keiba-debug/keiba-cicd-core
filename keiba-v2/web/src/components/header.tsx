@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Calendar, Brain, Wallet, TrendingUp, MapPin, Search, ShieldCheck } from 'lucide-react';
+import { Calendar, Brain, Wallet, TrendingUp, MapPin, Search, ShieldCheck, Bot } from 'lucide-react';
 import { RemainingBudget } from '@/components/bankroll/RemainingBudget';
 import { useEffect, useRef } from 'react';
 
@@ -296,6 +296,15 @@ export function Header() {
             >
               <TrendingUp className="h-4 w-4" />
               <span className="hidden sm:inline whitespace-nowrap">収支</span>
+            </Link>
+
+            {/* 自動投票履歴 直リンク */}
+            <Link
+              href="/bankroll/auto"
+              className="text-muted-foreground hover:text-foreground flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-full transition-colors hover:bg-background/60"
+            >
+              <Bot className="h-4 w-4" />
+              <span className="hidden sm:inline whitespace-nowrap">自動投票</span>
             </Link>
 
             {/* 分析 ドロップダウン */}

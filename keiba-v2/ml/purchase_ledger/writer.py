@@ -589,3 +589,151 @@ def _record_failure_event(
         success=True, action="recorded",
         reason=f"{event_type} recorded",
     )
+
+
+# ---------------------------------------------------------------------------
+# Settlement (精算) — Session 136 / 14 §2.1 §5 §6 No.12 SETTLED
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SettleResult:
+    success: bool
+    settled_tickets: int = 0
+    won_tickets: int = 0
+    total_payout: int = 0
+    races_settled: int = 0
+    reason: str = ""
+    ledger_path: Optional[str] = None
+
+
+def record_settlement(
+    *,
+    date: str,
+    results: list[dict],
+    settled_at: Optional[str] = None,
+    force: bool = False,
+    reconciled: bool = False,
+) -> SettleResult:
+    """settle 結果を ledger に書き込む (14 §2.1 / §5 状態遷移 / §6 No.12 SETTLED)。
+
+    settle_ledger.py が mykeibadb 払戻から計算した結果を受け取り、 ledger I/O の
+    単一窓口として:
+      - ticket.payout / ticket.settled_at / ticket.payout_source / ticket.reconciled を書く
+      - portfolio 内全 ticket が settle 済になったら portfolio_pnl / portfolio_roi を確定
+      - SETTLED イベント (portfolio 単位、 source / reconciled の provenance 付き) を発火
+      - race 内全 ticket が settle 済になったら race.state を SETTLED に遷移
+      - _index.jsonl の SHA256 を更新
+
+    Args:
+        date: YYYY-MM-DD (ledger ファイル名)
+        results: [{"ticket_id": str, "payout": int, "won": bool, "payout_source": str}] のリスト。
+                 着順未確定 / 未対応券種 / 配当未取得の ticket は呼び出し側で除外済。
+        settled_at: settle 時刻 ISO8601 (省略時 now)。 同一 run の全 ticket で共通。
+        force: True なら settle 済 ticket も再計算 (payout 訂正 / 再精算用)。
+        reconciled: 13章 IPAT 突合済として確定 settle するなら True。 未突合 (pre-reconcile)
+                    の暫定 settle は False (シズネ 🔴-1/-3)。 reconcile 本体未実装の現状は
+                    常に False で運用され、 ticket.reconciled / SETTLED.source に明示される。
+
+    Returns:
+        SettleResult。 settle した ticket が 0 件でも success=True (冪等)。
+
+    Notes:
+        portfolio_roi は「回収率」= payout_total / portfolio_total (比率)。
+        1.0 が損益分岐、 1.133 なら回収率 113.3%。 portfolio_pnl は payout - invest。
+    """
+    ledger_path = LEDGER_DIR / f"{date}.json"
+    if not ledger_path.exists():
+        return SettleResult(success=False, reason=f"ledger not found: {ledger_path}")
+
+    try:
+        ledger = _load_ledger(ledger_path)
+    except Exception as e:
+        return SettleResult(success=False, reason=f"ledger load failed: {e}")
+
+    now = settled_at or _now_iso()
+    by_ticket = {r["ticket_id"]: r for r in results if r.get("ticket_id")}
+    source = "db_payout_reconciled" if reconciled else "db_payout_pre_reconcile"
+
+    settled_tickets = 0
+    won_tickets = 0
+    total_payout = 0
+    races_settled = 0
+    new_events: list[dict] = []
+
+    for race in ledger.get("races", []):
+        race_has_ticket = False
+        race_all_settled = True
+        for pf in race.get("portfolios", []):
+            pf_newly_settled = False
+            for tk in pf.get("tickets", []):
+                race_has_ticket = True
+                tid = tk.get("ticket_id")
+                already = tk.get("settled_at") is not None
+                if tid in by_ticket and (force or not already):
+                    payout = int(by_ticket[tid].get("payout", 0))
+                    tk["payout"] = payout
+                    tk["settled_at"] = now
+                    tk["payout_source"] = by_ticket[tid].get("payout_source", "db")
+                    tk["reconciled"] = reconciled
+                    settled_tickets += 1
+                    total_payout += payout
+                    if payout > 0:
+                        won_tickets += 1
+                    pf_newly_settled = True
+                elif not already:
+                    # 未対応券種 / 着順未確定 / 配当未取得で今回 settle されなかった未精算 ticket
+                    race_all_settled = False
+
+            # portfolio 集計: 全 ticket settle 済になった & 今回新規 settle があったときのみ確定
+            tickets = pf.get("tickets", [])
+            pf_all_settled = bool(tickets) and all(
+                t.get("settled_at") is not None for t in tickets
+            )
+            if pf_all_settled and pf_newly_settled:
+                pf_total = pf.get("portfolio_total") or sum(
+                    t.get("total_amount", 0) for t in tickets
+                )
+                pf_payout = sum(t.get("payout", 0) for t in tickets)
+                pf_pnl = pf_payout - pf_total
+                pf_roi = round(pf_payout / pf_total, 4) if pf_total else 0.0
+                pf["portfolio_pnl"] = pf_pnl
+                pf["portfolio_roi"] = pf_roi
+                new_events.append(_make_event(
+                    "SETTLED", race.get("race_id"), pf.get("portfolio_id"), None,
+                    payout=pf_payout,
+                    portfolio_pnl=pf_pnl,
+                    portfolio_roi=pf_roi,
+                    reconciled=reconciled,
+                    source=source,
+                ))
+
+        if race_has_ticket and race_all_settled:
+            if race.get("state") != "SETTLED":
+                race["state"] = "SETTLED"
+            races_settled += 1
+
+    if settled_tickets == 0:
+        return SettleResult(
+            success=True, settled_tickets=0,
+            reason="no tickets settled (already settled or none matched)",
+            ledger_path=str(ledger_path),
+        )
+
+    for ev in new_events:
+        ledger.setdefault("events", []).append(ev)
+        _append_event(ev)
+
+    ok = write_json_atomic(ledger_path, ledger)
+    if not ok:
+        return SettleResult(success=False, reason="atomic write failed",
+                            ledger_path=str(ledger_path))
+    _update_index(ledger_path, ledger)
+
+    return SettleResult(
+        success=True,
+        settled_tickets=settled_tickets,
+        won_tickets=won_tickets,
+        total_payout=total_payout,
+        races_settled=races_settled,
+        ledger_path=str(ledger_path),
+    )
