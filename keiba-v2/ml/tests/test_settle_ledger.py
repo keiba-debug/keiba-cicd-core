@@ -409,6 +409,31 @@ class TestRecordSettlement:
         assert pf["portfolio_pnl"] == 470 - 200
         assert pf["portfolio_roi"] == round(470 / 200, 4)
 
+    def test_superseded_portfolio_excluded(self, ledger_dir):
+        # シズネ 🟡-2 恒久ガード: 修復で superseded にした旧 portfolio は精算・集計対象外。
+        # この除外が壊れると二重計上 (税務 SoT 過大計上) になるため回帰でロックする。
+        led = _ledger("2026-05-30", [
+            {"race_id": "2026053008031104", "state": "SUBMITTED", "portfolios": [
+                {**_portfolio("pf-A", [_ticket("pf-A#t1", "tansho", [13], 100)]),
+                 "superseded_by_repair": True},
+                _portfolio("pf-B", [_ticket("pf-B#t1", "umatan", [13, 17], 100)]),
+            ]},
+        ])
+        _write_ledger(ledger_dir, led)
+        res = writer.record_settlement(
+            date="2026-05-30", results=[_result("pf-B#t1", 1090, True)])
+        assert res.settled_tickets == 1 and res.total_payout == 1090
+        saved = json.loads((ledger_dir / "2026-05-30.json").read_text(encoding="utf-8"))
+        pfs = {p["portfolio_id"]: p for p in saved["races"][0]["portfolios"]}
+        # superseded は一切触られない (settled_at なし、 pnl 再計算なし)
+        assert pfs["pf-A"]["tickets"][0].get("settled_at") is None
+        assert "portfolio_pnl" not in pfs["pf-A"]
+        # active のみ精算され race は SETTLED (superseded を残 ticket と数えない)
+        assert pfs["pf-B"]["portfolio_pnl"] == 990
+        assert saved["races"][0]["state"] == "SETTLED"
+        # SETTLED イベントは active portfolio の 1 件のみ
+        assert len([e for e in saved["events"] if e["type"] == "SETTLED"]) == 1
+
 
 # =====================================================================
 # settle() — DB をモックした end-to-end
@@ -482,6 +507,28 @@ class TestSettleEndToEnd:
         saved = json.loads((ledger_dir / "2026-05-30.json").read_text(encoding="utf-8"))
         assert saved["races"][0]["state"] == "SUBMITTED"
         assert saved["races"][0]["portfolios"][0]["tickets"][0].get("settled_at") is None
+
+    def test_settle_skips_superseded(self, ledger_dir, monkeypatch):
+        # シズネ 🟡-2: settle_ledger.settle が superseded portfolio を再精算しない
+        led = _ledger("2026-05-30", [
+            {"race_id": "2026053008031104", "state": "SUBMITTED", "portfolios": [
+                {**_portfolio("pf-A", [_ticket("pf-A#t1", "tansho", [13], 100)]),
+                 "superseded_by_repair": True},
+                _portfolio("pf-B", [_ticket("pf-B#t1", "tansho", [9], 200)]),
+            ]},
+        ])
+        _write_ledger(ledger_dir, led)
+        monkeypatch.setattr(settle_ledger, "get_finish_positions",
+                            lambda rid, rd: ({13: 1, 9: 5}, 16))
+        monkeypatch.setattr(settle_ledger, "get_final_win_odds",
+                            lambda rid: {13: {"odds": 3.2}, 9: {"odds": 8.0}})
+        out = settle_ledger.settle("2026-05-30")
+        # superseded の pf-A (馬番13) は settle されず、 active の pf-B (馬番9) のみ精算
+        assert out["settled"] == 1
+        saved = json.loads((ledger_dir / "2026-05-30.json").read_text(encoding="utf-8"))
+        pfs = {p["portfolio_id"]: p for p in saved["races"][0]["portfolios"]}
+        assert pfs["pf-A"]["tickets"][0].get("settled_at") is None
+        assert pfs["pf-B"]["tickets"][0].get("settled_at") is not None
 
     def test_settle_reconciled_flag_propagates(self, ledger_dir, monkeypatch):
         led = _ledger("2026-05-30", [
