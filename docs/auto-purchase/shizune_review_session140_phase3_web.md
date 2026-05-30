@@ -157,3 +157,76 @@ UI 上の描画（`BetTypeSelectionTab.tsx`）:
 検証: 新規/修正ファイル tsc エラー0・eslint clean（`set-state-in-effect` 回避済）。odds-race ページ HTTP 200（combo / -EV単集中 両レース）。API 400/404 ガード健在。
 
 → **2巡目レビュー（🔴-1 クローズ確認）をシズネに依頼中。**
+
+---
+
+## 2巡目（カカシ修正の検証 / シズネ）
+
+### 結論: 🔴-1 クローズ = **YES**。残 🔴 ゼロ → **無条件 GO**（display-only）。
+
+独立検証（実 API + artifact 直読み + JS ロジック再現 + Python 選択ロジック精読）で、1巡目の 🔴-1 と 🟡4 点が全て意図通り潰れたことを確認。新たな誤誘導・表示崩れは無し。1 点だけ将来の 🟢（実害ゼロの理論境界）を置き土産として残す。
+
+### 🔴-1（本丸）クローズ根拠
+
+検証は全て「artifact の実値 → JS の判定ロジックを Python で再現 → コードと一致」で裏取り。
+
+1. **EV<floor の selected 行に amber「期待値−」バッジ** — `BetTypeSelectionTab.tsx:192` `isNegEv = ev !== null && ev < evFloor`、`:301`→`:311-314` で発火。実 API `2026053008031103`（単 EV=0.528 / 複 EV=0.683）で両行 `negEv=True` を確認。
+2. **EV 値色 灰→amber** — `:329-332` `negEv ? 'text-amber-700 ... font-semibold' : evColor(...)`。`negEv` 行は amber、それ以外は従来 `evColor`。意図通り。
+3. **単集中×全アンカー -EV バナー** — `:189-190` `concentratedNegative = selected.length>0 && comboSelected.length===0 && !hasPositiveSelected`、`:272-278` で「複合が全部降り、残るのは期待値マイナスの◎単／複だけ。集中≠安全。見送りも有力」を amber バナーで前面化。`2026053008031103` で `concentratedNegative=True` を確認。
+4. **二重後押しの除去** — 旧「複合券種なし → 軸◎に集中」注記（集中をさらに後押ししていた）に `&& !concentratedNegative` ガード（`:266`）が付き、バナーが出るレースでは消える。前向き注記と警告バナーが同時に出る矛盾を回避。良い修正。
+
+### `concentratedNegative` の境界を厳しく検証（5/30 全 24 レース走査）
+
+| 境界ケース | 期待挙動 | 実測 | 判定 |
+|---|---|---|---|
+| 単集中×全-EV（combo 0・positiveEV 0） | バナー発火 | **10/24 レースで True**（誤発火なし） | ✅ |
+| combo>0（複合 fund あり） | バナー不発火 | 全て False（`2026053005021102` 等） | ✅ |
+| 単集中だが EV>=floor（プラス） | バナー不発火・行バッジなし | `…105`(単1.047/複1.052)/`…109`(単1.242) で `CN=False` | ✅ |
+| **単集中・単はプラス／複だけ -EV** | バナー出ない・複行のみバッジ | **`2026053008031109`（単1.242 / 複0.939）で `CN=False` かつ複行 `negEv=True`**。banner と badge の役割分担が実データで効いている | ✅ |
+| selected 空（skip_all / fund対象0） | バナー不発火（`selected.length>0` ガード） | 該当 0 件だがコード上 False 確定 | ✅ |
+
+- **「combo>0 だが全部 -EV」でバナーも行バッジも漏れる見落とし** — concentrate は `funded AND merit`（`bettype_selection.py:252`）の AND 条件なので combo 選択行は構造的に EV>=floor のみ。5/30 でも該当 0 件。よって concentrate ではこの穴は起き得ない（行バッジも当然不要）。
+  - ただし **`spread_if_worth` 戦略**（`bettype_selection.py:279-296`）は `should_fund` を通らなくても `vs_tansho=='gt'` なら EV<floor の combo を selected に残す。この戦略では combo>0 でも -EV 行が混ざりうる → そのとき `concentratedNegative=False`（combo>0 のため）でバナーは出ないが、**行バッジ（`isNegEv`）は EV<floor を拾うので各 combo 行に「期待値−」が立つ**。バナーは「全アンカーが -EV のとき集中を戒める」用途、行バッジは「個別 -EV を埋もれさせない」用途で役割が分離しており、`spread_if_worth` でも行バッジが誤誘導を防ぐ。穴なし。
+
+### 🟡 クローズ確認
+
+- **🟡-1**: ヘッダー戦略バッジが `sel.strategy`（実効）に修正（`:208`）、`sel.strategy !== sel.requested_strategy` で「（要求 ◯◯）」併記（`:209-213`）。`requested_strategy` を実使用（reader 型 `betting-selection-reader.ts:55` が UI に到達）。`STRATEGY_LABEL` に `skip_all:'全見送り'`（`:48`）があるので skip_all フォールバック時は「戦略: 全見送り（要求 集中（保守））」と正しく出る。判定（`isSkipAll`, `:177`）と表示のソースずれ解消。✅
+- **🟡-3**: vs単 列ヘッダーに「※参考」（`:295`、`text-gray-400`）。選定根拠は EV 絶対水準である旨を列レベルで補強。✅
+- **🟡-4**: 見出し「✅ 買う候補」（`:264`）/「✖ 降りた候補」（`:358`）に弱化。candidate 性が見出しに織り込まれた。✅
+- 🟡-2 は忠実表示として保留（合意済）。回帰なし。
+
+### 回帰チェック（新たな誤誘導・表示崩れ）
+
+- **バナー多重表示なし**: 誤誘導防止バナー（vs単 説明・`:242-248`）はヘッダーカード、`concentratedNegative` バナー（`:272-278`）は selected カード冒頭で別カード。同一レースで両方出ても文脈が分離しており「うるさすぎる」二重警告にはならない。むしろ前者=一般原則、後者=このレース固有の警告で補完関係。
+- **「複合券種なし→軸◎に集中」と警告バナーの矛盾**: `:266` の `!concentratedNegative` ガードで排他。前向き注記が出るのは「単集中だが残りがプラス」のレース（`…105`/`…109`）のみで、これは集中して問題ないケース。整合。
+- **バッジ過剰**: `negEv` バッジは EV<floor の行のみ。combo がプラスのレース（`…102` 等）では 0 個。控除率下の常態（-EV 多発）でも、selected に残るのはアンカー（常に fund）と EV>=floor の combo なので、バッジが付くのはアンカー -EV と spread_if_worth の残置 combo に限られ、洪水にはならない。
+- **forced amber の読みやすさ**: EV 列が amber + 行頭バッジ amber + （該当時）バナー amber と amber が重なるが、これは「-EV を埋もれさせない」という 🔴-1 の趣旨に沿った意図的強調であり、過剰評価不要（display-only）。
+
+### 🟢 置き土産（実害ゼロ・将来の堅牢化メモ、GO を妨げない）
+
+- **🟢 null-EV アンカー × バナー文言の断定**: anchor（単/複）は `should_fund` で常に fund=True（`bettype_selection.py:145`）、かつ EV が null でも selected に入る。単勝オッズ完全欠落（`axis_odds=None`、`bettype_efficiency.py:374`）のレースで単集中になると、`hasPositiveSelected=false`（null は `>= floor` を満たさず除外、`:183-184`）＋ combo 0 → `concentratedNegative=true` でバナーが出る。だがバナー文言は「**期待値マイナス**の◎単／複だけ」と断定する一方、`isNegEv = ev !== null && ev < floor`（`:192`）は null 行にバッジを立てない。つまり「EV 不明（マイナスと確定していない）」を「マイナス」と断言する**逆方向の軽い誤誘導**になりうる。
+  - **実害**: 現存 artifact 全 24 レースで null-EV anchor は **0 件**。`2026053008031103` も単勝オッズだけは取れて EV=0.53 が出ている。完全欠落（単勝すら取れない）は朝早い時間・取消・地方等で理論上起きうるが頻度は極小。
+  - **将来対応案（任意）**: バナー / バッジ判定を「EV<floor かつ非null」と「EV=null（不明）」で文言分岐するか、null-EV anchor のみのレースは `concentratedNegative` から外して「市場オッズ未取得＝選択材料不足」の warning（既に `warnings` 表示機構あり・`:416-418`）に寄せる。display-only かつ実害 0 のため 🟢。
+
+### 検証に使った根拠
+
+- 実 API: `2026053008031103`（単集中×全-EV、`CN=True`・両行バッジ）/ `2026053005021102`（combo 3 fund、`CN=False`・バッジ 0）を curl→python json で確認。
+- artifact 直読み（`C:\KEIBA-CICD\data3\races\2026\05\30\betting_selection.json`）で 24 レース全走査 → `concentratedNegative=10`、combo 全-EV=0、skip_all=0、null-EV anchor=0。混合ケース `2026053008031109`（単+/複−）を実確認。
+- 全 artifact 横断（現状 5/30 のみ）で null-EV anchor 0 件。
+- Python 選択ロジック精読（`should_fund` `:132-149`、`_select_concentrate` `:242-262`、`_select_spread_if_worth` `:279-296`、`build_plans` `:374-381`）で combo に -EV が混ざる戦略を特定し、行バッジが拾うことを確認。
+
+### ふくだ君に確認したい論点（2巡目）
+
+1. **🟢 null-EV アンカーのバナー文言**: 実害 0 だが、将来「単勝オッズ完全欠落」レースが単集中になると「期待値マイナスと断言するが実は不明」になる。今は据え置き（GO）で良いか、それとも将来 vb_refresh 統合（artifact 鮮度自動化）のタイミングで「不明」表示を入れるか。記録だけ残したい。
+2. **`spread_if_worth` の行バッジ運用**: この戦略は EV<floor の combo を「相対妙味あり」で selected に残す = 行に「期待値−」バッジが並ぶ。これは正しい挙動だが、ふくだ君の運用で `spread_if_worth` を使う想定があるなら、「-EV だが広げる」の意図が select_reason（`:317-319`）で十分伝わるか、実レースで一度目視確認しておきたい。
+
+→ **2巡目クローズ。display-only として無条件 GO（マージ可）。**
+
+### 🟢 (null-EV アンカー文言) も先回り対応
+
+シズネ 2巡目の置き土産（アンカー EV が全 null のとき banner が「マイナス」と断言＝不明を負と誤誘導）を、0 件でも誤誘導防止の本丸として先回り修正。
+- `concentratedNegative` を「base-only かつ正の妙味なし **かつ アンカーに EV 算出済が1件以上**」に厳格化（`anchorEvKnown`）。
+- 全アンカー EV=null は別フラグ `concentratedUnknownEv` で**灰色の「判断材料なし（オッズ未取得）。オッズ確定後に再生成を」**バナーに分離（マイナスと断言しない）。
+- 全 artifact (5/30 の 24 レース) で `concentratedUnknownEv` は 0 件 = 既存挙動は不変、将来オッズ確定前生成の経路だけ塞いだ。tsc/eslint clean・両レース HTTP 200 維持。
+
+→ **残 🔴 ゼロ・残 🟡 ゼロ・🟢 も対応済。Phase3 web 配線 完了。**

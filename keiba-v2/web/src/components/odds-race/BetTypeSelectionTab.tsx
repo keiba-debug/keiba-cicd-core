@@ -183,11 +183,21 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
   const hasPositiveSelected = sel.selected_plans.some(
     (p) => p.expected_return !== null && p.expected_return >= evFloor,
   );
-  // 🔴-1: 「複合は全部降り、 残るのは期待値マイナスの◎単/複だけ」= 単集中だが -EV のみ。
-  //   decision_reason が「単勝◎に集中」と前向きに出るのに実質 -EV を踏ませる罠を、
-  //   カード冒頭の警告バナーで前面化する (10/24 レースで起きる常態)。
-  const concentratedNegative =
+  // 複合が全部降り、 残るのは◎単/複 (アンカー) だけ = 単集中で正の妙味なし。
+  const baseOnlyNoPositive =
     sel.selected_plans.length > 0 && comboSelected.length === 0 && !hasPositiveSelected;
+  // 残ったアンカーに EV が算出済 (オッズ取得済) のものがあるか。
+  //   1 つでも EV が分かれば「期待値マイナス」と断言できる。 全て null なら EV 不明 = 別文言。
+  const anchorEvKnown = sel.selected_plans.some(
+    (p) => (p.bet_type === 'tansho' || p.bet_type === 'fukusho') && p.expected_return !== null,
+  );
+  // 🔴-1: 「単集中だが残るのは期待値マイナスの◎単/複だけ」= 前向きな decision_reason の裏で
+  //   実質 -EV を踏ませる罠を、 カード冒頭の警告バナーで前面化 (10/24 レースで起きる常態)。
+  const concentratedNegative = baseOnlyNoPositive && anchorEvKnown;
+  // 🟢 (シズネ 2巡目): アンカーの EV が全て null (オッズ未取得) のときは「マイナス」と断言せず
+  //   「判断材料なし」と正直に出す (不明を負と誤誘導しない)。 現 artifact では 0 件だが、
+  //   オッズ確定前に生成すると起こりうる経路を塞ぐ。
+  const concentratedUnknownEv = baseOnlyNoPositive && !anchorEvKnown;
   // selected 行ごとの -EV 判定 (◎単/複アンカーは EV<1.0 でも fund される = 正直に立てる)
   const isNegEv = (ev: number | null): boolean => ev !== null && ev < evFloor;
 
@@ -263,7 +273,7 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
             <span className="text-sm font-bold text-green-700 dark:text-green-400">
               ✅ 買う候補（{sel.selected_plans.length} 件）
             </span>
-            {!isSkipAll && comboSelected.length === 0 && !concentratedNegative && (
+            {!isSkipAll && comboSelected.length === 0 && !concentratedNegative && !concentratedUnknownEv && (
               <span className="text-[11px] text-gray-500">複合券種なし → 軸◎に集中</span>
             )}
           </div>
@@ -274,6 +284,14 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
               ⚠ このレースは<strong>複合券種が全部降り</strong>、残るのは
               <strong>期待値マイナスの◎単／複だけ</strong>です。「軸◎に集中」＝安全ではありません。
               買うなら◎単ですが、<strong>控除込みで期待値はマイナス</strong>（見送りも有力な選択）。
+            </div>
+          )}
+
+          {/* 🟢: アンカーの EV が全て不明 (オッズ未取得) = 「マイナス」と断言せず判断材料なしと正直に */}
+          {concentratedUnknownEv && (
+            <div className="mb-3 rounded-md border border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/40 px-3 py-2 text-[12px] text-gray-700 dark:text-gray-300">
+              ⚠ 複合券種が全部降り、◎単／複の<strong>期待値も算出できていません</strong>
+              （オッズ未取得など）。<strong>判断材料が揃っていません</strong>。オッズ確定後に再生成してください。
             </div>
           )}
 
