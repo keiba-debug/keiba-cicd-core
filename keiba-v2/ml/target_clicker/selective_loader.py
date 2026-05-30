@@ -166,8 +166,17 @@ def _validate_bet(idx: int, raw: dict) -> SelectiveBetEntry:
     )
 
 
-def load_selective_bets(path: Path, *, now: Optional[datetime] = None) -> LoadResult:
-    """selective_bets.json を読み込み + schema 検証。 違反は SchemaError raise。"""
+def load_selective_bets(path: Path, *, now: Optional[datetime] = None,
+                        require_funded: bool = False) -> LoadResult:
+    """selective_bets.json を読み込み + schema 検証。 違反は SchemaError raise。
+
+    Args:
+        require_funded: vote-mode。 True なら amount 未設定 (= 表示専用候補) の bet を
+            投票させない (SchemaError)。 Session 137: `selective_bets.json` (表示用、
+            grade_top_p/emerging_w_not_top2、 amount=None、 EV<1.0 も含む) を
+            `--from-date today` で誤投票するのを構造的に防ぐ。 freebudget_kelly_1q
+            (amount 付き・EV>=1.0・Kelly sizing 済) のみが funded = 投票可能。
+    """
     if now is None:
         now = datetime.now()
 
@@ -228,6 +237,18 @@ def load_selective_bets(path: Path, *, now: Optional[datetime] = None) -> LoadRe
         if key in seen:
             warnings.append(f"重複 bet: race_id={b.race_id} umaban={b.umaban}")
         seen.add(key)
+
+    # vote-mode: amount 未設定 (表示専用候補) は投票させない (Session 137 衝突解消)
+    if require_funded:
+        unfunded = [b for b in bets if b.amount is None]
+        if unfunded:
+            srcs = sorted({b.source for b in unfunded})
+            raise SchemaError(
+                f"vote-mode: amount 未設定 (表示専用) の bet は投票不可: "
+                f"{len(unfunded)}/{len(bets)} 件 (source={srcs})。 "
+                f"投票には freebudget_bets.json (Kelly sizing 済) を使うか、 "
+                f"表示候補をフラット金額で投票する場合のみ --allow-unfunded を明示指定: {path}"
+            )
 
     n_grade = sum(1 for b in bets if b.source == "grade_top_p")
     n_emerging = sum(1 for b in bets if b.source == "emerging_w_not_top2")

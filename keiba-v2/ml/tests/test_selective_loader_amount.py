@@ -121,3 +121,34 @@ class TestNonFreebudgetSource:
         p = _write_json(tmp_path, [bet])
         with pytest.raises(SchemaError, match="amount は source="):
             load_selective_bets(p)
+
+
+class TestVoteModeFunded:
+    """Session 137: require_funded (vote-mode) — 表示専用 selective の誤投票防止"""
+
+    def test_display_only_selective_rejected_in_vote_mode(self, tmp_path):
+        # grade_top_p / emerging_w_not_top2 は amount なし (表示専用) → vote-mode で弾く
+        p = _write_json(tmp_path, [
+            _base_grade_bet(),
+            _base_grade_bet(umaban=8, source="emerging_w_not_top2"),
+        ])
+        with pytest.raises(SchemaError, match="vote-mode: amount 未設定"):
+            load_selective_bets(p, require_funded=True)
+
+    def test_display_only_selective_ok_without_vote_mode(self, tmp_path):
+        # 既定 (require_funded=False) では表示専用も読める (web 表示・dry-run 用)
+        p = _write_json(tmp_path, [_base_grade_bet()])
+        loaded = load_selective_bets(p, require_funded=False)
+        assert len(loaded.bets) == 1 and loaded.bets[0].amount is None
+
+    def test_freebudget_funded_accepted_in_vote_mode(self, tmp_path):
+        # freebudget_kelly_1q は amount 付き (funded) → vote-mode でも通る
+        p = _write_json(tmp_path, [_base_freebudget_bet()])
+        loaded = load_selective_bets(p, require_funded=True)
+        assert len(loaded.bets) == 1 and loaded.bets[0].amount == 300
+
+    def test_mixed_funded_and_display_rejected_in_vote_mode(self, tmp_path):
+        # funded と表示専用が混在 → 表示専用が 1 件でもあれば vote-mode で弾く
+        p = _write_json(tmp_path, [_base_freebudget_bet(), _base_grade_bet(umaban=8)])
+        with pytest.raises(SchemaError, match="vote-mode: amount 未設定"):
+            load_selective_bets(p, require_funded=True)

@@ -67,10 +67,19 @@ BANKROLL_CONFIG_PATH = Path(
 ) / "userdata" / "bankroll" / "config.json"
 
 
-def selective_bets_path_for_date(d: date_cls) -> Path:
-    """data3/races/{yyyy}/{mm}/{dd}/selective_bets.json を返す"""
+def _races_dir_for_date(d: date_cls) -> Path:
     root = Path(os.getenv("KEIBA_DATA_ROOT", "C:/KEIBA-CICD/data3"))
-    return root / "races" / f"{d.year:04d}" / f"{d.month:02d}" / f"{d.day:02d}" / "selective_bets.json"
+    return root / "races" / f"{d.year:04d}" / f"{d.month:02d}" / f"{d.day:02d}"
+
+
+def selective_bets_path_for_date(d: date_cls) -> Path:
+    """data3/races/{yyyy}/{mm}/{dd}/selective_bets.json を返す (表示専用候補)"""
+    return _races_dir_for_date(d) / "selective_bets.json"
+
+
+def freebudget_bets_path_for_date(d: date_cls) -> Path:
+    """data3/races/{yyyy}/{mm}/{dd}/freebudget_bets.json を返す (本番=投票可能/funded)"""
+    return _races_dir_for_date(d) / "freebudget_bets.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,6 +92,9 @@ def parse_args() -> argparse.Namespace:
                    help="YYYY-MM-DD または 'today': data3/races/yyyy/mm/dd/selective_bets.json を自動解決")
     p.add_argument("--amount", type=int, default=100,
                    help="--from-json/--from-date 時の 1 件あたり金額 (default=100)")
+    p.add_argument("--allow-unfunded", action="store_true",
+                   help="amount 未設定 (表示専用 selective 候補) の投票を明示許可。 "
+                        "既定は vote-mode (funded 必須) で表示候補の誤投票を防ぐ (Session 137)")
 
     p.add_argument("--confirm", action="store_true",
                    help="実 click (なければ FF CSV 出力だけして click は dry-run)")
@@ -123,14 +135,26 @@ def parse_args() -> argparse.Namespace:
 
 
 def _resolve_from_date(arg: str) -> Path:
+    """--from-date の日付から投票対象 JSON を解決。
+
+    Session 137 衝突解消: 本番 freebudget_bets.json (funded/EV>=1.0/Kelly) を優先し、
+    無ければ selective_bets.json (表示専用候補) に fallback。 selective は amount 無しのため
+    vote-mode (require_funded) で弾かれる (--allow-unfunded 明示時のみ投票可)。
+    """
     if arg.lower() == "today":
         d = date_cls.today()
     else:
         d = datetime.strptime(arg, "%Y-%m-%d").date()
-    p = selective_bets_path_for_date(d)
-    if not p.exists():
-        raise FileNotFoundError(f"selective_bets.json not found for {d}: {p}")
-    return p
+    fb = freebudget_bets_path_for_date(d)
+    if fb.exists():
+        return fb
+    sel = selective_bets_path_for_date(d)
+    if sel.exists():
+        return sel
+    raise FileNotFoundError(
+        f"投票対象 JSON が見つからない for {d}: "
+        f"{fb} も {sel} も無し (freebudget 生成 or selective 生成が必要)"
+    )
 
 
 def load_bets_from_args(args: argparse.Namespace
@@ -157,8 +181,10 @@ def load_bets_from_args(args: argparse.Namespace
     if args.from_date:
         json_paths.append(_resolve_from_date(args.from_date))
 
+    # vote-mode: 既定で funded 必須 (表示専用 selective の誤投票を防ぐ)。--allow-unfunded で緩和
+    require_funded = not getattr(args, "allow_unfunded", False)
     for jp in json_paths:
-        loaded = load_selective_bets(jp)  # SchemaError 時は abort
+        loaded = load_selective_bets(jp, require_funded=require_funded)  # SchemaError 時は abort
         warnings.extend(loaded.warnings)
         for b in loaded.bets:
             # Session 134: bet.amount が schema 由来で入っていればそれを優先
