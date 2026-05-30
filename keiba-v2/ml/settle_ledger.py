@@ -293,7 +293,9 @@ def settle(date: str, force: bool = False, dry_run: bool = False,
 
     for race in ledger.get("races", []):
         race_id = race.get("race_id")
+        # 修復で差し替えられた旧 portfolio (superseded) は再精算しない (Session 137)
         tickets = [t for pf in race.get("portfolios", [])
+                   if not pf.get("superseded_by_repair")
                    for t in pf.get("tickets", [])]
         if not tickets:
             continue

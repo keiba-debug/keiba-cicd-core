@@ -48,6 +48,7 @@ export interface LedgerPortfolio {
   portfolio_total: number;
   portfolio_pnl?: number;   // settle 後
   portfolio_roi?: number;   // settle 後 (回収率: payout/invest)
+  superseded_by_repair?: boolean; // 修復で差し替えられた旧 portfolio (集計対象外, Session 137)
 }
 
 export interface LedgerRace {
@@ -271,6 +272,7 @@ export function flattenLedger(ledger: Ledger, metaMap?: Map<string, RaceMeta>): 
     let raceAllReconciled = true; // settle 済 ticket が全て突合済か
 
     for (const pf of race.portfolios || []) {
+      if (pf.superseded_by_repair) continue; // 修復で差し替えられた旧 portfolio は集計対象外 (Session 137)
       for (const tk of pf.tickets || []) {
         const amount = tk.total_amount || 0;
         const settled = tk.settled_at != null;

@@ -757,6 +757,8 @@ def record_settlement(
         race_has_ticket = False
         race_all_settled = True
         for pf in race.get("portfolios", []):
+            if pf.get("superseded_by_repair"):
+                continue  # 修復で差し替えられた旧 portfolio は精算・集計対象外 (Session 137)
             pf_newly_settled = False
             for tk in pf.get("tickets", []):
                 race_has_ticket = True
