@@ -331,48 +331,59 @@ def _window_has_menu(window) -> bool:
         return False
 
 
-def find_target_window(name_contains: str = TARGET_WINDOW_KEYWORD):
-    """TARGET 主ウィンドウを確実に掴む (Session 135 シズネ対応 / 堅牢化)
+def find_target_window(name_contains: str = TARGET_WINDOW_KEYWORD,
+                       *, retries: int = 6, retry_sleep: float = 0.5):
+    """TARGET 主ウィンドウ (File->IPAT メニューを持つ窓) を確実に掴む。
 
-    旧実装は「keyword を含む最初の可視ウィンドウ」 を返していたため、 ふくだが
-    別作業で開いた TARGET 系ウィンドウや投票後の残りウィンドウを誤って掴み、
-    File→IPAT メニューが無くて step1 が失敗していた (Session 135 実機で発覚)。
+    Session 135 (実機で 2 度発覚): ふくだの別作業窓や、 投票処理中に一瞬現れる過渡的な
+    'TARGET frontier JV' 窓を誤って掴むと File->IPAT メニューが無く step1 が失敗する。
+    旧実装は「単一候補は無検査で返す」 ため、 過渡窓が唯一の候補だった瞬間に誤掴みした。
 
-    対策: keyword を含む全候補を集め、 (1) メニューを持つ (2) タイトルが keyword で
-    始まる でスコアリングして主ウィンドウを選ぶ。 複数候補時は stderr 警告
-    (無人運用で「別ウィンドウが開いている」 を可視化する目的)。
+    対策: keyword 一致窓のうち**メニュー保有窓 (= 主ウィンドウ) を最優先**で選ぶ。
+    メニュー無し窓しか無いときは主ウィンドウ出現待ちで数回リトライ (過渡窓は消える)。
+    最後までメニュー保有窓が出なければ最終手段で menu 無し窓を返す (loud 警告)。
     """
-    candidates = []
-    for w in Desktop().windows():
-        try:
-            if not w.is_visible():
+    import time
+    last_candidates: list = []
+    for attempt in range(max(1, retries)):
+        candidates = []
+        for w in Desktop().windows():
+            try:
+                if not w.is_visible():
+                    continue
+                text = w.window_text() or ""
+                if name_contains in text:
+                    candidates.append((w, text))
+            except Exception:
                 continue
-            text = w.window_text() or ""
-            if name_contains in text:
-                candidates.append((w, text))
-        except Exception:
-            continue
-    if not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0][0]
+        last_candidates = candidates
 
-    # 複数 = 干渉ウィンドウあり。 メニュー保有 + タイトル前方一致 で主ウィンドウを選別
-    def _score(item) -> int:
-        w, text = item
-        s = 0
-        if _window_has_menu(w):
-            s += 4
-        if text.startswith(name_contains):
-            s += 2
-        return s
+        # メニュー保有窓 (= 主ウィンドウ) を最優先。 タイトル前方一致で更に優先
+        with_menu = [(w, t) for (w, t) in candidates if _window_has_menu(w)]
+        if with_menu:
+            with_menu.sort(key=lambda it: it[1].startswith(name_contains),
+                           reverse=True)
+            if len(candidates) > 1:
+                print(f"[menu_runner] TARGET 候補 {len(candidates)} 個 "
+                      f"{[t for _, t in candidates]} -> メニュー保有の主ウィンドウ "
+                      f"{with_menu[0][1]!r} を選択", file=sys.stderr)
+            return with_menu[0][0]
 
-    scored = sorted(candidates, key=_score, reverse=True)
-    titles = [t for _, t in candidates]
-    print(f"[menu_runner] ⚠ TARGET 候補ウィンドウが {len(candidates)} 個: {titles} "
-          f"→ 主ウィンドウとして {scored[0][1]!r} を選択 (menu保有優先)",
-          file=sys.stderr)
-    return scored[0][0]
+        # メニュー保有窓なし (過渡窓のみ or 起動待ち) -> 主ウィンドウ出現待ちでリトライ
+        if attempt < retries - 1:
+            if candidates:
+                print(f"[menu_runner] メニュー無し窓のみ "
+                      f"{[t for _, t in candidates]} — 主ウィンドウ出現待ち "
+                      f"(retry {attempt + 1}/{retries})", file=sys.stderr)
+            time.sleep(retry_sleep)
+
+    # 最終手段: メニュー保有の主ウィンドウが最後まで見つからず
+    if last_candidates:
+        print(f"[menu_runner] ⚠ メニュー保有の主ウィンドウが見つからず、 "
+              f"menu 無し窓を使用 (step1 失敗の可能性大): {last_candidates[0][1]!r}",
+              file=sys.stderr)
+        return last_candidates[0][0]
+    return None
 
 
 def print_menu_structure(window) -> None:

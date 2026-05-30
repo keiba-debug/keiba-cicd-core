@@ -7,6 +7,10 @@ REM   freebudget_race.bat <date> <race_id> --confirm  指定レース 本番投票
 REM
 REM 時刻定義: 締切=発走-2分 / 投票推奨=締切-4分(=発走-6分)
 REM bankroll は 10000 固定 (OOS 条件: 1万円フリー予算)。
+REM 投票/指定レースモードは先頭で vb_refresh して直前オッズに更新してから候補計算する
+REM (ふくだ要望 Session 135: 直前にオッズ見直し)。
+REM 音声は VOICEVOX ぞん子 実況風(ID93)。 bat 内で env を set するので起動元に依存しない
+REM (VOICEVOX 未起動時は notify が SAPI 低めトーンに自動フォールバック)。
 REM 投票出力はコンソールに直接出す (付きっ切り監視のため)。
 REM 前提: TARGET起動 + IPATログイン (暗証番号) は手動で済ませておくこと。
 REM ============================================
@@ -17,6 +21,10 @@ set KEIBA_V2=C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2
 set VENV=%KEIBA_V2%\.venv\Scripts\activate.bat
 set DATA_ROOT=C:\KEIBA-CICD\data3
 
+REM --- 音声エンジン設定 (bat 内固定 = setx に依存しない / Session 135) ---
+set KEIBA_TTS_ENGINE=voicevox
+set KEIBA_VOICEVOX_SPEAKER=93
+
 set DATE_ARG=%1
 if "%DATE_ARG%"=="" set DATE_ARG=today
 set RACE_ID=%2
@@ -25,7 +33,7 @@ set MODE_ARGS=%3 %4
 cd /d "%KEIBA_V2%"
 call "%VENV%"
 
-REM --- race_id 無し → 一覧表示 (ライブ監視ダッシュボード) ---
+REM --- race_id 無し → 一覧表示 (ライブ監視ダッシュボード。 こちらは vb_refresh しない) ---
 if "%RACE_ID%"=="" (
     python -m ml.strategies.freebudget_race --date %DATE_ARG%
     endlocal
@@ -38,6 +46,10 @@ set MM=%RACE_ID:~4,2%
 set DD=%RACE_ID:~6,2%
 set DATE_FROM_ID=!YYYY!-!MM!-!DD!
 set FB_JSON=%DATA_ROOT%\races\!YYYY!\!MM!\!DD!\freebudget_bets_%RACE_ID%.json
+
+REM --- (0) 直前オッズ見直し (ふくだ要望 Session 135): vb_refresh で最新オッズに更新 ---
+echo [freebudget_race] vb_refresh で直前オッズに更新中...
+python -m ml.vb_refresh --today
 
 REM --- (1) 指定レースだけ freebudget_bets_<id>.json を生成 ---
 python -m ml.strategies.freebudget_race --date !DATE_FROM_ID! --race-id %RACE_ID%

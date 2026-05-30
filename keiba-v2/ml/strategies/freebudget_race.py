@@ -76,35 +76,59 @@ def _load_post_times_from_file(date_dir: Path) -> dict[str, str]:
     return out
 
 
-def load_post_times_from_db(date_str: str) -> dict[str, str]:
-    """mykeibadb RACE_SHOSAI.HASSO_JIKOKU (HHmm) を race_id_16 → 'HH:MM' で取得 (正本)。
+def _query_post_times_db(yyyymmdd: str) -> dict[str, str]:
+    """mykeibadb RACE_SHOSAI.HASSO_JIKOKU (HHmm) を race_id_16 → 'HH:MM' (ブロッキング本体)"""
+    out: dict[str, str] = {}
+    from core.db import get_connection
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT RACE_CODE, HASSO_JIKOKU FROM RACE_SHOSAI "
+            "WHERE RACE_CODE LIKE %s ORDER BY RACE_CODE",
+            (f"{yyyymmdd}%",))
+        for rc, hj in cur.fetchall():
+            rc = str(rc or "").strip()
+            hj = str(hj or "").strip()
+            if rc and len(hj) == 4 and hj.isdigit():
+                out[rc] = f"{hj[:2]}:{hj[2:]}"
+    return out
+
+
+def load_post_times_from_db(date_str: str, *, timeout: float = 4.0) -> dict[str, str]:
+    """mykeibadb 発走時刻 (race_id_16 → 'HH:MM')。 正本 (当日変更に追従)。
 
     🔴-3 (シズネ Session 135): race_info.json は昨夜スクレイプで当日の発走時刻変更
-    (繰上げ等) に弱い。 mykeibadb は raceday_odds タスクが 30 分毎に更新し
-    TC(変更情報・発走時刻) も取り込むため当日変更に追従する = 正本。 RACE_CODE は
-    16 桁 race_id と同一 (predict.py の RACE_SHOSAI クエリと同じ前提)。
-    DB 不通時は {} を返し、 呼び出し側が race_info.json にフォールバックする。
+    (繰上げ等) に弱い。 mykeibadb は raceday_odds が更新し TC(変更情報) も取り込む = 正本。
+    RACE_CODE は 16 桁 race_id と同一 (predict.py の RACE_SHOSAI クエリと同前提)。
+
+    ★Session 135 OOS 修正: レース日は raceday_odds が mykeibadb に書込み中で SELECT が
+    ロック待ちハングし得る (実機で発覚)。 daemon スレッド + join(timeout) で上限 timeout 秒に
+    制限し、 超過/失敗/不通時は {} を返す (呼び出し側が race_info.json にフォールバック)。
+    daemon なのでクエリがハングしてもプロセス終了を妨げない。
     """
+    import threading
     yyyymmdd = date_str.replace("-", "")
-    out: dict[str, str] = {}
-    try:
-        from core.db import get_connection
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT RACE_CODE, HASSO_JIKOKU FROM RACE_SHOSAI "
-                "WHERE RACE_CODE LIKE %s ORDER BY RACE_CODE",
-                (f"{yyyymmdd}%",))
-            for rc, hj in cur.fetchall():
-                rc = str(rc or "").strip()
-                hj = str(hj or "").strip()
-                if rc and len(hj) == 4 and hj.isdigit():
-                    out[rc] = f"{hj[:2]}:{hj[2:]}"
-    except Exception as e:                       # DB 不通でも本体を止めない
+    holder: dict = {}
+
+    def _worker():
+        try:
+            holder["v"] = _query_post_times_db(yyyymmdd)
+        except Exception as e:                   # noqa: BLE001 — DB 不通でも本体を止めない
+            holder["err"] = e
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        print(f"[freebudget_race] mykeibadb 発走時刻クエリ {timeout}s 超過 "
+              f"(DB 書込中?) → race_info.json フォールバック", file=sys.stderr)
+        return {}
+    if "err" in holder:
         print(f"[freebudget_race] mykeibadb 発走時刻取得失敗 "
-              f"(race_info.json にフォールバック): {type(e).__name__}: {e}",
-              file=sys.stderr)
-    return out
+              f"(race_info.json フォールバック): {type(holder['err']).__name__}: "
+              f"{holder['err']}", file=sys.stderr)
+        return {}
+    return holder.get("v", {})
 
 
 def load_post_times(date_dir: Path, *, date_str: Optional[str] = None,
