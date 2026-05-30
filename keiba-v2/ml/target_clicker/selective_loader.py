@@ -34,7 +34,8 @@ from typing import Optional
 
 
 ALLOWED_VERSIONS = {"2.0"}
-ALLOWED_SOURCES = {"grade_top_p", "emerging_w_not_top2", "freebudget_kelly_1q"}
+ALLOWED_SOURCES = {"grade_top_p", "emerging_w_not_top2", "freebudget_kelly_1q",
+                   "bettype_selection"}
 RACE_ID_RE = re.compile(r"^\d{16}$")
 
 # bet.amount 検証範囲 (freebudget 用、 100..1000 円 = 1万円フリー予算 1馬上限10%)
