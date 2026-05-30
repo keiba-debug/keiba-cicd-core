@@ -178,6 +178,18 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
   const comboSelected = sel.selected_plans.filter(
     (p) => p.bet_type !== 'tansho' && p.bet_type !== 'fukusho',
   );
+  const evFloor = data.ev_floor;
+  // selected の中に EV>=floor (期待値プラス) が 1 つでもあるか。
+  const hasPositiveSelected = sel.selected_plans.some(
+    (p) => p.expected_return !== null && p.expected_return >= evFloor,
+  );
+  // 🔴-1: 「複合は全部降り、 残るのは期待値マイナスの◎単/複だけ」= 単集中だが -EV のみ。
+  //   decision_reason が「単勝◎に集中」と前向きに出るのに実質 -EV を踏ませる罠を、
+  //   カード冒頭の警告バナーで前面化する (10/24 レースで起きる常態)。
+  const concentratedNegative =
+    sel.selected_plans.length > 0 && comboSelected.length === 0 && !hasPositiveSelected;
+  // selected 行ごとの -EV 判定 (◎単/複アンカーは EV<1.0 でも fund される = 正直に立てる)
+  const isNegEv = (ev: number | null): boolean => ev !== null && ev < evFloor;
 
   return (
     <div className="space-y-4">
@@ -190,8 +202,15 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
               軸◎ {sel.axis_umaban}番 {axisName}
             </Badge>
             <span className="text-sm text-gray-500">単 {fmtOdds(sel.axis_odds)}倍</span>
+            {/* 戦略は実効値 (sel.strategy。 skip_all 等の自動フォールバックを反映)。
+                要求と異なる場合は併記する (🟡-1: file 値だとフォールバックを取り違える)。 */}
             <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              戦略: {strategyLabel(data.selection_strategy)}
+              戦略: {strategyLabel(sel.strategy)}
+              {sel.strategy !== sel.requested_strategy && (
+                <span className="ml-1 font-normal opacity-70">
+                  （要求 {strategyLabel(sel.requested_strategy)}）
+                </span>
+              )}
             </Badge>
             <span className="text-[11px] text-gray-500">EV足切り {data.ev_floor.toFixed(2)}</span>
             {data.taste && (
@@ -237,17 +256,26 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
         </CardContent>
       </Card>
 
-      {/* ✅ 買う券種 (selected_plans) */}
+      {/* ✅ 買う候補 (selected_plans) */}
       <Card>
         <CardContent className="pt-4">
           <div className="mb-2 flex items-center gap-2">
             <span className="text-sm font-bold text-green-700 dark:text-green-400">
-              ✅ 買う券種（{sel.selected_plans.length} 件）
+              ✅ 買う候補（{sel.selected_plans.length} 件）
             </span>
-            {!isSkipAll && comboSelected.length === 0 && (
+            {!isSkipAll && comboSelected.length === 0 && !concentratedNegative && (
               <span className="text-[11px] text-gray-500">複合券種なし → 軸◎に集中</span>
             )}
           </div>
+
+          {/* 🔴-1: 単集中だが残るのが期待値マイナスのアンカーのみ = 「集中」≠安全 を前面化 */}
+          {concentratedNegative && (
+            <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2 text-[12px] text-amber-900 dark:text-amber-200">
+              ⚠ このレースは<strong>複合券種が全部降り</strong>、残るのは
+              <strong>期待値マイナスの◎単／複だけ</strong>です。「軸◎に集中」＝安全ではありません。
+              買うなら◎単ですが、<strong>控除込みで期待値はマイナス</strong>（見送りも有力な選択）。
+            </div>
+          )}
 
           {sel.selected_plans.length === 0 ? (
             <div className="py-6 text-center text-gray-500 text-sm">
@@ -264,19 +292,28 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
                     <th className="px-2 py-1.5 text-right">的中率</th>
                     <th className="px-2 py-1.5 text-right">合成オッズ</th>
                     <th className="px-2 py-1.5 text-right">期待リターン</th>
-                    <th className="px-2 py-1.5 text-center">vs 単</th>
+                    <th className="px-2 py-1.5 text-center">vs 単 <span className="font-normal text-gray-400">※参考</span></th>
                   </tr>
                 </thead>
                 <tbody>
                   {sel.selected_plans.map((p: SelectedPlan, i) => {
                     const grp = BET_TYPE_GROUP[p.bet_type];
+                    const negEv = isNegEv(p.expected_return);
                     return (
                       <tr key={i} className="border-b border-gray-100 dark:border-gray-800 align-top">
                         <td className={`px-2 py-1.5 whitespace-nowrap ${grp?.color ?? ''}`}>
                           {grp?.label ?? p.bet_type}
                         </td>
                         <td className="px-2 py-1.5">
-                          <div>{p.label}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span>{p.label}</span>
+                            {/* 🔴-1: -EV のプラン (◎単/複アンカーが本命だが期待値マイナス等) を前面化 */}
+                            {negEv && (
+                              <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 text-[10px] whitespace-nowrap">
+                                期待値−
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
                             {p.select_reason}
                           </div>
@@ -288,7 +325,12 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
                         <td className="px-2 py-1.5 text-right tabular-nums font-medium">
                           {fmtOdds(p.synthetic_odds)}
                         </td>
-                        <td className={`px-2 py-1.5 text-right tabular-nums ${evColor(p.expected_return)}`}>
+                        {/* selected の -EV は灰でなく amber で立てる (期待値マイナスを埋もれさせない) */}
+                        <td
+                          className={`px-2 py-1.5 text-right tabular-nums ${
+                            negEv ? 'text-amber-700 dark:text-amber-400 font-semibold' : evColor(p.expected_return)
+                          }`}
+                        >
                           {fmtEv(p.expected_return)}
                         </td>
                         <td className="px-2 py-1.5 text-center">
@@ -313,7 +355,7 @@ export default function BetTypeSelectionTab({ raceId }: Props) {
         <Card>
           <CardContent className="pt-4">
             <div className="mb-2 text-sm font-bold text-gray-500 dark:text-gray-400">
-              ✖ 降りた券種（{sel.skipped_plans.length} 件）
+              ✖ 降りた候補（{sel.skipped_plans.length} 件）
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
