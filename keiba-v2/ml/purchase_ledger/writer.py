@@ -183,6 +183,221 @@ def _make_event(event_type: str, race_id: str, portfolio_id: Optional[str],
     }
 
 
+# bet_type → 必要馬番数 (Session 136: 全券種記録対応)
+_BET_TYPE_HORSE_COUNT = {
+    "tansho": 1, "fukusho": 1,
+    "wakuren": 2, "umaren": 2, "wide": 2, "umatan": 2,
+    "sanrenpuku": 3, "sanrentan": 3,
+}
+
+
+def record_portfolio_votes(
+    *,
+    race_id: str,
+    portfolio_strategy: str,
+    tickets: list[dict],
+    receipt_number: Optional[str] = None,
+    receipt_time: Optional[str] = None,
+    clicked_at: Optional[str] = None,
+) -> RecordResult:
+    """1 レースの 1 意思決定 = 1 portfolio に N 枚の ticket を記録 (Session 136 一般化)。
+
+    券種を問わず (単勝/複勝/枠連/馬連/ワイド/馬単/三連複/三連単)、 各 ticket の
+    実際の bet_type + raw_legs (馬番 1〜3 頭) を正確に記録する。
+    record_tansho_vote が umaban1 だけ見て全券種を tansho に潰し idempotency 衝突で
+    過少記録 (Session 135 recorded=3/11) していた問題の本治療。
+
+    Args:
+        race_id: 16 桁 race_id
+        portfolio_strategy: portfolio 戦略ラベル (この束に共通)
+        tickets: [{bet_type:str, horses:[int], amount:int,
+                   strategy_name?:str, pattern_label?:str, notes?:str,
+                   ev_at_decision?:float}] のリスト。 horses の長さは bet_type に整合必須。
+        receipt_number / receipt_time / clicked_at: IPAT 受付情報
+
+    Returns:
+        RecordResult。 同一 portfolio idempotency が既存なら action="duplicate"。
+        RecordResult.ticket_id は先頭 ticket。
+    """
+    if not isinstance(race_id, str) or len(race_id) != 16:
+        return RecordResult(success=False, action="error",
+                             reason=f"invalid race_id: {race_id!r}")
+    if not tickets:
+        return RecordResult(success=False, action="error", reason="tickets is empty")
+
+    # 各 ticket をバリデーションして正規化
+    norm: list[dict] = []
+    for i, t in enumerate(tickets):
+        bet_type = t.get("bet_type")
+        horses = t.get("horses")
+        amount = t.get("amount")
+        if bet_type not in _BET_TYPE_HORSE_COUNT:
+            return RecordResult(success=False, action="error",
+                                reason=f"ticket[{i}] invalid bet_type: {bet_type!r}")
+        if not isinstance(horses, list) or not horses or \
+                not all(isinstance(h, int) and h > 0 for h in horses):
+            return RecordResult(success=False, action="error",
+                                reason=f"ticket[{i}] invalid horses: {horses!r}")
+        need = _BET_TYPE_HORSE_COUNT[bet_type]
+        if len(horses) != need:
+            return RecordResult(success=False, action="error",
+                                reason=f"ticket[{i}] {bet_type} expects {need} horses, got {len(horses)}")
+        if not isinstance(amount, int) or amount <= 0:
+            return RecordResult(success=False, action="error",
+                                reason=f"ticket[{i}] invalid amount: {amount!r}")
+        norm.append({
+            "bet_type": bet_type,
+            "horses": list(horses),
+            "amount": amount,
+            "strategy_name": t.get("strategy_name", portfolio_strategy),
+            "pattern_label": t.get("pattern_label", "その他"),
+            "notes": t.get("notes", ""),
+            "ev_at_decision": t.get("ev_at_decision"),
+        })
+
+    now = _now_iso()
+
+    # ticket 骨格 (portfolio idempotency 計算用)
+    skels = [{
+        "bet_type": t["bet_type"],
+        "raw_legs": {"horses": t["horses"]},
+        "total_amount": t["amount"],
+    } for t in norm]
+    portfolio_idempotency = make_portfolio_idempotency_key(
+        race_id, portfolio_strategy, skels,
+    )
+
+    ledger_path = _ledger_path_for(race_id)
+    try:
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        ledger = _load_ledger(ledger_path)
+    except Exception as e:
+        return RecordResult(success=False, action="error",
+                             reason=f"ledger load failed: {e}")
+
+    race = _find_or_create_race(ledger, race_id)
+
+    # 重複検査 (同じ意思決定を 2 回 click した場合)
+    dup = _find_duplicate_portfolio(race, portfolio_idempotency)
+    if dup is not None:
+        return RecordResult(
+            success=True, action="duplicate",
+            reason="既存 portfolio と idempotency 一致 — スキップ",
+            portfolio_id=dup["portfolio_id"],
+            ticket_id=(dup["tickets"][0]["ticket_id"] if dup.get("tickets") else None),
+            ledger_path=str(ledger_path),
+        )
+
+    seq = _assign_portfolio_seq(race)
+    portfolio_id = _make_portfolio_id(race_id, seq)
+
+    ticket_objs = []
+    portfolio_total = 0
+    for i, t in enumerate(norm, start=1):
+        raw_legs = {"horses": t["horses"]}
+        ticket_id = f"{portfolio_id}#t{i}"
+        ticket = {
+            "ticket_id": ticket_id,
+            "strategy_name": t["strategy_name"],
+            "formation_type": "single",
+            "pattern_label": t["pattern_label"],
+            "raw_legs": raw_legs,
+            "notes": t["notes"],
+            "bet_type": t["bet_type"],
+            "total_amount": t["amount"],
+            "idempotency_key": make_ticket_idempotency_key(
+                race_id, t["bet_type"], raw_legs, t["strategy_name"]),
+            "created_at": now,
+            "submitted_at": clicked_at or now,
+        }
+        if t["ev_at_decision"] is not None:
+            ticket["ev_at_decision"] = t["ev_at_decision"]
+        if receipt_number:
+            ticket["ipat_confirmed_at"] = now
+            ticket["ipat_receipt_number"] = receipt_number
+            if receipt_time:
+                ticket["ipat_receipt_time"] = receipt_time
+        ticket_objs.append(ticket)
+        portfolio_total += t["amount"]
+
+    portfolio = {
+        "portfolio_id": portfolio_id,
+        "portfolio_strategy": portfolio_strategy,
+        "created_at": now,
+        "tickets": ticket_objs,
+        "portfolio_total": portfolio_total,
+        "idempotency_key": portfolio_idempotency,
+    }
+    race["portfolios"].append(portfolio)
+
+    # イベント追記 (portfolio 単位、 本体 events[] + jsonl 両方)
+    events_to_add = [
+        _make_event("FF_WRITTEN", race_id, portfolio_id, None,
+                    count=len(ticket_objs), amount=portfolio_total),
+        _make_event("TARGET_IMPORTED", race_id, portfolio_id, None, by="target_clicker"),
+        _make_event("APPROVED", race_id, portfolio_id, None, by="target_clicker.auto_vote"),
+    ]
+    if receipt_number:
+        events_to_add.append(_make_event(
+            "IPAT_CONFIRMED", race_id, portfolio_id, None,
+            by="target_clicker.auto_vote",
+            receipt_number=receipt_number, receipt_time=receipt_time,
+        ))
+    for ev in events_to_add:
+        ledger["events"].append(ev)
+        _append_event(ev)
+
+    ok = write_json_atomic(ledger_path, ledger)
+    if not ok:
+        return RecordResult(success=False, action="error",
+                             reason="atomic write failed", portfolio_id=portfolio_id)
+    _update_index(ledger_path, ledger)
+
+    return RecordResult(
+        success=True, action="recorded",
+        reason=f"portfolio + {len(ticket_objs)} ticket 追記成功",
+        portfolio_id=portfolio_id, ticket_id=ticket_objs[0]["ticket_id"],
+        ledger_path=str(ledger_path),
+    )
+
+
+def record_vote(
+    *,
+    race_id: str,
+    bet_type: str,
+    horses: list,
+    amount: int,
+    strategy_name: str,
+    portfolio_strategy: Optional[str] = None,
+    pattern_label: str = "その他",
+    notes: str = "",
+    ev_at_decision: Optional[float] = None,
+    receipt_number: Optional[str] = None,
+    receipt_time: Optional[str] = None,
+    clicked_at: Optional[str] = None,
+) -> RecordResult:
+    """単票 (1 portfolio × 1 ticket) 投票記録。 任意券種対応。
+
+    record_portfolio_votes の 1 ticket ラッパ。 bet_type + horses (1〜3 頭) を渡す。
+    """
+    return record_portfolio_votes(
+        race_id=race_id,
+        portfolio_strategy=portfolio_strategy or strategy_name,
+        tickets=[{
+            "bet_type": bet_type,
+            "horses": list(horses),
+            "amount": amount,
+            "strategy_name": strategy_name,
+            "pattern_label": pattern_label,
+            "notes": notes,
+            "ev_at_decision": ev_at_decision,
+        }],
+        receipt_number=receipt_number,
+        receipt_time=receipt_time,
+        clicked_at=clicked_at,
+    )
+
+
 def record_tansho_vote(
     *,
     race_id: str,
@@ -197,148 +412,26 @@ def record_tansho_vote(
     receipt_time: Optional[str] = None,
     clicked_at: Optional[str] = None,
 ) -> RecordResult:
-    """単勝 1 点投票成立を ledger に記録 (Step 1 minimal subset)。
-
-    Args:
-        race_id: 16 桁 race_id
-        umaban: 馬番 (1-18)
-        amount: 金額 (円)
-        strategy_name: 戦略ラベル (例: "selective_v3_emerging_w")
-        portfolio_strategy: portfolio_strategy (省略時は strategy_name と同じ)
-        pattern_label: 後付け分類用ラベル (省略時 "その他")
-        notes: 自由欄
-        ev_at_decision: 判断時点 EV (省略可)
-        receipt_number: IPAT 受付番号 (4 桁) — あれば IPAT_CONFIRMED event も記録
-        receipt_time: IPAT 受付時刻
-        clicked_at: click 時刻 ISO8601 — submitted_at として記録
-
-    Returns:
-        RecordResult。 同一 idempotency_key の portfolio が既存なら
-        action="duplicate" + 既存 portfolio_id を返す (新規作らない)。
-    """
-    if not isinstance(race_id, str) or len(race_id) != 16:
-        return RecordResult(success=False, action="error",
-                             reason=f"invalid race_id: {race_id!r}")
+    """単勝 1 点投票成立を ledger に記録 (record_vote の tansho ラッパ、 後方互換)。"""
     if not isinstance(umaban, int) or umaban <= 0:
         return RecordResult(success=False, action="error",
                              reason=f"invalid umaban: {umaban!r}")
     if not isinstance(amount, int) or amount <= 0:
         return RecordResult(success=False, action="error",
                              reason=f"invalid amount: {amount!r}")
-
-    p_strategy = portfolio_strategy or strategy_name
-    bet_type = "tansho"
-    raw_legs = {"horses": [umaban]}
-    now = _now_iso()
-
-    # ticket 骨格 (idempotency 計算用)
-    ticket_skel = {
-        "bet_type": bet_type,
-        "raw_legs": raw_legs,
-        "total_amount": amount,
-    }
-    portfolio_idempotency = make_portfolio_idempotency_key(
-        race_id, p_strategy, [ticket_skel],
-    )
-    ticket_idempotency = make_ticket_idempotency_key(
-        race_id, bet_type, raw_legs, strategy_name,
-    )
-
-    ledger_path = _ledger_path_for(race_id)
-
-    try:
-        ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        ledger = _load_ledger(ledger_path)
-    except Exception as e:
-        return RecordResult(success=False, action="error",
-                             reason=f"ledger load failed: {e}")
-
-    race = _find_or_create_race(ledger, race_id)
-
-    # 重複検査 (Session 128 のような同じ投票を 2 回 click した場合)
-    dup = _find_duplicate_portfolio(race, portfolio_idempotency)
-    if dup is not None:
-        return RecordResult(
-            success=True, action="duplicate",
-            reason="既存 portfolio と idempotency 一致 — スキップ",
-            portfolio_id=dup["portfolio_id"],
-            ticket_id=(dup["tickets"][0]["ticket_id"] if dup.get("tickets") else None),
-            ledger_path=str(ledger_path),
-        )
-
-    # 新規 portfolio + ticket
-    seq = _assign_portfolio_seq(race)
-    portfolio_id = _make_portfolio_id(race_id, seq)
-    ticket_id = f"{portfolio_id}#t1"
-
-    ticket = {
-        "ticket_id": ticket_id,
-        "strategy_name": strategy_name,
-        "formation_type": "single",
-        "pattern_label": pattern_label,
-        "raw_legs": raw_legs,
-        "notes": notes,
-        "bet_type": bet_type,
-        "total_amount": amount,
-        "idempotency_key": ticket_idempotency,
-        "created_at": now,
-        "submitted_at": clicked_at or now,
-    }
-    if ev_at_decision is not None:
-        ticket["ev_at_decision"] = ev_at_decision
-    if receipt_number:
-        ticket["ipat_confirmed_at"] = now
-        ticket["ipat_receipt_number"] = receipt_number
-        if receipt_time:
-            ticket["ipat_receipt_time"] = receipt_time
-
-    portfolio = {
-        "portfolio_id": portfolio_id,
-        "portfolio_strategy": p_strategy,
-        "created_at": now,
-        "tickets": [ticket],
-        "portfolio_total": amount,
-        "idempotency_key": portfolio_idempotency,
-    }
-    race["portfolios"].append(portfolio)
-
-    # イベント追記 (本体 events[] + jsonl 両方)
-    events_to_add = []
-    events_to_add.append(_make_event(
-        "FF_WRITTEN", race_id, portfolio_id, ticket_id,
-        count=1, amount=amount,
-    ))
-    events_to_add.append(_make_event(
-        "TARGET_IMPORTED", race_id, portfolio_id, ticket_id,
-        by="target_clicker",
-    ))
-    events_to_add.append(_make_event(
-        "APPROVED", race_id, portfolio_id, ticket_id,
-        by="target_clicker.auto_vote",
-    ))
-    if receipt_number:
-        events_to_add.append(_make_event(
-            "IPAT_CONFIRMED", race_id, portfolio_id, ticket_id,
-            by="target_clicker.auto_vote",
-            receipt_number=receipt_number,
-            receipt_time=receipt_time,
-        ))
-    for ev in events_to_add:
-        ledger["events"].append(ev)
-        _append_event(ev)
-
-    ok = write_json_atomic(ledger_path, ledger)
-    if not ok:
-        return RecordResult(success=False, action="error",
-                             reason="atomic write failed", portfolio_id=portfolio_id)
-
-    _update_index(ledger_path, ledger)
-
-    return RecordResult(
-        success=True, action="recorded",
-        reason="portfolio + ticket 追記成功",
-        portfolio_id=portfolio_id, ticket_id=ticket_id,
-        ledger_path=str(ledger_path),
+    return record_vote(
+        race_id=race_id,
+        bet_type="tansho",
+        horses=[umaban],
+        amount=amount,
+        strategy_name=strategy_name,
+        portfolio_strategy=portfolio_strategy,
+        pattern_label=pattern_label,
+        notes=notes,
+        ev_at_decision=ev_at_decision,
+        receipt_number=receipt_number,
+        receipt_time=receipt_time,
+        clicked_at=clicked_at,
     )
 
 

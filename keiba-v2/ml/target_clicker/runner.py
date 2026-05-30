@@ -746,39 +746,56 @@ def main() -> int:
     #   - clicked 成功なら 各 ticket を record_tansho_vote
     #   - 失敗 (timeout/rejected/error) は record_vote_failure (race_id 単位で集約は難しいので 1 回)
     try:
-        from ml.purchase_ledger.writer import record_tansho_vote, record_vote_failure
+        from ml.purchase_ledger.writer import record_portfolio_votes, record_vote_failure
+        from collections import defaultdict
+        _code2name = {v: k for k, v in BET_TYPE_CODE.items()}
         if result.success and result.action == "clicked":
             receipt_no = result.receipt.receipt_number if result.receipt else None
             receipt_tm = result.receipt.receipt_time if result.receipt else None
-            recorded = 0
-            duplicated = 0
-            failed = 0
+            # Session 136: (race_id, strategy) でグループ化し、 各 ticket の実 bet_type +
+            #   全馬番 (umaban/2/3) を正確に記録。 record_tansho_vote が umaban1 だけ見て
+            #   全券種を tansho に潰し idempotency 衝突で過少記録 (3/11) していた問題の本治療。
+            groups: dict = defaultdict(list)
             for b in bets:
+                # シズネ 🟡: 未知 bet_type コードは静かに tansho 化せず skip + ログ
+                #   (潰れた記録より「記録されない」 が検知しやすい)
+                bt_name = _code2name.get(b.bet_type)
+                if bt_name is None:
+                    print(f"[ledger] 未知 bet_type コード {b.bet_type!r} (race={b.race_id}) "
+                          f"→ ledger 記録スキップ (投票は成立済、 手動確認要)", file=sys.stderr)
+                    continue
                 entry = selective_map.get((b.race_id, b.umaban))
-                strategy = (f"selective_v3_{entry.source}" if entry else
-                            "manual_cli")
-                ledger_res = record_tansho_vote(
-                    race_id=b.race_id,
-                    umaban=b.umaban,
-                    amount=b.amount,
-                    strategy_name=strategy,
+                strategy = (f"selective_v3_{entry.source}" if entry else "manual_cli")
+                horses = [b.umaban] + [x for x in (b.umaban2, b.umaban3) if x]
+                groups[(b.race_id, strategy)].append({
+                    "bet_type": bt_name,
+                    "horses": horses,
+                    "amount": b.amount,
+                    "strategy_name": strategy,
+                    "pattern_label": "その他",
+                    "notes": (f"selective.{entry.source}" if entry else "manual"),
+                    "ev_at_decision": (entry.win_ev if entry else None),
+                })
+            recorded = duplicated = failed = 0
+            for (race_id_g, strategy), tks in groups.items():
+                ledger_res = record_portfolio_votes(
+                    race_id=race_id_g,
                     portfolio_strategy=strategy,
-                    pattern_label="その他",
-                    notes=(f"selective.{entry.source}" if entry else "manual"),
-                    ev_at_decision=(entry.win_ev if entry else None),
+                    tickets=tks,
                     receipt_number=receipt_no,
                     receipt_time=receipt_tm,
                     clicked_at=result.clicked_at,
                 )
                 if ledger_res.action == "recorded":
-                    recorded += 1
+                    recorded += len(tks)
                 elif ledger_res.action == "duplicate":
-                    duplicated += 1
+                    duplicated += len(tks)
                 else:
-                    failed += 1
-                    print(f"[ledger] 記録失敗 race={b.race_id} umaban={b.umaban}: "
+                    failed += len(tks)
+                    print(f"[ledger] 記録失敗 race={race_id_g} strategy={strategy}: "
                           f"{ledger_res.reason}", file=sys.stderr)
-            vprint(f"[ledger] recorded={recorded} duplicate={duplicated} failed={failed}")
+            vprint(f"[ledger] portfolios={len(groups)} recorded_tickets={recorded} "
+                   f"duplicate={duplicated} failed={failed}")
         elif result.action in {"timeout", "rejected", "error"}:
             # 1 dialog click 失敗 = 全 bets が未投票。 race ごとに記録
             seen_races: set[str] = set()

@@ -815,7 +815,7 @@ settle 時、各 ticket に次を書く（§2.1）:
 
 | フィールド | 値 |
 |---|---|
-| `payout` | mykeibadb 確定配当から算出（単勝/複勝/馬連/ワイド/馬単。三連系・box・formation は未対応で skip）|
+| `payout` | mykeibadb 確定配当から算出（単勝/複勝/馬連/ワイド/馬単/三連複/三連単 の formation_type=single。box/formation/nagashi/枠連/win5 は未対応で skip）。組み合わせ券種 (馬連〜三連単) は **haraimodoshi 払戻辞書一致を的中判定の正本** とし、 同着レースの的中を取りこぼさない (Session 136 シズネ 🔴) |
 | `settled_at` | settle 時刻 |
 | `payout_source` | `"db"` |
 | `reconciled` | `false`（pre-reconcile=暫定）/ `true`（13章突合済=確定）|
@@ -828,7 +828,9 @@ SETTLED イベント（§6 No.12）payload に `source`（`"db_payout_pre_reconc
 |---|---|
 | 着順未確定（pending）| レース結果待ち。翌日再 settle で拾う |
 | **的中だが DB 配当未取得（payout_unavailable）** | **🔴-2**: 元返し等の暫定値を税務 SoT に書かない。確定配当が取れるまで settle を見送る（SUBMITTED のまま → 翌日 DB 更新後に再 settle）|
-| 未対応券種/形式（unsupported）| 三連系・box・formation。記録は残すが settle 対象外 |
+| 未対応券種/形式（unsupported）| box/formation/nagashi/枠連/win5。記録は残すが settle 対象外 |
+
+> シズネ注 (Session 136 🟡): portfolio 内に未対応券種 (box 等) が 1 枚でも混じると、 その ticket が永久に未 settle となり race.state が SETTLED に上がらない (`record_settlement` の race_all_settled 判定)。 現状は single のみ投票なので実害ゼロだが、 将来 box/formation を投票に入れたら「精算済なのに SUBMITTED 表示」 になるため、 box/formation の settle 実装とセットで race 状態判定を「対応券種のみで完結判定」 に直すこと。
 
 > シズネ原則: **「取れないなら確定させない」**。`payout=元返し`で won=True にして「正しく見える嘘」を SoT に残すより、SUBMITTED で「まだ確定してない」と正直に言う方が税務的に安全。
 

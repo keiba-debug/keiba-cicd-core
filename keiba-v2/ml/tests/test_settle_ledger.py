@@ -155,12 +155,14 @@ class TestComputePayout:
         assert st == settle_ledger.ST_OK and r["payout"] == 1230 and r["won"] is True
 
     def test_umaren_miss(self, monkeypatch):
-        monkeypatch.setattr(settle_ledger, "get_umaren_payouts", lambda rid: {(8, 13): 1230})
+        # 辞書正本: 払戻辞書は非空 (別の当たり) だが買い目キーが無い → 確定はずれ
+        monkeypatch.setattr(settle_ledger, "get_umaren_payouts", lambda rid: {(1, 2): 500})
         tk = _ticket("t1", "umaren", [13, 8], 100)
         r, st = settle_ledger.compute_payout(tk, {13: 1, 8: 3}, 16, "R", {})
         assert st == settle_ledger.ST_OK and r["payout"] == 0 and r["won"] is False
 
-    def test_umaren_hit_payout_missing_defers(self, monkeypatch):
+    def test_umaren_empty_table_defers(self, monkeypatch):
+        # 辞書が空 (DB 払戻未取得/結果未確定) → settle 見送り
         monkeypatch.setattr(settle_ledger, "get_umaren_payouts", lambda rid: {})
         tk = _ticket("t1", "umaren", [13, 8], 100)
         r, st = settle_ledger.compute_payout(tk, {13: 1, 8: 2}, 16, "R", {})
@@ -173,7 +175,9 @@ class TestComputePayout:
         assert r["payout"] == 900 and r["won"] is True  # 200/100*450
 
     def test_wide_miss(self, monkeypatch):
-        monkeypatch.setattr(settle_ledger, "get_wide_payouts", lambda rid: {(8, 13): 450})
+        # 辞書非空だが買い目キー無し → はずれ (ワイドは複数当たりだが買い目はそのどれでもない)
+        monkeypatch.setattr(settle_ledger, "get_wide_payouts",
+                            lambda rid: {(1, 2): 300, (1, 3): 400, (2, 3): 350})
         tk = _ticket("t1", "wide", [13, 8], 200)
         r, st = settle_ledger.compute_payout(tk, {13: 1, 8: 4}, 16, "R", {})
         assert r["payout"] == 0 and r["won"] is False
@@ -185,12 +189,71 @@ class TestComputePayout:
         assert r["payout"] == 2500 and r["won"] is True
 
     def test_umatan_miss_wrong_order(self, monkeypatch):
-        monkeypatch.setattr(settle_ledger, "get_umatan_payouts", lambda rid: {(17, 11): 2500})
+        # 実際の決着は 11→17 (辞書キー (11,17))。 買い目 [17,11]=(17,11) は順序違いで辞書に無い → はずれ
+        monkeypatch.setattr(settle_ledger, "get_umatan_payouts", lambda rid: {(11, 17): 2500})
         tk = _ticket("t1", "umatan", [17, 11], 100)
-        r, st = settle_ledger.compute_payout(tk, {17: 2, 11: 1}, 16, "R", {})  # 逆
+        r, st = settle_ledger.compute_payout(tk, {17: 2, 11: 1}, 16, "R", {})
         assert r["payout"] == 0 and r["won"] is False
 
+    def test_sanrenpuku_hit(self, monkeypatch):
+        monkeypatch.setattr(settle_ledger, "get_sanrenpuku_payouts",
+                            lambda rid: {(3, 8, 13): 4500})
+        tk = _ticket("t1", "sanrenpuku", [13, 3, 8], 100)
+        # 13,3,8 が1,2,3着 (順不同)
+        r, st = settle_ledger.compute_payout(tk, {13: 1, 3: 2, 8: 3}, 16, "R", {})
+        assert st == settle_ledger.ST_OK and r["payout"] == 4500 and r["won"] is True
+
+    def test_sanrenpuku_miss(self, monkeypatch):
+        # 辞書非空だが買い目キー (3,8,13) が無い → はずれ
+        monkeypatch.setattr(settle_ledger, "get_sanrenpuku_payouts",
+                            lambda rid: {(1, 2, 3): 9000})
+        tk = _ticket("t1", "sanrenpuku", [13, 3, 8], 100)
+        r, st = settle_ledger.compute_payout(tk, {13: 1, 3: 2, 8: 4}, 16, "R", {})
+        assert r["payout"] == 0 and r["won"] is False
+
+    def test_sanrentan_hit_exact_order(self, monkeypatch):
+        monkeypatch.setattr(settle_ledger, "get_sanrentan_payouts",
+                            lambda rid: {(13, 3, 8): 28900})
+        tk = _ticket("t1", "sanrentan", [13, 3, 8], 100)  # 13→3→8 の順
+        r, st = settle_ledger.compute_payout(tk, {13: 1, 3: 2, 8: 3}, 16, "R", {})
+        assert st == settle_ledger.ST_OK and r["payout"] == 28900 and r["won"] is True
+
+    def test_sanrentan_miss_wrong_order(self, monkeypatch):
+        # 決着は 3→13→8 (辞書キー (3,13,8))。 買い目 [13,3,8]=(13,3,8) は辞書に無い → はずれ
+        monkeypatch.setattr(settle_ledger, "get_sanrentan_payouts",
+                            lambda rid: {(3, 13, 8): 28900})
+        tk = _ticket("t1", "sanrentan", [13, 3, 8], 100)
+        r, st = settle_ledger.compute_payout(tk, {13: 2, 3: 1, 8: 3}, 16, "R", {})
+        assert r["payout"] == 0 and r["won"] is False
+
+    def test_sanrentan_empty_table_defers(self, monkeypatch):
+        monkeypatch.setattr(settle_ledger, "get_sanrentan_payouts", lambda rid: {})
+        tk = _ticket("t1", "sanrentan", [13, 3, 8], 100)
+        r, st = settle_ledger.compute_payout(tk, {13: 1, 3: 2, 8: 3}, 16, "R", {})
+        assert r is None and st == settle_ledger.ST_PAYOUT_UNAVAILABLE
+
+    def test_sanrentan_dead_heat_hit(self, monkeypatch):
+        # 🔴修正の核心: 2-3着同着。 JRA は 13→8→3 と 13→3→8 を両方的中扱いし haraimodoshi に両組載る。
+        # 旧実装 (f1==1&f2==2&f3==3 厳密一致) は f3=2 (同着) で両方取りこぼした。
+        # 辞書正本なら買い目が辞書に載っていれば的中 = 同着を正しく拾う。
+        monkeypatch.setattr(settle_ledger, "get_sanrentan_payouts",
+                            lambda rid: {(13, 8, 3): 15000, (13, 3, 8): 15000})
+        tk = _ticket("t1", "sanrentan", [13, 8, 3], 100)
+        # 着順は 13=1着, 8=2着(同着), 3=2着(同着) — f3 が 3 でなくても的中
+        r, st = settle_ledger.compute_payout(tk, {13: 1, 8: 2, 3: 2}, 16, "R", {})
+        assert st == settle_ledger.ST_OK and r["payout"] == 15000 and r["won"] is True
+
+    def test_umaren_dead_heat_hit(self, monkeypatch):
+        # 1着同着で馬連が2組当たるケースも辞書正本で拾える
+        monkeypatch.setattr(settle_ledger, "get_umaren_payouts",
+                            lambda rid: {(5, 8): 1200, (5, 13): 1300, (8, 13): 1400})
+        tk = _ticket("t1", "umaren", [5, 8], 100)
+        # 5,8 が1着同着 (set判定なら {1,1}!={1,2} で旧実装は取りこぼし)
+        r, st = settle_ledger.compute_payout(tk, {5: 1, 8: 1}, 16, "R", {})
+        assert st == settle_ledger.ST_OK and r["payout"] == 1200 and r["won"] is True
+
     def test_unsupported_bet_type(self, monkeypatch):
+        # sanrentan でも formation_type が single でなければ未対応
         tk = _ticket("t1", "sanrentan", [1, 2, 3], 100, formation_type="formation")
         r, st = settle_ledger.compute_payout(tk, {1: 1, 2: 2, 3: 3}, 16, "R", {})
         assert r is None and st == settle_ledger.ST_UNSUPPORTED
