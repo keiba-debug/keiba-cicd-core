@@ -1,5 +1,24 @@
 # 今後の開発候補
 
+## 自動投票・購入管理 UI（Session 135 追加 / ふくだ要望）
+
+### 購入履歴・購入候補 確認画面
+- **当日の購入履歴一覧**: 受付番号 / レース / 馬券種 / 馬番 / 金額 / 時刻 / (結果)
+  - 手動購入 (ふくだ) とツール自動購入を**統合表示** → バンクロール会計の一元化
+    （現状ツールの per_day_max は自動分しか数えない盲点を UI で吸収）
+- **購入候補のリアルタイム表示**: freebudget 候補を発走/締切/投票時刻 + あと何分 + 推奨馬・金額で一覧
+  （`freebudget_race --list` の Web 版。投票WINDOW入りをハイライト）
+- データソース: `purchase_ledger/YYYY-MM-DD.json` + `freebudget_bets*.json` +
+  `freebudget_scheduler_state.json` + IPAT 履歴（受付番号突合）
+- 既存 `web/src/components/bankroll/DailyPurchaseList` を拡張する案
+
+### レース結果の音声通知（Session 135 / ふくだ要望）
+- レース確定後に結果を音声で読み上げ:「◯◯レース、◯番は◯着、ハズレ」/「的中！払戻◯◯円」
+- 当日の収支を逐次アナウンス（例: 「現在 ◯勝◯敗、収支 +◯◯円」）
+- 実装の前提 = **ledger v2 settle 拡張**（払戻 / SETTLED event 取得）+ 自動突合
+  （[13_AUTO_RECONCILIATION.md](../auto-purchase/13_AUTO_RECONCILIATION.md) / JRA-VAN・mykeibadb のレース確定データと受付番号の突合）
+- 既存 `notify.py`（pyttsx3→SAPI）の発話基盤を流用。投票完了通知の対になる「結果通知」レイヤ
+
 ## Web UI 改善
 
 ### レース詳細画面にJRDB由来データ統合

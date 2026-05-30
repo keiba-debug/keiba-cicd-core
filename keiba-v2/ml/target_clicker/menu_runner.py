@@ -316,17 +316,63 @@ def inspect_batch_window(*, save_json: bool = True, save_png: bool = True) -> Op
     return json_path
 
 
+def _window_has_menu(window) -> bool:
+    """そのウィンドウが (File→IPAT 等の) メニューバーを持つか。
+
+    主ウィンドウだけがメニューを持つ。 「買い目一括処理」 や ふくだが別作業で
+    開いた TARGET 系サブウィンドウはメニューを持たない (or 別構造) ので、
+    これが主ウィンドウ判別の最も確実な指標。
+    """
+    try:
+        app = Application(backend="win32").connect(handle=window.handle)
+        menu = app.window(handle=window.handle).menu()
+        return bool(menu and len(menu.items()) > 0)
+    except Exception:
+        return False
+
+
 def find_target_window(name_contains: str = TARGET_WINDOW_KEYWORD):
+    """TARGET 主ウィンドウを確実に掴む (Session 135 シズネ対応 / 堅牢化)
+
+    旧実装は「keyword を含む最初の可視ウィンドウ」 を返していたため、 ふくだが
+    別作業で開いた TARGET 系ウィンドウや投票後の残りウィンドウを誤って掴み、
+    File→IPAT メニューが無くて step1 が失敗していた (Session 135 実機で発覚)。
+
+    対策: keyword を含む全候補を集め、 (1) メニューを持つ (2) タイトルが keyword で
+    始まる でスコアリングして主ウィンドウを選ぶ。 複数候補時は stderr 警告
+    (無人運用で「別ウィンドウが開いている」 を可視化する目的)。
+    """
+    candidates = []
     for w in Desktop().windows():
         try:
             if not w.is_visible():
                 continue
             text = w.window_text() or ""
             if name_contains in text:
-                return w
+                candidates.append((w, text))
         except Exception:
             continue
-    return None
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0][0]
+
+    # 複数 = 干渉ウィンドウあり。 メニュー保有 + タイトル前方一致 で主ウィンドウを選別
+    def _score(item) -> int:
+        w, text = item
+        s = 0
+        if _window_has_menu(w):
+            s += 4
+        if text.startswith(name_contains):
+            s += 2
+        return s
+
+    scored = sorted(candidates, key=_score, reverse=True)
+    titles = [t for _, t in candidates]
+    print(f"[menu_runner] ⚠ TARGET 候補ウィンドウが {len(candidates)} 個: {titles} "
+          f"→ 主ウィンドウとして {scored[0][1]!r} を選択 (menu保有優先)",
+          file=sys.stderr)
+    return scored[0][0]
 
 
 def print_menu_structure(window) -> None:

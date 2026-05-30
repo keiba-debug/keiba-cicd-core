@@ -222,9 +222,14 @@ def extract_freebudget_bets(
     )
 
 
-def write_freebudget_bets(date_dir: Path, result: FreebudgetResult) -> Path:
-    """freebudget_bets.json を date_dir に書き出し (selective_loader 互換 schema)"""
-    out_path = date_dir / "freebudget_bets.json"
+def write_freebudget_bets(date_dir: Path, result: FreebudgetResult,
+                          *, filename: str = "freebudget_bets.json") -> Path:
+    """freebudget_bets.json を date_dir に書き出し (selective_loader 互換 schema)
+
+    Session 135: filename を可変に (freebudget_race.py が
+    freebudget_bets_<race_id>.json を書くため)。 デフォルトは従来通り。
+    """
+    out_path = date_dir / filename
     payload = {
         "strategy": "selective",       # selective_loader 互換のため固定
         "version": "2.0",

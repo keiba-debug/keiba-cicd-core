@@ -587,6 +587,26 @@ def main() -> int:
         return 3
     vprint(f"[runner] FF CSV written: {ff_path}")
 
+    # Session 135 (ふくだ案): TARGET 操作の直前に投票開始を音声予告。
+    #   狙い = ふくだが別作業ウィンドウを閉じる猶予 + 透明性。 同期発話の数秒が自然な間。
+    #   ※ find_target_window 堅牢化 (menu_runner) で別ウィンドウが開いていても主ウィンドウを
+    #     掴むようにしたが、 予告は「今から投票する」 を人に知らせる独立の安全/UX レイヤ。
+    if not args.no_menu and not args.no_notify:
+        try:
+            from ml.target_clicker.notify import notify_vote_starting
+            _code2name = {v: k for k, v in BET_TYPE_CODE.items()}
+            summary = []
+            for b in bets:
+                uma = "/".join(str(x) for x in (b.umaban, b.umaban2, b.umaban3) if x)
+                rid = str(b.race_id)
+                rno = int(rid[-2:]) if rid[-2:].isdigit() else None
+                summary.append({"bet_type": _code2name.get(b.bet_type, str(b.bet_type)),
+                                "umaban": uma, "amount": b.amount, "race_number": rno})
+            out = notify_vote_starting(summary, total_yen)
+            vprint(f"[notify] vote_starting spoken={out.spoken}: {out.text}")
+        except Exception as e:
+            print(f"[notify] vote_starting failed: {e}", file=sys.stderr)
+
     # Step 2: TARGET メニュー操作
     if not args.no_menu:
         try:

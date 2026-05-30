@@ -189,6 +189,45 @@ class NotifyOutcome:
     spoken: bool
 
 
+# ============================================================
+# 投票開始 予告 (Session 135 / ふくだ案: 別ウィンドウを閉じる猶予 + 透明性)
+# ============================================================
+
+_BET_TYPE_JA = {
+    "tansho": "単勝", "fukusho": "複勝", "wakuren": "枠連", "umaren": "馬連",
+    "wide": "ワイド", "umatan": "馬単", "sanrenpuku": "三連複", "sanrentan": "三連単",
+}
+
+
+def build_vote_starting_text(bets_summary: list, total_yen: int) -> str:
+    """投票開始の音声予告文を組み立てる (pure)。
+
+    bets_summary 各要素 (dict): {'bet_type': 'tansho'|'単勝', 'umaban': '4'|'13/17',
+                                 'amount': 500, 'race_number': 4}
+    狙い: TARGET 操作の直前に発話し、 ふくだが別作業ウィンドウを閉じる猶予を作る
+    + 「今から何を投票するか」 を透明化する (無人運用でも何が起きたか分かる)。
+    """
+    parts = ["自動投票を開始します。"]
+    if len(bets_summary) == 1:
+        b = bets_summary[0]
+        bt = _BET_TYPE_JA.get(b.get("bet_type", ""), b.get("bet_type", ""))
+        rno = b.get("race_number")
+        rstr = f"{rno}レース " if rno else ""
+        parts.append(f"{rstr}{bt} {b.get('umaban', '')} {format_yen(b.get('amount', 0))}。")
+    else:
+        parts.append(f"{len(bets_summary)} 件、 合計 {format_yen(total_yen)}。")
+    parts.append("ターゲットを操作します。")
+    return " ".join(parts)
+
+
+def notify_vote_starting(bets_summary: list, total_yen: int, *,
+                         enabled: bool = True, async_: bool = False) -> NotifyOutcome:
+    """投票開始を音声予告する。 既定は同期発話 (発話の数秒がウィンドウ整理の猶予)。"""
+    text = build_vote_starting_text(bets_summary, total_yen)
+    spoken = speak(text, async_=async_) if enabled else False
+    return NotifyOutcome(text=text, spoken=spoken)
+
+
 def _compose_text(result: "ClickResult") -> str:
     """ClickResult.action に応じた日本語文面を組み立てる"""
     content = result.content
