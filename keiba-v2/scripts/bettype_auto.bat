@@ -5,7 +5,8 @@ REM Task Scheduler から 1-2 分ごとに呼ばれる単発パス。
 REM   bettype_auto.bat dry   = dry-run (金は動かない・計画のみ)
 REM   bettype_auto.bat live  = LIVE 実投票 (TARGET 起動+IPATログイン+入金 必須)
 REM scheduler 自身が冪等 + 各レース [発走-6分, 発走-2分] のみ投票。
-REM strategy=concentrate / sizing=anchor_kelly_combo_ev / per_day=30000 / per_race=3000(config)。
+REM strategy=hole_seeker (妙味軸=過小評価馬。value無いレースは composite軸にフォールバック)
+REM   / sizing=anchor_kelly_combo_ev / per_day=30000 / per_race=3000(config)。
 REM ★freebudget_auto と同時に live 起動しない (IPAT 排他)。
 REM ============================================
 setlocal
@@ -20,11 +21,11 @@ set LOG_FILE=%LOG_DIR%\%TODAY%.log
 cd /d "%KEIBA_V2%"
 call "%VENV%"
 if /i "%MODE%"=="live" (
-    python -m ml.strategies.bettype_scheduler --date today --confirm --i-understand-live --strategy concentrate --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
+    python -m ml.strategies.bettype_scheduler --date today --confirm --i-understand-live --strategy hole_seeker --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
 ) else (
-    python -m ml.strategies.bettype_scheduler --date today --strategy concentrate --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
+    python -m ml.strategies.bettype_scheduler --date today --strategy hole_seeker --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
 )
 set EXIT_CODE=%ERRORLEVEL%
-echo [%date% %time%] bettype_auto mode=%MODE% exit=%EXIT_CODE% >> "%LOG_FILE%"
+echo [%date% %time%] bettype_auto mode=%MODE% strategy=hole_seeker exit=%EXIT_CODE% >> "%LOG_FILE%"
 endlocal
 exit /b %EXIT_CODE%

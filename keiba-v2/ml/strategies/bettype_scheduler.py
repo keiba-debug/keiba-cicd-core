@@ -142,7 +142,9 @@ def notify_skip(label: str, reason: str) -> None:
     notify 失敗はスケジューラを止めない (try/except)。 import は遅延 (GUI/TTS 依存回避)。"""
     try:
         from ml.target_clicker.notify import speak
-        speak(f"{label} 見送り。{reason}", async_=False)
+        # 読み上げ用: "5R" が「アール」と発音されるのを防ぐため R→レース に変換 (ふくだ要望)。
+        spoken = label.replace("R", "レース")
+        speak(f"{spoken} 見送り。{reason}", async_=False)
     except Exception as e:  # noqa: BLE001 (通知失敗は致命でない)
         print(f"[bettype] skip notify failed: {e}", file=sys.stderr)
 
