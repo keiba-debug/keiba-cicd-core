@@ -135,10 +135,14 @@ def build_bet_specs(race_id: str, race_sizing) -> list:
 
 def notify_skip(label: str, reason: str) -> None:
     """レースを見送った時の音声通知 (ふくだ要望: 動いてないのか見送りか区別できるように)。
+
+    ★async_=False (同期) 必須★: scheduler の skip パスは投票せず ~1秒で exit するため、
+    async_=True (daemon スレッド) だと音声再生前にプロセス終了で kill され鳴らない。
+    同期で音声完了まで待ってから次へ進む (skip は稀・1分間隔・lock で重複防止なので許容)。
     notify 失敗はスケジューラを止めない (try/except)。 import は遅延 (GUI/TTS 依存回避)。"""
     try:
         from ml.target_clicker.notify import speak
-        speak(f"{label} 見送り。{reason}", async_=True)
+        speak(f"{label} 見送り。{reason}", async_=False)
     except Exception as e:  # noqa: BLE001 (通知失敗は致命でない)
         print(f"[bettype] skip notify failed: {e}", file=sys.stderr)
 
