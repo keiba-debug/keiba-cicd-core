@@ -186,6 +186,38 @@ def test_inner_per_day_cap_skips(monkeypatch, tmp_path):
     assert any("日次キャップ" in r for _, r in out["skipped"])
 
 
+def test_inner_skip_notify_live_once_dry_silent(monkeypatch, tmp_path):
+    # 見送り通知 (ふくだ要望): live で fund0 を1回だけ音声通知、 2パス目は再通知しない。 dry は無音。
+    pr = {"race_id": RID, "venue_name": "東京", "race_number": 11}
+    monkeypatch.setattr(sch, "load_predictions",
+                        lambda dd: {"races": [pr], "vb_refreshed_at": None})
+    monkeypatch.setattr(sch, "load_post_times", lambda dd, date_str=None: {RID: "15:00"})
+    monkeypatch.setattr(sch, "read_per_race_cap", lambda: 3000)
+    now = datetime(2026, 5, 31, 14, 55)
+    monkeypatch.setattr(sch, "race_timing",
+                        lambda d, st, n: {"deadline": now + timedelta(minutes=3),
+                                          "vote_at": now - timedelta(minutes=1)})
+    monkeypatch.setattr(sch, "size_one_race", lambda pr, **k: None)   # fund0 → 見送り
+    shared = {"date": "2026-05-31", "mode": "live", "halted": False,
+              "halt_reason": None, "consecutive_failures": 0, "votes": {}}
+    monkeypatch.setattr(sch, "load_state", lambda sp, ds, mode: shared)
+    monkeypatch.setattr(sch, "save_state", lambda sp, st: None)
+    calls = {"n": 0}
+    monkeypatch.setattr(sch, "notify_skip",
+                        lambda label, reason: calls.__setitem__("n", calls["n"] + 1))
+    common = dict(bankroll=10000, strategy="concentrate", ev_floor=1.0,
+                  sizing="anchor_kelly_combo_ev", per_day_max_yen=30000,
+                  login_timeout=180, verbose=False)
+    sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=True, **common)
+    sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=True, **common)
+    assert calls["n"] == 1                               # 2パスでも1回だけ (notified_skips)
+    # dry は無音
+    calls["n"] = 0
+    shared["notified_skips"] = []
+    sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=False, **common)
+    assert calls["n"] == 0
+
+
 def test_inner_fund0_skips(monkeypatch, tmp_path):
     now, per_day = _setup_inner(monkeypatch, tmp_path, rs_total=0)  # size_one_race→None
     out = sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=False,

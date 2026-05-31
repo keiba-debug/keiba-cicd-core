@@ -133,6 +133,16 @@ def build_bet_specs(race_id: str, race_sizing) -> list:
             for l in race_sizing.legs]
 
 
+def notify_skip(label: str, reason: str) -> None:
+    """レースを見送った時の音声通知 (ふくだ要望: 動いてないのか見送りか区別できるように)。
+    notify 失敗はスケジューラを止めない (try/except)。 import は遅延 (GUI/TTS 依存回避)。"""
+    try:
+        from ml.target_clicker.notify import speak
+        speak(f"{label} 見送り。{reason}", async_=True)
+    except Exception as e:  # noqa: BLE001 (通知失敗は致命でない)
+        print(f"[bettype] skip notify failed: {e}", file=sys.stderr)
+
+
 def vote_one_race_multi(day_dir: Path, race_id: str, race_sizing, *,
                         live: bool, login_timeout: int = 180,
                         per_race_cap: int = 0, per_day_remaining: int = 0) -> dict:
@@ -176,7 +186,8 @@ def vote_one_race_multi(day_dir: Path, race_id: str, race_sizing, *,
 
 def run_pass(date_str: str, *, now: datetime, live: bool, bankroll: int,
              strategy: str, ev_floor: float, sizing: str, per_day_max_yen: int,
-             login_timeout: int, verbose: bool = True) -> dict:
+             login_timeout: int, notify_on_skip: bool = True,
+             verbose: bool = True) -> dict:
     date_str = resolve_date(date_str)
     day_dir = date_dir_for(date_str)
     lp = lock_path(day_dir)
@@ -189,7 +200,7 @@ def run_pass(date_str: str, *, now: datetime, live: bool, bankroll: int,
             date_str, day_dir, now=now, live=live, bankroll=bankroll,
             strategy=strategy, ev_floor=ev_floor, sizing=sizing,
             per_day_max_yen=per_day_max_yen, login_timeout=login_timeout,
-            verbose=verbose)
+            notify_on_skip=notify_on_skip, verbose=verbose)
     finally:
         release_lock(lp)
 
@@ -197,7 +208,7 @@ def run_pass(date_str: str, *, now: datetime, live: bool, bankroll: int,
 def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
                     bankroll: int, strategy: str, ev_floor: float, sizing: str,
                     per_day_max_yen: int, login_timeout: int,
-                    verbose: bool = True) -> dict:
+                    notify_on_skip: bool = True, verbose: bool = True) -> dict:
     predictions = load_predictions(day_dir)
     if predictions is None:
         if verbose:
@@ -217,6 +228,7 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
 
     voted_yen = sum(v.get("amount", 0) for v in state["votes"].values()
                     if v.get("exit_code") == 0)
+    notified_skips = state.setdefault("notified_skips", [])  # 見送り通知済 race_id (重複防止)
 
     races = predictions.get("races", []) or []
     pred_by_id = {str(r.get("race_id")): r for r in races if r.get("race_id")}
@@ -268,12 +280,21 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
         # --- ウィンドウ内: ここで初めて重い評価 (DB) を回す ---
         rs = size_one_race(pr, strategy=strategy, ev_floor=ev_floor, sizing=sizing,
                            bankroll=bankroll, per_race_cap=per_race_cap)
+        # ★見送り通知 (ふくだ要望): 窓内で評価したが投票しないレースを1回だけ音声通知する。
+        #   「動いてない」のか「評価して見送った」のか区別できるように。 notified_skips で
+        #   毎パス再通知を防ぐ (オッズ変動で後に fund 可能になれば通常通り投票する)。
         if rs is None or not rs.legs:
             skipped.append((race_id, f"{label} fund 対象なし"))
+            if live and notify_on_skip and race_id not in notified_skips:
+                notify_skip(label, "買い目なし")
+                notified_skips.append(race_id)
             continue
         if voted_yen + rs.total_yen > per_day_max_yen:
             skipped.append((race_id, f"{label} 日次キャップ超過 "
                             f"({voted_yen}+{rs.total_yen}>{per_day_max_yen})"))
+            if live and notify_on_skip and race_id not in notified_skips:
+                notify_skip(label, "日次予算上限")
+                notified_skips.append(race_id)
             continue
 
         if verbose:
@@ -344,6 +365,8 @@ def parse_args():
     p.add_argument("--bankroll", type=int, default=DEFAULT_BANKROLL)
     p.add_argument("--per-day-max-yen", type=int, default=DEFAULT_BETTYPE_PER_DAY_MAX_YEN)
     p.add_argument("--login-timeout", type=int, default=180)
+    p.add_argument("--no-skip-notify", action="store_true",
+                   help="見送り時の音声通知を抑止 (既定は通知ON)")
     p.add_argument("--quiet", action="store_true")
     return p.parse_args()
 
@@ -375,7 +398,8 @@ def main() -> int:
     out = run_pass(
         date_str, now=now, live=live, bankroll=args.bankroll, strategy=args.strategy,
         ev_floor=args.ev_floor, sizing=args.sizing, per_day_max_yen=args.per_day_max_yen,
-        login_timeout=args.login_timeout, verbose=not args.quiet)
+        login_timeout=args.login_timeout, notify_on_skip=not args.no_skip_notify,
+        verbose=not args.quiet)
     return 3 if out.get("halted") else 0
 
 

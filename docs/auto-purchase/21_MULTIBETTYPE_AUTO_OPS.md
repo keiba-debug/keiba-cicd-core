@@ -50,6 +50,7 @@ schtasks /create /tn "KeibaBettypeAuto" /tr "C:\KEIBA-CICD\_keiba\keiba-cicd-cor
 ★`--halt` は live/dry 両 state を halt（安全側操作なので二重フラグ不要）。
 
 ## 監視
+- **見送り音声通知**（Session140 ふくだ要望）: 窓内で評価したが投票しないレース（買い目なし/日次予算上限）を**1回だけ**音声で「○○R 見送り」と通知（live のみ・`notified_skips` で重複抑止）。「動いてない」のか「評価して見送った」のか区別がつく。抑止は `--no-skip-notify`。
 - ログ: `data3/logs/bettype/<date>.log`（各パスの now/候補/投票/skip/halted）
 - 状態: `bettype_scheduler_state.json` の `votes[race_id]`（amount/exit_code/bet_specs/legs/anchor_yen/combo_yen）
 - 台帳: `data3/userdata/purchase_ledger/<date>.json`（券種・馬番・金額・IPAT receipt）
