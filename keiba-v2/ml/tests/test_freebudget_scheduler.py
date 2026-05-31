@@ -10,6 +10,7 @@
 import json
 import os
 import time
+from datetime import datetime, timedelta
 
 from ml.strategies import freebudget_scheduler as sch
 from ml.strategies.freebudget import FreebudgetBet, FreebudgetResult
@@ -110,6 +111,147 @@ def test_vote_one_race_live_passes_exact_max(monkeypatch, tmp_path):
     assert "--max-bets" in cmd and "2" in cmd       # 期待件数ちょうど
     assert "--confirm" in cmd
     assert res["exit_code"] == 0
+
+
+# --- per_race cap (Session140 / シズネ残課題①②) ---
+
+def _capture_max_yen(monkeypatch, tmp_path, *, amount_each, n, per_race_cap):
+    captured = {}
+
+    class _Proc:
+        returncode = 0
+
+    monkeypatch.setattr(sch.subprocess, "run",
+                        lambda cmd, **kw: (captured.__setitem__("cmd", cmd), _Proc())[1])
+    monkeypatch.setattr(sch, "write_freebudget_bets",
+                        lambda dd, r, filename=None: tmp_path / (filename or "x.json"))
+    sch.vote_one_race(tmp_path, "2026053008031108",
+                      _sub(n=n, amount_each=amount_each), live=True,
+                      per_race_cap=per_race_cap)
+    cmd = captured["cmd"]
+    return cmd[cmd.index("--max-yen") + 1]
+
+
+def test_vote_one_race_caps_max_yen_at_per_race(monkeypatch, tmp_path):
+    # ①防御多重化: amount(4000) > per_race(3000) なら --max-yen は per_race=3000 に丸める
+    mz = _capture_max_yen(monkeypatch, tmp_path, amount_each=1000, n=4, per_race_cap=3000)
+    assert mz == "3000"
+
+
+def test_vote_one_race_max_yen_unchanged_when_under_cap(monkeypatch, tmp_path):
+    # 通常 (amount<=per_race) は min=amount で挙動不変
+    mz = _capture_max_yen(monkeypatch, tmp_path, amount_each=300, n=2, per_race_cap=3000)
+    assert mz == "600"
+
+
+def test_vote_one_race_no_cap_when_per_race_zero(monkeypatch, tmp_path):
+    # per_race_cap=0 (キャップ無効) なら amount ちょうど (旧挙動)
+    mz = _capture_max_yen(monkeypatch, tmp_path, amount_each=1000, n=4, per_race_cap=0)
+    assert mz == "4000"
+
+
+def test_read_per_race_cap_absolute(monkeypatch, tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"settings": {"limit_mode": "absolute",
+                                             "per_race_max_yen": 3000}}), encoding="utf-8")
+    monkeypatch.setattr(sch, "BANKROLL_CONFIG_PATH", cfg)
+    assert sch.read_per_race_cap() == 3000
+
+
+def test_read_per_race_cap_non_absolute_returns_zero(monkeypatch, tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"settings": {"limit_mode": "percent",
+                                             "per_race_max_yen": 3000}}), encoding="utf-8")
+    monkeypatch.setattr(sch, "BANKROLL_CONFIG_PATH", cfg)
+    assert sch.read_per_race_cap() == 0
+
+
+def test_read_per_race_cap_missing_file_returns_zero(monkeypatch, tmp_path):
+    monkeypatch.setattr(sch, "BANKROLL_CONFIG_PATH", tmp_path / "nope.json")
+    assert sch.read_per_race_cap() == 0
+
+
+def _run_inner_for_overcap(monkeypatch, tmp_path, *, total_yen, per_race_cap):
+    """_run_pass_inner を 1 レース分の最小依存でモックして走らせ、 結果を返す。"""
+    rid = "2026053008031108"
+    sub = _sub(n=4, amount_each=total_yen // 4)
+    monkeypatch.setattr(sch, "load_predictions", lambda dd: {"races": [], "vb_refreshed_at": None})
+    monkeypatch.setattr(sch, "extract_freebudget_bets",
+                        lambda *a, **k: sub)               # 1 レース 4頭 = total_yen
+    monkeypatch.setattr(sch, "load_post_times", lambda dd, date_str=None: {rid: "15:00"})
+    now = datetime(2026, 5, 30, 14, 55)
+    monkeypatch.setattr(sch, "race_timing",
+                        lambda d, st, n: {"deadline": now + timedelta(minutes=3),
+                                          "vote_at": now - timedelta(minutes=1)})
+    monkeypatch.setattr(sch, "filter_result_by_race", lambda result, race_id: sub)
+    monkeypatch.setattr(sch, "read_per_race_cap", lambda: per_race_cap)
+    calls = {"n": 0}
+    monkeypatch.setattr(sch, "vote_one_race",
+                        lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1),
+                                         {"mode": "dry-run", "amount": total_yen,
+                                          "umaban": [], "exit_code": 0, "note": "x"})[1])
+    out = sch._run_pass_inner(
+        "2026-05-30", tmp_path, now=now, live=False, bankroll=10000,
+        kelly_fraction=0.25, per_bet_cap_pct=0.10, preset="standard",
+        per_day_max_yen=10000, login_timeout=180, verbose=False)
+    return out, calls
+
+
+# --- fit_result_to_cap (按分) ---
+
+def test_fit_result_to_cap_scales_proportionally():
+    # ②按分: 4頭×1000=4000 を per_race 3000 に → 比例縮小 (factor0.75) で 700×4=2800
+    sub = _sub(n=4, amount_each=1000)
+    new, info = sch.fit_result_to_cap(sub, 3000)
+    assert info["scaled"] is True and info["dropped"] == 0
+    assert new.total_yen <= 3000
+    assert all(b.amount == 700 for b in new.bets)          # floor(750/100)*100
+    assert new.total_yen == 2800
+
+
+def test_fit_result_to_cap_unchanged_when_under_cap():
+    sub = _sub(n=2, amount_each=500)                        # 1000 <= 3000
+    new, info = sch.fit_result_to_cap(sub, 3000)
+    assert info["scaled"] is False
+    assert new is sub
+
+
+def test_fit_result_to_cap_drops_low_ev_when_min_unit_floor():
+    # 多点で最低100円制約により縮小しきれない → 低 win_ev 順に drop して cap 内に収める
+    bets = [FreebudgetBet(
+        race_id="2026053008031108", race_number=8, venue_name="京都", grade="",
+        track_type="芝", distance=1600, num_runners=18, umaban=i,
+        horse_name=f"馬{i}", odds=6.0, rank_p=1, rank_w=1, odds_rank=1,
+        vb_gap=0, win_ev=float(i), confidence=0.5, amount=100) for i in range(1, 32)]
+    sub = FreebudgetResult(bets=bets, bankroll=10000, kelly_fraction=0.25,
+                           per_bet_cap_pct=0.10, preset="standard",
+                           total_yen=3100, n_eligible=31, n_funded=31, n_truncated=0)
+    new, info = sch.fit_result_to_cap(sub, 3000)
+    assert new.total_yen <= 3000
+    assert info["dropped"] >= 1
+    # 残った買い目は win_ev の高い方 (drop は低EV順)
+    kept_ev = {b.win_ev for b in new.bets}
+    assert min(kept_ev) > 1.0                               # win_ev=1.0 の最低EVが落ちる
+
+
+def test_run_pass_over_cap_scales_and_votes(monkeypatch, tmp_path):
+    # ②over-cap (4000>3000) は day-halt でも skip でもなく 按分縮小して投票へ到達
+    out, calls = _run_inner_for_overcap(monkeypatch, tmp_path, total_yen=4000, per_race_cap=3000)
+    assert out["halted"] is False
+    assert calls["n"] == 1                                  # 縮小後に投票
+    assert not any("超過" in reason for _, reason in out["skipped"])
+    rid, res = out["voted"][0]
+    assert res["per_race_adjusted"]["before"] == 4000       # 監査記録
+    assert res["per_race_adjusted"]["after"] <= 3000
+
+
+def test_run_pass_under_cap_votes_unadjusted(monkeypatch, tmp_path):
+    # 対照: under-cap (2000<=3000) は縮小されず素直に投票
+    out, calls = _run_inner_for_overcap(monkeypatch, tmp_path, total_yen=2000, per_race_cap=3000)
+    assert out["halted"] is False
+    assert calls["n"] == 1
+    rid, res = out["voted"][0]
+    assert "per_race_adjusted" not in res
 
 
 # --- halt_day (Session 139 / web「停止」= 当日 halt) ---
