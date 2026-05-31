@@ -115,10 +115,10 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
       // prevがundefinedの場合、初期値を設定
       const updated: TargetMarksMap = prev ? { ...prev } : { horseMarks: {} };
 
-      // markSet 1 → horseMarks, markSet 2 → horseMarks2
+      // markSet 1 → horseMarks(My印), markSet 6 → horseMarks2(AI印枠)
       if (data.markSet === 1) {
         updated.horseMarks = data.horseMarks;
-      } else if (data.markSet === 2) {
+      } else if (data.markSet === 6) {
         updated.horseMarks2 = data.horseMarks;
       }
       return updated;

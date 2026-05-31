@@ -219,9 +219,9 @@ export default async function RaceDetailPage({ params }: PageParams) {
     results: Map<number, RaceHorseComment>;
   } = { predictions: new Map(), results: new Map() };
   
-  // TARGET馬印（My印, My印2）
+  // TARGET馬印（My印=markSet1 手動, AI印=markSet6 AI予想）
   let targetMarks: RaceMarks | null = null;
-  let targetMarks2: RaceMarks | null = null;
+  let targetMarksAi: RaceMarks | null = null;
   
   // kaisaiInfo（コメント編集用に外に出す）
   let kaisaiInfoForEdit: { kai: number; nichi: number } | undefined;
@@ -279,7 +279,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
         currentRaceNumber
       );
       
-      // TARGET馬印取得（My印1, My印2）
+      // TARGET馬印取得（My印=markSet1 手動, AI印=markSet6 AI予想）
       const yearNum = parseInt(date.split('-')[0], 10);
       const marks1 = getRaceMarks(
         yearNum,
@@ -287,20 +287,20 @@ export default async function RaceDetailPage({ params }: PageParams) {
         kaisaiInfo.nichi,
         currentRaceNumber,
         track,
-        1  // 馬印1
+        1  // 馬印1（ふくだ手動）
       );
-      const marks2 = getRaceMarks(
+      const marksAi = getRaceMarks(
         yearNum,
         kaisaiInfo.kai,
         kaisaiInfo.nichi,
         currentRaceNumber,
         track,
-        2  // 馬印2
+        6  // 馬印6（AI予想印）
       );
-      
+
       // それぞれ保存
       targetMarks = marks1;
-      targetMarks2 = marks2;
+      targetMarksAi = marksAi;
       
       // コメント編集用にkaisaiInfoを保持
       kaisaiInfoForEdit = { kai: kaisaiInfo.kai, nichi: kaisaiInfo.nichi };
@@ -606,10 +606,10 @@ export default async function RaceDetailPage({ params }: PageParams) {
           }}
           kaisaiInfo={kaisaiInfoForEdit}
           targetMarks={
-            (targetMarks || targetMarks2)
+            (targetMarks || targetMarksAi)
               ? {
                   horseMarks: targetMarks?.horseMarks || {},
-                  horseMarks2: targetMarks2?.horseMarks || {}
+                  horseMarks2: targetMarksAi?.horseMarks || {}  // AI印(markSet6) を My2枠で表示
                 }
               : undefined
           }

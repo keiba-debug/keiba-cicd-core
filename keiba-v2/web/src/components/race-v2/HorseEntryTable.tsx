@@ -644,7 +644,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         {myMark || '-'}
       </td>
 
-      {/* My印2（TARGET馬印2） */}
+      {/* AI印（TARGET馬印6 = AI予想印。horseMarks2 経由で供給） */}
       <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMyMark2BgColor(myMark2)}`}>
         {myMark2 || '-'}
       </td>
@@ -1318,7 +1318,7 @@ export default function HorseEntryTable({
             <th className="px-2 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('horse_number')}>馬番{sortIndicator('horse_number')}</th>
             <th className="px-1 py-2 text-center border w-8 text-xs">本紙</th>
             <th className="px-1 py-2 text-center border w-8 text-xs">My印</th>
-            <th className="px-1 py-2 text-center border w-8 text-xs">My2</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs" title="AI予想印（markSet6）">AI</th>
             {hasMlPredictions && (
               <>
                 <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
