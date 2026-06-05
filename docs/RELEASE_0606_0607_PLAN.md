@@ -155,12 +155,14 @@ SoT: docs/RELEASE_0606_0607_PLAN.md（開始時に §3 を読む）
 【保留（やらないこと）】scheduler の state/lock 共通化・select_plans の strategy パターン化・build_plans 分割・specialist レジストリ化（§3 の保留項目。今回スコープ外）。
 ```
 
-### Prompt P2: VUセッション（買い目抽出・配分の向上 ＝「評価は信じる・配分で勝つ」）
+### Prompt P2b: VUセッション（配分・券種の出し分け ＝「評価は信じる・配分で勝つ」本丸）
 
 ```
-あなたは KeibaCICD の実装担当です。本VU（自動購入3軸目の本丸）に着手します。
+あなたは KeibaCICD の実装担当です。自動購入3軸目の本丸 P2b（資金配分・券種の出し分け）に着手します。
 SoT: docs/RELEASE_0606_0607_PLAN.md。思想の出典（メモリ）: bet-adjustment-items 項目4 / feedback_betting_philosophy §4 / bettype-selection-roadmap 構想1 Phase3-4。
-前提: P1完了済（Kelly は ml/strategies/kelly.py が SSoT。配分は kelly.py の1箇所修正で bettype_sizing/freebudget 両経路へ反映）。
+前提（済み・触らない）:
+  - P1: Kelly は ml/strategies/kelly.py が SSoT（配分は kelly.py 1箇所修正で bettype_sizing/freebudget 両経路へ反映）。
+  - P2a: hole_seeker 軸選定の同点団子バグは修正・デプロイ済（commit 709a588。find_taste_axis を win_rank→composite top-3）。**軸選定(find_taste_axis)は触らない**。本セッションは「軸が決まった後の配分・券種選択」が対象。
 ※メモリの file:line は数日前の観察。着手時に現コードで必ず裏取りすること。
 
 【核心思想】AIの馬評価（composite / win_prob / AI印◎○▲）は信じてよい（5/31 目黒記念で◎○▲完璧的中＝実証済）。
@@ -172,36 +174,21 @@ SoT: docs/RELEASE_0606_0607_PLAN.md。思想の出典（メモリ）: bet-adjust
 - **vs_tansho（合成オッズ<単オッズ）を fund 条件に使わない**（シズネ置き土産）。控除率下では市場オッズでほぼ全プラン EV<1 が常態で、合成比較は「広げる相対妙味」であり期待値の符号ではない。fund 判断は EV絶対水準 + bankroll。
 - 固定「○○モード/プリセット」を作らない・連勝増額等の動的調整なし（feedback_betting_philosophy）。
 
-──────────────────────────────────
-【P2a：軸選定の同点団子バグ修正（correctness・優先・低リスク）】
-症状: hole_seeker の `bettype_selection.find_taste_axis(popularity_gap_max)` が、win_prob が同点・僅差の馬を
-  順位(win_rank)で「model上位の過小評価馬」と誤認し、77倍級の下位団子馬を軸にする。
-  → AI評価（◎）と買い軸が 8R中7R 不一致＝無印ばかり買う主因。
-病的ケース（着手時に再現確認）: 京都12R `2026053108031212` ⑯(77倍/gap+13、実は⑧⑰と同値の下位団子) /
-  京都8R `2026053108031208` ⑥(60倍/複勝率3%)。
-あるべき: 「評価した馬の中で妙味を買う」＝同点・僅差を上位扱いしない。
-対応:
-  ① gap軸採用を3条件化: gap≥閾値 かつ win_prob絶対値≥閾値 かつ 2位との差/比が突出（＝同点でない）。
-     満たさなければ composite軸（=AI印◎）に据え置き。
-  ②（検討）軸候補を AI印（◎○▲△Ⅲ）が付く馬に限定し、評価と買いを直結。
-受け入れ: 上記2レースで軸が composite上位/AI印馬に戻る + 回帰テスト追加。
-
-【P2b：配分・券種の出し分け（本丸・develop+backtest、live は後）】
+【P2b 本体：配分・券種の出し分け】
 bettype_efficiency（合成オッズ・期待リターン一覧＝Phase2実装済）を「選定の足切り・出し分け」に配線する。
 求める挙動（レース特性に応じて）:
   - 単のみ（◎突出/流す妙味なし）
   - 増額（自信度・EV・bankroll から張る）
   - 大穴100円流し（ローリスク・ハイリターン枠。当たればラッキー、外しても痛くない）
   - 降りる（妙味なし/評価が割れすぎ）
-併せて 複勝薄利floor（項目1）: 低オッズ複勝（例 <1.8〜2.0倍）or 最低期待利益(円)未満は除外。
-実装: bettype_sizing の SIZER 差し替え（--sizing プラガブル）+ bettype_selection。
+併せて 複勝薄利floor（bet-adjustment-items 項目1）: 低オッズ複勝（例 <1.8〜2.0倍）or 最低期待利益(円)未満は除外。
+実装: bettype_sizing の SIZER 差し替え（--sizing プラガブル）+ bettype_selection（軸選定 find_taste_axis は P2a 済なので触らない）。
 **backtest 必須**（walk-forward / 既存 ml/analyze/backtest_strength_weights.py 流用可）。ROI改善を示してから live。
-──────────────────────────────────
+おまけ宿題（P2a シズネ🟡-3）: P2a の composite **top-3 閾値**は未 backtest。この backtest に相乗りし top-3 の妥当性も検証（top-3 / top-quarter / composite floor を比較し ROIで正当化）。
 
 【成功条件】
-- P2a: 病的2レースで軸是正 + pytest 全green。
-- P2b: backtest で ROI 改善（CI下限で判定）+ dry-run 出力が妥当。
-- §3 の保留項目（scheduler/select_plans/build_plans/specialist）は触らない。
+- backtest で ROI 改善（CI下限で判定）+ dry-run が「単のみ/増額/大穴流し/降りる」を妥当に出し分け。
+- pytest 全green。§3 の保留項目（scheduler/select_plans/build_plans/specialist）は触らない。軸選定(find_taste_axis)も触らない（P2a 済）。
 
 【完了時】
 - 日本語で最小コミット。docs §5 に commit付きで追記、§2 P2状態を更新。
