@@ -189,11 +189,11 @@ class TestSkipAll:
 # find_taste_axis — 妙味軸オプション
 # ---------------------------------------------------------------------------
 
-def _strength(umaban, win_prob, odds):
+def _strength(umaban, win_prob, odds, composite=0.0):
     return be.HorseStrength(
         umaban=umaban, horse_name=f"H{umaban}", win_prob=win_prob,
         odds=odds, place_odds_min=None, pred_w=win_prob, pred_p=None,
-        ar_deviation=None, z_w=None, z_p=None, z_adr=None, composite=0.0,
+        ar_deviation=None, z_w=None, z_p=None, z_adr=None, composite=composite,
     )
 
 
@@ -241,6 +241,51 @@ class TestFindTasteAxis:
         ]
         re_ = _race_eff([_tansho_plan()], strengths=strengths)
         assert bs.find_taste_axis(re_, "popularity_gap_max") is None
+
+    def test_popularity_gap_max_tie_cluster_uses_composite(self):
+        # 同点団子バグ回帰 (Session 141 / 5/31 京都12R ⑯=77倍・京都8R ⑥=60倍 をライブ投票):
+        # win_prob は団子で同値が多発し、 同値を馬番で割った win_rank の上位に composite 中位の
+        # longshot が紛れ込み軸に選ばれていた。 → model 順位は composite (AI印◎の基準) で測る。
+        # 下記 #5 は win_prob 2位 (旧 win_rank では top-third) だが composite 最下位の longshot。
+        # 旧実装は gap 最大の #5 (50倍) を軸にした。 新実装は composite で #5 を弾き、
+        # 過小評価の #2 (composite2位・人気薄) を選ぶ。
+        strengths = [
+            _strength(1, 0.30, 2.0, composite=3.0),     # 本命 (composite1位・最人気)
+            _strength(2, 0.20, 12.0, composite=2.0),    # composite2位だが人気薄 = 過小評価 (狙い)
+            _strength(3, 0.15, 5.0, composite=1.0),
+            _strength(4, 0.07, 8.0, composite=0.0),
+            _strength(5, 0.25, 50.0, composite=-1.0),   # win_prob2位だが composite 最下位の longshot
+            _strength(6, 0.03, 20.0, composite=-0.5),
+        ]
+        re_ = _race_eff([_tansho_plan()], strengths=strengths)
+        axis = bs.find_taste_axis(re_, "popularity_gap_max")
+        assert axis == 2          # composite で #5(longshot) を弾き、 過小評価 #2 を選ぶ
+        assert axis != 5          # 旧実装の誤選択先 (composite 最下位の 50倍) は選ばない
+
+    def test_popularity_gap_max_excludes_boundary_longshot(self):
+        # top-3 締めの回帰 (6/6 venue2 R6 ⑦=120倍/composite rank5 をライブ前に GATE1 で発見):
+        # composite top-third(ceil(n/3)) は大頭数で境界が緩く、 境界の平均馬が極端オッズで
+        # gap 最大になり軸に拾われた。 → composite top-3 に締める。
+        # n=12 (旧 support_cut=4, 新=3)。 #9 は composite rank4・90倍の境界 longshot で、
+        # 勝率 floor(1/12) は通る (0.10>=0.083) が top-3 で弾く。 → top-3 の過小評価 #2 を選ぶ。
+        strengths = [
+            _strength(1, 0.30, 2.0, composite=2.5),    # 本命 (comp1・最人気)
+            _strength(2, 0.15, 15.0, composite=1.8),   # comp2 だが人気薄 = 過小評価 (狙い)
+            _strength(3, 0.13, 6.0, composite=1.2),    # comp3
+            _strength(9, 0.10, 90.0, composite=0.4),   # comp4・90倍の境界 longshot (旧誤選択先)
+            _strength(4, 0.08, 10.0, composite=0.2),
+            _strength(5, 0.06, 12.0, composite=0.0),
+            _strength(6, 0.05, 18.0, composite=-0.1),
+            _strength(7, 0.04, 25.0, composite=-0.2),
+            _strength(8, 0.03, 30.0, composite=-0.3),
+            _strength(10, 0.02, 40.0, composite=-0.5),
+            _strength(11, 0.02, 50.0, composite=-0.7),
+            _strength(12, 0.02, 60.0, composite=-0.9),
+        ]
+        re_ = _race_eff([_tansho_plan()], strengths=strengths)
+        axis = bs.find_taste_axis(re_, "popularity_gap_max")
+        assert axis == 2          # top-3 の過小評価馬を選ぶ
+        assert axis != 9          # composite rank4 の境界 longshot (90倍) は弾く
 
 
 class TestHoleSeeker:

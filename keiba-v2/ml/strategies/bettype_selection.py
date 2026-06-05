@@ -169,16 +169,17 @@ def find_taste_axis(race_eff: "be.RaceEfficiency", taste: str) -> Optional[int]:
     popularity_gap_max:
         「model は (相応に) 強いと見ているのに 市場人気が低い = 過小評価」 の馬を軸にする。
         乖離は ★外れ値に頑健な順位差★ で測る:
-            gap = 人気ランク (odds 昇順 1=最人気) − model ランク (win_prob 降順 1=最評価)
+            gap = 人気ランク (odds 昇順 1=最人気) − model ランク (composite 降順 1=最評価)
         gap が大 = 市場が model より低く評価 = 過小評価。 gap<=0 (市場 >= model) なら
         過小評価でないので軸を動かさない (None)。
 
-        ★旧実装 (z(win_prob)+z(odds)) は z(odds) が極端オッズ (例 438倍) で爆発し、
-          model 最下位 (win_prob≈0) の単なる人気薄を軸に選ぶバグがあった。 軸の win_prob は
-          ハーヴィルの全 combo 確率の入力なので、 win_prob≈0 を軸にすると下流のプラン確率・
-          EV が全て無意味になる。 ∴ ① z でなく順位差で頑健化 ② 候補を 2 段フロアで限定:
-          model 上位 (top-third) かつ win_prob>=1/n (一様超え)。 「model が legit な相手と
-          見ている馬」だけを過小評価候補にし、 model 較正の甘い極端な裾を弾く。★
+        ★model ランクは composite (W/P/ADR 総合 = AI印◎の基準) で測る。
+          旧実装は win_prob 順位 (win_rank) を使っていたが、win_prob は団子レースで多数が
+          同値になり (実例 5/31 京都12R: 9頭が同一 win_prob)、同値を馬番で割って付けた順位は
+          無意味。その結果 composite 中位 (例 11/18 位) の longshot が「win_rank 上位の過小評価馬」と
+          誤認され軸に選ばれていた (京都12R ⑯=77倍 / 京都8R ⑥=60倍 をライブ投票)。
+          ふくだ方針「評価した馬の中で妙味を買う」= composite (実評価) で候補を絞り gap も測る。
+          2 段フロア: ① composite top-3 のみ ② win_prob>=1/n (ハーヴィル入力の最低勝率)。★
     ev_min:
         合成オッズが最も妙味のある (= EV>=floor を満たし synthetic_odds が最大の)
         プランの軸を返す。 軸そのものは Phase2 の composite 最強と同じだが、
@@ -191,25 +192,31 @@ def find_taste_axis(race_eff: "be.RaceEfficiency", taste: str) -> Optional[int]:
         if not present:
             return None
         n = len(present)
-        # 人気ランク (odds 昇順, 1=最人気) と model ランク (win_prob 降順, 1=最評価)。
+        # 人気ランク (odds 昇順, 1=最人気) と model ランク (composite 降順, 1=最評価)。
+        # ★model ランクは composite (= AI印◎の基準) で測る。 win_prob 順位は団子レースで
+        #   同値が多発し (同値を馬番で割る) composite 中位の longshot を上位と誤認するため使わない。
         pop_rank = {s.umaban: i for i, s in
                     enumerate(sorted(present, key=lambda s: (s.odds, s.umaban)), start=1)}
-        win_rank = {s.umaban: i for i, s in
-                    enumerate(sorted(present, key=lambda s: (-s.win_prob, s.umaban)), start=1)}
+        comp_rank = {s.umaban: i for i, s in
+                     enumerate(sorted(present, key=lambda s: (-s.composite, -s.win_prob, s.umaban)),
+                               start=1)}
         # 候補フロア (2段)。 単なる人気薄を軸に選ばない & ハーヴィルが意味を保つための必須ガード:
-        #   ① model 順位 floor: model 上位 (top-third, 最低3頭) のみ。
-        #   ② 絶対勝率 floor: win_prob >= 1/n (一様ランダム超え) = model が本物のチャンスを
-        #      見ている馬。 model キャリブレーションの甘い極端な裾 (例 183倍 winp5%) を弾く。
-        support_cut = min(n, max(3, -(-n // 3)))   # ceil(n/3) を最低3で
+        #   ① model 順位 floor: composite top-3 のみ (= model の明確な上位)。
+        #      旧 top-third (ceil(n/3)) は大頭数で境界が緩み、 composite 境界の平均馬が極端
+        #      オッズ (実例 6/6 venue2 R6 ⑦=120倍/composite rank5/z 全0.2前後) で gap 最大に
+        #      なり軸に選ばれた。 「評価した“強い”馬の中で妙味を買う」(ふくだ S141) に合わせ
+        #      top-3 へ締める。
+        #   ② 絶対勝率 floor: win_prob >= 1/n (一様ランダム超え) = ハーヴィル入力の最低勝率。
+        support_cut = min(n, 3)
         prob_floor = 1.0 / n
         cands = [s for s in present
-                 if win_rank[s.umaban] <= support_cut and s.win_prob >= prob_floor]
+                 if comp_rank[s.umaban] <= support_cut and s.win_prob >= prob_floor]
         if not cands:
             return None       # 過小評価できる contender 不在 → 軸据え置き (composite 維持)
-        # gap = pop_rank - win_rank の最大。 同値は model 上位 → 馬番昇順 で決定的に。
-        best = max(cands, key=lambda s: (pop_rank[s.umaban] - win_rank[s.umaban],
-                                         -win_rank[s.umaban], -s.umaban))
-        if pop_rank[best.umaban] - win_rank[best.umaban] <= 0:
+        # gap = pop_rank - comp_rank の最大。 同値は composite 上位 → 馬番昇順 で決定的に。
+        best = max(cands, key=lambda s: (pop_rank[s.umaban] - comp_rank[s.umaban],
+                                         -comp_rank[s.umaban], -s.umaban))
+        if pop_rank[best.umaban] - comp_rank[best.umaban] <= 0:
             return None       # 過小評価でない (市場 >= model 評価) → 軸据え置き
         return best.umaban
     if taste == "ev_min":
