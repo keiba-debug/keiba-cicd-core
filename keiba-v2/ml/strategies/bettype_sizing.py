@@ -25,8 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ml.bet_engine import calc_kelly_fraction
-from ml.strategies.freebudget import BET_UNIT_YEN, MIN_BET_YEN
+from ml.strategies.kelly import BET_UNIT_YEN, MIN_BET_YEN, kelly_amount
 
 # アンカー (◎単/複) = 排反/相関の無い独立 1 点なので Kelly を厳密適用してよい券種。
 ANCHOR_BET_TYPES = ("tansho", "fukusho")
@@ -68,26 +67,10 @@ class RaceSizing:
 
 
 # ---------------------------------------------------------------------------
-# Kelly (アンカー専用。 freebudget.py:182-190 と同一式)
+# Kelly (アンカー専用) は ml/strategies/kelly.py が SSoT。 freebudget の単勝
+# サイジングと同一式 (同額になることを test で担保)。 上の import で kelly_amount を
+# 取り込み、 size_race から呼ぶ。
 # ---------------------------------------------------------------------------
-
-def kelly_amount(p: Optional[float], odds: Optional[float], *, bankroll: int,
-                 kelly_fraction: float, per_bet_cap_pct: float) -> int:
-    """1 点の Kelly 投資額 (100円単位)。 freebudget の単勝サイジングと同一式。
-
-    f = min(calc_kelly_fraction(p, odds) * kelly_fraction, per_bet_cap_pct)
-    amount = min(floor(bankroll*f/100)*100, per_bet_cap_yen)。 MIN 未満は 0。
-    """
-    if odds is None or odds <= 1.0 or p is None or not (0.0 < p < 1.0):
-        return 0
-    kelly_raw = calc_kelly_fraction(p, odds)
-    if kelly_raw <= 0:
-        return 0
-    kelly_sized = min(kelly_raw * kelly_fraction, per_bet_cap_pct)
-    amount = (int(bankroll * kelly_sized) // BET_UNIT_YEN) * BET_UNIT_YEN
-    per_bet_cap_yen = (int(bankroll * per_bet_cap_pct) // BET_UNIT_YEN) * BET_UNIT_YEN
-    amount = min(amount, per_bet_cap_yen)
-    return amount if amount >= MIN_BET_YEN else 0
 
 
 # ---------------------------------------------------------------------------

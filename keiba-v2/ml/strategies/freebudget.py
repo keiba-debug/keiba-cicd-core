@@ -40,9 +40,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ml.bet_engine import (  # noqa: E402
     PRESETS,
-    calc_kelly_fraction,
     generate_recommendations,
 )
+from ml.strategies.kelly import kelly_sizing  # noqa: E402
+# BET_UNIT_YEN / MIN_BET_YEN の SSoT は kelly.py。 旧 import 参照向けに re-export。
+from ml.strategies.kelly import BET_UNIT_YEN, MIN_BET_YEN  # noqa: E402,F401
 from ml.utils.race_io import date_dir_for, load_predictions  # noqa: E402
 
 
@@ -50,8 +52,8 @@ DEFAULT_BANKROLL = 10000          # 1万円フリー予算 (OOS 5/30 初日)
 DEFAULT_KELLY_FRACTION = 0.25     # 1/4 Kelly (bankroll/config.json と整合)
 DEFAULT_PER_BET_CAP_PCT = 0.10    # 1馬上限 10% (= 1000円 @ bankroll=10000)
 DEFAULT_PRESET = "standard"       # bet_engine.PRESETS から
-BET_UNIT_YEN = 100                # 100円単位丸め
-MIN_BET_YEN = 100                 # 100円未満は不採用
+# BET_UNIT_YEN (100円単位丸め) / MIN_BET_YEN (100円未満は不採用) は kelly.py が
+# SSoT。 上の import で re-export済 (旧 `from ...freebudget import BET_UNIT_YEN` 互換)。
 
 
 @dataclass
@@ -162,9 +164,6 @@ def extract_freebudget_bets(
 
     race_meta_by_id = {str(r.get("race_id")): r for r in races}
 
-    per_bet_cap_yen = int(bankroll * per_bet_cap_pct)
-    per_bet_cap_yen = (per_bet_cap_yen // BET_UNIT_YEN) * BET_UNIT_YEN
-
     candidates: list[tuple[FreebudgetBet, float]] = []  # (bet, ev_for_sort)
 
     for rec in recs:
@@ -179,19 +178,15 @@ def extract_freebudget_bets(
         p = win_ev / odds
         if p <= 0 or p >= 1:
             continue
-        kelly_raw = calc_kelly_fraction(p, odds)
-        if kelly_raw <= 0:
-            continue
-        kelly_sized = min(kelly_raw * kelly_fraction, per_bet_cap_pct)
-        raw_yen = int(bankroll * kelly_sized)
-        amount_yen = (raw_yen // BET_UNIT_YEN) * BET_UNIT_YEN
-        amount_yen = min(amount_yen, per_bet_cap_yen)
-        if amount_yen < MIN_BET_YEN:
+        sizing = kelly_sizing(p, odds, bankroll=bankroll,
+                              kelly_fraction=kelly_fraction,
+                              per_bet_cap_pct=per_bet_cap_pct)
+        if sizing.amount < MIN_BET_YEN:
             continue
         race_meta = race_meta_by_id.get(str(rec.race_id), {})
         bet = _bet_from_rec(rec, race_meta,
-                            amount=amount_yen, p=p,
-                            kelly_raw=kelly_raw, kelly_sized=kelly_sized)
+                            amount=sizing.amount, p=p,
+                            kelly_raw=sizing.kelly_raw, kelly_sized=sizing.kelly_sized)
         candidates.append((bet, win_ev))
 
     n_eligible = len(candidates)
