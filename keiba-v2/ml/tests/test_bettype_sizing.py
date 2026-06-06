@@ -216,6 +216,38 @@ def test_fit_legs_to_cap_scales_and_protects_anchor():
 
 def test_get_sizer_known():
     assert sz.get_sizer("anchor_kelly_combo_ev") is sz.size_race
+    assert sz.get_sizer("adaptive_fund") is sz.size_race_adaptive
+
+
+def test_adaptive_sizer_skip_all_empty():
+    axis = 3
+    eff = _race_eff(axis, 1.5, [_strength(3, 0.05, 1.5)],
+                    [_plan("tansho", [[3]], hit_prob=0.05, ev=None, g=None, odds_legs=[1.5])])
+    sel = bs.BetSelection(
+        race_id=eff.race_id, date=eff.date, venue_name=eff.venue_name,
+        race_number=eff.race_number, grade=eff.grade,
+        axis_umaban=axis, axis_name=f"H{axis}", axis_odds=1.5,
+        strategy="skip_all", requested_strategy="adaptive",
+        ev_floor=1.0, taste=None, specialist=None,
+        selected_plans=[], skipped_plans=[], decision_reason="x",
+        fund_mode="skip_all", fund_reason="降りる", kelly_boost=1.0,
+    )
+    rs = sz.size_race_adaptive(eff, sel, bankroll=10000, per_race_cap=3000)
+    assert rs.legs == []
+    assert rs.total_yen == 0
+
+
+def test_adaptive_sizer_boost_increases_anchor():
+    axis = 3
+    eff = _race_eff(axis, 4.0, [_strength(3, 0.35, 4.0)],
+                    [_plan("tansho", [[3]], hit_prob=0.35, ev=None, g=None, odds_legs=[4.0])])
+    sel = _selection(axis, 4.0, [_sel_plan("tansho", [[3]])])
+    sel.requested_strategy = "adaptive"
+    sel.fund_mode = "boost"
+    sel.kelly_boost = 1.5
+    base = sz.size_race(eff, sel, bankroll=10000, per_race_cap=3000)
+    boosted = sz.size_race_adaptive(eff, sel, bankroll=10000, per_race_cap=3000)
+    assert boosted.anchor_yen >= base.anchor_yen
 
 
 def test_get_sizer_unknown_raises():

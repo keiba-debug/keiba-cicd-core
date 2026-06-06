@@ -57,6 +57,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ml.strategies import bettype_efficiency as be  # noqa: E402
+from ml.strategies import bettype_fund as bf  # noqa: E402
 from ml.utils.race_io import date_dir_for, load_predictions  # noqa: E402
 
 ARTIFACT_NAME = "betting_selection.json"
@@ -72,7 +73,7 @@ DEFAULT_EV_FLOOR = 1.0
 # (単勝は EV=None=基準、 複勝も axis_place が無ければ EV=None で同列に扱う)
 BASE_BET_TYPES = ("tansho", "fukusho")
 
-STRATEGIES = ("concentrate", "ev_floor", "spread_if_worth", "hole_seeker")
+STRATEGIES = ("concentrate", "ev_floor", "spread_if_worth", "hole_seeker", "adaptive")
 TASTES = ("popularity_gap_max", "ev_min")
 
 # 「広げ得 ≠ 儲かる」を decision_reason / select_reason に必ず織り込む共通文言
@@ -122,6 +123,9 @@ class BetSelection:
     selected_plans: List[SelectedPlan]
     skipped_plans: List[SkippedPlan]
     decision_reason: str               # 「広げ得≠儲かる」を必ず含意
+    fund_mode: Optional[str] = None    # P2b: skip_all/tansho_only/boost/longshot_flow/spread
+    fund_reason: Optional[str] = None  # P2b: decide_fund の理由
+    kelly_boost: float = 1.0           # P2b: sizing 増額倍率
     warnings: List[str] = field(default_factory=list)
 
 
@@ -314,6 +318,17 @@ def _select_spread_if_worth(plans, ev_floor) -> Tuple[list, list]:
     return selected, skipped
 
 
+def _select_adaptive(plans, ev_floor, decision: bf.FundDecision) -> Tuple[list, list]:
+    """P2b: bettype_efficiency + decide_fund で券種を出し分け (vs_tansho 不使用)。"""
+    selected, skipped = [], []
+    raw_sel, raw_skip = bf.filter_plans_for_fund(plans, decision, ev_floor=ev_floor)
+    for p, reason in raw_sel:
+        selected.append(_to_selected(p, reason))
+    for p, reason in raw_skip:
+        skipped.append(_to_skipped(p, reason))
+    return selected, skipped
+
+
 def _select_hole_seeker(plans, ev_floor, taste) -> Tuple[list, list]:
     """妙味軸での評価結果から、 EV>=floor のプランを fund (ev_floor と同じ足切り)。
     軸が既に妙味軸へ差し替わっている前提 (select_plans が再評価して渡す)。
@@ -343,6 +358,9 @@ def select_plans(
     strategy: str = "concentrate",
     ev_floor: float = DEFAULT_EV_FLOOR,
     taste: Optional[str] = None,
+    bankroll: int = 10000,
+    kelly_fraction: float = 0.25,
+    per_bet_cap_pct: float = 0.10,
 ) -> BetSelection:
     """RaceEfficiency (Phase2) の plans[] から fund 対象を選ぶ。
 
@@ -356,6 +374,9 @@ def select_plans(
     eff = race_eff
     used_taste = None
     warnings = list(race_eff.warnings)
+    fund_mode: Optional[str] = None
+    fund_reason: Optional[str] = None
+    kelly_boost = 1.0
 
     if strategy == "concentrate":
         selected, skipped = _select_concentrate(eff.plans, ev_floor)
@@ -363,6 +384,14 @@ def select_plans(
         selected, skipped = _select_ev_floor(eff.plans, ev_floor)
     elif strategy == "spread_if_worth":
         selected, skipped = _select_spread_if_worth(eff.plans, ev_floor)
+    elif strategy == "adaptive":
+        decision = bf.decide_fund(
+            eff, ev_floor=ev_floor, bankroll=bankroll,
+            kelly_fraction=kelly_fraction, per_bet_cap_pct=per_bet_cap_pct)
+        fund_mode = decision.mode
+        fund_reason = decision.reason
+        kelly_boost = decision.kelly_boost
+        selected, skipped = _select_adaptive(eff.plans, ev_floor, decision)
     elif strategy == "hole_seeker":
         used_taste = taste or "popularity_gap_max"
         if used_taste not in TASTES:
@@ -376,10 +405,17 @@ def select_plans(
     #   一切残らない (= 基準のみ) ケースは「広げる妙味なし → 軸に集中」を明示する。
     combo_selected = [s for s in selected if s.bet_type not in BASE_BET_TYPES]
     eff_strategy = strategy
-    if not selected:
+    if strategy == "adaptive" and fund_mode == "skip_all":
+        eff_strategy = "skip_all"
+        selected = []
+        skipped = [_to_skipped(p, fund_reason or "降りる") for p in eff.plans]
+        decision = f"{fund_reason or '降りる'}。 {SPREAD_CAVEAT}"
+    elif not selected:
         # 基準券種すら無い (= プラン自体が空 / 軸不明等) → 完全見送り
         eff_strategy = "skip_all"
         decision = f"fund 対象なし → 全見送り。 {SPREAD_CAVEAT}"
+    elif strategy == "adaptive" and fund_mode:
+        decision = f"adaptive/{fund_mode}: {fund_reason}。 {SPREAD_CAVEAT}"
     elif not combo_selected:
         decision = (f"複合券種に fund 対象なし (EV<floor={ev_floor} 等) → 単勝◎に集中。 "
                     f"{SPREAD_CAVEAT}")
@@ -397,6 +433,7 @@ def select_plans(
         taste=used_taste, specialist=eff.specialist,
         selected_plans=selected, skipped_plans=skipped,
         decision_reason=decision, warnings=warnings,
+        fund_mode=fund_mode, fund_reason=fund_reason, kelly_boost=kelly_boost,
     )
 
 

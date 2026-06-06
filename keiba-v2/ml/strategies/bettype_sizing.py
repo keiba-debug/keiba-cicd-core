@@ -26,10 +26,12 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from ml.strategies.kelly import BET_UNIT_YEN, MIN_BET_YEN, kelly_amount
+from ml.strategies import bettype_fund as bf  # noqa: E402
 
 # アンカー (◎単/複) = 排反/相関の無い独立 1 点なので Kelly を厳密適用してよい券種。
 ANCHOR_BET_TYPES = ("tansho", "fukusho")
 DEFAULT_SIZER = "anchor_kelly_combo_ev"
+ADAPTIVE_SIZER = "adaptive_fund"
 
 
 def _legs_key(legs) -> tuple:
@@ -253,12 +255,87 @@ def size_race(race_eff, selection, *, bankroll: int, per_race_cap: int,
                       n_dropped=n_dropped, warnings=warnings)
 
 
+def size_race_adaptive(race_eff, selection, *, bankroll: int, per_race_cap: int,
+                       kelly_fraction: float = 0.25, per_bet_cap_pct: float = 0.10,
+                       combo_share_of_residual: float = 1.0,
+                       weight_key: str = "ev") -> RaceSizing:
+    """P2b: BetSelection の fund_mode / kelly_boost + decide_fund で増額・大穴流し・降りる。
+
+    selection.requested_strategy=='adaptive' か fund_mode 付きを想定。 非 adaptive でも
+    fund フィールドが無ければ decide_fund を再計算する (dry-run 整合)。
+    """
+    fund_mode = getattr(selection, "fund_mode", None)
+    kelly_boost = getattr(selection, "kelly_boost", 1.0) or 1.0
+    if fund_mode is None and selection.requested_strategy == "adaptive":
+        decision = bf.decide_fund(
+            race_eff, ev_floor=selection.ev_floor, bankroll=bankroll,
+            kelly_fraction=kelly_fraction, per_bet_cap_pct=per_bet_cap_pct)
+        fund_mode = decision.mode
+        kelly_boost = decision.kelly_boost
+    elif fund_mode is None:
+        decision = bf.decide_fund(
+            race_eff, ev_floor=selection.ev_floor, bankroll=bankroll,
+            kelly_fraction=kelly_fraction, per_bet_cap_pct=per_bet_cap_pct)
+        fund_mode = decision.mode
+        kelly_boost = decision.kelly_boost
+    else:
+        decision = bf.decide_fund(
+            race_eff, ev_floor=selection.ev_floor, bankroll=bankroll,
+            kelly_fraction=kelly_fraction, per_bet_cap_pct=per_bet_cap_pct)
+
+    if fund_mode == "skip_all" or not selection.selected_plans:
+        return RaceSizing(
+            race_id=race_eff.race_id, legs=[], total_yen=0, anchor_yen=0,
+            combo_yen=0, per_race_cap=per_race_cap, n_dropped=0,
+            warnings=["adaptive: skip_all (降りる)"],
+        )
+
+    boosted_kelly = min(kelly_fraction * kelly_boost, 1.0)
+    rs = size_race(
+        race_eff, selection, bankroll=bankroll, per_race_cap=per_race_cap,
+        kelly_fraction=boosted_kelly, per_bet_cap_pct=per_bet_cap_pct,
+        combo_share_of_residual=combo_share_of_residual, weight_key=weight_key,
+    )
+
+    # 大穴100円流し (selection 側で combo を fund していても sizing で 1 点追加)
+    if decision.longshot_yen >= MIN_BET_YEN and decision.longshot_horses:
+        ls_key = (decision.longshot_bet_type, _legs_key([decision.longshot_horses]))
+        dup = any(
+            l.bet_type == decision.longshot_bet_type and l.horses == decision.longshot_horses
+            for l in rs.legs
+        )
+        if not dup:
+            rs.legs.append(SizedLeg(
+                race_eff.race_id, decision.longshot_bet_type or "umaren",
+                list(decision.longshot_horses), decision.longshot_yen,
+                decision.longshot_label or "大穴流し",
+                decision.longshot_odds, None, None,
+                "adaptive longshot flow (100円)"))
+            rs.combo_yen += decision.longshot_yen
+            rs.total_yen += decision.longshot_yen
+
+    if per_race_cap > 0 and rs.total_yen > per_race_cap:
+        rs.legs, n_drop = fit_legs_to_cap(rs.legs, per_race_cap)
+        rs.n_dropped += n_drop
+        rs.total_yen = sum(l.amount for l in rs.legs)
+        rs.anchor_yen = sum(l.amount for l in rs.legs if l.bet_type in ANCHOR_BET_TYPES)
+        rs.combo_yen = rs.total_yen - rs.anchor_yen
+        rs.warnings.append(f"adaptive cap fit drop={n_drop}")
+
+    if fund_mode:
+        rs.warnings.insert(0, f"adaptive/{fund_mode}: {decision.reason}")
+    return rs
+
+
 # ---------------------------------------------------------------------------
 # プラガブルサイザー登録
 # ---------------------------------------------------------------------------
 
 SizerFn = Callable[..., RaceSizing]
-SIZERS: Dict[str, SizerFn] = {DEFAULT_SIZER: size_race}
+SIZERS: Dict[str, SizerFn] = {
+    DEFAULT_SIZER: size_race,
+    ADAPTIVE_SIZER: size_race_adaptive,
+}
 
 
 def get_sizer(name: str) -> SizerFn:

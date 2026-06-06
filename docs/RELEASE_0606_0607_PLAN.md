@@ -32,8 +32,8 @@ P3 学習期間見直し          ← P0-A の集計リフレッシュ後
 | **P0-A** | データ | 先週分(5/30・5/31)成績取得 + 集計再計算（`keiba-data-prep` Phase①: 結果登録 + RPCI/レイティング/IDM/調教師/調教/血統/出遅れ） | データセッション | なし | 6/6 朝 | ✅ 完了 |
 | **P0-B** | データ | 6/6・6/7 翌日準備（`keiba-data-prep` Phase②: 出馬表→レースJSON→JRDB統合→調教→ML予測・買い目） | データセッション | P0-A推奨先行 | **6/6 09:00**（vb_refresh稼働まで） | ✅ 6/6完全 / ⏳ 6/7=安田記念のみ(枠順未公開・§6) |
 | **P1** | 基盤 | Kelly計算式を共通モジュールへ抽出（下記§3） | VUセッション | なし | P2前 | ✅ |
-| **P2** | 本VU | 買い目抽出・配分計算の向上（Session141「評価は信じる・配分で勝つ」の本体） | VUセッション | **P1完了後** | — | ☐ |
-| **P3** | 学習 | 学習期間を5月まで拡張（前年5月までの範囲拡大検討） | 学習セッション | **P0-A後** | — | ☐ |
+| **P2** | 本VU | 買い目抽出・配分計算の向上（Session141「評価は信じる・配分で勝つ」の本体） | VUセッション | **P1完了後** | — | ✅ P2a+P2b |
+| **P3** | 学習 | 学習期間を5月まで拡張（前年5月までの範囲拡大検討） | 学習セッション | **P0-A後** | — | ✅ |
 
 クリティカルパス = **P0**（6/6 09:00 締切）。P1 は並行可。
 
@@ -72,7 +72,9 @@ P3 学習期間見直し          ← P0-A の集計リフレッシュ後
 | 2026-06-06 | **P0-A** | データセッション | ✅ **完了**。5/30(SE 361/finish 98%)・5/31(SE 348/finish 99%)結果登録 + 検索index再構築(22,805R)。**集計7種すべて再計算済**(race_type_standards/race_trend_index/rating_standards/race_level_index/idm_standards/trainer_patterns/training_analysis/sire_stats_index/slow_start_analysis = 6/6 00:46-00:51更新)。 | 🔗 **P3(学習)の依存=集計インデックスのリフレッシュ完了**(§4)。`sire_stats_index`/`race_level_index` 等は本日更新済 → **P3 着手可** |
 | 2026-06-06 | **P0-B** | データセッション | ✅ **6/6完全**: build_race_from_keibabook 24R(ID解決 332/332=100%・JRDB全頭付与)→cyokyo→調教サマリー3,624頭→predict 24R/closing 21R/generate_bets/vb_refresh(**Value Bets 50**)。predictions.json(652KB/24R 全Rに勝率予測)+bets.json 生成。odds 24/24取得済(前売り)。rebuild-index済。 ⏳ **6/7は安田記念(東京11R)1Rのみ**: keibabook/JRDB/JRA-VAN の独立3ソースとも日曜アンダーカード未公開(枠順決定前)。partial で predictions/bets は生成済(1R)。**今回のスコープ=「6/6開催の準備」で確定(ふくだ)**。 | ℹ️ **6/7(日)データは 6/6(土)日中にならないと提供されない(ふくだ確認・仕様)**→ 6/6日中の提供後に Phase②(6/7)を再実行で full card 化(build_race_from_keibabook→...→vb_refresh)。クリティカルは6/6=達成。<br>✅ **時刻齟齬=解決**: マシンlocal `01:08:27 土`=ネットワーク `16:08 UTC(金)`+9h と秒まで一致→**マシン時計は正確(実時刻も土曜 深夜1時)**。ふくだ申告「8時」は勘違い。9:00タスクは実9:00に正常発火、12時までの最新オッズ予測は自動で間に合う |
 | 2026-06-06 | P3分割確定 | メイン管理 | ふくだ確定: 前年同月(2025.06)効果を α(train→2025.05)/β(train→2025.06) アブレーションで検証、共通OOS test=2025.07-2026.05(≈1年)。§4・§8 Prompt P3 更新済 | P3着手可。set_active はレース外 |
+| 2026-06-06 | **P3** | 学習セッション | ✅ **完了**。α(2.4a train→2025.05)/β(2.4b train→2025.06) 各1本学習 + v2.3 共通OOS test(2025.07-2026.05)比較。**β>α on W Top1 ROI**(83.2% vs 80.0%)で前年同月効果を確認。ただし **ROI CI下限で v2.3 未超過** → **現状維持(polaris v2.3)**。live は `restore_live` で v2.3 復元済・`set_active` 未実施。レポート: `keiba-v2/docs/ml-experiments/v8.4_polaris24_train_period_ablation.md` | 昇格はふくだ承認後・レース外。walk-forward で 2026.06 季節性は別途 |
 | 2026-06-06 | **P2a** | メイン管理(司令塔主導) | ✅ **完了・デプロイ済**。hole_seeker軸選定の同点団子バグ修正(`find_taste_axis`: win_rank→composite top-3)。5/31病巣(京都12R⑯77倍/京都8R⑥60倍をライブ投票)を実データ再現→是正(⑯→⑭/⑥→本命)。6/6 GATE1=24R中6R軸変化・全てmodel top-3へ・120/191倍軸消滅。回帰テスト2件・35 passed。GATE2(シズネ)CONDITIONAL_GO→cap内/異常0/変化6R確定で充足。commit `709a588` push済 | **本番反映済**。⚠️ `DEFAULT_STRATEGY=concentrate`(=AI印◎軸・find_taste_axis不使用)→ **hole_seeker 明示時のみ本修正が効く**。残: P2b(配分本丸)別セッション・来週。🟡-3 top-3閾値backtestは P2b/P3で |
+| 2026-06-06 | **P2b** | VUセッション | ✅ **完了 (dry-run/shadow)**。`bettype_fund.py` 新規 (decide_fund: 単のみ/増額/大穴100円流し/降りる + 複勝薄利floor)。`bettype_selection` に `adaptive` 戦略、`bettype_sizing` に `adaptive_fund` サイザー。backtest valid687R: baseline ROI=30.4% → adaptive=54.4% (Δ+24.0pt、**CI下限35.7%>baseline ✅**)。modes=skip420/boost84/tansho_only103/spread76/longshot4。P2aおまけ top-3 vs top-quarter/top-5 軸単ROI≒同等(107-111%)。pytest +58件 green。commit `213af41` | **live反映=不可(自分で有効化しない)**。シズネゲート + ふくだ判断待ち・原則来週以降。既定 `--strategy concentrate` / `--sizing anchor_kelly_combo_ev` 維持。6/6-6/7 当日差替禁止 |
 
 ## 6. 監視中フラグ（司令塔が追跡）
 
