@@ -165,3 +165,27 @@
 - **AI購入軸(markSet=3) の遡及**: **OK（2025/03〜全券種・単複は時系列で厳密）**。それ以前は券種限定。
 - 「オッズが無い場合 AI評価とイコールになるか」→ **ならない**。購入軸は評価×オッズで券種・相手を選ぶためオッズ必須。オッズ欠如時は **AI評価の◎コピー(markSet2と重複・無意味) ではなく未設定が正**（過去分の割り切り）。今回は実用期間が揃うので未設定にする必要なし。
 - 新ロジック検証は必ず walk-forward/OOS で（「過去に勝てた」を最新モデルの後知恵で水増ししない）。
+
+---
+
+## 7. 実装ログ
+
+| 日時 | Phase | 内容 | 状態 |
+|------|-------|------|------|
+| 2026-06-06 | 本書 | スロットマップ確定・再編方針・遡及方針 | ✅ main (3eb8c1e/955fe8b/21746c5) |
+| 2026-06-06 | **Phase1** | AI評価 markSet 6→2 リナンバー + `backfill_ai_marks.py`(過去遡及) + テスト10件 | ✅ branch `feat/mark-slot-reorg` (0ca668a)・**月曜マージ** |
+
+### Phase1 完了内容（branch `feat/mark-slot-reorg`）
+- `dat_writer._MARK_SLOT_AI` 6→2（AI評価）。施錠ガード(mark_set==1 手動禁止)維持。
+- `write_ai_marks`: `process_date()` 抽出（単発/遡及で共用）+ `--mark-set`（既定2）。
+- `backfill_ai_marks.py`（新）: 既存 predictions で過去開催に AI評価印(markSet=2)を一括付与。
+  当日以降(>=cutoff、既定today)ガード / JV_DATA_ROOT で書込先差替（試走 sandbox）。
+- 検証: 新規10件 + 既存ai_marks 24件 green。**サンドボックス試走**=実5/31 predictions→
+  markSet=2 へ24R/50印→読み戻しOK（東京12R ◎6○11▲4 = 目黒記念の評価を正しく再現）。実data3/TFJV 無傷。
+
+### 残タスク（月曜・非開催日にまとめて）
+1. **本番 TFJV へ1年遡及実行**: `python -m ml.ai_marks.backfill_ai_marks --start 2025-06-08 --end 2026-06-05 --step 2 --apply`（約110開催日）。
+2. **web reader を markSet=2 表示に切替**（AI印列を 6→2）+ 現行パイプ(朝prep/SKILL)の書込先を 2 に。
+3. **VU-1（買い軸）を markSet=3 に**付け替えてマージ（`feat/ai-mark-buy-sync-markset8` 統合）。
+4. **旧スロット整理**: VB/ARd/IDM/パドック(旧2-5)・危印(旧1同居)・旧6/旧8 のDATと web `auto-*`/`auto-danger` ルート廃止。
+5. **AI購入軸(markSet=3)の遡及**: 投票時点オッズ（単複時系列2025/01〜・組合せ確定2025/03〜）で過去の買い軸を再現（別スクリプト）。
