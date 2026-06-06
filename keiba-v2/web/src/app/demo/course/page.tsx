@@ -617,7 +617,7 @@ export default function CourseDictionaryPage() {
   }, [selectedVenue, surfaceFilter]);
 
   return (
-    <div className="container py-6 max-w-5xl">
+    <div className="container py-6 max-w-7xl">
       {/* ヘッダー */}
       <div className="mb-5">
         <h1 className="text-2xl font-bold">コース辞典</h1>

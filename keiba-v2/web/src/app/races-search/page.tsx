@@ -255,7 +255,7 @@ export default function RaceSearchPage() {
     venues.length > 0 || track || distanceMin || distanceMax || dateFrom || dateTo || grades.length > 0 || babas.length > 0;
 
   return (
-    <div className="container py-6 max-w-6xl">
+    <div className="container py-6 max-w-8xl">
       <h1 className="text-2xl font-bold mb-4">レース検索</h1>
 
       {/* 検索バー */}

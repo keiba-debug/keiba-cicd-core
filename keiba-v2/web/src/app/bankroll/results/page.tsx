@@ -55,7 +55,7 @@ export default function BankrollResultsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
-    <div className="container py-6 max-w-6xl">
+    <div className="container py-6 max-w-7xl">
       {/* ヘッダー */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2">

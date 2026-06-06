@@ -65,6 +65,9 @@
   --color-surface-turf: var(--surface-turf);
   --color-surface-dirt: var(--surface-dirt);
   --color-surface-steeplechase: var(--surface-steeplechase);
+
+  /* App container widths — ワイドディスプレイ対応（max-w-8xl を生成） */
+  --container-8xl: 108rem; /* 1728px */
 }
 
 :root {
@@ -570,9 +573,11 @@ body:not(.newspaper-mode) footer {
 .horse-number-7 { background: #f60; color: #fff; }
 .horse-number-8 { background: #f0f; color: #fff; }
 
-/* コンテナ */
+/* コンテナ
+   注: max-width は各ページの max-w-* に委譲する。
+   かつて max-width:1280px を固定していたが、これは unlayered ルールのため
+   Tailwind の max-w-* ユーティリティ(layered)を黙って上書きする地雷だった。 */
 .container {
-  max-width: 1280px;
   margin-left: auto;
   margin-right: auto;
   padding-left: 1rem;

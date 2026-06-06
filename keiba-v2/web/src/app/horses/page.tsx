@@ -37,7 +37,7 @@ export default function HorseSearchPage() {
   };
 
   return (
-    <div className="container py-6">
+    <div className="container py-6 max-w-7xl">
       <h1 className="text-3xl font-bold mb-6">🔍 馬検索</h1>
 
       {/* 検索フォーム */}

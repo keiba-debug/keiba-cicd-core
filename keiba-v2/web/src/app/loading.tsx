@@ -2,7 +2,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export default function Loading() {
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
+    <div className="container mx-auto px-4 py-6 max-w-8xl space-y-6">
       {/* 日付タブ */}
       <div className="flex gap-2">
         {Array.from({ length: 5 }).map((_, i) => (

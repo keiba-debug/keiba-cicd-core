@@ -120,7 +120,7 @@ export default async function HorseProfilePage({ params }: PageParams) {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container py-6 max-w-screen-2xl">
+      <div className="py-6">
         {/* パンくずリスト + データ更新 */}
         <div className="flex items-center justify-between mb-4">
           <nav className="flex items-center space-x-2 text-sm text-muted-foreground">
@@ -202,7 +202,7 @@ export default async function HorseProfilePage({ params }: PageParams) {
         </div>
 
         {/* 馬コメント（編集可能、TARGETに保存） */}
-        <div className="mt-4">
+        <div className="mt-4 max-w-5xl">
           <HorseCommentEditor
             kettoNum={kettoNum}
             horseName={basic.name}
@@ -239,12 +239,16 @@ export default async function HorseProfilePage({ params }: PageParams) {
         <Separator className="my-6" />
 
         {/* 成績統計 */}
-        <HorseStatsSection stats={stats} />
+        <div className="max-w-5xl">
+          <HorseStatsSection stats={stats} />
+        </div>
 
         <Separator className="my-6" />
 
         {/* 分析セクション */}
-        <HorseAnalysisSection analysis={analysis} />
+        <div className="max-w-5xl">
+          <HorseAnalysisSection analysis={analysis} />
+        </div>
 
         {/* フッター情報 */}
         <div className="mt-8 pt-4 border-t text-sm text-gray-500 dark:text-gray-400">

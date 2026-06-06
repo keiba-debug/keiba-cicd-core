@@ -510,7 +510,7 @@ export default function RpciAnalysisPage() {
   ];
 
   return (
-    <div className="container py-6 max-w-6xl">
+    <div className="container py-6 max-w-8xl">
       {/* パンくずリスト */}
       <nav className="flex items-center space-x-2 text-sm text-muted-foreground mb-6">
         <Link href="/" className="hover:underline flex items-center gap-1">

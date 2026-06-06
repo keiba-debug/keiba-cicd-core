@@ -69,7 +69,7 @@ export default function DataStatusPage() {
   }, []);
 
   return (
-    <div className="container mx-auto p-4 max-w-5xl">
+    <div className="container mx-auto p-4 max-w-7xl">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold">データ登録状況</h1>

@@ -431,7 +431,7 @@ export default async function IDMComparePage({ params }: PageParams) {
   };
 
   return (
-    <div className="container max-w-7xl mx-auto px-4 py-6">
+    <div className="container max-w-8xl mx-auto px-4 py-6">
       {/* レースナビゲーション */}
       {navigation && (
         <div className="mb-4 p-3 bg-card rounded-xl border shadow-sm">

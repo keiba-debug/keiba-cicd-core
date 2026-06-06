@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 
 export default function HorseNotFound() {
   return (
-    <div className="container py-12 text-center">
+    <div className="container py-12 text-center max-w-3xl">
       <h1 className="text-4xl font-bold mb-4">🐴 馬が見つかりません</h1>
       <p className="text-muted-foreground mb-8">
         指定された馬IDのプロファイルは存在しないか、データがありません。

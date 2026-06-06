@@ -60,7 +60,7 @@ export default function IDMAnalysisPage() {
 
   if (!standards) {
     return (
-      <div className="container py-6 max-w-6xl">
+      <div className="container py-6 max-w-8xl">
         <nav className="flex items-center space-x-2 text-sm text-muted-foreground mb-6">
           <Link href="/" className="hover:underline flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" />
@@ -96,7 +96,7 @@ export default function IDMAnalysisPage() {
   );
 
   return (
-    <div className="container py-6 max-w-6xl">
+    <div className="container py-6 max-w-8xl">
       {/* パンくず */}
       <nav className="flex items-center space-x-2 text-sm text-muted-foreground mb-6">
         <Link href="/" className="hover:underline flex items-center gap-1">

@@ -423,7 +423,7 @@ export default function PolarisSegmentsPage() {
   }, [detail]);
 
   return (
-    <div className="container mx-auto p-4 space-y-4 max-w-7xl">
+    <div className="container mx-auto p-4 space-y-4 max-w-8xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Link

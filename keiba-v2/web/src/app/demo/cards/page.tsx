@@ -182,7 +182,7 @@ const sampleHorses: HorseEntry[] = [
 
 export default function CardDemoPage() {
   return (
-    <div className="container py-6">
+    <div className="container py-6 max-w-7xl">
       <h1 className="text-3xl font-bold mb-2">🃏 トレーディングカード風デモ</h1>
       <p className="text-muted-foreground mb-6">
         カードをクリックすると裏面（詳細情報）が表示されます。

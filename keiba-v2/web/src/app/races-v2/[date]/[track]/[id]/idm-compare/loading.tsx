@@ -1,6 +1,6 @@
 export default function IDMCompareLoading() {
   return (
-    <div className="container max-w-7xl mx-auto px-4 py-6">
+    <div className="container max-w-8xl mx-auto px-4 py-6">
       <div className="h-6 w-32 bg-muted rounded animate-pulse mb-6" />
       <div className="h-8 w-64 bg-muted rounded animate-pulse mb-2" />
       <div className="h-4 w-48 bg-muted rounded animate-pulse mb-6" />

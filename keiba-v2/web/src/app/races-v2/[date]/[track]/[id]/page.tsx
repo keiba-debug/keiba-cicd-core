@@ -573,7 +573,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
       <NiigataChokuBanner raceId16={raceId16} date={date} />
 
       {/* メインコンテンツ */}
-      <main className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-8xl mx-auto px-4 py-6 space-y-6">
         {/* 表示モード切替 + コンテンツ */}
         <RaceDetailContent 
           raceData={raceData}
