@@ -139,12 +139,16 @@ def notify_skip(label: str, reason: str) -> None:
     ★async_=False (同期) 必須★: scheduler の skip パスは投票せず ~1秒で exit するため、
     async_=True (daemon スレッド) だと音声再生前にプロセス終了で kill され鳴らない。
     同期で音声完了まで待ってから次へ進む (skip は稀・1分間隔・lock で重複防止なので許容)。
-    notify 失敗はスケジューラを止めない (try/except)。 import は遅延 (GUI/TTS 依存回避)。"""
+    notify 失敗はスケジューラを止めない (try/except)。 import は遅延 (GUI/TTS 依存回避)。
+
+    W7 (ふくだ要望): 見送りだけ落ち着いた「アナウンス」声 (VOICEVOX id30) に差し替える。
+    投票成功/開始は高テンション声のまま = テンションのコントラストが狙い。speaker は
+    VOICEVOX 経路でのみ有効 (SAPI 等は無視) で、 失敗時は既存フォールバックに落ちる。"""
     try:
-        from ml.target_clicker.notify import speak
+        from ml.target_clicker.notify import VOICEVOX_SPEAKER_SKIP, speak
         # 読み上げ用: "5R" が「アール」と発音されるのを防ぐため R→レース に変換 (ふくだ要望)。
         spoken = label.replace("R", "レース")
-        speak(f"{spoken} 見送り。{reason}", async_=False)
+        speak(f"{spoken} 見送り。{reason}", async_=False, speaker=VOICEVOX_SPEAKER_SKIP)
     except Exception as e:  # noqa: BLE001 (通知失敗は致命でない)
         print(f"[bettype] skip notify failed: {e}", file=sys.stderr)
 

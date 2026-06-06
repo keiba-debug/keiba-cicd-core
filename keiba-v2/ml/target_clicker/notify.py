@@ -88,12 +88,18 @@ _PYTTSX3_AVAILABLE = False
 #   KEIBA_TTS_PITCH    : SAPI ピッチ (既定 "-20%" = サンプル4 低めトーン採用)
 #   KEIBA_VOICEVOX_URL : VOICEVOX エンジン URL
 #   KEIBA_VOICEVOX_SPEAKER : 話者 ID (3=ずんだもん ノーマル)
+#   KEIBA_VOICEVOX_SPEAKER_SKIP : 見送り通知だけの話者 ID (既定 30=アナウンス。W7/ふくだ要望)
 # 既定は SAPI のまま (OOS 経路を変えない)。 VOICEVOX は env で opt-in、 失敗時 SAPI に落ちる。
 # ============================================================
 TTS_ENGINE = os.getenv("KEIBA_TTS_ENGINE", "sapi").strip().lower()
 SAPI_PITCH = os.getenv("KEIBA_TTS_PITCH", "-20%")
 VOICEVOX_URL = os.getenv("KEIBA_VOICEVOX_URL", "http://127.0.0.1:50021").rstrip("/")
 VOICEVOX_SPEAKER = int(os.getenv("KEIBA_VOICEVOX_SPEAKER", "3"))
+# W7 (ふくだ要望): 見送り通知だけ落ち着いた「アナウンス」声 (id30) にする。
+# 投票成功/開始は VOICEVOX_SPEAKER (高テンション声) のまま = テンションのコントラストが狙い。
+# speak(..., speaker=VOICEVOX_SPEAKER_SKIP) で見送りパスだけ差し替える。VOICEVOX 経路のみ有効
+# (SAPI/pyttsx3 は speaker 概念なし → 無視)。未起動/id 不在時は既存フォールバックで SAPI に落ちる。
+VOICEVOX_SPEAKER_SKIP = int(os.getenv("KEIBA_VOICEVOX_SPEAKER_SKIP", "30"))
 
 
 def _try_pyttsx3(text: str, rate: int = 0) -> bool:
@@ -237,13 +243,16 @@ def _try_voicevox(text: str, *, speaker: Optional[int] = None,
         return False
 
 
-def speak(text: str, *, rate: int = 0, async_: bool = False) -> bool:
+def speak(text: str, *, rate: int = 0, async_: bool = False,
+          speaker: Optional[int] = None) -> bool:
     """TTS で 1 メッセージ読み上げる。 成功 True / 失敗 False。
 
     Args:
         text: 読み上げる日本語テキスト
         rate: -10 (遅) .. +10 (速)。 0 で既定
         async_: True で別スレッド (daemon) 起動して即 return True
+        speaker: VOICEVOX 話者 ID を上書き (W7: 見送りだけ id30 等)。 None で既定
+                 (VOICEVOX_SPEAKER)。 VOICEVOX 経路のみ有効、 SAPI/pyttsx3 では無視。
 
     試行順: pyttsx3 → PowerShell SAPI → 失敗。
     どの段で例外が出ても本体は止めない (best-effort)。
@@ -253,7 +262,7 @@ def speak(text: str, *, rate: int = 0, async_: bool = False) -> bool:
 
     def _run() -> bool:
         # Session 135: VOICEVOX opt-in (KEIBA_TTS_ENGINE=voicevox)。 失敗時は SAPI に落ちる。
-        if TTS_ENGINE == "voicevox" and _try_voicevox(text):
+        if TTS_ENGINE == "voicevox" and _try_voicevox(text, speaker=speaker):
             return True
         if _try_pyttsx3(text, rate=rate):
             return True
