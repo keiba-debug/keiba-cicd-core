@@ -2550,6 +2550,8 @@ def main():
                         help='不利1単位あたりの秒換算 (--margin-mode adjusted/adj_zscore で使用)')
     parser.add_argument('--time-decay', type=float, default=0,
                         help='時間重みの半減期（年）。0=重みなし（従来動作）。例: 2.0=2年で重み半減')
+    parser.add_argument('--no-set-active', action='store_true',
+                        help='model_registry の active_version を更新しない（レース中の live 切替防止）')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -3473,7 +3475,7 @@ def main():
             p_auc=auc_p if 'auc_p' in dir() else None,
             w_auc=auc_w if 'auc_w' in dir() else None,
             features=len(all_features_union),
-            set_active=True,
+            set_active=not args.no_set_active,
         )
     except Exception as e:
         print(f"  [WARN] model_registry update failed: {e}")
