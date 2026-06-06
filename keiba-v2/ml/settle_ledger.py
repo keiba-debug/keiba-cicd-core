@@ -369,7 +369,7 @@ def settle(date: str, force: bool = False, dry_run: bool = False,
         if t.get("ticket_id") in {r["ticket_id"] for r in results}
     )
     print(f"\n[SettleLedger] {date} "
-          f"({'CONFIRMED (reconciled)' if reconciled else '⚠ PROVISIONAL (pre-reconcile)'})")
+          f"({'CONFIRMED (reconciled)' if reconciled else '[!] PROVISIONAL (pre-reconcile)'})")
     print(f"  Settled: {sr.settled_tickets} tickets / {sr.races_settled} races, "
           f"Wins: {sr.won_tickets}")
     print(f"  Invested(settled): {invested:,}")
@@ -437,7 +437,7 @@ def main():
             # 非開催日/未投票日の catch-up は ledger 無しが正常 (no-op)。
             # それ以外の error (load 失敗等) のみ exit 1 にする。
             if "not found" in result["error"]:
-                print(f"  [SKIP] {d}: ledger 無し (非開催日/未投票) — no-op", file=sys.stderr)
+                print(f"  [SKIP] {d}: ledger 無し (非開催日/未投票) - no-op", file=sys.stderr)
             else:
                 hard_error = True
 
