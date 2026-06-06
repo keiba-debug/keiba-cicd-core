@@ -48,7 +48,8 @@ interface TargetCommentsMap {
 /** TARGET馬印（馬番→印） */
 export interface TargetMarksMap {
   horseMarks: Record<number, string>;  // 馬番 → 印（◎, ○, ▲, △, Ⅲ, 穴）
-  horseMarks2?: Record<number, string>;  // 馬印2
+  horseMarks2?: Record<number, string>;  // 馬印2（AI予想印=markSet6）
+  horseMarks3?: Record<number, string>;  // 馬印3（買い軸印=markSet8。◆軸/◇相手）
 }
 
 /** ML予測データ（馬単位） */
@@ -233,6 +234,16 @@ function getMyMark2BgColor(mark?: string): string {
     case '△': return 'bg-cyan-50 dark:bg-cyan-700/20 text-cyan-700 dark:text-cyan-400';
     case 'Ⅲ': return 'bg-emerald-100 dark:bg-emerald-800/30 text-emerald-800 dark:text-emerald-300';
     case '穴': return 'bg-green-100 dark:bg-green-800/30 text-green-800 dark:text-green-300';
+    default: return '';
+  }
+}
+
+// 買い軸印の背景色（◆軸=琥珀濃 / ◇相手=琥珀淡。評価印◎○とは別色で「買った印」を区別）
+function getBuyMarkBgColor(mark?: string): string {
+  if (!mark) return '';
+  switch (mark) {
+    case '◆': return 'bg-amber-300 dark:bg-amber-600/50 text-amber-950 dark:text-amber-100 font-bold';
+    case '◇': return 'bg-amber-100 dark:bg-amber-800/30 text-amber-800 dark:text-amber-300';
     default: return '';
   }
 }
@@ -481,6 +492,7 @@ interface HorseEntryRowProps {
   horseComment?: HorseComment;
   myMark?: string;
   myMark2?: string;
+  myMark3?: string;
   recentForm?: RecentFormData[];
   mlPrediction?: MlPredictionEntry;
   dbOdds?: DbHorseOdds;
@@ -510,6 +522,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   horseComment,
   myMark,
   myMark2,
+  myMark3,
   recentForm,
   mlPrediction,
   dbOdds,
@@ -647,6 +660,11 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
       {/* AI印（TARGET馬印6 = AI予想印。horseMarks2 経由で供給） */}
       <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMyMark2BgColor(myMark2)}`}>
         {myMark2 || '-'}
+      </td>
+
+      {/* 買い軸印（TARGET馬印8 = 実際に買った 軸◆/相手◇。horseMarks3 経由。表示用・正本はledger） */}
+      <td className={`px-1 py-1.5 text-center border text-sm ${getBuyMarkBgColor(myMark3)}`}>
+        {myMark3 || '-'}
       </td>
 
       {/* ML Value Bet (EV-based) */}
@@ -1319,6 +1337,7 @@ export default function HorseEntryTable({
             <th className="px-1 py-2 text-center border w-8 text-xs">本紙</th>
             <th className="px-1 py-2 text-center border w-8 text-xs">My印</th>
             <th className="px-1 py-2 text-center border w-8 text-xs" title="AI予想印（markSet6）">AI</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs" title="買い軸印（markSet8）— 実際に買った 軸◆/相手◇。表示用、購入の正本はledger">買</th>
             {hasMlPredictions && (
               <>
                 <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
@@ -1375,6 +1394,7 @@ export default function HorseEntryTable({
               horseComment={targetComments?.horseComments?.[entry.horse_number]}
               myMark={targetMarks?.horseMarks[entry.horse_number]}
               myMark2={targetMarks?.horseMarks2?.[entry.horse_number]}
+              myMark3={targetMarks?.horseMarks3?.[entry.horse_number]}
               recentForm={recentFormMap?.[entry.horse_number]}
               mlPrediction={hasMlPredictions ? mlPredictions[entry.horse_number] : undefined}
               dbOdds={dbOddsMap.get(entry.horse_number)}

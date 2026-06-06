@@ -17,20 +17,22 @@ from pathlib import Path
 from typing import Optional
 
 
-def _audit_dir() -> Path:
+def _audit_dir(subdir: str = "audit") -> Path:
     root = Path(os.getenv("KEIBA_DATA_ROOT", "C:/KEIBA-CICD/data3"))
-    return root / "ai_marks" / "audit"
+    return root / "ai_marks" / subdir
 
 
-def append_audit(date: str, record: dict, ts: Optional[str] = None) -> None:
+def append_audit(date: str, record: dict, ts: Optional[str] = None,
+                 subdir: str = "audit") -> None:
     """1 レース分の監査レコードを {date}.jsonl に追記する。
 
     Args:
         date: YYYY-MM-DD (ファイル名)。
         record: {race_id, weights, marks, skipped, skip_reason, adr_used, composite_top3, notes}
         ts: ISO タイムスタンプ (呼び出し側が渡す)。
+        subdir: ai_marks 配下のサブディレクトリ (既定 'audit'=AI評価印、'buy_audit'=買い軸印)。
     """
-    d = _audit_dir()
+    d = _audit_dir(subdir)
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{date}.jsonl"
     line = {"ts": ts, **record}

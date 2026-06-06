@@ -95,3 +95,36 @@ AI印 Step2 を 5/31 実機 apply 後、ふくだが気づいた不整合:
 1. シズネレビュー(本メモ §2 方式選定 + §4 論点)。
 2. ふくだが画面イメージで案を選ぶ(voted 8R の dry-run 比較表示)。
 3. 確定案を実装(投票後 印連動ツール + audit + web表示)。
+
+---
+
+## 7. 実装記録 (2026-06-06 / VU-1 — 案C採用)
+
+**確定**: 案C = markSet=8「買い軸」専用スロット新設。評価(◎)・妙味(穴)・買い軸(◆◇)を意味分離。
+
+### 記号
+- **◆ = 買い軸 (axis)** / **◇ = 相手 (partner)**。中立記号(評価ラダー◎○▲△Ⅲ穴と非衝突)。
+- CP932 byte: ◆=`0x819f` / ◇=`0x819e`。評価印の byte と衝突しないことをテストで保証。
+- TS (`target-mark-reader.ts`) と Python (`dat_writer.py`) で decode/encode 対称(条件⑤)。
+
+### 軸抽出 (ledger 起点 = 税務SoT、条件②)
+- **軸 = 1 portfolio 内 全 ticket の `raw_legs.horses` の積集合**。アンカー型(◎単+◎-相手)は全 leg が軸を含むので積集合={軸}。単票(tansho/fukusho 1点)は積集合={その馬}=軸。
+- **相手 = 登場全馬(和集合) − 軸**。積集合が空(box/formation で共通馬なし)のときは軸なし=全馬を相手(honest fallback)。
+- `superseded_by_repair` portfolio は除外(Session 137 修復の旧 portfolio、settle と同様)。
+- **5/31 実 ledger で検証**: 自動投票軸(§0.5/31表)と完全一致(東4R◆5・京6R◆6・東11R◆5・京12R◆16 …)。scheduler_state なしで ledger だけから軸が取れることを実証(シズネ発見の裏取り)。
+
+### 実装ファイル (すべて live vote パス外 = 開催日中も安全)
+- `ml/ai_marks/dat_writer.py`: `write_buy_marks_to_dat`(markSet=8) 追加 + 共通コア化。**施錠**: 買い writer は markSet=1/6 を拒否(=**markSet=6 凍結ガード 条件①**)、AI writer は markSet=8 を拒否(相互施錠 条件⑤)。`read_marks_from_dat` で round-trip 検証。
+- `ml/ai_marks/buy_marks.py`(新): ledger → 軸+相手 純関数。
+- `ml/ai_marks/write_buy_marks.py`(新): CLI `--date --apply`。dry-run 既定。
+- `ml/ai_marks/audit_log.py`: `subdir` 引数追加(`buy_audit/{date}.jsonl`)。**全 audit に「買い軸印は表示用 — 購入の正本は purchase_ledger」明記(条件⑥)**。
+- web: `target-mark-reader.ts`(◆◇ decode/encode)、`races-v2/[date]/[track]/[id]/page.tsx`(markSet=8 読込)、`HorseEntryTable.tsx`(「買」列を AI 列の隣に追加、◆琥珀濃/◇琥珀淡)。
+- テスト: `ml/tests/test_buy_marks.py`(18件)。pytest 525 passed(既存 test_bet_engine 7fail は無関係)。web `tsc --noEmit` clean / `npm run build` exit0(80/80) / lint 増分ゼロ(257既存問題 不変)。
+
+### ⚠️ live 反映を保留した条件 (開催日中 KeibaBettypeAuto が毎分 live 稼働のため)
+本セッションは **2026-06-06 開催日**で `KeibaBettypeAuto`(10:12–18:00 毎分 `bettype_auto.bat live`)が**稼働中**だったため、live vote パスが import するファイル(`runner.py` / `bettype_scheduler.py` / `purchase_ledger/writer.py`)は**一切触っていない**。以下2点は**非開催日にシズネ+ふくだ承認のうえ反映**:
+
+1. **条件② 後半 `axis_umaban` 明示保存**(ledger writer): 現状は積集合で軸を導出でき、アンカー型では完全に機能するため**買い軸印機能には不要**。box/formation(積集合=空)を将来導入する時に `record_portfolio_votes` へ `axis_umaban` フィールドを追加する。**未着手・defer**。
+2. **条件④ `strategy_name=manual_cli` 汚染修正**(runner+scheduler): scheduler が runner を `--bet` 群で起動するため auto 投票が ledger 上 `manual_cli` と記録される([[manual-auto-bet-coexistence]])。**買い軸印は strategy_name に依存せず raw_legs から軸を取るので、汚染があっても印は正しい**。修正案 = runner に `--portfolio-strategy`(additive/既定 manual_cli)を足し scheduler が実戦略名を渡す。**strategy_name は idempotency key の構成要素**のため開催日中に変えると二重記録リスク → **必ずレース外で**。**未着手・defer**。
+
+> 結論: 買い軸印(markSet=8)の機能本体は完成・live安全。①③⑤⑥ 充足。② は「ledger起点」充足・axis_umaban保存のみ defer。④ は defer(機能は非依存)。markSet=6 は不変(凍結)。**live への apply(`write_buy_marks --apply`)と上記 defer 2点の反映可否はシズネ+ふくだ**。
