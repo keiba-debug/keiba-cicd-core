@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 # ★freebudget の安全機構を import 流用 (戦略中立・100% 再利用)★
 from ml.strategies.freebudget_scheduler import (  # noqa: E402
     HALT_EXIT_CODES,
+    SKIP_EXIT_CODES,
     MAX_CONSECUTIVE_FAILURES,
     ODDS_STALE_MIN,
     DEFAULT_PER_DAY_MAX_YEN,
@@ -323,6 +324,16 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
         res["sizing"] = sizing
         if rs.warnings:
             res["sizing_warnings"] = rs.warnings
+        # W6: TARGET 投票不可状態 (集計画面が前面で input を握る等) は halt でなく skip。
+        #   6/6 ライブで集計画面を前面にしてた時に step1 が "no active desktop" で失敗 →
+        #   2 連続で誤 halt した。 preflight NG (exit 9) は失敗カウントせず次パスで再試行する。
+        #   見送り音声 (W7: 落ち着いた声) で「投票画面にいない」 ことを 1 回だけ知らせる。
+        if res["exit_code"] in SKIP_EXIT_CODES:
+            skipped.append((race_id, f"{label} TARGET投票不可 (exit={res['exit_code']})・次パス再試行"))
+            if live and notify_on_skip and race_id not in notified_skips:
+                notify_skip(label, "ターゲットが投票画面にいません")
+                notified_skips.append(race_id)
+            continue
         state["votes"][race_id] = res
         newly_voted.append((race_id, res))
         if res["exit_code"] == 0:

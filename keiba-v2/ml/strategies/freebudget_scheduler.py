@@ -66,6 +66,11 @@ from ml.utils.race_io import date_dir_for, load_predictions  # noqa: E402
 
 # runner が「無人で継続してはいけない」 系のエラーで返す exit code
 HALT_EXIT_CODES = {5, 7, 8}      # 5=投票後セッション切れ / 7=起動/preflight NG / 8=直近切れ
+# W6: runner が「TARGET 起動済だが投票不可状態 (集計画面が前面で input を握る等)」 で返す
+#   exit code。 halt でも失敗カウントでもなく skip 扱い (次パスで再試行)。 ふくだが別画面を
+#   閉じれば次の 1 分パスで自然に投票される。 7 (起動/launch NG=halt) とは区別する。
+EXIT_TARGET_NOT_READY = 9
+SKIP_EXIT_CODES = {EXIT_TARGET_NOT_READY}
 DEFAULT_PER_DAY_MAX_YEN = 10000  # config.json と整合 (bankroll と同値で運用)
 
 # シズネ Session 135 レビュー対応 (無人 arming 前提の安全機構)
@@ -387,6 +392,11 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
         res["label"] = label
         if adj_note:                           # 按分した事実を監査用に記録 (シズネ🟡-1)
             res["per_race_adjusted"] = adj_note
+        # W6: TARGET 投票不可状態 (集計画面前面等) は halt でなく skip。 state["votes"] に
+        #   記録せず次パスで再評価・再試行する (ふくだが別画面を閉じれば自然に投票される)。
+        if res["exit_code"] in SKIP_EXIT_CODES:
+            skipped.append((race_id, f"{label} TARGET投票不可 (exit={res['exit_code']})・次パス再試行"))
+            continue
         state["votes"][race_id] = res
         newly_voted.append((race_id, res))
         if res["exit_code"] == 0:

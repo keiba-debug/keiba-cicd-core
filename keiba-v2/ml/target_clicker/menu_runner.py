@@ -386,6 +386,70 @@ def find_target_window(name_contains: str = TARGET_WINDOW_KEYWORD,
     return None
 
 
+def _get_foreground_hwnd() -> Optional[int]:
+    """現在の前面ウィンドウ hwnd。 取得不能なら None。"""
+    try:
+        import ctypes
+        hwnd = int(ctypes.windll.user32.GetForegroundWindow())
+        return hwnd or None
+    except Exception:
+        return None
+
+
+def _restore_and_foreground(hwnd: int) -> None:
+    """hwnd を復元 (最小化なら) して最前面へ。 best-effort (失敗は呼び出し側で許容)。"""
+    import ctypes
+    user32 = ctypes.windll.user32
+    SW_RESTORE = 9
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    user32.SetForegroundWindow(hwnd)
+
+
+def preflight_target_ready(*, foreground_retries: int = 3, retry_sleep: float = 0.4,
+                           verbose: bool = True) -> bool:
+    """投票前プリフライト (W6): TARGET 主ウィンドウ (menu保有) を前面化して投票可能か確認。
+
+    背景 (2026-06-06 ライブ): ふくだが「本日集計画面」 を前面に開いていたため step1 の
+    click_input が "There is no active desktop required for moving mouse cursor!" で失敗し、
+    2 連続で誤 halt した。 事前に主ウィンドウを前面へ出し、 出せない (別窓が input を握って
+    譲らない) なら呼び出し側が halt でなく skip できるよう False を返す。
+
+    返り値:
+        True  = 投票可能 (主ウィンドウ menu保有 かつ 前面化成功、 or 前面 hwnd 取得不能で楽観)
+        False = 投票不可 (TARGET 未起動 / menu保有窓なし / 別窓が前面を握って譲らない)
+
+    注: 主ウィンドウ前面化の最終確認に GetForegroundWindow を使う。 取得不能 (None) 時は
+    blocking 判定ができないため楽観的に True (= 従来通り step1 を試す)。
+    """
+    w = find_target_window()
+    if w is None:
+        _vp(verbose, "preflight: TARGET 主ウィンドウが見つからない (未起動?) → 投票不可")
+        return False
+    if not _window_has_menu(w):
+        # find_target_window が最終手段で menu 無し窓を返したケース (主ウィンドウ不在)
+        _vp(verbose, "preflight: menu保有の主ウィンドウが掴めない (集計画面等のみ?) → 投票不可")
+        return False
+    hwnd = int(w.handle)
+    fg = None
+    for attempt in range(max(1, foreground_retries)):
+        try:
+            w.set_focus()             # pywinauto: AttachThreadInput 経由で堅牢に前面化
+        except Exception as e:
+            _vp(verbose, f"preflight: set_focus 失敗 {type(e).__name__}: {e}")
+        try:
+            _restore_and_foreground(hwnd)
+        except Exception as e:
+            _vp(verbose, f"preflight: SetForegroundWindow 失敗 {type(e).__name__}: {e}")
+        fg = _get_foreground_hwnd()
+        if fg is None or fg == hwnd:
+            return True               # 前面化OK (取得不能なら楽観的に続行)
+        if attempt < foreground_retries - 1:
+            time.sleep(retry_sleep)
+    _vp(verbose, f"preflight: 主ウィンドウを前面化できない (fg={fg} が input を保持) → 投票不可")
+    return False
+
+
 def print_menu_structure(window) -> None:
     try:
         app = Application(backend="win32").connect(handle=window.handle)

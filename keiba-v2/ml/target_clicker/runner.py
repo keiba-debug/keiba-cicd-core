@@ -66,6 +66,48 @@ BANKROLL_CONFIG_PATH = Path(
     os.getenv("KEIBA_DATA_ROOT", "C:/KEIBA-CICD/data3")
 ) / "userdata" / "bankroll" / "config.json"
 
+# W6: TARGET は起動済だが投票不可状態 (集計画面が前面で input を握る等) を表す exit code。
+#   scheduler 側 (freebudget/bettype の SKIP_EXIT_CODES=={9}) は halt/失敗カウントせず skip
+#   し、 次の 1 分パスで再試行する。 7 (起動/launch NG=halt) とは区別する。
+EXIT_TARGET_NOT_READY = 9
+
+
+def _is_transient_gui_error(e: Exception) -> bool:
+    """pywinauto/win32 のフォーカス喪失系 一過性 GUI 失敗か (W6 リトライ対象判定)。
+
+    例: "There is no active desktop required for moving mouse cursor!" /
+        "menu operation failed" / SetForegroundWindow 系。
+    """
+    msg = str(e).lower()
+    return ("active desktop" in msg or "menu operation" in msg
+            or "cursor" in msg or "foreground" in msg)
+
+
+def _step1_with_retry(menu_runner, ff_path, *, verbose: bool = True,
+                      retries: int = 1) -> bool:
+    """step1 (CSV 取込) を一過性 GUI 失敗時に再前面化して最大 retries 回リトライ (W6)。
+
+    CSV 取込は投票 click より前 (= まだ買い目データに加えていない) なので、 再実行しても
+    二重投票にならない (冪等)。 一過性でない例外はそのまま送出 (= 上位で exit 4 → halt 安全弁
+    を維持)。 一過性失敗がリトライ後も解消しなければ False (上位で exit 4)。
+    """
+    for attempt in range(retries + 1):
+        try:
+            if menu_runner.step1_open_csv_select(ff_path, verbose=verbose):
+                return True
+        except Exception as e:
+            if attempt >= retries or not _is_transient_gui_error(e):
+                raise
+            print(f"[runner] step1 一過性 GUI 失敗 → 再前面化してリトライ "
+                  f"({attempt + 1}/{retries}): {type(e).__name__}: {e}", file=sys.stderr)
+        if attempt < retries:
+            try:
+                menu_runner.preflight_target_ready(verbose=verbose)
+            except Exception:
+                pass
+            time.sleep(0.5)
+    return False
+
 
 def _races_dir_for_date(d: date_cls) -> Path:
     root = Path(os.getenv("KEIBA_DATA_ROOT", "C:/KEIBA-CICD/data3"))
@@ -639,8 +681,18 @@ def main() -> int:
             from ml.target_clicker import menu_runner
             ipat_strategies_list = (args.ipat_strategies.split(",")
                                      if args.ipat_strategies else None)
-            # step1 (CSV 取込) → step3 (IPAT 起動) の順 (取込確定は投票後)
-            if not menu_runner.step1_open_csv_select(ff_path, verbose=verbose):
+            # W6: 投票前プリフライト — TARGET 主ウィンドウを前面化。 ふくだが「集計画面」 等を
+            #   前面に開いていると step1 の click_input が "no active desktop" で失敗し、 2 連続で
+            #   誤 halt する (2026-06-06 ライブで発生)。 前面化できない (別窓が input を握る) なら
+            #   exit 9 で抜け、 scheduler は halt でなく skip → 次パスで再試行する。
+            #   音声通知は scheduler 側 notify_skip (once-per-race・W7 の落ち着いた声) に一元化。
+            if not menu_runner.preflight_target_ready(verbose=verbose):
+                print("[runner] preflight: TARGET が投票可能状態でない "
+                      "(集計画面等が前面?) → skip (exit 9)", file=sys.stderr)
+                return EXIT_TARGET_NOT_READY
+            # step1 (CSV 取込) → step3 (IPAT 起動) の順 (取込確定は投票後)。
+            #   step1 は一過性 GUI 失敗 (no active desktop 等) を 1 回だけ再前面化リトライ。
+            if not _step1_with_retry(menu_runner, ff_path, verbose=verbose):
                 print("[runner] step1 (CSV 選択) failed", file=sys.stderr)
                 return 4
             if not menu_runner.step3_start_ipat(verbose=verbose,
