@@ -26,16 +26,24 @@ ledger I/O は writer.record_settlement() に集約 (単一窓口)。
 
 Usage:
     python -m ml.settle_ledger --date 2026-05-30
+    python -m ml.settle_ledger --today                            # 今日の日付を settle (vb_refresh と同慣習)
+    python -m ml.settle_ledger --today --catchup-days 1           # 今日 + 前日 (遅延払戻の冪等 catch-up)
     python -m ml.settle_ledger --date 2026-05-30 --force          # settle 済も再計算
     python -m ml.settle_ledger --date 2026-05-30 --dry-run        # 計算のみ
     python -m ml.settle_ledger --date 2026-05-30 --allow-pre-reconcile  # 突合前 settle を明示許可
+
+自動化 (W1/W5 / VU-2):
+    開催日夜に scripts/settle_auto.bat を Task Scheduler で定期実行 → 確定レースを
+    冪等に settle し ledger v2 payout を埋める → /bankroll/auto に払戻反映。
+    確定前レースは PENDING 据え置き、 再実行は二重計上しない (settled_at で冪等)。
 """
 
 import argparse
 import json
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -378,10 +386,26 @@ def settle(date: str, force: bool = False, dry_run: bool = False,
     return out
 
 
+def _resolve_dates(base_date: str, catchup_days: int) -> List[str]:
+    """基準日 + 直近 catchup_days 日の YYYY-MM-DD を新しい順 (base 含む) で返す。
+
+    catchup は「前日確定の遅延払戻」を翌日以降の自動 run で拾うための冪等 catch-up。
+    既に settle 済の日は record_settlement 側で no-op (settled_at で冪等)、 非開催日は
+    ledger 無し → settle() が error("ledger not found") を返し main 側で skip 扱い。
+    """
+    base = datetime.strptime(base_date, "%Y-%m-%d")
+    return [(base - timedelta(days=i)).strftime("%Y-%m-%d")
+            for i in range(max(0, catchup_days) + 1)]
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Settle ledger v2 tickets with confirmed mykeibadb payouts")
-    ap.add_argument("--date", required=True, help="YYYY-MM-DD")
+    ap.add_argument("--date", help="YYYY-MM-DD (省略時は --today)")
+    ap.add_argument("--today", action="store_true",
+                    help="今日の日付を使用 (vb_refresh と同じ慣習、 自動化バッチ用)")
+    ap.add_argument("--catchup-days", type=int, default=0,
+                    help="基準日に加えて直近 N 日も settle (前日確定の遅延払戻を拾う冪等 catch-up)")
     ap.add_argument("--force", action="store_true",
                     help="re-settle already settled tickets")
     ap.add_argument("--dry-run", action="store_true",
@@ -391,10 +415,35 @@ def main():
                          "ため有無に関わらず暫定 (reconciled=False) で進むが、 将来突合を"
                          "前提条件化したとき confirmed settle と区別するためのゲート。")
     args = ap.parse_args()
+
+    if args.today:
+        base_date = datetime.now().strftime("%Y-%m-%d")
+    elif args.date:
+        base_date = args.date
+    else:
+        ap.error("--date YYYY-MM-DD or --today is required")
+
+    dates = _resolve_dates(base_date, args.catchup_days)
+
     # reconcile 本体未実装 = 常に pre-reconcile (reconciled=False)。
     # --allow-pre-reconcile は将来の前提条件化に向けた意思表示ゲート (現状は挙動不変)。
-    result = settle(args.date, force=args.force, dry_run=args.dry_run, reconciled=False)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    outputs = []
+    hard_error = False
+    for d in dates:
+        result = settle(d, force=args.force, dry_run=args.dry_run, reconciled=False)
+        result["date"] = d
+        outputs.append(result)
+        if "error" in result:
+            # 非開催日/未投票日の catch-up は ledger 無しが正常 (no-op)。
+            # それ以外の error (load 失敗等) のみ exit 1 にする。
+            if "not found" in result["error"]:
+                print(f"  [SKIP] {d}: ledger 無し (非開催日/未投票) — no-op", file=sys.stderr)
+            else:
+                hard_error = True
+
+    print(json.dumps(outputs if len(outputs) > 1 else outputs[0],
+                     ensure_ascii=False, indent=2))
+    sys.exit(1 if hard_error else 0)
 
 
 if __name__ == "__main__":

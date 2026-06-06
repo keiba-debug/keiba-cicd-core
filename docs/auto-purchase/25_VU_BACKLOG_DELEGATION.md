@@ -16,9 +16,9 @@
 
 | ID | 内容 | 種別 | 出所 | 優先 | ゲート/依存 | 状態 |
 |---|---|---|---|---|---|---|
-| **VU-1** | AI印「買い軸連動」markSet=8（買った軸+相手を印表示） | ML+web | ふくだ 2026-06-06 / 設計書23 | ★高（ふくだ希望） | シズネ CONDITIONAL（条件①-⑥）・markSet=6凍結 | ☐ |
-| **VU-2** | settle 自動化（→ /bankroll/auto に払戻表示） | Python | W1/W5・ふくだ 2026-06-06 | ★高 | 税務整合・シズネ確認推奨 | ☐ |
-| **VU-3** | web表示強化: ①レース詳細に購入買い目モーダル(W3) ②馬詳細に My印/AI印 履歴 | web | ふくだ VU候補2,3 | 中 | なし（表示専用） | ☐ |
+| **VU-1** | AI印「買い軸連動」markSet=8（買った軸+相手を印表示） | ML+web | ふくだ 2026-06-06 / 設計書23 | ★高（ふくだ希望） | シズネ CONDITIONAL（条件①-⑥）・markSet=6凍結 | ◐ 進行中 |
+| **VU-2** | settle 自動化（→ /bankroll/auto に払戻表示） | Python | W1/W5・ふくだ 2026-06-06 | ★高 | 税務整合・シズネ確認推奨 | ✅ 実装完了（scheduler 登録は ふくだ手動・admin） |
+| **VU-3** | web表示強化: ①レース詳細に購入買い目モーダル(W3) ②馬詳細に My印/AI印 履歴 | web | ふくだ VU候補2,3 | 中 | なし（表示専用） | ◐ 進行中 |
 | **VU-4** | web制御・配線: ①自動投票コントロールエリア(W4) ②AI印 web admin配線 ③P2b web配線 | web+API | ふくだ / 本セッション残 | 中 | W4=live arm注意・P2b配線はVU-5依存 | ☐ |
 | **VU-5** | P2b（adaptive 配分）live化 | 判断+deploy | P2b session | 中 | **シズネ live ゲート + ふくだ承認**・backtest済 | ☐ |
 
@@ -123,3 +123,5 @@ VU-5 P2b(adaptive配分)live化:
 | 日時 | VU | セッション | 結果 / commit | 申し送り |
 |---|---|---|---|---|
 | 2026-06-06 | （起票） | メイン管理 | VU-1〜5 集約・委任キット作成。AI印 markSet=6 は今日手動apply済・SKILL配線済 | VU-1 から外注開始 |
+| 2026-06-06 | VU-1/2/3 起動 | メイン管理 | 3件を別セッションに委任・並行起動（VU-4/5 は来週 gated で保留） | 各セッションの §4 追記待ち。web 複数触る→commit/pull 規律。金額系(VU-1/2)は live前シズネゲート |
+| 2026-06-06 | **VU-2 完了** | settle自動化 | **settle 自動化 実装完了**。①`ml/settle_ledger.py` に `--today`(vb_refresh慣習)+`--catchup-days N`(前日確定の遅延払戻を拾う冪等catch-up)+複数日ループ+終了コード整備。**コアsettle/compute_payout/record_settlement は無変更**(冪等性=settled_at据置/PENDING据置/superseded/dead-heat 全維持)。②`scripts/settle_auto.bat`(lock+log、引数なし=`--today --catchup-days 2`、stale-lock 60分で自動奪取=fail-open)。③`scripts/setup_settle_scheduler.bat`(`KeibaCICD_settle` 毎日17:00-23:59/30分間隔)。テスト+5件(settle 48 / portfolio 含め62 pass)。**シズネ CONDITIONAL_GO**(🔴-1=`%date%`はログ名専用と注記/🟡-1 stale-lock/🟡-2 catchup=2/🟡-5 /du=06:59 を全反映)。3分岐(active skip/stale takeover/normal)実機検証済 | **残=ふくだが `setup_settle_scheduler.bat` を admin 実行してタスク登録**(settle は投票しない=純読取+payout書込なのでlive auto-vote ゲート対象外だが、登録は手動)。stale-lock 自動奪取で「回し忘れ/異常終了で永久halt→払戻空」を根絶。次の的中ある開催夜に /bankroll/auto 反映を実地確認 |

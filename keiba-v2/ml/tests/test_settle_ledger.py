@@ -543,3 +543,32 @@ class TestSettleEndToEnd:
         assert out["reconciled"] is True
         saved = json.loads((ledger_dir / "2026-05-30.json").read_text(encoding="utf-8"))
         assert saved["races"][0]["portfolios"][0]["tickets"][0]["reconciled"] is True
+
+    def test_settle_missing_ledger_returns_error(self, ledger_dir):
+        # 非開催日/未投票日 = ledger 無し → settle() は error("not found")。
+        # 自動化バッチ (main) はこれを no-op skip 扱いにする (exit 0)。
+        out = settle_ledger.settle("2026-01-01")
+        assert "error" in out and "not found" in out["error"]
+
+
+# =====================================================================
+# _resolve_dates — 自動化バッチ用の対象日解決 (--today / --catchup-days)
+# =====================================================================
+
+class TestResolveDates:
+    def test_base_only_no_catchup(self):
+        assert settle_ledger._resolve_dates("2026-05-30", 0) == ["2026-05-30"]
+
+    def test_catchup_descending(self):
+        # 基準日を含み新しい順 (catch-up は前日確定の遅延払戻を翌日 run で拾う)
+        assert settle_ledger._resolve_dates("2026-05-30", 2) == [
+            "2026-05-30", "2026-05-29", "2026-05-28",
+        ]
+
+    def test_catchup_crosses_month_year_boundary(self):
+        assert settle_ledger._resolve_dates("2026-01-01", 1) == [
+            "2026-01-01", "2025-12-31",
+        ]
+
+    def test_negative_catchup_treated_as_zero(self):
+        assert settle_ledger._resolve_dates("2026-05-30", -3) == ["2026-05-30"]
