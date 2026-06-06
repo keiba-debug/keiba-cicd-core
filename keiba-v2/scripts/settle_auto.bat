@@ -53,6 +53,7 @@ if "%~1"=="" (
 set EXIT_CODE=%ERRORLEVEL%
 
 echo [%date% %time%] settle end (exit=%EXIT_CODE%) >> "%LOG_FILE%"
+if not "%EXIT_CODE%"=="0" echo [ERROR] settle exited non-zero - check log >> "%LOG_FILE%"
 
 REM --- ƒƒbƒN‰ðœ ---
 del "%LOCK_FILE%" 2>nul
