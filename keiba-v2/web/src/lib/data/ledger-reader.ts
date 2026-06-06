@@ -15,7 +15,7 @@
 
 import path from 'path';
 import fs from 'fs/promises';
-import { AI_DATA_PATH } from '@/lib/config';
+import { AI_DATA_PATH, KEIBA_DATA_ROOT } from '@/lib/config';
 
 export const LEDGER_DIR = path.join(AI_DATA_PATH, 'purchase_ledger');
 
@@ -403,6 +403,31 @@ export interface PeriodSummary {
   summary: LedgerSummary;
   by_strategy: StrategyStat[];
   daily: Array<{ date: string; total_bet: number; total_payout: number; profit: number }>;
+}
+
+// ---------------------------------------------------------------------------
+// レース単体購入 (race 詳細ページの「購入あり」バッジ/モーダル用, W3)
+//   16桁 raceId 先頭8桁から日付を引き、当日 ledger を flatten して
+//   該当 race の LedgerRacePurchase を返す。 表示専用 (書込なし)。
+// ---------------------------------------------------------------------------
+
+/** 16桁 raceId (YYYYMMDD...) からそのレースの購入買い目を返す。 無ければ null。 */
+export async function getRacePurchase(raceId: string): Promise<LedgerRacePurchase | null> {
+  if (!raceId || raceId.length < 8) return null;
+  const dateIso = `${raceId.slice(0, 4)}-${raceId.slice(4, 6)}-${raceId.slice(6, 8)}`;
+  const ledger = await readLedger(dateIso);
+  if (!ledger) return null;
+
+  // メタ (race_name / post_time / distance) は best-effort。 失敗しても買い目は出す。
+  let metaMap: Map<string, RaceMeta> | undefined;
+  try {
+    metaMap = await loadRaceMetaMap(ledger.date || dateIso, KEIBA_DATA_ROOT);
+  } catch {
+    metaMap = undefined;
+  }
+
+  const flat = flattenLedger(ledger, metaMap);
+  return flat.races.find((r) => r.race_id === raceId) || null;
 }
 
 /** purchase_ledger ディレクトリ内の {YYYY-MM-DD}.json を列挙 */

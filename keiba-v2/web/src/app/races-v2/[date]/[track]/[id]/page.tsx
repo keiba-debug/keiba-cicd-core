@@ -31,6 +31,8 @@ import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
 import { getMlPredictions, getClosingRaceProba, getRaceConfidence } from '@/lib/data/ml-prediction-reader';
 import { getCheckUmaMap, type CheckUmaEntry } from '@/lib/data/target-checkuma-reader';
 import { getTrackBias } from '@/lib/data/jrdb-kaa-reader';
+import { getRacePurchase } from '@/lib/data/ledger-reader';
+import { RacePurchaseBadgeModal } from '@/components/race-v2/RacePurchaseBadgeModal';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -145,7 +147,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
   }
 
   // データ取得（並列取得: 依存関係のないデータを全て同時に取得）
-  const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions, closingRaceProba, raceConfidence] = await Promise.all([
+  const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions, closingRaceProba, raceConfidence, racePurchase] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
@@ -155,6 +157,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
     getMlPredictions(id, raceId16, date),
     getClosingRaceProba(id, raceId16, date),
     getRaceConfidence(id, raceId16, date),
+    getRacePurchase(raceId16),
   ]);
 
   // v4(data3)優先 → data2でエンリッチ → data2フォールバック
@@ -531,6 +534,8 @@ export default async function RaceDetailPage({ params }: PageParams) {
 
       {/* データ更新ボタン */}
       <div className="flex justify-end gap-2 mb-2">
+        {/* 購入のあるレースのみ「購入あり」バッジ + 買い目モーダル (W3, 表示専用) */}
+        <RacePurchaseBadgeModal purchase={racePurchase} />
         {jraRaceId && (
           <Link href={`/my-bets/${jraRaceId}`} target="_blank">
             <Button variant="outline" size="sm">

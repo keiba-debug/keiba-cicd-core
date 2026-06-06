@@ -8,3 +8,4 @@ export { HorsePastRacesTable } from './HorsePastRacesTable';
 export { HorseCommentEditor } from './HorseCommentEditor';
 export { HorseAnalysisSection } from './HorseAnalysis';
 export { IDMTimelineChart } from './IDMTimelineChart';
+export { HorseMarksHistory } from './HorseMarksHistory';

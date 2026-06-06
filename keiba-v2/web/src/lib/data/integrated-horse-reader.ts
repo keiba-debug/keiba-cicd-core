@@ -379,6 +379,8 @@ export interface IntegratedHorseData {
   pastRaces: HorseRaceResult[];
   stats: HorseStats;
   userMemo: string;
+  /** keibabook 馬コード (race JSON entry.kb_horse_code 由来、外部リンク用)。 getHorseFullData が付与 */
+  kbHorseCode?: string;
 }
 
 /**

@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { useMlResult } from '@/hooks/useMlResult';
 import { TABS, type TabKey } from './utils';
+import type { ObstacleModelMeta } from './types';
 import ModelSelector, { type ModelSelection } from './ModelSelector';
 import VersionSelector from './VersionSelector';
 
@@ -75,9 +76,9 @@ export default function MlAnalysisPage() {
   );
 
   // 障害モデル: enif選択時はotherMetaをobstacle_modelとして渡す
-  const obstacleModel = isPolaris
+  const obstacleModel: ObstacleModelMeta | null | undefined = isPolaris
     ? data?.obstacle_model
-    : modelSel.modelId === 'enif' ? otherMeta : null;
+    : modelSel.modelId === 'enif' ? (otherMeta as ObstacleModelMeta | null) : null;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
