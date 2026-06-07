@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """買い軸印 (markSet=3) 書込み CLI。
 
-purchase_ledger v2 ({date}.json) を読み、 実際に購入した 軸(◆)+相手(◇) を抽出して
+purchase_ledger v2 ({date}.json) を読み、 実際に購入した 軸(★)+相手(☆) を抽出して
 TARGET DAT の markSet=3 に書く。AI評価印 (markSet=2 ◎○▲△Ⅲ穴) とは別スロットで、
 評価と買い目の意味を分離する (設計書 23 案C)。
 
@@ -27,7 +27,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Windows コンソール (cp932) で — や◆◇ を表示できるよう utf-8 に揃える (runner.py と同様)。
+# Windows コンソール (cp932) で — や★☆ を表示できるよう utf-8 に揃える (runner.py と同様)。
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "reconfigure"):
@@ -95,8 +95,8 @@ def main(argv=None) -> int:
             continue
         n_marked += 1
         label = _venue_rno(rbm.race_id)
-        axis_s = "".join(f"◆{u}" for u in rbm.axes) or "(軸なし)"
-        partner_s = "".join(f"◇{u}" for u in rbm.partners) or "(相手なし)"
+        axis_s = "".join(f"★{u}" for u in rbm.axes) or "(軸なし)"
+        partner_s = "".join(f"☆{u}" for u in rbm.partners) or "(相手なし)"
         note = f"  [{'; '.join(rbm.notes)}]" if rbm.notes else ""
         print(f"  {label}  {axis_s} {partner_s}  pf={rbm.n_portfolios}{note}")
 

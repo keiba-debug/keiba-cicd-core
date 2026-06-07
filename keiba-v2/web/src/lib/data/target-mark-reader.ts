@@ -20,8 +20,8 @@ const MARK_BYTES_TO_SYMBOL: Record<string, string> = {
   '81a2': '△',  // 連下
   '8756': 'Ⅲ',  // 3着押さえ (Shift-JIS でこのバイト列は U+2162 ローマ数字 III)
   '8c8a': '穴',  // 穴馬
-  '819f': '◆',  // AI購入軸 (markSet3 — 実際に買った軸。dat_writer.py と対称)
-  '819e': '◇',  // AI購入相手 (markSet3 — 軸の相手)
+  '819a': '★',  // AI購入軸 (markSet3 — 実際に買った軸。dat_writer.py と対称)
+  '8199': '☆',  // AI購入相手 (markSet3 — 軸の相手)
   '2020': '',    // 無印
 };
 
@@ -33,8 +33,8 @@ const SYMBOL_TO_MARK_BYTES: Record<string, Buffer> = {
   '△': Buffer.from([0x81, 0xa2]),
   'Ⅲ': Buffer.from([0x87, 0x56]),
   '穴': Buffer.from([0x8c, 0x8a]),
-  '◆': Buffer.from([0x81, 0x9f]),  // AI購入軸 (markSet3)
-  '◇': Buffer.from([0x81, 0x9e]),  // AI購入相手 (markSet3)
+  '★': Buffer.from([0x81, 0x9a]),  // AI購入軸 (markSet3)
+  '☆': Buffer.from([0x81, 0x99]),  // AI購入相手 (markSet3)
   '危': Buffer.from([0x8a, 0xeb]),
   'Ａ': Buffer.from([0x82, 0x60]),
   'Ｂ': Buffer.from([0x82, 0x61]),

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""購入 ledger (purchase_ledger v2) → 買い軸印 (軸=◆ / 相手=◇) の抽出 (純関数)。
+"""購入 ledger (purchase_ledger v2) → 買い軸印 (軸=★ / 相手=☆) の抽出 (純関数)。
 
 設計: docs/auto-purchase/23_AI_MARK_VOTE_SYNC_DESIGN.md (案C)
 
@@ -8,11 +8,11 @@
     アンカー型戦略 (◎単 + ◎-相手の馬連/ワイド/馬単…) は全 leg が軸を含むので
     積集合 = {軸} になる。単票 (tansho/fukusho 1点) は積集合 = {その馬} = 軸。
   - **相手** = portfolio 内に登場する全馬 (和集合) から軸を除いた残り。
-  - 積集合が空 (box/formation 等で共通馬なし) のときは軸なし = 全馬を相手 (◇) にする
+  - 積集合が空 (box/formation 等で共通馬なし) のときは軸なし = 全馬を相手 (☆) にする
     (honest fallback。明示 axis_umaban が要るケースは ledger writer 拡張で将来対応)。
 
 複数 portfolio が同一レースにある場合:
-  - ある portfolio で軸なら ◆、それ以外で登場するだけなら ◇ (軸が優先)。
+  - ある portfolio で軸なら ★、それ以外で登場するだけなら ☆ (軸が優先)。
   - `superseded_by_repair` の portfolio は除外 (Session 137 修復の旧 portfolio。settle と同様)。
 
 I/O なし・DB 非依存・乱数なし。同一入力 → 同一出力。
@@ -23,17 +23,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-AXIS_MARK = "◆"
-PARTNER_MARK = "◇"
+AXIS_MARK = "★"
+PARTNER_MARK = "☆"
 
 
 @dataclass
 class RaceBuyMarks:
     """1 レース分の買い軸印 抽出結果。"""
     race_id: str
-    axes: List[int]                       # 軸 (◆) の馬番 (昇順)
-    partners: List[int]                   # 相手 (◇) の馬番 (昇順)
-    marks: Dict[int, str]                 # {umaban: '◆'|'◇'} (DAT writer へ渡す形)
+    axes: List[int]                       # 軸 (★) の馬番 (昇順)
+    partners: List[int]                   # 相手 (☆) の馬番 (昇順)
+    marks: Dict[int, str]                 # {umaban: '★'|'☆'} (DAT writer へ渡す形)
     n_portfolios: int                     # 集計対象 portfolio 数 (superseded 除外後)
     notes: List[str] = field(default_factory=list)
 
