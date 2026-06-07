@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { KEIBA_DATA_ROOT } from '@/lib/config';
 import { readLedger, flattenLedger, loadRaceMetaMap, toIsoDate } from '@/lib/data/ledger-reader';
+import { settleLedgerForDate } from '@/lib/bankroll/settle-ledger-runner';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,14 @@ export async function GET(
       );
     }
 
-    const ledger = await readLedger(iso);
+    let ledger = await readLedger(iso);
+    if (ledger) {
+      const settleResult = await settleLedgerForDate(iso);
+      if (!settleResult.ok) {
+        console.warn(`[LedgerDailyAPI] settle skipped for ${iso}:`, settleResult.error);
+      }
+      ledger = await readLedger(iso);
+    }
     if (!ledger) {
       return NextResponse.json({
         date: iso,

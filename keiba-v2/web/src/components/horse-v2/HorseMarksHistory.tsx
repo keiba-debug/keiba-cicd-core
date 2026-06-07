@@ -1,9 +1,8 @@
 /**
- * 馬別 印履歴セクション (My印 markSet=1 / AI印 markSet=6)
+ * 馬別 印履歴セクション (My印 / AI総合 / AI直前 / B本紙 / Bパドック)
  *
- * その馬の過去レースで付いていた My印 / AI印 を着順と並べて時系列表示する。
- * AI印が当たっているか (◎○▲ を付けた馬が実際に来たか) を目視評価できる。
- * 表示専用。 印のあるレースが無ければ何も描画しない。
+ * その馬の過去レースで付いていた各種印を着順と並べて時系列表示する。
+ * 表示専用。 いずれかの印があるレースが無ければ何も描画しない。
  */
 
 import type { HorseMarksHistory, HorseMarkHistoryEntry, HorseMarksReliability } from '@/lib/data/horse-marks-history-reader';
@@ -17,13 +16,18 @@ const MARK_STYLE: Record<string, string> = {
   'Ⅲ': 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 border-violet-300 dark:border-violet-800',
   '穴': 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800',
   '消': 'bg-gray-100 text-gray-400 line-through dark:bg-gray-800 dark:text-gray-500 border-gray-300 dark:border-gray-700',
+  '◆': 'bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800',
+  '◇': 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-950/40 dark:text-fuchsia-300 border-fuchsia-300 dark:border-fuchsia-800',
+  'S': 'bg-amber-200 text-amber-900 dark:bg-amber-500/40 dark:text-amber-200 border-amber-400 dark:border-amber-600',
+  'A': 'bg-emerald-200 text-emerald-900 dark:bg-emerald-500/40 dark:text-emerald-200 border-emerald-500 dark:border-emerald-600',
+  'B': 'bg-sky-200 text-sky-900 dark:bg-sky-500/40 dark:text-sky-200 border-sky-500 dark:border-sky-600',
 };
 
 function MarkChip({ mark }: { mark: string }) {
   if (!mark) return <span className="text-gray-300 dark:text-gray-600">–</span>;
   const style = MARK_STYLE[mark] || 'bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-300';
   return (
-    <span className={`inline-flex h-6 w-6 items-center justify-center rounded border text-sm font-bold ${style}`}>
+    <span className={`inline-flex h-6 min-w-6 px-0.5 items-center justify-center rounded border text-sm font-bold ${style}`}>
       {mark}
     </span>
   );
@@ -42,7 +46,7 @@ function ReliabilityChip({ label, rel, accent }: { label: string; rel: HorseMark
   return (
     <div className={`rounded-lg border px-3 py-1.5 text-xs ${accent}`}>
       <span className="font-semibold">{label}</span>
-      <span className="ml-2">推奨印 {rel.races}走 → 3着内 {rel.top3} ({top3Rate}%) / 勝 {rel.win}</span>
+      <span className="ml-2">印付 {rel.races}走 → 3着内 {rel.top3} ({top3Rate}%) / 勝 {rel.win}</span>
     </div>
   );
 }
@@ -64,6 +68,12 @@ function Row({ e }: { e: HorseMarkHistoryEntry }) {
       </td>
       <td className="px-2 py-2 text-center"><MarkChip mark={e.myMark} /></td>
       <td className="px-2 py-2 text-center"><MarkChip mark={e.aiMark} /></td>
+      <td className="px-2 py-2 text-center"><MarkChip mark={e.aiBuyMark} /></td>
+      <td className="px-2 py-2 text-center"><MarkChip mark={e.honshiMark} /></td>
+      <td className="px-2 py-2 text-center"><MarkChip mark={e.paddockMark} /></td>
+      <td className="px-2 py-2 max-w-[10rem] text-xs text-muted-foreground" title={e.shortComment || undefined}>
+        <span className="line-clamp-2">{e.shortComment || '–'}</span>
+      </td>
     </tr>
   );
 }
@@ -73,11 +83,11 @@ export function HorseMarksHistory({ history }: { history: HorseMarksHistory }) {
   if (history.entries.length === 0) return null;
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-7xl">
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-bold flex items-center gap-2">
           🎯 印履歴
-          <span className="text-sm font-normal text-muted-foreground">My印 / AI印 と結果</span>
+          <span className="text-sm font-normal text-muted-foreground">各印と着順</span>
         </h2>
         <ReliabilityChip
           label="My印"
@@ -85,9 +95,24 @@ export function HorseMarksHistory({ history }: { history: HorseMarksHistory }) {
           accent="border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300"
         />
         <ReliabilityChip
-          label="AI印"
+          label="AI総合"
           rel={history.ai}
           accent="border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-300"
+        />
+        <ReliabilityChip
+          label="AI直前"
+          rel={history.aiBuy}
+          accent="border-purple-200 bg-purple-50 text-purple-800 dark:border-purple-900 dark:bg-purple-950/20 dark:text-purple-300"
+        />
+        <ReliabilityChip
+          label="B本紙"
+          rel={history.honshi}
+          accent="border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
+        />
+        <ReliabilityChip
+          label="Bパドック"
+          rel={history.paddock}
+          accent="border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300"
         />
       </div>
 
@@ -101,7 +126,11 @@ export function HorseMarksHistory({ history }: { history: HorseMarksHistory }) {
               <th className="px-2 py-2 text-center font-medium">馬番</th>
               <th className="px-2 py-2 text-center font-medium">着順</th>
               <th className="px-2 py-2 text-center font-medium">My印</th>
-              <th className="px-2 py-2 text-center font-medium">AI印</th>
+              <th className="px-2 py-2 text-center font-medium" title="AI総合評価印 (markSet2)">AI総合</th>
+              <th className="px-2 py-2 text-center font-medium" title="AI直前評価印 (markSet3: ◆買い軸 / ◇相手)">AI直前</th>
+              <th className="px-2 py-2 text-center font-medium" title="競馬ブック本紙印">B本紙</th>
+              <th className="px-2 py-2 text-center font-medium" title="競馬ブック パドック評価 (S/A/B 等)">Bパドック</th>
+              <th className="px-2 py-2 text-left font-medium min-w-24" title="競馬ブック短評 (kb_ext)">短評</th>
             </tr>
           </thead>
           <tbody>
@@ -113,8 +142,8 @@ export function HorseMarksHistory({ history }: { history: HorseMarksHistory }) {
       </div>
 
       <p className="mt-2 text-[11px] text-muted-foreground">
-        ※ TARGET 馬印 (My印=markSet1 手動 / AI印=markSet6 自動) の表示専用ビュー。 印は付けたレースのみ表示。
-        信頼性は推奨印 (◎○▲△Ⅲ穴) を付けた走の 3着内率 (サンプル少のため参考値)。
+        ※ My印・AI総合・AI直前は TARGET 馬印 (markSet1/2/3)。B本紙・Bパドック・短評は競馬ブック (kb_ext)。
+        いずれかの印が付いたレースのみ表示。信頼性は各印種の対象印付き走の 3着内率 (参考値)。
       </p>
     </div>
   );

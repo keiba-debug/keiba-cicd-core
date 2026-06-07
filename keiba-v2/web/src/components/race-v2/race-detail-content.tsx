@@ -46,6 +46,9 @@ import type { TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
 import type { RaceConfidence } from '@/lib/data/ml-prediction-reader';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
 import { POSITIVE_BG } from '@/lib/positive-colors';
+import { MARK_SLOT } from '@/lib/data/mark-slots';
+import { RacePurchaseBadgeModal } from '@/components/race-v2/RacePurchaseBadgeModal';
+import type { RacePurchasesCombined } from '@/lib/data/race-purchase-types';
 
 interface PreviousTrainingEntry {
   date: string;
@@ -96,11 +99,13 @@ interface RaceDetailContentProps {
   checkUmaMap?: Record<number, { month: number; day: number; level: number; comment: string }>;
   /** 馬番→kettoNum（JRA-VAN 10桁）チェック馬登録APIで使用 */
   kettoNumMap?: Record<number, string>;
+  /** 購入買い目 (自動 + TARGET手動) */
+  purchases?: RacePurchasesCombined | null;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap, kettoNumMap }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap, kettoNumMap, purchases }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -115,10 +120,10 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
       // prevがundefinedの場合、初期値を設定
       const updated: TargetMarksMap = prev ? { ...prev } : { horseMarks: {} };
 
-      // markSet 1 → horseMarks(My印), markSet 6 → horseMarks2(AI印枠)
-      if (data.markSet === 1) {
+      // markSet 1 → horseMarks(My印), markSet 2(AI評価[旧6]) → horseMarks2(AI印枠)
+      if (data.markSet === MARK_SLOT.MY) {
         updated.horseMarks = data.horseMarks;
-      } else if (data.markSet === 6) {
+      } else if (data.markSet === MARK_SLOT.AI_EVAL) {
         updated.horseMarks2 = data.horseMarks;
       }
       return updated;
@@ -236,9 +241,12 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
             )}
             
             <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">🐎 出走表</h2>
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-lg font-semibold shrink-0">🐎 出走表</h2>
+                <div className="flex-1 flex justify-center min-w-0">
+                  <RacePurchaseBadgeModal purchases={purchases ?? null} variant="prominent" />
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
                   {raceInfoForComments && (
                     <TargetMarkInputModal
                       raceInfo={{
@@ -358,9 +366,12 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
           
           {/* 出走表 */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">🐎 出走表</h2>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-lg font-semibold shrink-0">🐎 出走表</h2>
+              <div className="flex-1 flex justify-center min-w-0">
+                <RacePurchaseBadgeModal purchases={purchases ?? null} variant="prominent" />
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
                 {raceInfoForComments && (
                   <TargetMarkInputModal
                     raceInfo={{

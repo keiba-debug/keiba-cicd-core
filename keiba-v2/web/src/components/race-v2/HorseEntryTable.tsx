@@ -48,7 +48,8 @@ interface TargetCommentsMap {
 /** TARGET馬印（馬番→印） */
 export interface TargetMarksMap {
   horseMarks: Record<number, string>;  // 馬番 → 印（◎, ○, ▲, △, Ⅲ, 穴）
-  horseMarks2?: Record<number, string>;  // 馬印2
+  horseMarks2?: Record<number, string>;  // 馬印2 (AI評価 markSet=2)
+  horseMarks3?: Record<number, string>;  // 馬印3 (AI購入軸 markSet=3)
 }
 
 /** ML予測データ（馬単位） */
@@ -336,6 +337,22 @@ function getRankIcon(rank: number): string | null {
   return null;
 }
 
+/** JRDB指数（IDM/総合等）のレース内順位マップを構築 */
+function buildJrdbRankMap(
+  jrdbMap: Map<number, JrdbEntry>,
+  getter: (j: JrdbEntry) => number | null,
+): { rankMap: Map<number, number>; count: number } {
+  const items: { horseNumber: number; value: number }[] = [];
+  for (const [horseNumber, jrdb] of jrdbMap) {
+    const value = getter(jrdb);
+    if (value != null) items.push({ horseNumber, value });
+  }
+  items.sort((a, b) => b.value - a.value);
+  const rankMap = new Map<number, number>();
+  items.forEach((item, idx) => rankMap.set(item.horseNumber, idx + 1));
+  return { rankMap, count: items.length };
+}
+
 // =============================================================================
 // メモ化されたサブコンポーネント
 // =============================================================================
@@ -481,12 +498,17 @@ interface HorseEntryRowProps {
   horseComment?: HorseComment;
   myMark?: string;
   myMark2?: string;
+  myMark3?: string;
   recentForm?: RecentFormData[];
   mlPrediction?: MlPredictionEntry;
   dbOdds?: DbHorseOdds;
   hasDbOdds?: boolean;
   jrdb?: JrdbEntry;
   hasJrdb?: boolean;
+  jrdbIdmRank?: number;
+  jrdbIdmRankCount?: number;
+  jrdbSogoRank?: number;
+  jrdbSogoRankCount?: number;
   checkUma?: { month: number; day: number; level: number; comment: string };
   /** JRA-VAN 10桁ketto_num（チェック馬登録APIで使用） */
   kettoNum?: string;
@@ -510,12 +532,17 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   horseComment,
   myMark,
   myMark2,
+  myMark3,
   recentForm,
   mlPrediction,
   dbOdds,
   hasDbOdds,
   jrdb,
   hasJrdb,
+  jrdbIdmRank = 0,
+  jrdbIdmRankCount = 0,
+  jrdbSogoRank = 0,
+  jrdbSogoRankCount = 0,
   checkUma,
   kettoNum,
   courseBiasAlert,
@@ -634,91 +661,20 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         {entry.horse_number}
       </td>
 
-      {/* 本紙印（印列はフォント小さめで横幅節約） */}
-      <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMarkBgColor(entry_data.honshi_mark)}`}>
-        {entry_data.honshi_mark || '-'}
-      </td>
-
       {/* My印（TARGET馬印1） */}
       <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMyMarkBgColor(myMark)}`}>
         {myMark || '-'}
       </td>
 
-      {/* AI印（TARGET馬印6 = AI予想印。horseMarks2 経由で供給） */}
+      {/* AI総合（TARGET馬印2 = AI評価印。horseMarks2 経由で供給） */}
       <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMyMark2BgColor(myMark2)}`}>
         {myMark2 || '-'}
       </td>
 
-      {/* ML Value Bet (EV-based) */}
-      {mlPrediction !== undefined && (
-        <td className={cn(
-          "px-1 py-1.5 text-center border",
-          mlPrediction.is_value_bet && "bg-amber-50 dark:bg-amber-900/20"
-        )}>
-          <div className="flex flex-col items-center gap-0.5">
-            {mlPrediction.is_value_bet && mlPrediction.win_ev != null ? (
-              <span className={cn(
-                "inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold",
-                mlPrediction.win_ev >= 1.5
-                  ? "bg-gradient-to-r from-red-500 to-red-400 text-white"
-                  : mlPrediction.win_ev >= 1.2
-                    ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white"
-                    : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white"
-              )}
-                title={`EV ${mlPrediction.win_ev.toFixed(2)} | PR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\n好走(P): ${((mlPrediction.pred_proba_p ?? mlPrediction.pred_proba_value ?? 0) * 100).toFixed(1)}%`}
-              >
-                {mlPrediction.win_ev.toFixed(1)}
-              </span>
-            ) : mlPrediction.is_value_bet ? (
-              <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gradient-to-r from-emerald-500 to-emerald-400 text-white">
-                VB
-              </span>
-            ) : (
-              <span className="text-[10px] text-gray-400">-</span>
-            )}
-            {mlPrediction.value_rank <= 3 && (
-              <span className="text-[9px] text-gray-500 dark:text-gray-400">
-                VR{mlPrediction.value_rank}
-              </span>
-            )}
-            {isDanger && (
-              <span
-                className="inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-300 dark:border-red-700"
-                title={`過剰人気: オッズ${dangerOdds.toFixed(1)} / ARd${mlPrediction.ar_deviation?.toFixed(0) ?? '-'} / P${((mlPrediction.pred_proba_p ?? 0) * 100).toFixed(1)}%`}
-              >
-                危
-              </span>
-            )}
-          </div>
-        </td>
-      )}
-
-      {/* 市場シグナル (Session 92: 基準オッズ vs 実オッズ) */}
-      {mlPrediction !== undefined && (
-        <td className="px-1 py-1.5 text-center border text-xs">
-          {mlPrediction.market_signal ? (
-            <span
-              className={cn(
-                "inline-flex items-center justify-center px-1 py-0.5 rounded text-[10px] font-bold whitespace-nowrap",
-                mlPrediction.market_signal === '鉄板' && "bg-gradient-to-r from-red-600 to-red-500 text-white",
-                mlPrediction.market_signal === '軸向き' && "bg-gradient-to-r from-orange-500 to-orange-400 text-white",
-                mlPrediction.market_signal === '妙味' && "bg-gradient-to-r from-blue-600 to-blue-500 text-white",
-                mlPrediction.market_signal === 'やや妙味' && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-                mlPrediction.market_signal === '想定通り' && "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
-                mlPrediction.market_signal === '人気しすぎ' && "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
-                mlPrediction.market_signal === '穴注目' && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
-              )}
-              title={mlPrediction.odds_move != null
-                ? `基準${mlPrediction.base_odds?.toFixed(1) ?? '?'}倍 (変動率: ${mlPrediction.odds_move.toFixed(2)}x)`
-                : '基準オッズデータなし'}
-            >
-              {mlPrediction.market_signal}
-            </span>
-          ) : (
-            <span className="text-gray-400 text-[10px]">-</span>
-          )}
-        </td>
-      )}
+      {/* AI直前（TARGET馬印3 = AI購入軸印。horseMarks3 経由で供給） */}
+      <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMyMark2BgColor(myMark3)}`}>
+        {myMark3 || '-'}
+      </td>
 
       {/* ARd (AR偏差値) */}
       {mlPrediction !== undefined && (
@@ -766,6 +722,72 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
               {(mlPrediction.pred_proba_p * 100).toFixed(1)}
             </span>
           ) : <span className="text-gray-300">-</span>}
+        </td>
+      )}
+
+      {/* Value Bet（集約: EV値 + 市場シグナル + 危バッジを縦並び） */}
+      {mlPrediction !== undefined && (
+        <td className={cn(
+          "px-1 py-1.5 text-center border w-24",
+          mlPrediction.is_value_bet && "bg-amber-50 dark:bg-amber-900/20"
+        )}>
+          <div className="flex flex-col gap-0.5 items-center">
+            {/* EV値 */}
+            {mlPrediction.is_value_bet && mlPrediction.win_ev != null ? (
+              <span className={cn(
+                "inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold",
+                mlPrediction.win_ev >= 1.5
+                  ? "bg-gradient-to-r from-red-500 to-red-400 text-white"
+                  : mlPrediction.win_ev >= 1.2
+                    ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white"
+                    : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white"
+              )}
+                title={`EV ${mlPrediction.win_ev.toFixed(2)} | PR${mlPrediction.value_rank} 人気${mlPrediction.odds_rank ?? '-'} Gap${mlPrediction.gap ?? '-'}\n好走(P): ${((mlPrediction.pred_proba_p ?? mlPrediction.pred_proba_value ?? 0) * 100).toFixed(1)}%`}
+              >
+                {mlPrediction.win_ev.toFixed(1)}
+              </span>
+            ) : mlPrediction.is_value_bet ? (
+              <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gradient-to-r from-emerald-500 to-emerald-400 text-white">
+                VB
+              </span>
+            ) : (
+              <span className="text-[10px] text-gray-400">-</span>
+            )}
+            {mlPrediction.value_rank <= 3 && (
+              <span className="text-[9px] text-gray-500 dark:text-gray-400">
+                VR{mlPrediction.value_rank}
+              </span>
+            )}
+            {/* 市場シグナル (Session 92: 基準オッズ vs 実オッズ) */}
+            {mlPrediction.market_signal && (
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center px-1 py-0.5 rounded text-[10px] font-bold whitespace-nowrap",
+                  mlPrediction.market_signal === '鉄板' && "bg-gradient-to-r from-red-600 to-red-500 text-white",
+                  mlPrediction.market_signal === '軸向き' && "bg-gradient-to-r from-orange-500 to-orange-400 text-white",
+                  mlPrediction.market_signal === '妙味' && "bg-gradient-to-r from-blue-600 to-blue-500 text-white",
+                  mlPrediction.market_signal === 'やや妙味' && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+                  mlPrediction.market_signal === '想定通り' && "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
+                  mlPrediction.market_signal === '人気しすぎ' && "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+                  mlPrediction.market_signal === '穴注目' && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+                )}
+                title={mlPrediction.odds_move != null
+                  ? `基準${mlPrediction.base_odds?.toFixed(1) ?? '?'}倍 (変動率: ${mlPrediction.odds_move.toFixed(2)}x)`
+                  : '基準オッズデータなし'}
+              >
+                {mlPrediction.market_signal}
+              </span>
+            )}
+            {/* 危バッジ（過剰人気アラート） */}
+            {isDanger && (
+              <span
+                className="inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-300 dark:border-red-700"
+                title={`過剰人気: オッズ${dangerOdds.toFixed(1)} / ARd${mlPrediction.ar_deviation?.toFixed(0) ?? '-'} / P${((mlPrediction.pred_proba_p ?? 0) * 100).toFixed(1)}%`}
+              >
+                危
+              </span>
+            )}
+          </div>
         </td>
       )}
 
@@ -929,59 +951,30 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         </td>
       )}
 
-      {/* AI指数 */}
-      <td className={cn(
-        "px-2 py-1.5 text-center border font-mono",
-        getAiIndexColor(entry_data.ai_index, aiIndexRank, secondAiIndex, aiIndexTotalCount)
-      )}>
-        {entry_data.ai_index || '-'}
-        {entry_data.ai_rank && (
-          <Badge variant="outline" className="ml-1 text-xs px-1">
-            {entry_data.ai_rank}
-          </Badge>
-        )}
-      </td>
-
-      {/* レイティング */}
-      <RatingCell
-        rating={entry_data.rating}
-        minRating={minRating}
-        maxRating={maxRating}
-        rank={ratingRank}
-        totalCount={ratingTotalCount}
-      />
-
-      {/* 総合ポイント */}
-      <td className={`px-2 py-1.5 text-center border ${getPointBgColor(entry_data.aggregate_mark_point)}`}>
-        {entry_data.aggregate_mark_point > 0 ? entry_data.aggregate_mark_point : '-'}
-      </td>
-
-      {/* JRDB 予IDM */}
+      {/* JRDB 予IDM (IDM) — レース内順位で色分け */}
       {hasJrdb && (
         <td className="px-1 py-1.5 text-center border font-mono text-xs">
           {jrdb?.pre_idm != null ? (
-            <span className={
-              jrdb.pre_idm >= 60 ? 'text-red-600 font-bold' :
-              jrdb.pre_idm >= 50 ? 'text-blue-600 font-bold' :
-              jrdb.pre_idm >= 40 ? 'text-gray-700 dark:text-gray-300' :
-              'text-gray-400'
-            }>
+            <span className={cn(
+              jrdbIdmRank > 0
+                ? getRatingTextColor(jrdbIdmRank, jrdbIdmRankCount)
+                : 'text-gray-400'
+            )}>
               {jrdb.pre_idm.toFixed(1)}
             </span>
           ) : <span className="text-gray-300">-</span>}
         </td>
       )}
 
-      {/* JRDB 総合 */}
+      {/* JRDB 総合 — レース内順位で色分け */}
       {hasJrdb && (
         <td className="px-1 py-1.5 text-center border font-mono text-xs">
           {jrdb?.sogo_idx != null ? (
-            <span className={
-              jrdb.sogo_idx >= 60 ? 'text-red-600 font-bold' :
-              jrdb.sogo_idx >= 50 ? 'text-blue-600 font-bold' :
-              jrdb.sogo_idx >= 40 ? 'text-gray-700 dark:text-gray-300' :
-              'text-gray-400'
-            }>
+            <span className={cn(
+              jrdbSogoRank > 0
+                ? getRatingTextColor(jrdbSogoRank, jrdbSogoRankCount)
+                : 'text-gray-400'
+            )}>
               {jrdb.sogo_idx.toFixed(1)}
             </span>
           ) : <span className="text-gray-300">-</span>}
@@ -1003,6 +996,38 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
           ) : <span className="text-gray-300">-</span>}
         </td>
       )}
+
+      {/* 本紙印（前半から移動。印列はフォント小さめで横幅節約） */}
+      <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMarkBgColor(entry_data.honshi_mark)}`}>
+        {entry_data.honshi_mark || '-'}
+      </td>
+
+      {/* 総合ポイント (B印) */}
+      <td className={`px-2 py-1.5 text-center border ${getPointBgColor(entry_data.aggregate_mark_point)}`}>
+        {entry_data.aggregate_mark_point > 0 ? entry_data.aggregate_mark_point : '-'}
+      </td>
+
+      {/* レイティング (BR) */}
+      <RatingCell
+        rating={entry_data.rating}
+        minRating={minRating}
+        maxRating={maxRating}
+        rank={ratingRank}
+        totalCount={ratingTotalCount}
+      />
+
+      {/* AI指数 (B AI) */}
+      <td className={cn(
+        "px-2 py-1.5 text-center border font-mono",
+        getAiIndexColor(entry_data.ai_index, aiIndexRank, secondAiIndex, aiIndexTotalCount)
+      )}>
+        {entry_data.ai_index || '-'}
+        {entry_data.ai_rank && (
+          <Badge variant="outline" className="ml-1 text-xs px-1">
+            {entry_data.ai_rank}
+          </Badge>
+        )}
+      </td>
 
       {/* 短評 */}
       <td className="px-2 py-1.5 border text-xs text-gray-700 dark:text-gray-300">
@@ -1110,6 +1135,18 @@ export default function HorseEntryTable({
     return map;
   }, [entries]);
   const hasJrdbData = jrdbMap.size > 0;
+
+  // JRDB IDM/総合のレース内順位（絶対値閾値だとG1等で全馬同色になるため）
+  const { jrdbIdmRankMap, jrdbIdmRankCount, jrdbSogoRankMap, jrdbSogoRankCount } = useMemo(() => {
+    const idm = buildJrdbRankMap(jrdbMap, (j) => j.pre_idm);
+    const sogo = buildJrdbRankMap(jrdbMap, (j) => j.sogo_idx);
+    return {
+      jrdbIdmRankMap: idm.rankMap,
+      jrdbIdmRankCount: idm.count,
+      jrdbSogoRankMap: sogo.rankMap,
+      jrdbSogoRankCount: sogo.count,
+    };
+  }, [jrdbMap]);
 
   // DB odds取得（SWR: 当日は30秒ポーリング）
   const [mounted, setMounted] = useState(false);
@@ -1316,16 +1353,15 @@ export default function HorseEntryTable({
           <tr className="bg-gray-100 dark:bg-gray-800">
             <th className="px-2 py-2 text-center border w-10">枠</th>
             <th className="px-2 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('horse_number')}>馬番{sortIndicator('horse_number')}</th>
-            <th className="px-1 py-2 text-center border w-8 text-xs">本紙</th>
             <th className="px-1 py-2 text-center border w-8 text-xs">My印</th>
-            <th className="px-1 py-2 text-center border w-8 text-xs" title="AI予想印（markSet6）">AI</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs" title="AI総合評価印（markSet2）">AI総合</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs" title="AI直前評価印（markSet3 = AI購入軸）">AI直前</th>
             {hasMlPredictions && (
               <>
-                <th className="px-1 py-2 text-center border w-10" title="ML Value Bet">VB</th>
-                <th className="px-1 py-2 text-center border w-12 text-xs" title="市場シグナル — 基準オッズ vs 実オッズ">市場</th>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ard')} title="AR偏差値 — レース内相対能力 (50=平均)">ARd{sortIndicator('ard')}</th>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200 text-xs" onClick={() => handleSort('ml_w')} title="勝率(Win) — キャリブレーション済み">W%{sortIndicator('ml_w')}</th>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200 text-xs" onClick={() => handleSort('ml_p')} title="好走率(Place) — Top3確率">P%{sortIndicator('ml_p')}</th>
+                <th className="px-1 py-2 text-center border w-24" title="Value Bet — EV値 + 市場シグナル + 過剰人気アラート">Value Bet</th>
               </>
             )}
             <th className="px-2 py-2 text-left border min-w-32">馬名</th>
@@ -1336,16 +1372,17 @@ export default function HorseEntryTable({
             {hasDbOdds && (
               <th className="px-2 py-2 text-right border w-24">複勝</th>
             )}
-            <th className="px-2 py-2 text-center border w-16 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_index')}>AI指数{sortIndicator('ai_index')}</th>
-            <th className="px-2 py-2 text-center border w-12 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('rating')} title="BR (Book Rating) — 競馬ブックレイティング">BR{sortIndicator('rating')}</th>
-            <th className="px-2 py-2 text-center border w-10" title="競馬ブック印集計ポイント">B印</th>
             {hasJrdbData && (
               <>
-                <th className="px-1 py-2 text-center border w-10 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('jrdb_idm')} title="JRDB 事前IDM">予IDM{sortIndicator('jrdb_idm')}</th>
-                <th className="px-1 py-2 text-center border w-10 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('jrdb_sogo')} title="JRDB 総合指数">総合{sortIndicator('jrdb_sogo')}</th>
+                <th className="px-1 py-2 text-center border w-10 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('jrdb_idm')} title="JRDB 事前IDM — 色はレース内順位">IDM{sortIndicator('jrdb_idm')}</th>
+                <th className="px-1 py-2 text-center border w-10 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('jrdb_sogo')} title="JRDB 総合指数 — 色はレース内順位">総合{sortIndicator('jrdb_sogo')}</th>
                 <th className="px-1 py-2 text-center border w-10 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('jrdb_gekisou')} title="JRDB 激走指数">激走{sortIndicator('jrdb_gekisou')}</th>
               </>
             )}
+            <th className="px-1 py-2 text-center border w-8 text-xs">本紙</th>
+            <th className="px-2 py-2 text-center border w-10" title="競馬ブック印集計ポイント">B印</th>
+            <th className="px-2 py-2 text-center border w-12 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('rating')} title="BR (Book Rating) — 競馬ブックレイティング">BR{sortIndicator('rating')}</th>
+            <th className="px-2 py-2 text-center border w-16 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_index')} title="B AI — 競馬ブックAI指数">B AI{sortIndicator('ai_index')}</th>
             <th className="px-2 py-2 text-left border min-w-24">短評</th>
             <th className="px-2 py-2 text-left border min-w-20" title="パドック評価・コメント">パ</th>
             {showResult && (
@@ -1375,12 +1412,17 @@ export default function HorseEntryTable({
               horseComment={targetComments?.horseComments?.[entry.horse_number]}
               myMark={targetMarks?.horseMarks[entry.horse_number]}
               myMark2={targetMarks?.horseMarks2?.[entry.horse_number]}
+              myMark3={targetMarks?.horseMarks3?.[entry.horse_number]}
               recentForm={recentFormMap?.[entry.horse_number]}
               mlPrediction={hasMlPredictions ? mlPredictions[entry.horse_number] : undefined}
               dbOdds={dbOddsMap.get(entry.horse_number)}
               hasDbOdds={hasDbOdds}
               jrdb={jrdbMap.get(entry.horse_number)}
               hasJrdb={hasJrdbData}
+              jrdbIdmRank={jrdbIdmRankMap.get(entry.horse_number) ?? 0}
+              jrdbIdmRankCount={jrdbIdmRankCount}
+              jrdbSogoRank={jrdbSogoRankMap.get(entry.horse_number) ?? 0}
+              jrdbSogoRankCount={jrdbSogoRankCount}
               checkUma={checkUmaMap?.[entry.horse_number]}
               kettoNum={kettoNumMap?.[entry.horse_number]}
               courseBiasAlert={courseBiasAlertMap.get(entry.horse_number)}

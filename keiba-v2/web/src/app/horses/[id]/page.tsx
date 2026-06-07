@@ -105,7 +105,7 @@ export default async function HorseProfilePage({ params }: PageParams) {
   // 馬分析を実行
   const analysis = analyzeHorse(pastRaces, stats);
 
-  // 印履歴 (My印 markSet=1 / AI印 markSet=6) — レース横断集計、表示専用
+  // 印履歴 (My印 / AI総合 / AI直前 / B本紙 / Bパドック) — レース横断集計、表示専用
   const marksHistory = getHorseMarksHistory(kettoNum, pastRaces);
 
   // 過去レースをHorseRaceSelector形式に変換
@@ -241,7 +241,7 @@ export default async function HorseProfilePage({ params }: PageParams) {
         {/* 過去レース成績テーブル */}
         <HorsePastRacesTable races={pastRaces} />
 
-        {/* 印履歴 (My印 / AI印) — 印のあるレースが無ければ非表示 */}
+        {/* 印履歴 — 印のあるレースが無ければ非表示 */}
         {marksHistory.entries.length > 0 && (
           <>
             <Separator className="my-6" />

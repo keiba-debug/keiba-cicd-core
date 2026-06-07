@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Settings, BarChart3, Wallet } from 'lucide-react';
+import { Settings, BarChart3, Wallet, ShoppingCart } from 'lucide-react';
 import { AlertBar } from '@/components/bankroll/AlertBar';
 import { RefreshButton } from '@/components/bankroll/RefreshButton';
 import { BudgetForm } from '@/components/bankroll/BudgetForm';
@@ -21,8 +21,9 @@ import { BudgetForm } from '@/components/bankroll/BudgetForm';
 // =====================================================================
 
 const TABS = [
-  { key: 'performance', label: '成績', icon: BarChart3 },
+  { key: 'purchase', label: '購入記録', icon: ShoppingCart },
   { key: 'fund', label: '資金管理', icon: Wallet },
+  { key: 'performance', label: '成績', icon: BarChart3 },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -37,12 +38,16 @@ const TabSkeleton = () => (
   </div>
 );
 
-const PerformanceTab = dynamic(
-  () => import('@/components/bankroll/PerformanceTab').then(m => ({ default: m.PerformanceTab })),
+const PurchaseTab = dynamic(
+  () => import('@/components/bankroll/PurchaseTab').then(m => ({ default: m.PurchaseTab })),
   { loading: TabSkeleton, ssr: false }
 );
 const FundTab = dynamic(
   () => import('@/components/bankroll/FundTab').then(m => ({ default: m.FundTab })),
+  { loading: TabSkeleton, ssr: false }
+);
+const PerformanceTab = dynamic(
+  () => import('@/components/bankroll/PerformanceTab').then(m => ({ default: m.PerformanceTab })),
   { loading: TabSkeleton, ssr: false }
 );
 
@@ -51,7 +56,7 @@ const FundTab = dynamic(
 // =====================================================================
 
 export default function BankrollResultsPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>('performance');
+  const [activeTab, setActiveTab] = useState<TabKey>('purchase');
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
@@ -106,8 +111,9 @@ export default function BankrollResultsPage() {
       </div>
 
       {/* タブコンテンツ */}
+      {activeTab === 'purchase' && <PurchaseTab refreshKey={refreshKey} />}
+      {activeTab === 'fund' && <FundTab />}
       {activeTab === 'performance' && <PerformanceTab />}
-      {activeTab === 'fund' && <FundTab refreshKey={refreshKey} />}
     </div>
   );
 }

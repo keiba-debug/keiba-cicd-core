@@ -13,13 +13,36 @@ import {
 } from '@/components/ui/table';
 import {
   ShoppingCart, AlertCircle, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
-  Check, X, Clock, HelpCircle, Bot, Crosshair,
+  Check, X, Clock, HelpCircle, Bot, Crosshair, ChevronLeft, Calendar,
 } from 'lucide-react';
 import type { LedgerDaily, LedgerRacePurchase } from '@/lib/data/ledger-reader';
+import { Button } from '@/components/ui/button';
 
 interface AutoPurchaseHistoryProps {
   dateStr?: string; // YYYYMMDD形式
+  refreshKey?: number;
 }
+
+const formatDateToStr = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+};
+
+const formatDateDisplay = (dateStr: string): string => {
+  const ymd = dateStr.replace(/-/g, '');
+  const year = parseInt(ymd.slice(0, 4), 10);
+  const month = parseInt(ymd.slice(4, 6), 10);
+  const day = parseInt(ymd.slice(6, 8), 10);
+  const date = new Date(year, month - 1, day);
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+  const weekday = weekdays[date.getDay()];
+  return `${year}年${month}月${day}日(${weekday})`;
+};
+
+const toIsoDate = (ymd: string): string =>
+  `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
 
 const formatCurrency = (amount: number) => `¥${amount.toLocaleString()}`;
 const formatPercent = (value: number) => `${value.toFixed(1)}%`;
@@ -36,28 +59,85 @@ const getRoiColor = (roi: number) => {
   return 'text-muted-foreground';
 };
 
-export function AutoPurchaseHistory({ dateStr }: AutoPurchaseHistoryProps) {
-  // デフォルトは今日の日付 (YYYY-MM-DD: input[type=date] 用)
+export function AutoPurchaseHistory({ dateStr, refreshKey }: AutoPurchaseHistoryProps) {
   const today = new Date();
-  const defaultIso = today.toISOString().slice(0, 10);
-  const initialIso = dateStr
-    ? `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`
-    : defaultIso;
 
-  const [selectedDate, setSelectedDate] = useState<string>(initialIso); // YYYY-MM-DD
+  const [raceDates, setRaceDates] = useState<string[]>([]);
+  const [ledgerDates, setLedgerDates] = useState<Set<string>>(new Set());
+  const [selectedYmd, setSelectedYmd] = useState('');
   const [data, setData] = useState<LedgerDaily | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRaces, setExpandedRaces] = useState<Set<number>>(new Set());
 
+  // 開催日一覧 + ledger あり日を取得
   useEffect(() => {
+    const loadDates = async () => {
+      try {
+        const [raceRes, ledgerRes] = await Promise.all([
+          fetch('/api/race-dates'),
+          fetch('/api/bankroll/ledger/dates'),
+        ]);
+        let yyyymmdd: string[] = [];
+        if (raceRes.ok) {
+          const { dates } = await raceRes.json();
+          yyyymmdd = (dates as string[]).map((d) => d.replace(/-/g, ''));
+          setRaceDates(yyyymmdd);
+        }
+        if (ledgerRes.ok) {
+          const { dates } = await ledgerRes.json();
+          setLedgerDates(new Set((dates as string[]).map((d) => d.replace(/-/g, ''))));
+        }
+        if (dateStr) {
+          setSelectedYmd(dateStr.replace(/-/g, ''));
+        } else if (yyyymmdd.length > 0) {
+          const todayStr = formatDateToStr(today);
+          const defaultDate = yyyymmdd.find((d) => d <= todayStr) || yyyymmdd[0];
+          setSelectedYmd((prev) => prev || defaultDate);
+        } else {
+          setSelectedYmd(formatDateToStr(today));
+        }
+      } catch {
+        setSelectedYmd(dateStr?.replace(/-/g, '') || formatDateToStr(today));
+      }
+    };
+    loadDates();
+  }, [dateStr]);
+
+  const selectedIso = selectedYmd ? toIsoDate(selectedYmd) : '';
+  const currentIndex = raceDates.indexOf(selectedYmd);
+  const isLatest = raceDates.length > 0 && selectedYmd === raceDates[0];
+  const isOldest = raceDates.length > 0 && currentIndex >= raceDates.length - 1;
+  const hasLedgerForDay = ledgerDates.has(selectedYmd);
+
+  const goToPrevDay = () => {
+    if (raceDates.length === 0) return;
+    if (currentIndex < 0) { setSelectedYmd(raceDates[0]); return; }
+    if (currentIndex >= raceDates.length - 1) return;
+    setSelectedYmd(raceDates[currentIndex + 1]);
+  };
+
+  const goToNextDay = () => {
+    if (raceDates.length === 0) return;
+    if (currentIndex < 0) { setSelectedYmd(raceDates[0]); return; }
+    if (currentIndex <= 0) return;
+    setSelectedYmd(raceDates[currentIndex - 1]);
+  };
+
+  const goToLatest = () => {
+    if (raceDates.length > 0) setSelectedYmd(raceDates[0]);
+  };
+
+  useEffect(() => {
+    if (!selectedIso) return;
+
     const fetchLedger = async () => {
       setLoading(true);
       setError(null);
       setExpandedRaces(new Set());
 
       try {
-        const res = await fetch(`/api/bankroll/ledger/${selectedDate}`);
+        const res = await fetch(`/api/bankroll/ledger/${selectedIso}`);
         if (!res.ok) {
           throw new Error('自動投票履歴の取得に失敗しました');
         }
@@ -71,7 +151,7 @@ export function AutoPurchaseHistory({ dateStr }: AutoPurchaseHistoryProps) {
     };
 
     fetchLedger();
-  }, [selectedDate]);
+  }, [selectedIso, refreshKey]);
 
   const toggleRaceExpand = (index: number) => {
     const newExpanded = new Set(expandedRaces);
@@ -93,16 +173,38 @@ export function AutoPurchaseHistory({ dateStr }: AutoPurchaseHistoryProps) {
     return 'bg-slate-50 dark:bg-slate-900/20';
   };
 
-  // 日付ピッカー
+  // 開催日選択
   const DatePicker = (
-    <div className="flex items-center gap-2">
-      <Clock className="h-4 w-4 text-muted-foreground" />
-      <input
-        type="date"
-        value={selectedDate}
-        onChange={(e) => setSelectedDate(e.target.value)}
-        className="rounded-md border bg-background px-3 py-1.5 text-sm"
-      />
+    <div className="flex items-center gap-2 flex-wrap justify-end">
+      <Button variant="outline" size="icon" onClick={goToPrevDay}
+        disabled={raceDates.length === 0 || isOldest} title="前の開催日">
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <div className="flex items-center gap-2">
+        <Calendar className="h-4 w-4 text-muted-foreground" />
+        <select
+          value={selectedYmd}
+          onChange={(e) => setSelectedYmd(e.target.value)}
+          className="rounded-md border bg-background px-3 py-1.5 text-sm font-medium min-w-[200px]"
+          disabled={raceDates.length === 0}
+        >
+          {raceDates.length === 0 && selectedYmd && (
+            <option value={selectedYmd}>{formatDateDisplay(selectedYmd)}</option>
+          )}
+          {raceDates.map((d) => (
+            <option key={d} value={d}>
+              {formatDateDisplay(d)}{ledgerDates.has(d) ? '' : ' (投票なし)'}
+            </option>
+          ))}
+        </select>
+      </div>
+      <Button variant="outline" size="icon" onClick={goToNextDay}
+        disabled={raceDates.length === 0 || isLatest} title="次の開催日">
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      {!isLatest && raceDates.length > 0 && (
+        <Button variant="ghost" size="sm" onClick={goToLatest}>最新</Button>
+      )}
     </div>
   );
 
@@ -161,7 +263,10 @@ export function AutoPurchaseHistory({ dateStr }: AutoPurchaseHistoryProps) {
             <CardTitle className="text-lg flex items-center gap-2">
               <Bot className="h-5 w-5" />
               自動投票サマリー
-              <span className="text-sm font-normal text-muted-foreground">{selectedDate}</span>
+              <span className="text-sm font-normal text-muted-foreground">{formatDateDisplay(selectedYmd)}</span>
+              {hasLedgerForDay && (
+                <Badge variant="outline" className="text-xs font-normal">自動投票あり</Badge>
+              )}
             </CardTitle>
             {DatePicker}
           </div>

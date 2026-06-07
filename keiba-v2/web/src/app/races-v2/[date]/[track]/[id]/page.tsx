@@ -23,6 +23,7 @@ import { getRatingStandards } from '@/lib/data/rating-standards-reader';
 import { getBabaCondition, trackToSurface } from '@/lib/data/baba-reader';
 import { getRaceAllComments, getHorseCommentsBatch, type RaceHorseComment, type HorseComment } from '@/lib/data/target-comment-reader';
 import { getRaceMarks, type RaceMarks } from '@/lib/data/target-mark-reader';
+import { MARK_SLOT } from '@/lib/data/mark-slots';
 import { getRecentFormBatch, type RecentFormData } from '@/lib/data/target-race-result-reader';
 import { getRaceTrendIndex, lookupRaceTrend } from '@/lib/data/race-trend-reader';
 import { loadTrainerPatterns, evaluatePatternMatch, type TrainerPatternMatch } from '@/lib/data/trainer-patterns-reader';
@@ -31,8 +32,7 @@ import { resolveKeibabookRaceId } from '@/lib/data/race-horse-names';
 import { getMlPredictions, getClosingRaceProba, getRaceConfidence } from '@/lib/data/ml-prediction-reader';
 import { getCheckUmaMap, type CheckUmaEntry } from '@/lib/data/target-checkuma-reader';
 import { getTrackBias } from '@/lib/data/jrdb-kaa-reader';
-import { getRacePurchase } from '@/lib/data/ledger-reader';
-import { RacePurchaseBadgeModal } from '@/components/race-v2/RacePurchaseBadgeModal';
+import { getRacePurchasesCombined } from '@/lib/data/race-purchase-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -147,7 +147,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
   }
 
   // データ取得（並列取得: 依存関係のないデータを全て同時に取得）
-  const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions, closingRaceProba, raceConfidence, racePurchase] = await Promise.all([
+  const [integratedData, navigation, raceInfo, trainingSummaryMap, ratingStandards, trainerPatterns, mlPredictions, closingRaceProba, raceConfidence] = await Promise.all([
     getIntegratedRaceData(date, track, id),
     getRaceNavigation(date, track, currentRaceNumber),
     getRaceInfo(date),
@@ -157,7 +157,6 @@ export default async function RaceDetailPage({ params }: PageParams) {
     getMlPredictions(id, raceId16, date),
     getClosingRaceProba(id, raceId16, date),
     getRaceConfidence(id, raceId16, date),
-    getRacePurchase(raceId16),
   ]);
 
   // v4(data3)優先 → data2でエンリッチ → data2フォールバック
@@ -173,6 +172,10 @@ export default async function RaceDetailPage({ params }: PageParams) {
   if (!raceData) {
     notFound();
   }
+
+  const raceNameForPurchase =
+    raceData.race_info.race_name || raceData.race_info.race_condition || '';
+  const racePurchases = await getRacePurchasesCombined(raceId16, raceNameForPurchase);
 
   // 2段階目: raceDataに依存するデータを並列取得
   // 現在のレースの馬のみ前走調教を取得（全馬3700件→レース出走馬~16頭に限定）
@@ -222,9 +225,10 @@ export default async function RaceDetailPage({ params }: PageParams) {
     results: Map<number, RaceHorseComment>;
   } = { predictions: new Map(), results: new Map() };
   
-  // TARGET馬印（My印=markSet1 手動, AI印=markSet6 AI予想）
+  // TARGET馬印（My印=markSet1 手動, AI評価印=markSet2 [旧6], AI購入軸=markSet3 [旧8]）
   let targetMarks: RaceMarks | null = null;
   let targetMarksAi: RaceMarks | null = null;
+  let targetMarksBuy: RaceMarks | null = null;
   
   // kaisaiInfo（コメント編集用に外に出す）
   let kaisaiInfoForEdit: { kai: number; nichi: number } | undefined;
@@ -282,7 +286,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
         currentRaceNumber
       );
       
-      // TARGET馬印取得（My印=markSet1 手動, AI印=markSet6 AI予想）
+      // TARGET馬印取得（My印=markSet1 手動, AI評価印=markSet2 [旧6]）
       const yearNum = parseInt(date.split('-')[0], 10);
       const marks1 = getRaceMarks(
         yearNum,
@@ -298,12 +302,21 @@ export default async function RaceDetailPage({ params }: PageParams) {
         kaisaiInfo.nichi,
         currentRaceNumber,
         track,
-        6  // 馬印6（AI予想印）
+        MARK_SLOT.AI_EVAL  // 馬印2（AI評価印）[旧6]
+      );
+      const marksBuy = getRaceMarks(
+        yearNum,
+        kaisaiInfo.kai,
+        kaisaiInfo.nichi,
+        currentRaceNumber,
+        track,
+        MARK_SLOT.AI_BUY  // 馬印3（AI購入軸）[旧8]
       );
 
       // それぞれ保存
       targetMarks = marks1;
       targetMarksAi = marksAi;
+      targetMarksBuy = marksBuy;
       
       // コメント編集用にkaisaiInfoを保持
       kaisaiInfoForEdit = { kai: kaisaiInfo.kai, nichi: kaisaiInfo.nichi };
@@ -534,8 +547,6 @@ export default async function RaceDetailPage({ params }: PageParams) {
 
       {/* データ更新ボタン */}
       <div className="flex justify-end gap-2 mb-2">
-        {/* 購入のあるレースのみ「購入あり」バッジ + 買い目モーダル (W3, 表示専用) */}
-        <RacePurchaseBadgeModal purchase={racePurchase} />
         {jraRaceId && (
           <Link href={`/my-bets/${jraRaceId}`} target="_blank">
             <Button variant="outline" size="sm">
@@ -611,10 +622,11 @@ export default async function RaceDetailPage({ params }: PageParams) {
           }}
           kaisaiInfo={kaisaiInfoForEdit}
           targetMarks={
-            (targetMarks || targetMarksAi)
+            (targetMarks || targetMarksAi || targetMarksBuy)
               ? {
                   horseMarks: targetMarks?.horseMarks || {},
-                  horseMarks2: targetMarksAi?.horseMarks || {}  // AI印(markSet6) を My2枠で表示
+                  horseMarks2: targetMarksAi?.horseMarks || {},  // AI評価印(markSet2) [旧6]
+                  horseMarks3: targetMarksBuy?.horseMarks || {}  // AI購入軸(markSet3) [旧8]
                 }
               : undefined
           }
@@ -624,6 +636,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
           raceConfidence={raceConfidence ?? undefined}
           checkUmaMap={Object.keys(checkUmaByHorseNum).length > 0 ? checkUmaByHorseNum : undefined}
           kettoNumMap={entryKettoMap}
+          purchases={racePurchases}
         />
 
         {/* データ情報（フッター） */}

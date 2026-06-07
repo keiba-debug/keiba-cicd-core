@@ -1,17 +1,15 @@
 /**
- * 馬別 印履歴リーダー (My印 markSet=1 / AI印 markSet=6)
+ * 馬別 印履歴リーダー (My印 / AI印 / AI購入軸 / 本紙印 / パドック印)
  *
- * 1頭の過去レースを横断し、各レースでその馬 (umaban) に付いていた
- * My印 (TARGET markSet=1, 明示消を合成) と AI印 (markSet=6) を時系列で集める。
- * 着順と並べることで「AI印が当たっているか」を目視評価できる。
+ * 1頭の過去レースを横断し、各レースでその馬 (umaban) に付いていた印を時系列で集める。
  *
- * - 表示専用 (書込なし)。 markSet=6 (AI印) は読むだけ。
- * - My印には my_marks_v2 の explicit_erase を '消' として合成する
- *   (markSet=6 には合成しない。 v2 は markSet=1 の単一意思空間のため)。
- * - DAT を毎レース読むため、 結果は ketto_num 単位で in-memory キャッシュ (TTL付き)。
+ * - 表示専用 (書込なし)
+ * - My印には my_marks_v2 の explicit_erase を '消' として合成
+ * - DAT を毎レース読むため、 結果は ketto_num 単位で in-memory キャッシュ (TTL付き)
  */
 
 import { getRaceMarks } from './target-mark-reader';
+import { MARK_SLOT } from './mark-slots';
 import { readMyMarksV2, mergeWithEraseMarks, ERASE_MARK } from './my-marks-v2-reader';
 
 // race_id[8:10] (JV 場コード) → 場名 (target-mark-reader の venue 名と一致させる)
@@ -22,6 +20,20 @@ const JV_CODE_TO_VENUE: Record<string, string> = {
 
 // 推奨印 (◎○▲△Ⅲ穴)。 '消' / '' は除外して信頼性集計する。
 const POSITIVE_MARKS = new Set(['◎', '○', '▲', '△', 'Ⅲ', '穴']);
+// AI購入軸 (markSet=3): 買い軸◆ / 相手◇
+const POSITIVE_BUY_MARKS = new Set(['◆', '◇']);
+// パドック評価 (S/A/B ほか)
+const POSITIVE_PADDOCK_MARKS = new Set(['S', 'A', 'B', '◎', '○', '▲', '△', '穴']);
+
+function normalizePaddockMark(mark?: string): string {
+  if (!mark || typeof mark !== 'string') return '';
+  const t = mark.trim();
+  if (!t) return '';
+  const half = t.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0xfee0)
+  ).trim();
+  return half || t;
+}
 
 /** getHorseMarksHistory が受け付ける過去レースの最小形 (HorseRaceResult が満たす) */
 export interface HorseRaceLike {
@@ -34,6 +46,9 @@ export interface HorseRaceLike {
   distance?: string;
   horseNumber: number;   // umaban
   finishPosition: string;
+  honshiMark?: string;   // 競馬ブック本紙印 (◎○▲△)
+  paddockMark?: string;  // パドック評価 (S/A/B/◎○▲△ 等)
+  shortComment?: string; // 競馬ブック短評 (kb_ext short_comment)
 }
 
 export interface HorseMarkHistoryEntry {
@@ -47,7 +62,11 @@ export interface HorseMarkHistoryEntry {
   finishPosition: string;
   finishNum: number;     // 数値化した着順 (0=取消/中止/不明)
   myMark: string;        // markSet=1 (+ 明示消合成)。 無印は ''
-  aiMark: string;        // markSet=6。 無印は ''
+  aiMark: string;        // markSet=2。 無印は ''
+  aiBuyMark: string;     // markSet=3 (AI購入軸 ◆◇)。 無印は ''
+  honshiMark: string;    // 競馬ブック本紙印。 無印は ''
+  paddockMark: string;   // パドック評価。 無印は ''
+  shortComment: string;  // 競馬ブック短評。 無しは ''
 }
 
 export interface HorseMarksReliability {
@@ -57,9 +76,12 @@ export interface HorseMarksReliability {
 }
 
 export interface HorseMarksHistory {
-  entries: HorseMarkHistoryEntry[]; // My印 or AI印 のあるレースのみ。 新しい順
+  entries: HorseMarkHistoryEntry[]; // 印のあるレースのみ。 新しい順
   my: HorseMarksReliability;        // My印 (推奨印) の信頼性
   ai: HorseMarksReliability;        // AI印 (推奨印) の信頼性
+  aiBuy: HorseMarksReliability;     // AI購入軸 (◆◇) の信頼性
+  honshi: HorseMarksReliability;    // 本紙印 (推奨印) の信頼性
+  paddock: HorseMarksReliability;   // パドック印 の信頼性
 }
 
 interface DerivedParams {
@@ -129,6 +151,9 @@ const EMPTY: HorseMarksHistory = {
   entries: [],
   my: { races: 0, top3: 0, win: 0 },
   ai: { races: 0, top3: 0, win: 0 },
+  aiBuy: { races: 0, top3: 0, win: 0 },
+  honshi: { races: 0, top3: 0, win: 0 },
+  paddock: { races: 0, top3: 0, win: 0 },
 };
 
 /**
@@ -148,6 +173,9 @@ export function getHorseMarksHistory(
   const entries: HorseMarkHistoryEntry[] = [];
   const my: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
   const ai: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
+  const aiBuy: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
+  const honshi: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
+  const paddock: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
 
   for (const race of pastRaces) {
     const p = deriveParams(race);
@@ -155,19 +183,32 @@ export function getHorseMarksHistory(
 
     // My印 (markSet=1) + 明示消合成
     let myMark = '';
-    const raw1 = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, 1);
+    const raw1 = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, MARK_SLOT.MY);
     if (raw1 || p.raceId16) {
       const v2 = p.raceId16 ? readMyMarksV2(p.raceId16) : null;
       const merged = mergeWithEraseMarks(raw1?.horseMarks ?? {}, v2);
       myMark = merged[race.horseNumber] ?? '';
     }
 
-    // AI印 (markSet=6) — 読むだけ、 v2 合成なし
-    const raw6 = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, 6);
-    const aiMark = raw6?.horseMarks[race.horseNumber] ?? '';
+    // AI評価印 (markSet=2 [旧6]) — 読むだけ、 v2 合成なし
+    const aiRaw = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, MARK_SLOT.AI_EVAL);
+    const aiMark = aiRaw?.horseMarks[race.horseNumber] ?? '';
 
-    // どちらの印も無ければスキップ ('消' は意味があるので残す)
-    if (!myMark && !aiMark) continue;
+    // AI購入軸 (markSet=3 [旧8]) — 買い軸◆ / 相手◇
+    const aiBuyRaw = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, MARK_SLOT.AI_BUY);
+    const aiBuyMark = aiBuyRaw?.horseMarks[race.horseNumber] ?? '';
+
+    // 競馬ブック本紙印 (過去レース成績と同ソース)
+    const honshiMark = (race.honshiMark || '').trim();
+
+    // パドック評価 (kb_ext paddock_info)
+    const paddockMark = normalizePaddockMark(race.paddockMark);
+
+    // 競馬ブック短評 (kb_ext short_comment / 出走表と同ソース)
+    const shortComment = (race.shortComment || '').trim();
+
+    // いずれの印も無ければスキップ ('消' は意味があるので残す)
+    if (!myMark && !aiMark && !aiBuyMark && !honshiMark && !paddockMark) continue;
 
     const finishNum = parseInt(race.finishPosition, 10);
     const finish = Number.isNaN(finishNum) ? 0 : finishNum;
@@ -184,6 +225,10 @@ export function getHorseMarksHistory(
       finishNum: finish,
       myMark,
       aiMark,
+      aiBuyMark,
+      honshiMark,
+      paddockMark,
+      shortComment,
     });
 
     // 信頼性集計 (推奨印が付いた走のみ。 '消'/'' は対象外)
@@ -197,12 +242,27 @@ export function getHorseMarksHistory(
       if (finish >= 1 && finish <= 3) ai.top3 += 1;
       if (finish === 1) ai.win += 1;
     }
+    if (POSITIVE_BUY_MARKS.has(aiBuyMark)) {
+      aiBuy.races += 1;
+      if (finish >= 1 && finish <= 3) aiBuy.top3 += 1;
+      if (finish === 1) aiBuy.win += 1;
+    }
+    if (POSITIVE_MARKS.has(honshiMark)) {
+      honshi.races += 1;
+      if (finish >= 1 && finish <= 3) honshi.top3 += 1;
+      if (finish === 1) honshi.win += 1;
+    }
+    if (POSITIVE_PADDOCK_MARKS.has(paddockMark)) {
+      paddock.races += 1;
+      if (finish >= 1 && finish <= 3) paddock.top3 += 1;
+      if (finish === 1) paddock.win += 1;
+    }
   }
 
   // 新しい順 (date 降順)。 pastRaces は降順想定だが念のため整列。
   entries.sort((a, b) => b.date.localeCompare(a.date));
 
-  const data: HorseMarksHistory = { entries, my, ai };
+  const data: HorseMarksHistory = { entries, my, ai, aiBuy, honshi, paddock };
   cache.set(kettoNum, { data, ts: Date.now() });
   return data;
 }

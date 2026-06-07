@@ -22,6 +22,8 @@ python -m ml.strategies.bettype_race --date today --strategy concentrate
 - `ml/strategies/bettype_sizing.py` — サイジング（アンカー◎単/複=Kelly + 複合=per_race 残予算 EV 比例配分）
 - `ml/strategies/bettype_race.py` — per-race dry ビュー（投票しない検証用）
 - `scripts/bettype_auto.bat` — Task Scheduler 用ラッパー（`dry`/`live`、ログ `data3/logs/bettype/<date>.log`）
+- `scripts/bettype_auto_hidden.vbs` — 上記を DOS 非表示で実行（Task Scheduler 推奨）
+- `scripts/apply_hidden_bettype_task.bat` — 既存 `KeibaBettypeAuto` を VBS 実行に切替
 - 投票実体 = `ml/target_clicker/runner.py` を `--bet "race:券種:馬/馬:額"` 群で起動 → TARGET → IPAT
 - 状態: `data3/races/<Y>/<M>/<D>/bettype_scheduler_state[_dryrun].json`（freebudget とは別ファイル）
 
@@ -34,7 +36,7 @@ python -m ml.strategies.bettype_race --date today --strategy concentrate
 ## 開始（arm）
 Task Scheduler に登録（1分毎・当日 11:00-18:00・ログオン中＝対話セッションで GUI click）:
 ```bash
-schtasks /create /tn "KeibaBettypeAuto" /tr "C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2\scripts\bettype_auto.bat live" /sc minute /mo 1 /st 11:00 /et 18:00 /f
+schtasks /create /tn "KeibaBettypeAuto" /tr "C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2\scripts\bettype_auto_hidden.vbs" /sc minute /mo 1 /st 11:00 /et 18:00 /f
 ```
 - バッチが毎分 `bettype_scheduler --date today --confirm --i-understand-live --strategy concentrate --per-day-max-yen 30000` を実行。
 - 窓内レースが無いパスは何もしない（空振り）。 各レース [発走-6分, 発走-2分] でのみ投票。

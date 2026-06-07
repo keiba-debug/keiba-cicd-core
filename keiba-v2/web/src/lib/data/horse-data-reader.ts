@@ -394,6 +394,7 @@ async function extractRaceAndKbEnrichment(
           const trainingData = kbEntry.training_data as Record<string, string> || {};
           const stableComment = kbEntry.stable_comment as Record<string, string> || {};
           const previousRace = kbEntry.previous_race_interview as Record<string, string> || {};
+          const paddockInfo = kbEntry.paddock_info as Record<string, unknown> | null;
 
           enrichment.honshiMark = kbEntry.honshi_mark as string || '';
           enrichment.shortComment = kbEntry.short_comment as string || '';
@@ -402,6 +403,8 @@ async function extractRaceAndKbEnrichment(
           enrichment.attackExplanation = trainingData.attack_explanation || '';
           enrichment.stableComment = stableComment.comment || '';
           enrichment.sunpyou = kbEntry.sunpyo as string || '';
+          enrichment.paddockMark = (paddockInfo?.mark as string) || '';
+          enrichment.paddockComment = (paddockInfo?.comment as string) || '';
           // 前半3F: kb_extの個馬first_3fをフォールバック（race JSONのpace.s3が優先）
           if (!enrichment.first3f && kbEntry.first_3f) {
             enrichment.first3f = String(kbEntry.first_3f);
@@ -502,6 +505,8 @@ async function enrichWithKeibabook(
         attackExplanation: enrichment.attackExplanation ?? race.attackExplanation,
         stableComment: enrichment.stableComment ?? race.stableComment,
         sunpyou: enrichment.sunpyou ?? race.sunpyou,
+        paddockMark: enrichment.paddockMark ?? race.paddockMark,
+        paddockComment: enrichment.paddockComment ?? race.paddockComment,
         resultMemo: enrichment.resultMemo ?? race.resultMemo,
         resultComment: enrichment.resultComment ?? race.resultComment,
         // JRDB指標
@@ -717,8 +722,8 @@ export async function getHorseFullData(id: string): Promise<IntegratedHorseData 
                 trainingComment: enrichment.trainingComment || '',
                 attackExplanation: enrichment.attackExplanation || '',
                 stableComment: enrichment.stableComment || '',
-                paddockMark: '',
-                paddockComment: '',
+                paddockMark: enrichment.paddockMark || '',
+                paddockComment: enrichment.paddockComment || '',
                 resultMemo: enrichment.resultMemo || '',
                 resultComment: enrichment.resultComment || '',
                 sunpyou: enrichment.sunpyou || '',

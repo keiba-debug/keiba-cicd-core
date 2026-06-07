@@ -68,10 +68,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
   const [selectiveBets, setSelectiveBets] = useState<Map<string, { umaban: number; odds_rank: number | null; vb_gap: number | null }>>(new Map());
 
   // TARGET馬印2 VB印反映
-  const [markSyncing, setMarkSyncing] = useState(false);
-  const [markResult, setMarkResult] = useState<{ marks: Record<string, number>; markedHorses: number } | null>(null);
-  const [dangerMarkSyncing, setDangerMarkSyncing] = useState(false);
-  const [dangerMarkResult, setDangerMarkResult] = useState<{ markedHorses: number } | null>(null);
 
   // 推奨買い目 予算設定（bankroll連動）
   const [dailyBudget, setDailyBudget] = useState<number>(BET_CONFIG.defaultBudget);
@@ -483,54 +479,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     return jsonEntry?.finish_position ?? 0;
   }, [dbResults, results]);
 
-  // --- TARGET連携 ---
-
-  const syncVbMarks = useCallback(async () => {
-    setMarkSyncing(true);
-    setMarkResult(null);
-    try {
-      // フィルタ適用: 表示中のレースのみ対象
-      let targetRaces = races;
-      if (venueFilter !== 'all') targetRaces = targetRaces.filter(r => r.venue_name === venueFilter);
-      if (trackFilter !== 'all') {
-        targetRaces = targetRaces.filter(r =>
-          trackFilter === 'turf' ? isTurf(r.track_type) : isDirt(r.track_type)
-        );
-      }
-      if (raceNumFilter !== 0) targetRaces = targetRaces.filter(r => matchRaceNum(raceNumFilter, r.race_number));
-
-      // liveGapsを計算してAPIに送信（リアルタイムodds連動）
-      const liveGaps: Record<string, Record<number, number>> = {};
-      for (const race of targetRaces) {
-        const gapMap: Record<number, number> = {};
-        for (const entry of race.entries) {
-          gapMap[entry.umaban] = getLiveGap(race.race_id, entry);
-        }
-        liveGaps[race.race_id] = gapMap;
-      }
-      const res = await fetch('/api/target-marks/auto-vb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: isArchive ? currentDate : undefined,
-          liveGaps,
-          raceIds: targetRaces.map(r => r.race_id),
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(err.error || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setMarkResult({ marks: data.summary.marks, markedHorses: data.summary.markedHorses });
-    } catch (error) {
-      console.error('[syncVbMarks] Error:', error);
-      setMarkResult(null);
-      alert(`VB印反映に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setMarkSyncing(false);
-    }
-  }, [isArchive, currentDate, races, venueFilter, trackFilter, raceNumFilter, getLiveGap]);
 
   // --- 推奨買い目 ---
   // ライブオッズがある場合は TypeScript bet-engine で再計算
@@ -696,52 +644,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
     return entries;
   }, [dangerHorses, venueFilter, trackFilter, raceNumFilter]);
 
-  const syncDangerMarks = useCallback(async () => {
-    setDangerMarkSyncing(true);
-    setDangerMarkResult(null);
-    try {
-      // フィルタ適用: 表示中のレースのみ対象
-      let targetRaces = races;
-      if (venueFilter !== 'all') targetRaces = targetRaces.filter(r => r.venue_name === venueFilter);
-      if (trackFilter !== 'all') {
-        targetRaces = targetRaces.filter(r =>
-          trackFilter === 'turf' ? isTurf(r.track_type) : isDirt(r.track_type)
-        );
-      }
-      if (raceNumFilter !== 0) targetRaces = targetRaces.filter(r => matchRaceNum(raceNumFilter, r.race_number));
-
-      // 危険馬リストを構築
-      const dangerList: Array<{ raceId: string; umaban: number }> = [];
-      const targetRaceIds = new Set(targetRaces.map(r => r.race_id));
-      for (const dh of dangerHorses) {
-        if (targetRaceIds.has(dh.race.race_id)) {
-          dangerList.push({ raceId: dh.race.race_id, umaban: dh.entry.umaban });
-        }
-      }
-
-      const res = await fetch('/api/target-marks/auto-danger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: isArchive ? currentDate : undefined,
-          dangerHorses: dangerList,
-          raceIds: targetRaces.map(r => r.race_id),
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(err.error || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setDangerMarkResult({ markedHorses: data.summary.markedHorses });
-    } catch (error) {
-      console.error('[syncDangerMarks] Error:', error);
-      setDangerMarkResult(null);
-      alert(`DA印反映に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setDangerMarkSyncing(false);
-    }
-  }, [isArchive, currentDate, races, dangerHorses, venueFilter, trackFilter, raceNumFilter]);
 
   const sortedBetRecommendations = useMemo(() => {
     let recs = [...betRecommendations];
@@ -1185,9 +1087,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
             results={results}
             hasResults={hasResults}
             getFinishPos={getFinishPos}
-            syncVbMarks={syncVbMarks}
-            markSyncing={markSyncing}
-            markResult={markResult}
             betRecMap={betRecMap}
           />
 
@@ -1195,9 +1094,6 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
           <DangerResults
             dangerHorses={filteredDangerHorses}
             getFinishPos={getFinishPos}
-            syncDangerMarks={syncDangerMarks}
-            dangerMarkSyncing={dangerMarkSyncing}
-            dangerMarkResult={dangerMarkResult}
           />
 
         </>

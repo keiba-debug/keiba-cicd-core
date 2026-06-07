@@ -359,14 +359,8 @@ export function TargetMarkInputModal({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="1">馬印1</SelectItem>
-              <SelectItem value="2">馬印2</SelectItem>
-              <SelectItem value="3">馬印3</SelectItem>
-              <SelectItem value="4">馬印4</SelectItem>
-              <SelectItem value="5">馬印5</SelectItem>
-              <SelectItem value="6">馬印6</SelectItem>
-              <SelectItem value="7">馬印7</SelectItem>
-              <SelectItem value="8">馬印8</SelectItem>
+              {/* AI評価印(2)/AI購入軸(3)は自動反映のため手動入力は My印1 のみ (Session 143) */}
+              <SelectItem value="1">My印（馬印1）</SelectItem>
             </SelectContent>
           </Select>
           <Button

@@ -63,16 +63,12 @@ interface VBTableProps {
   results?: RaceResultsMap;
   hasResults: boolean;
   getFinishPos: (raceId: string, umaban: number) => number;
-  syncVbMarks: () => Promise<void>;
-  markSyncing: boolean;
-  markResult: { marks: Record<string, number>; markedHorses: number } | null;
   betRecMap: Map<string, BetRecommendation>;
 }
 
 export function VBTable({
   featuredEntries, oddsMap, dbResults, hasResults,
   getFinishPos,
-  syncVbMarks, markSyncing, markResult,
   betRecMap,
 }: VBTableProps) {
   if (featuredEntries.length === 0) return null;
@@ -95,21 +91,6 @@ export function VBTable({
               {composites.length + picks.length}頭 + Value Bet {boths.length + values.length + vbs.length}頭
             </span>
           </CardTitle>
-          <div className="flex items-center gap-2">
-            {markResult && (
-              <span className="text-xs text-green-700 dark:text-green-400">
-                {markResult.markedHorses}頭 反映完了
-              </span>
-            )}
-            <button
-              onClick={syncVbMarks}
-              disabled={markSyncing}
-              className="px-3 py-1 text-xs font-medium rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-amber-300 dark:border-amber-700 disabled:opacity-50"
-              title="注目馬の印をTARGET馬印2に一括書込み"
-            >
-              {markSyncing ? '反映中...' : '印→馬印2'}
-            </button>
-          </div>
         </div>
       </CardHeader>
       <CardContent className="pt-4 space-y-6">

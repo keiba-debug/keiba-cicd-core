@@ -232,7 +232,7 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
           ) : '-'}
         </td>
 
-        {/* 本誌印 */}
+        {/* 本紙印 (競馬ブック) */}
         <td className={`px-1 py-1.5 border text-center font-bold text-xs ${getMarkBgColor(race.honshiMark)}`}>
           {race.honshiMark || '-'}
         </td>
@@ -355,7 +355,7 @@ const RaceRow = React.memo(function RaceRow({ race, isExpanded, index, onToggle 
               )}
               {(race.paddockMark || race.paddockComment) && (
                 <div className="lg:col-span-2">
-                  <span className="text-orange-600 dark:text-orange-400 font-medium">パドック:</span>
+                  <span className="text-orange-600 dark:text-orange-400 font-medium">Bパドック:</span>
                   <span className="ml-1">
                     {race.paddockMark && <span className="mr-0.5 font-bold">{race.paddockMark}</span>}
                     {race.paddockComment}
@@ -469,7 +469,7 @@ export function HorsePastRacesTable({ races }: HorsePastRacesTableProps) {
               <th className="px-1 py-1.5 border text-left w-12">騎手</th>
               <th className="px-1 py-1.5 border text-center w-8">斤量</th>
               <th className="px-1 py-1.5 border text-center w-16">馬体重</th>
-              <th className="px-1 py-1.5 border text-center w-5">印</th>
+              <th className="px-1 py-1.5 border text-center w-5" title="競馬ブック本紙印">B本紙</th>
               <th className="px-1 py-1.5 border text-center w-10">ｵｯｽﾞ</th>
               <th className="px-1 py-1.5 border text-center w-8">人気</th>
               <th className="px-1 py-1.5 border text-center w-5">着</th>

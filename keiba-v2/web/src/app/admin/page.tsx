@@ -72,8 +72,6 @@ export default function AdminPage() {
   // 特別登録データ生成
   const [isGeneratingRegistration, setIsGeneratingRegistration] = useState(false);
 
-  // TARGET印一括反映
-  const [isWritingMarks, setIsWritingMarks] = useState(false);
 
   // データ品質リフレッシュ用
   const [dataQualityRefreshKey, setDataQualityRefreshKey] = useState(0);
@@ -324,63 +322,6 @@ export default function AdminPage() {
     }
   }, [addLog]);
 
-  // TARGET印一括反映（馬印2:VB / 馬印3:ARd / 馬印4:IDM / 馬印5:パドック印）
-  const writeTargetMarks = useCallback(async () => {
-    setIsWritingMarks(true);
-    setStatus('running');
-    setCurrentAction('TARGET印一括反映');
-
-    const apis = [
-      { url: '/api/target-marks/auto-vb', label: 'VB→馬印2', key: 'vb' },
-      { url: '/api/target-marks/auto-ard', label: 'ARd→馬印3', key: 'ard' },
-      { url: '/api/target-marks/auto-idm', label: 'IDM→馬印4', key: 'idm' },
-      { url: '/api/target-marks/auto-paddock', label: 'パドック→馬印5', key: 'paddock' },
-    ];
-
-    try {
-      for (const api of apis) {
-        addLog({
-          timestamp: new Date().toISOString(),
-          level: 'info',
-          message: `  ${api.label} 書込み中...`,
-        });
-
-        const res = await fetch(api.url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: selectedDate }),
-        });
-
-        const result = await res.json();
-        if (result.success) {
-          const s = result.summary;
-          const note = s.note ? ` (${s.note})` : '';
-          addLog({
-            timestamp: new Date().toISOString(),
-            level: 'success',
-            message: `  ${api.label}: ${s.totalRaces}R ${s.markedHorses}頭${note}`,
-          });
-        } else {
-          addLog({
-            timestamp: new Date().toISOString(),
-            level: 'error',
-            message: `  ${api.label} エラー: ${result.error}`,
-          });
-        }
-      }
-      setStatus('success');
-    } catch (error) {
-      addLog({
-        timestamp: new Date().toISOString(),
-        level: 'error',
-        message: `TARGET印反映エラー: ${error}`,
-      });
-      setStatus('error');
-    } finally {
-      setIsWritingMarks(false);
-      setCurrentAction(null);
-    }
-  }, [addLog, selectedDate]);
 
   // JRDBデータダウンロード＆統合
   const downloadJrdb = useCallback(async () => {
@@ -943,27 +884,6 @@ export default function AdminPage() {
             })}
           </div>
 
-          <Separator />
-
-          {/* TARGET印 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Button
-              variant="outline"
-              className="h-auto py-3 px-4 flex flex-col items-start text-left bg-background hover:bg-muted border"
-              onClick={writeTargetMarks}
-              disabled={isWritingMarks || isRunning}
-            >
-              <div className="flex items-center gap-2 w-full">
-                <span className={`text-lg ${isWritingMarks ? 'animate-pulse' : ''}`}>🏷️</span>
-                <span className="font-semibold text-sm">
-                  {isWritingMarks ? 'TARGET印反映中...' : 'TARGET印一括反映'}
-                </span>
-              </div>
-              <span className="text-xs text-muted-foreground mt-1">
-                馬印2:VB / 馬印3:ARd / 馬印4:IDM / 馬印5:パドック印（7R以降）
-              </span>
-            </Button>
-          </div>
         </CardContent>
       </Card>
 

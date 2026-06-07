@@ -119,6 +119,30 @@ VU-5 P2b(adaptive配分)live化:
   → コーディングでなく「判断+慎重deploy」。来週、司令塔同席で。
 ```
 
+### Prompt VU-6: AI レース印（P2b出し分けの TARGET レース印可視化）※P2b後・非開催日
+
+```
+あなたは KeibaCICD の実装担当です。AI「レース印」を実装します(P2b出し分けの race-level 可視化)。
+前提: P2b(adaptive fund_mode)が入力 → VU-5(P2b)とセット。非開催日・live auto-vote 停止中に。
+
+【レース印 format(調査済 2026-06-06)】
+- レース印 = 4-byte Shift-JIS ラベル(2全角字: 見送/投資/一発/買い)。
+- REP1(主) = UmaMark DAT 各レコード bytes[2:6](ml/features/my_marks.py:150 が位置把握・現状 Step1未使用)。
+  record_index=(day-1)*12+(race-1)、44B/record = 馬印と同じ座標系。
+- REP2/REP3 = MY_DATA\RMark2 / RMark3 dir(RM{版}{場}.DAT・888B/file・実装時に hex decode で確定)。
+- dat_writer 流儀(馬印 markSet=6/8 と同じ)でそのまま書ける。
+
+【設計】
+- AI は専用スロット(REP2 or REP3=RMark2/3。ふくだ手動 REP1 を上書きしない)に書く = markSet=8 と同じ AI専用スロット思想。
+- ラベル写像: skip(降りる)→「見送」/ boost(増額)→「投資」/ longshot(大穴)→「一発」/ 通常→「買い」
+  (ふくだ既存ラベル 投資/スポ/見送/一発/買い/勉強/遊び/適当 と整合)。
+- 実装: dat_writer に write_race_mark(4-byte SJIS, record_index, slot)。RMark2/3 の 888B 形式を hex decode
+  (今日ふくだが付けた 見送/買い のあるファイルで確認)。
+- テスト: round-trip(encode/decode)、手動 REP1 不変ガード、施錠。
+
+【厳守】手動レース印(REP1)を上書きしない。live auto-vote 停止中(非開催日)に。P2b fund_mode が前提。
+```
+
 ## 4. 進捗ログ（各セッションが追記）
 
 | 日時 | VU | セッション | 結果 / commit | 申し送り |

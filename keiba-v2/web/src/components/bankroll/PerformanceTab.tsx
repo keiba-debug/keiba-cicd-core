@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   TrendingUp, TrendingDown, Target, BarChart3, Calendar, Crosshair, ShoppingCart,
 } from 'lucide-react';
+import { BetTypeStats } from '@/components/bankroll/BetTypeStats';
 
 // =====================================================================
 // 型定義
@@ -725,6 +726,9 @@ export function PerformanceTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* 馬券種別実績 */}
+      <BetTypeStats />
     </div>
   );
 }
