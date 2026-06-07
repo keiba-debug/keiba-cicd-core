@@ -8,8 +8,6 @@ import pytest
 
 from ml.ai_marks.assign import (
     assign_ai_marks,
-    FLAT_EPS,
-    BREAK_GAP,
     MARK_LADDER,
     ANA_MIN_ODDS,
     ANA_BREAK,
@@ -131,103 +129,115 @@ def test_only_one_mark_in_step1():
 
 
 # ---------------------------------------------------------------------------
-# Step2: 段差ベース ○▲△Ⅲ 割当 + 穴 (別系統)
+# Step2: 序列=composite総合 / 頭数=複勝率(P)の崖 + 穴 (別系統)
 # ---------------------------------------------------------------------------
 
-def test_step2_smooth_distribution_assigns_ladder():
-    """僅差で連続する分布 → ◎○▲△Ⅲ が順に付く (打ち切られない)。"""
-    # composite が滑らかに下がる = 隣接段差が BREAK_GAP 未満で続く想定。
-    # W/P/ADR を僅差で並べる (median/MAD で z 化されても段差は小さく保たれる)。
+def test_step2_smooth_no_cliff_fills_to_cap():
+    """なだらかに続く分布 (崖なし) → cap (頭数-1, 上限5) まで ◎○▲△Ⅲ。"""
+    # 複勝率(P)が僅差で続く = 崖が来ない。6頭立て → cap=min(5,5)=5。
     entries = [
-        _horse(1, 0.30, 0.50, 60.0),
-        _horse(2, 0.28, 0.48, 59.0),
-        _horse(3, 0.26, 0.46, 58.0),
-        _horse(4, 0.24, 0.44, 57.0),
-        _horse(5, 0.22, 0.42, 56.0),
-        _horse(6, 0.20, 0.40, 55.0),
+        _horse(1, 0.30, 0.24, 60.0),
+        _horse(2, 0.28, 0.22, 59.0),
+        _horse(3, 0.26, 0.20, 58.0),
+        _horse(4, 0.24, 0.18, 57.0),
+        _horse(5, 0.22, 0.16, 56.0),
+        _horse(6, 0.20, 0.14, 55.0),
     ]
     r = assign_ai_marks(entries, step=2)
     assert not r.skipped
-    # ◎ は composite 最高 (= 1番)
     assert r.marks[1] == "◎"
-    # 序列は composite 降順に MARK_LADDER 順
     ordered = sorted(r.marks.items(), key=lambda kv: -r.composite[kv[0]])
     syms = [sym for _u, sym in ordered]
-    assert syms == list(MARK_LADDER[: len(syms)])
-    # 序列印は最大 5 (◎○▲△Ⅲ)
-    assert len(r.marks) <= len(MARK_LADDER)
+    assert syms == list(MARK_LADDER)  # 崖なし → 上限5頭フル
+    assert len(r.marks) == 5
 
 
-def test_step2_break_gap_truncates():
-    """1強 (◎が突出) → 段差で打ち切られ ◎単独 (or 少数) に絞られる。"""
-    # 1番だけ圧倒的、残りは団子。1番→2番の段差が BREAK_GAP 以上開く想定。
+def test_step2_cliff_truncates_at_gap():
+    """複勝率に崖 (比 >= CLIFF_RATIO) があれば、その手前で打ち切り。"""
+    # ◎が複勝率でも抜けてる: P 0.50 → 0.10 (比 5.0) で崖 → ◎単独。
     entries = [
-        _horse(1, 0.70, 0.80, 75.0),  # 圧倒的
-        _horse(2, 0.08, 0.15, 50.0),
-        _horse(3, 0.07, 0.14, 49.0),
-        _horse(4, 0.06, 0.13, 48.0),
-        _horse(5, 0.05, 0.12, 47.0),
+        _horse(1, 0.70, 0.50, 75.0),  # 圧倒的 (P0.50)
+        _horse(2, 0.10, 0.10, 50.0),  # 0.50/0.10 = 5.0 で崖
+        _horse(3, 0.09, 0.09, 49.0),
+        _horse(4, 0.08, 0.08, 48.0),
+        _horse(5, 0.07, 0.07, 47.0),
     ]
     r = assign_ai_marks(entries, step=2)
     assert not r.skipped
     assert r.marks[1] == "◎"
-    # ◎の次との段差が大きいので打ち切られ、◎単独になる
-    assert len(r.marks) == 1
-    assert any("打ち切り" in n for n in r.notes)
+    assert len(r.marks) == 1  # 崖で◎単独
+    assert any("崖" in n for n in r.notes)
 
 
-def test_step2_break_gap_value_threshold():
-    """BREAK_GAP の閾値が割当頭数を支配することの確認 (回帰防止)。"""
+def test_step2_fukuda_case_smooth():
+    """ふくだ例1: なだらか (20,20,10,8,8,8,8,1,1) → 8%まで続き上限5頭。"""
+    ps = [0.20, 0.20, 0.10, 0.08, 0.08, 0.08, 0.08, 0.01, 0.01]
+    entries = [_horse(i + 1, ps[i], ps[i], 60.0 - i, rank_w=i + 1) for i in range(len(ps))]
+    r = assign_ai_marks(entries, step=2)
+    assert len(r.marks) == 5  # 8%が続く → 崖(8→1)より先に上限5で止まる
+
+
+def test_step2_fukuda_case_cliff():
+    """ふくだ例2: 崖 (30,30,30,1,1,1,1,1) → 30%の3頭で打ち切り。"""
+    ps = [0.30, 0.30, 0.30, 0.01, 0.01, 0.01, 0.01, 0.01]
+    entries = [_horse(i + 1, ps[i], ps[i], 60.0 - i, rank_w=i + 1) for i in range(len(ps))]
+    r = assign_ai_marks(entries, step=2)
+    assert len(r.marks) == 3  # 0.30/0.01 = 30 で崖
+    assert set(r.marks.keys()) == {1, 2, 3}
+
+
+def test_step2_cap_prevents_all_marked_small_field():
+    """少頭数で崖が来なくても全頭印にしない (cap = 頭数-1)。"""
+    # 4頭が僅差 (崖なし) → cap=min(5,3)=3。4頭目に印が付かない。
     entries = [
-        _horse(1, 0.40, 0.55, 65.0),
-        _horse(2, 0.20, 0.40, 58.0),
-        _horse(3, 0.10, 0.20, 52.0),
+        _horse(1, 0.28, 0.27, 60.0),
+        _horse(2, 0.26, 0.25, 59.0),
+        _horse(3, 0.24, 0.23, 58.0),
+        _horse(4, 0.22, 0.21, 57.0),
     ]
     r = assign_ai_marks(entries, step=2)
-    ordered = sorted(r.marks.items(), key=lambda kv: -r.composite[kv[0]])
-    # 隣接段差が BREAK_GAP 未満の区間だけ印が続いていること
-    prev = None
-    for u, _sym in ordered:
-        if prev is not None:
-            assert r.composite[prev] - r.composite[u] < BREAK_GAP
-        prev = u
+    assert len(r.marks) == 3  # 全頭(4)にはしない
+    assert 4 not in r.marks
 
 
 def test_step2_ana_disabled_by_default():
     """enable_ana=False (既定) では穴を付けない。"""
     entries = [
-        _horse(1, 0.40, 0.55, 65.0, win_ev=0.8, odds=2.0),
-        _horse(2, 0.30, 0.45, 60.0, win_ev=0.9, odds=3.0),
-        _horse(3, 0.05, 0.10, 48.0, win_ev=8.0, odds=20.0),  # 妙味だが穴OFF
-        _horse(4, 0.04, 0.08, 46.0, win_ev=0.5, odds=50.0),
+        _horse(1, 0.45, 0.30, 65.0, win_ev=0.8, odds=2.0),
+        _horse(2, 0.35, 0.25, 60.0, win_ev=0.9, odds=3.0),
+        _horse(3, 0.06, 0.08, 48.0, win_ev=8.0, odds=20.0),  # 妙味だが穴OFF
+        _horse(4, 0.05, 0.07, 46.0, win_ev=0.5, odds=50.0),
+        _horse(5, 0.04, 0.06, 44.0, win_ev=0.4, odds=40.0),
+        _horse(6, 0.03, 0.05, 42.0, win_ev=0.3, odds=30.0),
     ]
     r = assign_ai_marks(entries, step=2, enable_ana=False)
     assert "穴" not in r.marks.values()
 
 
 def test_step2_ana_marks_standout_value_horse():
-    """enable_ana=True: 序列印外で win_ev が突出した高オッズ馬に穴が付く。"""
+    """enable_ana=True: 崖の外で win_ev が突出した高オッズ馬に穴。"""
     entries = [
-        _horse(1, 0.45, 0.55, 70.0, win_ev=0.9, odds=2.0),   # ◎ (序列印)
-        _horse(2, 0.30, 0.45, 60.0, win_ev=0.8, odds=3.0),
-        _horse(3, 0.10, 0.15, 50.0, win_ev=8.0, odds=ANA_MIN_ODDS + 10),  # 妙味が突出
-        _horse(4, 0.04, 0.08, 46.0, win_ev=0.5, odds=ANA_MIN_ODDS + 40),  # 高オッズだが win_ev 小
+        _horse(1, 0.45, 0.30, 70.0, win_ev=0.9, odds=2.0),    # ◎
+        _horse(2, 0.35, 0.25, 62.0, win_ev=0.8, odds=3.0),    # ○ (崖の内側)
+        _horse(3, 0.06, 0.08, 48.0, win_ev=8.0, odds=ANA_MIN_ODDS + 10),  # 崖の外・妙味突出
+        _horse(4, 0.05, 0.07, 46.0, win_ev=0.5, odds=ANA_MIN_ODDS + 40),  # 崖の外・win_ev小
+        _horse(5, 0.04, 0.06, 44.0, win_ev=0.4, odds=ANA_MIN_ODDS + 30),
+        _horse(6, 0.03, 0.05, 42.0, win_ev=0.3, odds=ANA_MIN_ODDS + 20),
     ]
     r = assign_ai_marks(entries, step=2, enable_ana=True)
-    # 3番が穴 (序列印外 & win_ev が他の高オッズ馬より突出 = 妙味が1頭に集中)
-    assert r.marks.get(3) == "穴"
-    # ◎は実力馬 (確率で序列を決め、穴は別系統 = Themis 整合)
+    assert r.marks.get(3) == "穴"   # 崖の外 & win_ev 突出
     assert r.marks[1] == "◎"
+    assert r.marks.get(1) != "穴" and r.marks.get(2) != "穴"  # 序列印は穴で上書きしない
 
 
 def test_step2_ana_skips_when_not_standout():
-    """高オッズ妙味馬が団子 (突出しない) なら穴を付けない (乱発防止)。"""
+    """崖の外の妙味馬が団子 (突出しない) なら穴なし (乱発防止)。"""
     entries = [
-        _horse(1, 0.45, 0.55, 70.0, win_ev=0.9, odds=2.0),  # ◎
-        _horse(2, 0.30, 0.45, 60.0, win_ev=0.8, odds=3.0),
-        # 高オッズ馬が2頭、win_ev が僅差 (突出していない) → 穴なし
-        _horse(3, 0.08, 0.12, 48.0, win_ev=3.0, odds=ANA_MIN_ODDS + 10),
-        _horse(4, 0.07, 0.11, 47.0, win_ev=3.0 - (ANA_BREAK * 0.5), odds=ANA_MIN_ODDS + 20),
+        _horse(1, 0.45, 0.30, 70.0, win_ev=0.9, odds=2.0),  # ◎
+        _horse(2, 0.35, 0.25, 60.0, win_ev=0.8, odds=3.0),  # ○
+        _horse(3, 0.06, 0.08, 48.0, win_ev=3.0, odds=ANA_MIN_ODDS + 10),
+        _horse(4, 0.05, 0.07, 47.0, win_ev=3.0 - (ANA_BREAK * 0.5), odds=ANA_MIN_ODDS + 20),
+        _horse(5, 0.04, 0.06, 44.0, win_ev=0.4, odds=ANA_MIN_ODDS + 5),
     ]
     r = assign_ai_marks(entries, step=2, enable_ana=True)
     assert "穴" not in r.marks.values()
@@ -237,25 +247,11 @@ def test_step2_ana_skips_when_not_standout():
 def test_step2_ana_skips_popular_horse():
     """odds が低い (人気) 馬は win_ev が高くても穴にしない (低人気=妙味の前提)。"""
     entries = [
-        _horse(1, 0.45, 0.55, 70.0, win_ev=0.9, odds=2.0),
-        _horse(2, 0.30, 0.45, 60.0, win_ev=0.8, odds=3.0),
-        # win_ev は高いが odds < ANA_MIN_ODDS = 人気馬 → 穴候補にしない
-        _horse(3, 0.10, 0.15, 50.0, win_ev=8.0, odds=ANA_MIN_ODDS - 2.0),
+        _horse(1, 0.45, 0.30, 70.0, win_ev=0.9, odds=2.0),
+        _horse(2, 0.35, 0.25, 60.0, win_ev=0.8, odds=3.0),
+        _horse(3, 0.06, 0.08, 50.0, win_ev=8.0, odds=ANA_MIN_ODDS - 2.0),  # win_ev高だが人気
+        _horse(4, 0.05, 0.07, 46.0, win_ev=0.5, odds=ANA_MIN_ODDS + 10),
+        _horse(5, 0.04, 0.06, 44.0, win_ev=0.4, odds=ANA_MIN_ODDS + 5),
     ]
     r = assign_ai_marks(entries, step=2, enable_ana=True)
     assert "穴" not in r.marks.values()
-
-
-def test_step2_ana_not_on_ranked_horse():
-    """既に序列印が付いた馬には穴を二重付与しない。"""
-    # 全馬が僅差 → ◎○▲△ が並ぶ。win_ev が高い馬も既に序列印なので穴対象外。
-    entries = [
-        _horse(1, 0.26, 0.46, 58.0, win_ev=1.0, odds=4.0),
-        _horse(2, 0.25, 0.45, 57.5, win_ev=1.1, odds=5.0),
-        _horse(3, 0.24, 0.44, 57.0, win_ev=8.0, odds=ANA_MIN_ODDS + 5),
-        _horse(4, 0.23, 0.43, 56.5, win_ev=0.9, odds=4.0),
-    ]
-    r = assign_ai_marks(entries, step=2, enable_ana=True)
-    # 各馬は ◎○▲△ のいずれか (穴で上書きされていない)
-    for u, sym in r.marks.items():
-        assert sym in MARK_LADDER  # 穴ではない

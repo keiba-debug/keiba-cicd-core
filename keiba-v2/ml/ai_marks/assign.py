@@ -20,16 +20,19 @@ from statistics import median
 from typing import Dict, List, Optional, Sequence, Tuple
 
 # 平坦分布ガードの閾値 (composite=z空間)。隣接 gap の最大がこれ未満なら撃ちなし。
+# Step1 (◎のみ) 専用。Step2 は複勝率の崖で頭数を決めるため、ほぼ平坦でも撃つ。
 FLAT_EPS = 0.10
 
 # 印の序列 (composite 降順で先頭から割当)。Step2 で ◎○▲△Ⅲ まで対応。
 MARK_LADDER = ("◎", "○", "▲", "△", "Ⅲ")
 
-# 段差ベース割当の「印を打ち切る」段差閾値 (composite=z空間)。
-# 前の馬との composite 段差がこれ以上開いたら「ここで力が一段落ちる」と判断し、
-# その馬には印を打たず打ち切る。僅差で続けば押さえを増やし、段差で切れれば絞る
-# = ふくだの「迷ったら押さえ多い / 自信あれば絞る」を段差が自動表現 (印=メタ情報)。
-BREAK_GAP = 1.0
+# Step2 の頭数決定 (ふくだ 2026-06-07):
+#   序列 (◎○▲△Ⅲ) は composite 総合で決め、頭数は複勝率(P)の「崖」で打ち切る。
+#   composite 降順に並べ、前馬との複勝率比 prev/cur がこれ以上なら「勝負圏の崖」と
+#   見て打ち切り。累積%でなく比率なので同確率を分断せず、頭数・確率水準にロバスト。
+#   旧・段差ベース (BREAK_GAP, composite-z空間) は多頭数で◎単独になり撤廃。
+#   「1頭抜けてる=自信あり」等の自信度は馬印に出さず別途レース印へ移管。
+CLIFF_RATIO = 2.5
 
 # 穴印 (Themis 整合)。設計 §4-E:「穴は確率を持ち上げて◎扱いするな、信頼度の補正係数」。
 #   - 序列印 (◎○▲△Ⅲ) とは **完全に別系統** で判定する。
@@ -106,16 +109,17 @@ def assign_ai_marks(
     """ML予想スコア → AI印。
 
     step=1: ◎ 1頭のみ。
-    step=2: composite 降順に MARK_LADDER (◎○▲△Ⅲ) を段差ベースで割当
-            (前馬との段差が BREAK_GAP 以上開いたら打ち切り)。
-            enable_ana=True なら序列印外の馬に「妙味の押さえ」として穴を別系統で付加。
+    step=2: 序列は composite 総合 (◎○▲△Ⅲ の順)、頭数は複勝率(P)の崖で決定
+            (前馬との P 比が CLIFF_RATIO 以上で打ち切り。上限5・最低◎1。
+             少頭数は cap=頭数-1 で全頭印を防止。ふくだ 2026-06-07)。
+            enable_ana=True なら崖の外の妙味馬に穴を別系統で付加。
 
     Args:
         entries: predictions.json の races[].entries[]。
             各 dict から umaban / pred_proba_w_cal / pred_proba_p / ar_deviation を使う。
             step=2 で enable_ana=True のとき win_ev / odds も使う (穴判定、§4-E)。
         weights: (wW, wP, wA)。既定 (1,1,1)。
-        step: 1=◎のみ / 2=◎○▲△Ⅲ (段差ベース)。
+        step: 1=◎のみ / 2=◎○▲△Ⅲ (序列=composite, 頭数=複勝率の崖)。
         enable_ana: True なら穴印を別系統で付加 (step=2 のみ有効、既定 OFF=実験扱い)。
 
     Returns:
@@ -193,41 +197,47 @@ def assign_ai_marks(
         s = wW * z_w[i] + wP * z_p[i] + (wA * z_a[i] if adr_used else 0.0)
         composite[u] = s / denom
 
-    # --- Step 4: 平坦分布ガード ---
+    # --- Step 4: 平坦分布ガード (Step1 のみ) ---
+    # Step2 は「常に◎○▲△Ⅲ穴 を振る」(ふくだ 2026-06-07) ため、ほぼ平坦でも撃つ。
+    # 完全フラット (全頭同スコア=分散ゼロ) は上の Step1/Step3 で既に撃ちなし済み。
     ranked = sorted(umabans, key=lambda u: (-composite[u], _tiebreak_rank(valid, u)))
-    sorted_scores = [composite[u] for u in ranked]
-    adjacent_gaps = [sorted_scores[i] - sorted_scores[i + 1] for i in range(len(sorted_scores) - 1)]
-    if adjacent_gaps and max(adjacent_gaps) < FLAT_EPS:
-        return AiMarkResult(
-            marks={}, skipped=True, skip_reason="flat_distribution",
-            adr_used=adr_used, composite=composite, weights=weights,
-            notes=notes + [f"隣接gap最大 {max(adjacent_gaps):.3f} < {FLAT_EPS} で撃ちなし"],
-        )
+    if step <= 1:
+        sorted_scores = [composite[u] for u in ranked]
+        adjacent_gaps = [sorted_scores[i] - sorted_scores[i + 1] for i in range(len(sorted_scores) - 1)]
+        if adjacent_gaps and max(adjacent_gaps) < FLAT_EPS:
+            return AiMarkResult(
+                marks={}, skipped=True, skip_reason="flat_distribution",
+                adr_used=adr_used, composite=composite, weights=weights,
+                notes=notes + [f"隣接gap最大 {max(adjacent_gaps):.3f} < {FLAT_EPS} で撃ちなし"],
+            )
 
     # --- Step 5: 印割当 ---
     if step <= 1:
         # Step1: ◎ 1頭のみ (composite 最高、同点は rank_w 昇順)。
         marks = {ranked[0]: "◎"}
     else:
-        # Step2: composite 降順に MARK_LADDER を段差ベースで割当。
-        #   ◎ は段差に関わらず必ず付く (composite 最高)。
-        #   2頭目以降は「前の馬との composite 段差 < BREAK_GAP」の間だけ続ける。
-        #   段差が BREAK_GAP 以上開いた = ここで力が一段落ちる → そこで打ち切り。
-        #   僅差で続けば押さえ (○▲△Ⅲ) が増え、段差で切れれば◎単独に絞られる。
-        marks = {ranked[0]: MARK_LADDER[0]}
-        for rank_pos in range(1, min(len(ranked), len(MARK_LADDER))):
-            cur_u = ranked[rank_pos]
-            prev_u = ranked[rank_pos - 1]
-            gap = composite[prev_u] - composite[cur_u]
-            if gap >= BREAK_GAP:
+        # Step2: 序列は composite 総合 (◎○▲△Ⅲ の順)。頭数は複勝率(P)の「崖」で決める。
+        #   composite 降順に並べ、前馬との複勝率比が CLIFF_RATIO 以上開いた所で打ち切り
+        #   (= 勝負圏の崖)。累積%と違い同確率を分断しない。少頭数は cap で全頭印を防ぐ。
+        #   自信度シグナル (◎が抜けてる等) は馬印に出さず別途レース印へ移管。
+        p_med = median([v for v in p_vals if v is not None]) if p_present else 0.0
+        p_by_uma = {umabans[i]: (p_vals[i] if p_vals[i] is not None else p_med)
+                    for i in range(n)}
+        cap = min(len(MARK_LADDER), max(1, n - 1))  # 5頭立てで5頭印を物理的に防ぐ
+        n_marks = 1
+        for i in range(1, cap):
+            prev_p = p_by_uma[ranked[i - 1]]
+            cur_p = p_by_uma[ranked[i]]
+            if cur_p <= 0 or prev_p / cur_p >= CLIFF_RATIO:
                 notes.append(
-                    f"{MARK_LADDER[rank_pos - 1]}→次馬の段差 {gap:.2f} ≥ {BREAK_GAP} "
-                    f"で打ち切り ({len(marks)}頭に絞り)"
+                    f"複勝率の崖 {prev_p:.3f}→{cur_p:.3f} "
+                    f"(比 {prev_p / cur_p:.1f} ≥ {CLIFF_RATIO}) で {n_marks}頭に絞り"
                 )
                 break
-            marks[cur_u] = MARK_LADDER[rank_pos]
+            n_marks += 1
+        marks = {ranked[i]: MARK_LADDER[i] for i in range(n_marks)}
 
-        # 穴印 (別系統・Themis 整合)。序列印が付かなかった馬のうち妙味馬に付加。
+        # 穴印 (別系統・Themis 整合)。崖の外の妙味馬に付加。
         if enable_ana:
             ana_added = _assign_ana(valid, marks, notes)
             if ana_added:

@@ -3,14 +3,14 @@
 
 predictions.json を読み、各レースに assign_ai_marks を適用して ◎ を決定する。
   --dry-run (既定) : 決定結果を表示。DAT は書かない。監査ログも書かない。
-  --apply          : DAT (markSet=6) に書込み + 監査ログ追記。
+  --apply          : DAT (markSet=2 [旧6]) に書込み + 監査ログ追記。
 
-設計: docs/auto-purchase/22_AI_MARKS_DESIGN.md §2 / §5 SC-4
+設計: docs/auto-purchase/22_AI_MARKS_DESIGN.md §2 / §5 SC-4 / 26_MARK_SLOT_MAP.md
 
 使用例:
   python -m ml.ai_marks.write_ai_marks --date 2026-05-31                    # dry-run (Step1 ◎のみ)
-  python -m ml.ai_marks.write_ai_marks --date 2026-05-31 --step 2           # ◎○▲△Ⅲ 段差ベース
-  python -m ml.ai_marks.write_ai_marks --date 2026-05-31 --step 2 --ana     # 穴も付加 (実験)
+  python -m ml.ai_marks.write_ai_marks --date 2026-05-31 --step 2           # ◎○▲△Ⅲ + 穴 (複勝率の崖で頭数)
+  python -m ml.ai_marks.write_ai_marks --date 2026-05-31 --step 2 --no-ana  # 穴を外す
   python -m ml.ai_marks.write_ai_marks --date 2026-05-31 --weights 0.5,2,0.5
   python -m ml.ai_marks.write_ai_marks --date 2026-05-31 --step 2 --apply   # 実書込み
 """
@@ -166,9 +166,9 @@ def main(argv=None) -> int:
     ap.add_argument("--weights", type=_parse_weights, default=(1.0, 1.0, 1.0),
                     help="(wW,wP,wA) 既定 1,1,1")
     ap.add_argument("--step", type=int, default=1, choices=(1, 2),
-                    help="1=◎のみ / 2=◎○▲△Ⅲ 段差ベース (既定 1)")
-    ap.add_argument("--ana", action="store_true",
-                    help="穴印を別系統で付加 (step=2 のみ有効、実験扱い)")
+                    help="1=◎のみ / 2=◎○▲△Ⅲ+穴 (複勝率の崖で頭数, 既定 1)")
+    ap.add_argument("--no-ana", dest="ana", action="store_false", default=True,
+                    help="穴印を外す (既定: step=2 で ◎○▲△Ⅲ + 穴 を付ける)")
     ap.add_argument("--mark-set", type=int, default=_MARK_SLOT_AI,
                     help=f"書込み先 markSet (既定 {_MARK_SLOT_AI}=AI評価)。1 は手動印で禁止")
     ap.add_argument("--apply", action="store_true",
