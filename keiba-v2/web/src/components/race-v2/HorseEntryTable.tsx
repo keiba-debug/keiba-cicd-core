@@ -629,10 +629,10 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   const displayNinki = dbOdds?.ninki ?? parseInt(entry_data.odds_rank, 10);
   const oddsRankRaw = dbOdds?.ninki ?? parseInt(entry_data.odds_rank, 10);
 
-  // 過剰人気(Danger Alert): odds<=8 & ARd<53 & P%<15%
-  const dangerOdds = dbOdds?.winOdds ?? parseFloat(entry_data.odds || '0');
-  const isDanger = mlPrediction != null
-    && dangerOdds > 0 && dangerOdds <= 8.0
+  // 人気先行(割高=おいしくない): odds<=8 & ARd<53 & P%<15。本当の危険(凡走)は別モデルで判定予定
+  const overpricedOdds = dbOdds?.winOdds ?? parseFloat(entry_data.odds || '0');
+  const isOverpriced = mlPrediction != null
+    && overpricedOdds > 0 && overpricedOdds <= 8.0
     && (mlPrediction.ar_deviation ?? 999) < 53
     && (mlPrediction.pred_proba_p ?? 0) < 0.15;
   const oddsRank = isNaN(oddsRankRaw) ? 0 : oddsRankRaw;
@@ -778,13 +778,13 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
                 {mlPrediction.market_signal}
               </span>
             )}
-            {/* 危バッジ（過剰人気アラート） */}
-            {isDanger && (
+            {/* 人気先行バッジ（割高=おいしくない。本当の危険=凡走は別モデル予定） */}
+            {isOverpriced && (
               <span
-                className="inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-300 dark:border-red-700"
-                title={`過剰人気: オッズ${dangerOdds.toFixed(1)} / ARd${mlPrediction.ar_deviation?.toFixed(0) ?? '-'} / P${((mlPrediction.pred_proba_p ?? 0) * 100).toFixed(1)}%`}
+                className="inline-flex items-center justify-center px-1 py-0 rounded text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                title={`人気先行(割高): オッズ${overpricedOdds.toFixed(1)} / ARd${mlPrediction.ar_deviation?.toFixed(0) ?? '-'} / P${((mlPrediction.pred_proba_p ?? 0) * 100).toFixed(1)}%`}
               >
-                危
+                人気先行
               </span>
             )}
           </div>
