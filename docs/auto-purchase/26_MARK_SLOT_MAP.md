@@ -175,6 +175,7 @@
 | 2026-06-06 | 本書 | スロットマップ確定・再編方針・遡及方針 | ✅ main (3eb8c1e/955fe8b/21746c5) |
 | 2026-06-06 | **Phase1** | AI評価 markSet 6→2 リナンバー + `backfill_ai_marks.py`(過去遡及) + テスト10件 | ✅ branch `feat/mark-slot-reorg` (0ca668a)・**月曜マージ** |
 | 2026-06-06/07 | **本番実行** | TARGET整理(旧UmaMark2-8 DAT削除=計130件) + 本番TFJVへ AI評価 markSet=2 全期間遡及 | ✅ 692開催日/22,152R/**60,460印** UmaMark2=232ファイル。markSet=1(286)/RMark2(257)/RMark3(254) 無傷。全スロット backup=`C:/tmp/mydata_backup_20260606` |
+| 2026-06-07 | **Phase1 merge** | `feat/mark-slot-reorg` を main マージ(b4efe05) + SKILL `keiba-data-prep` ②-5 配線 6→2 | ✅ Python `dat_writer._MARK_SLOT_AI`/`write_ai_marks` が mark_set=2 既定に。pytest 34 green(新10+既存ai_marks24)。web(cffd22f reader=`MARK_SLOT.AI_EVAL`=2)と完全一致。**push は GO 待ち** |
 
 ### Phase1 完了内容（branch `feat/mark-slot-reorg`）
 - `dat_writer._MARK_SLOT_AI` 6→2（AI評価）。施錠ガード(mark_set==1 手動禁止)維持。
@@ -186,11 +187,13 @@
 
 ### 残タスク（月曜・非開催日にまとめて）
 1. ✅ **本番 TFJV へ全期間遡及実行済**(2026-06-06/07): 2020〜2026-06-06 / 692日 / 60,460印 を markSet=2 へ。旧UmaMark2-8 DAT削除済。**web 反映は #2 のreader切替後**。
-2. **web reader を markSet=2 表示に切替**（AI印列を 6→2）+ 現行パイプ(朝prep/SKILL `keiba-data-prep` ②-5)の書込先を 6→2 に。**← これをやるまで遡及した markSet=2 は web で見えない（既定通り）**。
+2. ✅ **web reader を markSet=2 表示に切替**（cffd22f・`mark-slots.ts` SSOT / 出走表 `MARK_SLOT.AI_EVAL`=2）+ SKILL `keiba-data-prep` ②-5 配線 6→2（2026-06-07）。
 3. **VU-1（買い軸）を markSet=3 に**付け替えてマージ（`feat/ai-mark-buy-sync-markset8` 統合）。
-4. **web `auto-*`(VB/ARd/IDM/パドック=旧2-5)/`auto-danger`(危=旧1同居) ルート廃止**（DATは削除済、web経路の撤去が残）。
+4. ✅ **web `auto-*`(VB/ARd/IDM/パドック=旧2-5)/`auto-danger`(危=旧1同居) ルート廃止**（cffd22f・route削除済、`DEPRECATED_AUTO_MARK_ROUTES` に記録）。
 5. **AI購入軸(markSet=3)の遡及**: 投票時点オッズ（単複時系列2025/01〜・組合せ確定2025/03〜）で過去の買い軸を再現（別スクリプト）。
-6. **branch `feat/mark-slot-reorg` を main にマージ**（#2と同時。dat_writer 6→2 が main に入ると朝prepが2に書く＝reader切替とセット）。
+6. ✅ **branch `feat/mark-slot-reorg` を main にマージ**（b4efe05・2026-06-07、pytest 34 green。dat_writer 6→2 で朝prepが2に書く＝reader切替とセット完成）。
+
+**→ 残: #3（VU-1 買い軸 markSet=3 付替マージ／cffd22f と web 競合あり要 rebase）, #5（AI購入軸 markSet=3 遡及）。#5/#3 とも live-vote 非依存だが、W6/W7(target-clicker) は開催日 live 反映不可＝月曜。**
 
 ### ⚠️ 6/7（安田記念・開催日）運用メモ
 - 旧 UmaMark6 を削除したが、6/7朝prep(main コード=まだ markSet=6)が走れば 6/7分を UmaMark6 に再生成 → web(reader=6)で通常表示。**6/7当日は markSet=6 系のまま一貫**（reader/prep とも6）。遡及した markSet=2 は並行存在・web非表示。
