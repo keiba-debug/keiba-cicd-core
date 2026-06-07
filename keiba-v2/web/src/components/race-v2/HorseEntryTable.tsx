@@ -1200,7 +1200,7 @@ export default function HorseEntryTable({
   }, [courseInfo, entries, mlPredictions]);
 
   // --- ソート機能 ---
-  type SortKey = 'horse_number' | 'odds' | 'ai_index' | 'rating' | 'ard' | 'ml_w' | 'ml_p' | 'finish' | 'jrdb_idm' | 'jrdb_sogo' | 'jrdb_gekisou';
+  type SortKey = 'horse_number' | 'odds' | 'ai_index' | 'rating' | 'ard' | 'ml_w' | 'ml_p' | 'finish' | 'jrdb_idm' | 'jrdb_sogo' | 'jrdb_gekisou' | 'my_mark' | 'ai_eval' | 'ai_buy';
   const [sortKey, setSortKey] = useState<SortKey>('horse_number');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -1216,6 +1216,12 @@ export default function HorseEntryTable({
 
   const sortIndicator = (key: SortKey) =>
     sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
+  // 印の優先度（ソート用、大きい=強い）。★☆=AI購入軸 (軸>相手)。無印=0、消は最下。
+  const MARK_ORDER: Record<string, number> = {
+    '◎': 6, '○': 5, '▲': 4, '△': 3, 'Ⅲ': 2, '穴': 1, '消': -1, '★': 6, '☆': 5,
+  };
+  const markRank = (m?: string): number => (m ? (MARK_ORDER[m] ?? 0) : 0);
 
   const sortedEntries = useMemo(() => {
     const mul = sortDir === 'asc' ? 1 : -1;
@@ -1285,12 +1291,21 @@ export default function HorseEntryTable({
           cmp = ga - gb;
           break;
         }
+        case 'my_mark':
+          cmp = markRank(targetMarks?.horseMarks[a.horse_number]) - markRank(targetMarks?.horseMarks[b.horse_number]);
+          break;
+        case 'ai_eval':
+          cmp = markRank(targetMarks?.horseMarks2?.[a.horse_number]) - markRank(targetMarks?.horseMarks2?.[b.horse_number]);
+          break;
+        case 'ai_buy':
+          cmp = markRank(targetMarks?.horseMarks3?.[a.horse_number]) - markRank(targetMarks?.horseMarks3?.[b.horse_number]);
+          break;
       }
       if (cmp !== 0) return cmp * mul;
       // tiebreaker: 馬番昇順
       return a.horse_number - b.horse_number;
     });
-  }, [entries, sortKey, sortDir, mlPredictions, jrdbMap]);
+  }, [entries, sortKey, sortDir, mlPredictions, jrdbMap, targetMarks]);
 
   // レイティング・AI指数の統計計算（useMemoでキャッシュ）
   // entries が変わらない限り再計算しない（O(n log n)の計算を節約）
@@ -1353,9 +1368,9 @@ export default function HorseEntryTable({
           <tr className="bg-gray-100 dark:bg-gray-800">
             <th className="px-2 py-2 text-center border w-10">枠</th>
             <th className="px-2 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('horse_number')}>馬番{sortIndicator('horse_number')}</th>
-            <th className="px-1 py-2 text-center border w-8 text-xs" title="あなたの手動印（My印）">印</th>
-            <th className="px-1 py-2 text-center border w-8 text-xs" title="AI総合評価印（markSet2）">AI総合</th>
-            <th className="px-1 py-2 text-center border w-8 text-xs" title="AI直前評価印（markSet3 = AI購入軸）">AI直前</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('my_mark')} title="あなたの手動印（My印） — クリックでソート">印{sortIndicator('my_mark')}</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_eval')} title="AI総合評価印（markSet2） — クリックでソート">AI総合{sortIndicator('ai_eval')}</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_buy')} title="AI直前評価印（markSet3 = AI購入軸） — クリックでソート">AI直前{sortIndicator('ai_buy')}</th>
             {hasMlPredictions && (
               <>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ard')} title="AR偏差値 — レース内相対能力 (50=平均)">ARd{sortIndicator('ard')}</th>
