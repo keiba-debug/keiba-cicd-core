@@ -253,8 +253,8 @@ export function NiigataChokuTab({ entries, raceId }: Props) {
                 <ColHeader sortKey="umaban" currentSort={sort} onSort={handleSort} align="center" className="w-10">番</ColHeader>
                 {myMarksEnabled && (
                   <>
-                    <ColHeader sortKey="mark1" currentSort={sort} onSort={handleSort} align="center" className="w-10">My1</ColHeader>
-                    <ColHeader sortKey="mark2" currentSort={sort} onSort={handleSort} align="center" className="w-10">My2</ColHeader>
+                    <ColHeader sortKey="mark1" currentSort={sort} onSort={handleSort} align="center" className="w-10">印</ColHeader>
+                    <ColHeader sortKey="mark2" currentSort={sort} onSort={handleSort} align="center" className="w-12">AI総合</ColHeader>
                   </>
                 )}
                 <ColHeader sortKey="horseName" currentSort={sort} onSort={handleSort}>馬名</ColHeader>

@@ -238,8 +238,8 @@ export function SignalTab({ horses, surgeMap, hasMl }: SignalTabProps) {
                 <tr className="border-b bg-muted/50">
                   <th className="px-1 py-1.5 text-center font-bold w-6">枠</th>
                   <th className="px-1 py-1.5 text-center font-bold w-8">番</th>
-                  <th className="px-1 py-1.5 text-center font-bold w-8">My印</th>
-                  <th className="px-1 py-1.5 text-center font-bold w-8">My2</th>
+                  <th className="px-1 py-1.5 text-center font-bold w-8" title="あなたの手動印（My印）">印</th>
+                  <th className="px-1 py-1.5 text-center font-bold w-12 text-xs" title="AI総合評価印（markSet2）">AI総合</th>
                   <th className="px-1 py-1.5 text-left font-bold min-w-[5rem]">馬名</th>
                   <th className="px-1 py-1.5 text-right font-bold w-12">単勝</th>
                   <th className="px-1 py-1.5 text-center font-bold w-8">人気</th>
@@ -253,7 +253,7 @@ export function SignalTab({ horses, surgeMap, hasMl }: SignalTabProps) {
                       <th className="px-1 py-1.5 text-center font-bold w-16">市場</th>
                     </>
                   )}
-                  <th className="px-1 py-1.5 text-center font-bold w-6">本紙</th>
+                  <th className="px-1 py-1.5 text-center font-bold w-10" title="競馬ブック本紙印">B本紙</th>
                   <th className="px-1 py-1.5 text-center font-bold w-10">急騰</th>
                   {hasResults && <th className="px-1 py-1.5 text-center font-bold w-8">着</th>}
                 </tr>
