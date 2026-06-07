@@ -823,16 +823,16 @@ function SummaryTable({
             <th
               onClick={() => onSort('myMark1')}
               className="px-2 py-2 text-center cursor-pointer hover:bg-muted/50 transition-colors select-none w-8"
-              title="TARGET馬印1（クリックでソート）"
+              title="あなたの手動印（クリックでソート）"
             >
-              My1{sortArrow('myMark1')}
+              印{sortArrow('myMark1')}
             </th>
             <th
               onClick={() => onSort('myMark2')}
               className="px-2 py-2 text-center cursor-pointer hover:bg-muted/50 transition-colors select-none w-8"
-              title="TARGET馬印2（クリックでソート）"
+              title="AI総合評価印（markSet2、クリックでソート）"
             >
-              My2{sortArrow('myMark2')}
+              AI総合{sortArrow('myMark2')}
             </th>
             <th className="px-3 py-2 text-left">馬名</th>
             {columns.slice(1).map(col => (

@@ -19,7 +19,7 @@ export const MARK_SLOT = {
   MY: 1,
   /** AI評価印 — KEIBACICD総合 composite(W/P/ADR)。◎○▲△Ⅲ穴。[旧6] */
   AI_EVAL: 2,
-  /** AI購入軸 — 買い軸◆ / 相手◇。purchase_ledger・選定起点。[旧8] */
+  /** AI購入軸 — 買い軸★ / 相手☆。purchase_ledger・選定起点。[旧8] */
   AI_BUY: 3,
 } as const;
 

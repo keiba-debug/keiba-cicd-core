@@ -1353,7 +1353,7 @@ export default function HorseEntryTable({
           <tr className="bg-gray-100 dark:bg-gray-800">
             <th className="px-2 py-2 text-center border w-10">枠</th>
             <th className="px-2 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('horse_number')}>馬番{sortIndicator('horse_number')}</th>
-            <th className="px-1 py-2 text-center border w-8 text-xs">My印</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs" title="あなたの手動印（My印）">印</th>
             <th className="px-1 py-2 text-center border w-8 text-xs" title="AI総合評価印（markSet2）">AI総合</th>
             <th className="px-1 py-2 text-center border w-8 text-xs" title="AI直前評価印（markSet3 = AI購入軸）">AI直前</th>
             {hasMlPredictions && (

@@ -20,8 +20,8 @@ const JV_CODE_TO_VENUE: Record<string, string> = {
 
 // 推奨印 (◎○▲△Ⅲ穴)。 '消' / '' は除外して信頼性集計する。
 const POSITIVE_MARKS = new Set(['◎', '○', '▲', '△', 'Ⅲ', '穴']);
-// AI購入軸 (markSet=3): 買い軸◆ / 相手◇
-const POSITIVE_BUY_MARKS = new Set(['◆', '◇']);
+// AI購入軸 (markSet=3): 買い軸★ / 相手☆
+const POSITIVE_BUY_MARKS = new Set(['★', '☆']);
 // パドック評価 (S/A/B ほか)
 const POSITIVE_PADDOCK_MARKS = new Set(['S', 'A', 'B', '◎', '○', '▲', '△', '穴']);
 
@@ -63,7 +63,7 @@ export interface HorseMarkHistoryEntry {
   finishNum: number;     // 数値化した着順 (0=取消/中止/不明)
   myMark: string;        // markSet=1 (+ 明示消合成)。 無印は ''
   aiMark: string;        // markSet=2。 無印は ''
-  aiBuyMark: string;     // markSet=3 (AI購入軸 ◆◇)。 無印は ''
+  aiBuyMark: string;     // markSet=3 (AI購入軸 ★☆)。 無印は ''
   honshiMark: string;    // 競馬ブック本紙印。 無印は ''
   paddockMark: string;   // パドック評価。 無印は ''
   shortComment: string;  // 競馬ブック短評。 無しは ''
@@ -79,7 +79,7 @@ export interface HorseMarksHistory {
   entries: HorseMarkHistoryEntry[]; // 印のあるレースのみ。 新しい順
   my: HorseMarksReliability;        // My印 (推奨印) の信頼性
   ai: HorseMarksReliability;        // AI印 (推奨印) の信頼性
-  aiBuy: HorseMarksReliability;     // AI購入軸 (◆◇) の信頼性
+  aiBuy: HorseMarksReliability;     // AI購入軸 (★☆) の信頼性
   honshi: HorseMarksReliability;    // 本紙印 (推奨印) の信頼性
   paddock: HorseMarksReliability;   // パドック印 の信頼性
 }
@@ -194,7 +194,7 @@ export function getHorseMarksHistory(
     const aiRaw = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, MARK_SLOT.AI_EVAL);
     const aiMark = aiRaw?.horseMarks[race.horseNumber] ?? '';
 
-    // AI購入軸 (markSet=3 [旧8]) — 買い軸◆ / 相手◇
+    // AI購入軸 (markSet=3 [旧8]) — 買い軸★ / 相手☆
     const aiBuyRaw = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, MARK_SLOT.AI_BUY);
     const aiBuyMark = aiBuyRaw?.horseMarks[race.horseNumber] ?? '';
 
