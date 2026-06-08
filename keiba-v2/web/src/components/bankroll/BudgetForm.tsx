@@ -10,6 +10,7 @@ import { Save, RotateCcw, TrendingDown, TrendingUp, AlertTriangle, Wallet } from
 interface Config {
   settings: {
     total_bankroll: number;
+    daily_start_balance_yen?: number; // 本日のスタート額(入金額)=日次上限の最優先源
     daily_limit_percent: number;
     race_limit_percent: number;
     use_current_balance?: boolean; // 現在資金ベースか投資枠ベースか
@@ -32,6 +33,7 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
   const [totalProfit, setTotalProfit] = useState<number>(0);
   const [formData, setFormData] = useState({
     total_bankroll: 100000,
+    daily_start_balance_yen: 30000, // 本日のスタート額(入金額)=日次上限
     daily_limit_percent: 5.0,
     race_limit_percent: 2.0,
     use_current_balance: true, // デフォルトは現在資金ベース
@@ -47,6 +49,7 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
           setConfig(data);
           setFormData({
             total_bankroll: data.settings?.total_bankroll || 100000,
+            daily_start_balance_yen: data.settings?.daily_start_balance_yen ?? 30000,
             daily_limit_percent: data.settings?.daily_limit_percent || 5.0,
             race_limit_percent: data.settings?.race_limit_percent || 2.0,
             use_current_balance: data.settings?.use_current_balance ?? true,
@@ -98,6 +101,7 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
     if (config) {
       setFormData({
         total_bankroll: config.settings.total_bankroll,
+        daily_start_balance_yen: config.settings.daily_start_balance_yen ?? 30000,
         daily_limit_percent: config.settings.daily_limit_percent,
         race_limit_percent: config.settings.race_limit_percent,
         use_current_balance: config.settings.use_current_balance ?? true,
@@ -124,6 +128,36 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
   // フォームコンテンツ
   const formContent = (
     <div className="space-y-5">
+      {/* ★本日のスタート額 (入金額) = 自動投票の日次上限 = 最大負け額 (Session145) */}
+      <div className="p-4 rounded-lg border-2 border-primary/40 bg-primary/5">
+        <label className="text-sm font-semibold flex items-center gap-2 mb-1">
+          <Wallet className="h-4 w-4 text-primary" />
+          本日のスタート額（入金額）
+        </label>
+        <p className="text-xs text-muted-foreground mb-3">
+          原則この額を IPAT に入金してください。<strong>1日に賭ける総額の上限＝最大負け額</strong>になります
+          （自動投票は当日朝にこの額を凍結して使用。午前の払戻で口座が増えても上限は動きません）。
+        </p>
+        <div className="flex items-center gap-3">
+          <Input
+            type="number"
+            step="1000"
+            value={formData.daily_start_balance_yen}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                daily_start_balance_yen: parseInt(e.target.value) || 0,
+              })
+            }
+            className="flex-1 text-right text-2xl font-bold h-14"
+          />
+          <span className="text-base text-muted-foreground w-8">円</span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          リスクを下げたい週は、この設定を下げて → その額だけ入金する、という運用にしてください。
+        </p>
+      </div>
+
       {/* 現在資金の表示 */}
       {currentBalance !== null && (
         <div className="p-4 rounded-lg bg-muted/50 border">

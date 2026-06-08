@@ -35,9 +35,15 @@ export interface FundedBet {
   amount: number;
 }
 
+export interface SkipEntry {
+  race_id: string;
+  reason: string;
+}
+
 export interface SchedulerStatus {
   date: string;
   exists: boolean;             // state ファイルが存在するか (= 当日まだ一度も起動してない判定)
+  scheduler: 'bettype' | 'freebudget' | null;  // どちらの scheduler の state を見ているか
   mode: 'live' | 'dry-run' | null;
   halted: boolean;
   halt_reason: string | null;
@@ -46,7 +52,12 @@ export interface SchedulerStatus {
   lock_age_sec: number | null;
   votes: VoteEntry[];
   voted_yen: number;           // 成功投票の累計 (exit_code==0)
-  per_day_max_yen: number;
+  per_day_max_yen: number;     // 当日上限 (= state.day_budget_yen 凍結値があればそれ)
+  // 当日予算の根拠 (Session145): 「本日のスタート額(入金額)」を朝に凍結した値とその出所
+  day_budget_yen: number | null;
+  day_budget_source: string | null;
+  // per-race スキップ理由 (穴B): halted=False でも「なぜ買わなかったか」を表示する
+  skips: SkipEntry[];
   // funded artifact (金額確認ダイアログの原本)
   funded_total_yen: number | null;
   funded_n_bets: number | null;
@@ -105,19 +116,39 @@ export function getSchedulerStatus(dateInput?: string): SchedulerStatus {
   const date = resolveDate(dateInput);
   const dir = dayDir(date);
 
-  // live state 優先、 fallback で dry-run
-  const liveState = readJson<Record<string, unknown>>(
-    path.join(dir, 'freebudget_scheduler_state.json'));
-  const dryState = readJson<Record<string, unknown>>(
-    path.join(dir, 'freebudget_scheduler_state_dryrun.json'));
-  const state = liveState ?? dryState;
-  const mode: 'live' | 'dry-run' | null =
-    liveState ? 'live' : (dryState ? 'dry-run' : null);
+  // 穴A: bettype (multi-bettype = 現行本番) と freebudget (単勝) の両 state を見る。
+  //   優先順: live を dry-run より、 同 mode では bettype を freebudget より優先
+  //   (1日に走るのはどちらか一方なので実質「存在する方」を拾う)。
+  const candidates: {
+    sched: 'bettype' | 'freebudget';
+    mode: 'live' | 'dry-run';
+    file: string;
+    lock: string;
+  }[] = [
+    { sched: 'bettype', mode: 'live', file: 'bettype_scheduler_state.json', lock: 'bettype_scheduler.lock' },
+    { sched: 'freebudget', mode: 'live', file: 'freebudget_scheduler_state.json', lock: 'freebudget_scheduler.lock' },
+    { sched: 'bettype', mode: 'dry-run', file: 'bettype_scheduler_state_dryrun.json', lock: 'bettype_scheduler.lock' },
+    { sched: 'freebudget', mode: 'dry-run', file: 'freebudget_scheduler_state_dryrun.json', lock: 'freebudget_scheduler.lock' },
+  ];
+  let state: Record<string, unknown> | null = null;
+  let scheduler: 'bettype' | 'freebudget' | null = null;
+  let mode: 'live' | 'dry-run' | null = null;
+  let lockFile = 'freebudget_scheduler.lock';
+  for (const c of candidates) {
+    const s = readJson<Record<string, unknown>>(path.join(dir, c.file));
+    if (s) {
+      state = s;
+      scheduler = c.sched;
+      mode = c.mode;
+      lockFile = c.lock;
+      break;
+    }
+  }
 
-  // lock 鮮度 → running 推定
+  // lock 鮮度 → running 推定 (採用した scheduler の lock を見る)
   let running = false;
   let lockAge: number | null = null;
-  const lockPath = path.join(dir, 'freebudget_scheduler.lock');
+  const lockPath = path.join(dir, lockFile);
   try {
     if (fs.existsSync(lockPath)) {
       const mtime = fs.statSync(lockPath).mtimeMs;
@@ -146,9 +177,25 @@ export function getSchedulerStatus(dateInput?: string): SchedulerStatus {
     .filter((v) => v.exit_code === 0)
     .reduce((s, v) => s + (v.amount ?? 0), 0);
 
+  // 当日上限: scheduler が朝に凍結した day_budget_yen を最優先。 無ければ state の
+  //   per_day_max_yen、 それも無ければ定数フォールバック。
+  const dayBudget = typeof state?.day_budget_yen === 'number'
+    ? (state.day_budget_yen as number)
+    : null;
+  const perDay = dayBudget
+    ?? (typeof state?.per_day_max_yen === 'number'
+      ? (state.per_day_max_yen as number)
+      : PER_DAY_MAX_YEN);
+
+  // 穴B: per-race スキップ理由 (state.skips: { race_id: reason })
+  const skipsObj = (state?.skips as Record<string, string>) ?? {};
+  const skips: SkipEntry[] = Object.entries(skipsObj)
+    .map(([race_id, reason]) => ({ race_id, reason }));
+
   return {
     date,
     exists: state != null,
+    scheduler,
     mode,
     halted: Boolean(state?.halted),
     halt_reason: (state?.halt_reason as string) ?? null,
@@ -157,7 +204,10 @@ export function getSchedulerStatus(dateInput?: string): SchedulerStatus {
     lock_age_sec: lockAge,
     votes,
     voted_yen: votedYen,
-    per_day_max_yen: PER_DAY_MAX_YEN,
+    per_day_max_yen: perDay,
+    day_budget_yen: dayBudget,
+    day_budget_source: (state?.day_budget_source as string) ?? null,
+    skips,
     funded_total_yen: funded?.total_yen ?? null,
     funded_n_bets: funded?.n_bets ?? null,
     funded_generated_at: funded?.generated_at ?? null,

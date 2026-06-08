@@ -99,6 +99,33 @@ def read_per_race_cap() -> int:
         return 0
 
 
+def read_day_budget() -> tuple[int, str]:
+    """config.json の daily_start_balance_yen を「当日の投資額上限(=最大損失)」として返す。
+
+    ふくだ運用ルール (Session 145): 資金管理メニューで「本日のスタート額(入金額)」を設定し、
+    原則その額を入金する。 入金額 = その日に賭ける総額の上限 = 最大負け額。 これは入金という
+    人間の行為そのものが安全弁になっている (残高を下げたい週は入金額=設定を下げるだけ)。
+
+    朝に1回読んで凍結する (= 呼び出し側 run_pass が state["day_budget_yen"] に保存) ことで、
+    午前の払戻で残高が増えても上限は動かず「最大損失=入金時点で確定」の性質を保つ。
+    ★Kelly の賭け額 (bankroll) はここでは触らない (資金配分=別テーマ Session145 論点2)。
+
+    戻り: (yen, source)。 daily_start_balance_yen が未設定/0/不正なら (0, "") を返し、
+    呼び出し側は従来の per_day_max_yen (CLI/既定) にフォールバックする (後方互換)。
+    """
+    try:
+        if not BANKROLL_CONFIG_PATH.exists():
+            return 0, ""
+        cfg = json.loads(BANKROLL_CONFIG_PATH.read_text(encoding="utf-8"))
+        settings = cfg.get("settings", {}) or {}
+        start = int(settings.get("daily_start_balance_yen", 0) or 0)
+        if start <= 0:
+            return 0, ""
+        return start, f"本日のスタート額 {start:,}円 (入金額=日次上限)"
+    except (OSError, ValueError, TypeError):
+        return 0, ""
+
+
 def lock_path(day_dir: Path) -> Path:
     return Path(day_dir) / "freebudget_scheduler.lock"
 

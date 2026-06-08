@@ -49,6 +49,7 @@ interface ConfigPatchBody {
   total_bankroll?: number;
   daily_limit_percent?: number;
   race_limit_percent?: number;
+  daily_start_balance_yen?: number | null;
   today_budget_override?: number | null;
   use_current_balance?: boolean;
   per_race_max_yen?: number | null;
@@ -63,6 +64,13 @@ function applyPatch(config: BankrollConfig, patch: ConfigPatchBody): BankrollCon
   if (patch.total_bankroll !== undefined) next.settings.total_bankroll = patch.total_bankroll;
   if (patch.daily_limit_percent !== undefined) next.settings.daily_limit_percent = patch.daily_limit_percent;
   if (patch.race_limit_percent !== undefined) next.settings.race_limit_percent = patch.race_limit_percent;
+  if (patch.daily_start_balance_yen !== undefined) {
+    if (patch.daily_start_balance_yen === null) {
+      delete next.settings.daily_start_balance_yen;
+    } else {
+      next.settings.daily_start_balance_yen = patch.daily_start_balance_yen;
+    }
+  }
   if (patch.use_current_balance !== undefined) next.settings.use_current_balance = patch.use_current_balance;
   if (patch.today_budget_override !== undefined) {
     if (patch.today_budget_override === null) {

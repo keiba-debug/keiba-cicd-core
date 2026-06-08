@@ -41,6 +41,7 @@ from ml.strategies.freebudget_scheduler import (  # noqa: E402
     save_state,
     load_state,
     read_per_race_cap,
+    read_day_budget,
     parse_now,
 )
 from ml.strategies.freebudget_race import load_post_times, race_timing  # noqa: E402
@@ -235,6 +236,21 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
     voted_yen = sum(v.get("amount", 0) for v in state["votes"].values()
                     if v.get("exit_code") == 0)
     notified_skips = state.setdefault("notified_skips", [])  # 見送り通知済 race_id (重複防止)
+    skip_reasons = state.setdefault("skips", {})  # 穴B: per-race スキップ理由を永続化 (web表示用)
+
+    # ★当日予算を朝に1回だけ凍結 (Session145 論点1)。 config「本日のスタート額」を最優先で
+    #   per_day上限 (= 最大損失) とし state["day_budget_yen"] に固定。 以降のパスは凍結値を
+    #   使うため、 午前の払戻で残高が増えても上限は動かない (最大損失=入金時点で確定)。
+    #   config 未設定なら従来の per_day_max_yen (CLI/既定) にフォールバック (後方互換)。
+    if "day_budget_yen" not in state:
+        cfg_budget, src = read_day_budget()
+        if cfg_budget > 0:
+            state["day_budget_yen"] = cfg_budget
+            state["day_budget_source"] = src
+        else:
+            state["day_budget_yen"] = int(per_day_max_yen)
+            state["day_budget_source"] = f"CLI/既定 {int(per_day_max_yen):,}円 (本日のスタート額 未設定)"
+    per_day_max_yen = int(state["day_budget_yen"])  # 以降は凍結値で統一
 
     races = predictions.get("races", []) or []
     pred_by_id = {str(r.get("race_id")): r for r in races if r.get("race_id")}
@@ -340,6 +356,15 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
                 if verbose:
                     print(f"  ⛔ {state['halt_reason']}", file=sys.stderr)
                 break
+
+    # 穴B: 今パスの per-race スキップ理由を state に永続化 (web で「なぜ買わなかったか」を表示)。
+    #   後で投票成立 (exit 0) したレースは理由を除去する。
+    for rid, reason in skipped:
+        if rid != "*":
+            skip_reasons[rid] = reason
+    for rid, v in state["votes"].items():
+        if v.get("exit_code") == 0:
+            skip_reasons.pop(rid, None)
 
     save_state(sp, state)
     if verbose:

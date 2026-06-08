@@ -32,6 +32,12 @@ export interface BankrollConfig {
     total_bankroll?: number;
     daily_limit_percent?: number;
     race_limit_percent?: number;
+    /**
+     * 本日のスタート額 (入金額) — Session145。 資金管理メニューで設定し原則この額を入金する。
+     * 入金額 = その日に賭ける総額の上限 = 最大負け額 (入金時点で確定)。 日次上限の最優先源。
+     * scheduler は当日初回パスで state.day_budget_yen に凍結して使う。
+     */
+    daily_start_balance_yen?: number;
     today_budget_override?: number;
     consecutive_loss_limit?: number;
     kelly_fraction?: number;
@@ -70,6 +76,7 @@ export interface ResolvedLimits {
     fromPercentDaily: number;
     limitMode: LimitMode;
     todayBudgetOverride: number | null;
+    dailyStartBalance: number | null;
   };
 }
 
@@ -161,10 +168,19 @@ export function resolveLimits(config: BankrollConfig, raceId?: string): Resolved
   const todayBudgetOverride = typeof settings.today_budget_override === 'number'
     ? settings.today_budget_override
     : null;
+  // 本日のスタート額 (入金額) は日次上限の最優先源 (Session145)。 設定>0 のときは
+  //   limit_mode/per_day_max_yen/today_budget_override より優先する (= 入金額が檻)。
+  const fromStartBalance = typeof settings.daily_start_balance_yen === 'number'
+    && settings.daily_start_balance_yen > 0
+    ? settings.daily_start_balance_yen
+    : null;
 
   let dailyLimit: number;
   let dailyLimitSource: 'absolute' | 'percent';
-  if (limitMode === 'absolute' && fromAbsoluteDaily !== null) {
+  if (fromStartBalance !== null) {
+    dailyLimit = fromStartBalance;
+    dailyLimitSource = 'absolute';
+  } else if (limitMode === 'absolute' && fromAbsoluteDaily !== null) {
     dailyLimit = fromAbsoluteDaily;
     dailyLimitSource = 'absolute';
   } else if (todayBudgetOverride !== null) {
@@ -192,6 +208,7 @@ export function resolveLimits(config: BankrollConfig, raceId?: string): Resolved
       fromPercentDaily,
       limitMode,
       todayBudgetOverride,
+      dailyStartBalance: fromStartBalance,
     },
   };
 }

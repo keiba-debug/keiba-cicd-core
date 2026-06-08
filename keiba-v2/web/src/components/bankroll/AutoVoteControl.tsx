@@ -285,7 +285,7 @@ export function AutoVoteControl() {
           </div>
         )}
 
-        {/* 当日投票額 vs 日次上限 */}
+        {/* 当日投票額 vs 日次上限 (= 本日のスタート額/入金額。 朝に凍結) */}
         <div>
           <div className="flex items-center justify-between text-sm mb-1">
             <span className="text-muted-foreground">本日の投票額 (成立分)</span>
@@ -298,7 +298,33 @@ export function AutoVoteControl() {
               ? Math.min(100, ((status?.voted_yen ?? 0) / status.per_day_max_yen) * 100)
               : 0}
           />
+          <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+            <span>
+              {status?.day_budget_source
+                ? `上限の根拠: ${status.day_budget_source}`
+                : '上限: 既定値 (本日のスタート額 未設定)'}
+            </span>
+            <span className="font-mono">
+              残 {yen(Math.max(0, (status?.per_day_max_yen ?? 0) - (status?.voted_yen ?? 0)))}
+            </span>
+          </div>
         </div>
+
+        {/* 見送り (per-race スキップ理由) — halted でなくても「なぜ買わなかったか」を出す (穴B) */}
+        {(status?.skips?.length ?? 0) > 0 && (
+          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm">
+            <div className="font-medium text-amber-700 dark:text-amber-400 flex items-center gap-1 mb-1">
+              <CircleSlash className="h-4 w-4" /> 見送り {status?.skips.length}件 (理由つき)
+            </div>
+            <div className="space-y-0.5">
+              {status!.skips.map((s) => (
+                <div key={s.race_id} className="text-xs text-amber-700/90 dark:text-amber-300/80 font-mono">
+                  {s.reason}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* funded artifact (買い目=金額確認の原本) */}
         <div className="rounded-md border p-3 text-sm bg-muted/30">

@@ -127,6 +127,9 @@ def _setup_inner(monkeypatch, tmp_path, *, rs_total=600, now_in_window=True,
                         lambda dd: {"races": [pr], "vb_refreshed_at": None})
     monkeypatch.setattr(sch, "load_post_times", lambda dd, date_str=None: {RID: "15:00"})
     monkeypatch.setattr(sch, "read_per_race_cap", lambda: 3000)
+    # 既定では config「本日のスタート額」未設定扱い → CLI per_day_max_yen にフォールバック。
+    #   実 config.json に依存させない (テスト隔離)。 凍結検証テストは個別に上書きする。
+    monkeypatch.setattr(sch, "read_day_budget", lambda: (0, ""))
     now = datetime(2026, 5, 31, 14, 55)
     if now_in_window:
         timing = {"deadline": now + timedelta(minutes=3), "vote_at": now - timedelta(minutes=1)}
@@ -226,3 +229,62 @@ def test_inner_fund0_skips(monkeypatch, tmp_path):
                               login_timeout=180, verbose=False)
     assert out["voted"] == []
     assert any("fund 対象なし" in r for _, r in out["skipped"])
+
+
+# --- Session145: 当日予算の残高ベース凍結 + スキップ理由永続化 ---
+
+def _setup_inner_capture(monkeypatch, tmp_path, **kw):
+    """_setup_inner と同じ配線だが、 load_state が返す state dict を呼び出し側へ渡す
+    (in-place 変異後の day_budget_yen / skips を検証できるように)。"""
+    now, per_day = _setup_inner(monkeypatch, tmp_path, **kw)
+    state = {"date": "2026-05-31", "mode": "dry-run", "halted": False,
+             "halt_reason": None, "consecutive_failures": 0, "votes": {}}
+    if kw.get("already_voted"):
+        state["votes"][RID] = {"exit_code": 0, "amount": kw.get("rs_total", 600)}
+    monkeypatch.setattr(sch, "load_state", lambda sp, ds, mode: state)
+    return now, per_day, state
+
+
+_COMMON = dict(bankroll=10000, strategy="concentrate", ev_floor=1.0,
+               sizing="anchor_kelly_combo_ev", login_timeout=180, verbose=False)
+
+
+def test_inner_freezes_day_budget_from_config(monkeypatch, tmp_path):
+    # config「本日のスタート額」があれば CLI --per-day-max-yen を無視して凍結する。
+    now, per_day, state = _setup_inner_capture(monkeypatch, tmp_path)
+    monkeypatch.setattr(sch, "read_day_budget", lambda: (50000, "本日のスタート額 50,000円"))
+    sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=False,
+                        per_day_max_yen=30000, **_COMMON)
+    assert state["day_budget_yen"] == 50000
+    assert "50,000" in state["day_budget_source"]
+
+
+def test_inner_day_budget_fallback_to_cli(monkeypatch, tmp_path):
+    # config 未設定なら従来の per_day_max_yen (CLI/既定) にフォールバック (後方互換)。
+    now, per_day, state = _setup_inner_capture(monkeypatch, tmp_path)
+    monkeypatch.setattr(sch, "read_day_budget", lambda: (0, ""))
+    sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=False,
+                        per_day_max_yen=12345, **_COMMON)
+    assert state["day_budget_yen"] == 12345
+
+
+def test_inner_day_budget_frozen_not_reread(monkeypatch, tmp_path):
+    # 既に凍結済みなら read_day_budget を再読しない (午前の払戻で増えても上限は不変)。
+    now, per_day, state = _setup_inner_capture(monkeypatch, tmp_path)
+    state["day_budget_yen"] = 7000
+    state["day_budget_source"] = "frozen earlier"
+    monkeypatch.setattr(sch, "read_day_budget", lambda: (99999, "ignored"))
+    sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=False,
+                        per_day_max_yen=30000, **_COMMON)
+    assert state["day_budget_yen"] == 7000
+
+
+def test_inner_skip_reason_persisted_to_state(monkeypatch, tmp_path):
+    # 穴B: per-race スキップ理由が state["skips"] に永続化される (halted=False でも残る)。
+    now, per_day, state = _setup_inner_capture(monkeypatch, tmp_path, rs_total=600)
+    monkeypatch.setattr(sch, "read_day_budget", lambda: (500, "tiny"))  # 600>500 → 日次キャップ
+    sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=False,
+                        per_day_max_yen=30000, **_COMMON)
+    assert state["halted"] is False
+    assert RID in state["skips"]
+    assert "日次キャップ" in state["skips"][RID]
