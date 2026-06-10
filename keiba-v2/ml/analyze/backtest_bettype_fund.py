@@ -98,19 +98,29 @@ def _place_odds(entry_map: dict, umaban: int) -> float:
 
 
 def leg_hit(bet_type: str, horses: List[int], finish: Dict[int, int]) -> bool:
+    """1 点 (leg) が的中したか。 finish = {umaban: 着順}。
+
+    ★着順ベースで判定 (馬番ソートでない)。 連系は top-k 集合 / 着順厳密一致。
+      top-k 集合は「着順<=k の馬番集合」で取り、 同着で k 頭に満たない/超える
+      レースは len チェックで弾く (不正中止)。
+    """
+    top2 = {u for u, fp in finish.items() if fp <= 2}
+    top3 = {u for u, fp in finish.items() if fp <= 3}
     if bet_type == "tansho":
         return finish.get(horses[0], 99) == 1
     if bet_type == "fukusho":
         return 1 <= finish.get(horses[0], 99) <= 3
     if bet_type == "umaren" and len(horses) >= 2:
-        top2 = sorted((u, finish.get(u, 99)) for u in finish)[:2]
-        top2_set = {u for u, _ in top2 if _ <= 2}
-        return set(horses[:2]) == top2_set and len(top2_set) == 2
+        return len(top2) == 2 and set(horses[:2]) == top2
     if bet_type == "wide" and len(horses) >= 2:
-        top3 = {u for u, fp in finish.items() if fp <= 3}
-        return horses[0] in top3 and horses[1] in top3
+        return horses[0] in top3 and horses[1] in top3 and horses[0] != horses[1]
     if bet_type == "umatan" and len(horses) >= 2:
         return finish.get(horses[0], 99) == 1 and finish.get(horses[1], 99) == 2
+    if bet_type == "sanrenpuku" and len(horses) >= 3:
+        return len(top3) == 3 and set(horses[:3]) == top3
+    if bet_type == "sanrentan" and len(horses) >= 3:
+        return (finish.get(horses[0], 99) == 1 and finish.get(horses[1], 99) == 2
+                and finish.get(horses[2], 99) == 3)
     return False
 
 
