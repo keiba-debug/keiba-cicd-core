@@ -40,12 +40,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ml.analyze.backtest_bettype_fund import (  # noqa: E402
     cache_race_to_pred, simulate_legs,
+)
+from ml.analyze.bankroll_core import (  # noqa: E402
+    DEFAULT_MC, DEFAULT_RUIN_FRAC, DEFAULT_TAIL_THRESHOLD, MIN_DAY_START,
+    compute_trajectory_stats,
 )
 from ml.strategies import bettype_efficiency as be  # noqa: E402
 from ml.strategies import bettype_selection as bs  # noqa: E402
@@ -57,10 +59,6 @@ DEFAULT_DAY_FRACTIONS = (0.05, 0.10, 0.20)
 DEFAULT_KELLY_FRACTION = 0.25
 DEFAULT_PER_RACE_CAP_PCT = 0.10   # 1レース上限 = 日次スタート額 × この割合 (30000→3000=現行 live 相当)
 DEFAULT_RULES = ("B", "C", "D")
-DEFAULT_TAIL_THRESHOLD = 0.50     # 日次でスタート額の 50%+ を溶かした日 = テール
-DEFAULT_RUIN_FRAC = 0.50          # 総資金が初期の 50% を割ったら「破産」
-DEFAULT_MC = 3000                 # 破産確率 Monte Carlo 試行数
-MIN_DAY_START = 1000              # スタート額の下限 (これ未満なら実質ベット不能)
 
 
 # ---------------------------------------------------------------------------
@@ -119,12 +117,14 @@ def _size_race(ctx: RaceCtx, *, sizing: str, bankroll: int, per_race_cap: int,
 def simulate_day(
     ctxs: List[RaceCtx], *, day_start: int, rule: str, sizing: str,
     kelly_fraction: float, per_race_cap_pct: float,
-    exclude_bet_types: Tuple[str, ...] = (),
+    exclude_bet_types: Tuple[str, ...] = (), w_total: float = 0.0,
 ) -> Tuple[int, int]:
     """1 開催日を時系列順に回す。 戻り: (day_cost, day_payout)。
 
     先着順 (race_id 昇順 = 時系列) で per_day=day_start を enforce (live 再現)。
     rule で Kelly bankroll / per_race_cap の決め方を変える。
+    w_total は bankroll_core の simulate_day_fn 契約用 (bettype は day_start ベースの
+    Kelly なので未使用)。
     """
     voted = 0
     payout_sum = 0
@@ -195,119 +195,6 @@ class SimResult:
     day_returns: List[float] = field(default_factory=list)  # rₜ = day_pnl/day_start
 
 
-def run_trajectory(
-    by_date: Dict[str, List[RaceCtx]], *, w0: int, day_fraction: float, rule: str,
-    sizing: str, kelly_fraction: float, per_race_cap_pct: float,
-    tail_threshold: float, exclude_bet_types: Tuple[str, ...] = (),
-) -> Tuple[List[float], List[float], float, float]:
-    """決定論的に時系列複利。 戻り: (equity_curve, day_returns, total_cost, total_payout)。"""
-    w = float(w0)
-    equity = [w]
-    day_returns: List[float] = []
-    total_cost = total_payout = 0.0
-    for date, ctxs in by_date.items():
-        day_start = int(w * day_fraction) // 100 * 100
-        if day_start < MIN_DAY_START:
-            equity.append(w)
-            day_returns.append(0.0)
-            continue
-        cost, payout = simulate_day(
-            ctxs, day_start=day_start, rule=rule, sizing=sizing,
-            kelly_fraction=kelly_fraction, per_race_cap_pct=per_race_cap_pct,
-            exclude_bet_types=exclude_bet_types)
-        pnl = payout - cost
-        w += pnl
-        total_cost += cost
-        total_payout += payout
-        # 日次リターン rₜ = PnL / スタート額 (bankroll 非依存・MC 用)
-        r = (pnl / day_start) if day_start > 0 else 0.0
-        day_returns.append(r)
-        equity.append(w)
-        if w <= 0:
-            # 破産 (理論上は frac<1 で 0 にならないが安全弁)
-            for _ in range(len(by_date) - len(equity) + 1):
-                equity.append(max(0.0, w))
-                day_returns.append(0.0)
-            break
-    return equity, day_returns, total_cost, total_payout
-
-
-def _max_dd(equity: List[float]) -> float:
-    """equity curve の最大ドローダウン (%・peak 比)。"""
-    peak = equity[0]
-    mdd = 0.0
-    for v in equity:
-        peak = max(peak, v)
-        if peak > 0:
-            mdd = max(mdd, (peak - v) / peak)
-    return mdd * 100.0
-
-
-def _sharpe(day_returns: List[float]) -> float:
-    arr = np.array([r for r in day_returns if r != 0.0], dtype=float)
-    if arr.size < 2:
-        return 0.0
-    sd = arr.std(ddof=1)
-    return float(arr.mean() / sd) if sd > 0 else 0.0
-
-
-def ruin_probability(
-    day_returns: List[float], *, w0: int, day_fraction: float, ruin_frac: float,
-    mc: int, seed: int = 12345,
-) -> float:
-    """日次リターン rₜ 列を MC シャッフルし、 複利で総資金が w0·ruin_frac を割る試行割合。
-
-    乗法的複利: W_{t+1} = W_t + (W_t·day_fraction)·rₜ = W_t·(1 + day_fraction·rₜ)。
-    rₜ は bankroll 非依存 (金額が day_start に線形) という近似に基づく
-    (100円丸め・per_race_cap 固定割合のため厳密ではない旨を docstring 明記)。
-    """
-    rs = np.array([r for r in day_returns], dtype=float)
-    rs = rs[rs != 0.0]
-    if rs.size == 0:
-        return 0.0
-    rng = np.random.default_rng(seed)
-    threshold = ruin_frac
-    ruined = 0
-    n_days = rs.size
-    for _ in range(mc):
-        order = rng.permutation(n_days)
-        mult = 1.0
-        hit = False
-        for idx in order:
-            mult *= (1.0 + day_fraction * rs[idx])
-            if mult <= threshold:
-                hit = True
-                break
-        if hit:
-            ruined += 1
-    return ruined / mc * 100.0
-
-
-def run_config(
-    by_date: Dict[str, List[RaceCtx]], *, w0: int, day_fraction: float, rule: str,
-    sizing: str, kelly_fraction: float, per_race_cap_pct: float,
-    tail_threshold: float, ruin_frac: float, mc: int,
-    exclude_bet_types: Tuple[str, ...] = (),
-) -> SimResult:
-    equity, day_returns, total_cost, total_payout = run_trajectory(
-        by_date, w0=w0, day_fraction=day_fraction, rule=rule, sizing=sizing,
-        kelly_fraction=kelly_fraction, per_race_cap_pct=per_race_cap_pct,
-        tail_threshold=tail_threshold, exclude_bet_types=exclude_bet_types)
-    final_w = equity[-1]
-    growth = (final_w / w0 - 1.0) * 100.0
-    bet_days = sum(1 for r in day_returns if r != 0.0)
-    tail_days = sum(1 for r in day_returns if r <= -tail_threshold)
-    tail_rate = (tail_days / bet_days * 100.0) if bet_days > 0 else 0.0
-    flat_roi = (total_payout / total_cost * 100.0) if total_cost > 0 else 0.0
-    ruin = ruin_probability(
-        day_returns, w0=w0, day_fraction=day_fraction, ruin_frac=ruin_frac, mc=mc)
-    return SimResult(
-        rule=rule, day_fraction=day_fraction, kelly_fraction=kelly_fraction, w0=w0,
-        final_w=final_w, growth_pct=growth, max_dd_pct=_max_dd(equity),
-        sharpe=_sharpe(day_returns), tail_day_rate=tail_rate, bet_days=bet_days,
-        flat_roi_pct=flat_roi, ruin_prob_pct=ruin, day_returns=day_returns)
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -370,12 +257,22 @@ def main() -> int:
     for kf in kelly_fractions:
         for df in day_fractions:
             for rule in rules:
-                results.append(run_config(
-                    by_date, w0=args.w0, day_fraction=df, rule=rule,
-                    sizing=args.sizing, kelly_fraction=kf,
-                    per_race_cap_pct=args.per_race_cap_pct,
+                stats = compute_trajectory_stats(
+                    by_date, w0=args.w0, day_fraction=df,
+                    simulate_day_fn=simulate_day,
+                    day_kwargs={"rule": rule, "sizing": args.sizing,
+                                "kelly_fraction": kf,
+                                "per_race_cap_pct": args.per_race_cap_pct,
+                                "exclude_bet_types": exclude},
                     tail_threshold=args.tail_threshold, ruin_frac=args.ruin_frac,
-                    mc=args.mc, exclude_bet_types=exclude))
+                    mc=args.mc)
+                results.append(SimResult(
+                    rule=rule, day_fraction=df, kelly_fraction=kf, w0=args.w0,
+                    final_w=stats.final_w, growth_pct=stats.growth_pct,
+                    max_dd_pct=stats.max_dd_pct, sharpe=stats.sharpe,
+                    tail_day_rate=stats.tail_day_rate, bet_days=stats.bet_days,
+                    flat_roi_pct=stats.flat_roi_pct,
+                    ruin_prob_pct=stats.ruin_prob_pct, day_returns=stats.day_returns))
 
     # 表示 (growth 降順)
     print(f"\n{'='*108}")
