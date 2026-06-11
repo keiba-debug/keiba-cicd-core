@@ -12,7 +12,7 @@ from ml.strategies.bet_templates import (
     expand_component, marks_from_ranking, get_template, TEMPLATES,
 )
 
-MARKS = {"◎": [1], "○": [2], "▲": [3], "☆": [4], "△": [5, 6]}
+MARKS = {"◎": [1], "○": [2], "▲": [3], "△": [4], "Ⅲ": [5]}
 
 
 def _bt(tickets):
@@ -40,21 +40,20 @@ def test_umatan_ordered_atama_fixed():
 
 
 def test_sanrenpuku_formation_dedup():
-    # 三連複 ◎-○▲-○▲△  (△=[5,6])
-    # ◎=1固定, col2={2,3}, col3={2,3,5,6} → 3頭全異・集合重複排除
+    # 三連複 ◎-○▲-○▲△  (△=[4] 単独・◎○▲△Ⅲ 語彙)
+    # ◎=1固定, col2={2,3}, col3={2,3,4} → 3頭全異・集合重複排除
     c = BetComponent("sanrenpuku", [["◎"], ["○", "▲"], ["○", "▲", "△"]])
     res = set(tk.horses for tk in expand_component(c, MARKS))
-    assert res == {(1, 2, 3), (1, 2, 5), (1, 2, 6), (1, 3, 5), (1, 3, 6)}
+    assert res == {(1, 2, 3), (1, 2, 4), (1, 3, 4)}
 
 
 def test_sanrentan_atama_fixed_ordered():
     # 三連単 ◎→○▲→○▲△ アタマ固定、順序保持、同一馬除外
     c = BetComponent("sanrentan", [["◎"], ["○", "▲"], ["○", "▲", "△"]])
     res = set(tk.horses for tk in expand_component(c, MARKS))
-    # 1→2→{3,5,6}, 1→3→{2,5,6}
-    assert res == {(1, 2, 3), (1, 2, 5), (1, 2, 6),
-                   (1, 3, 2), (1, 3, 5), (1, 3, 6)}
-    assert len(res) == 6
+    # 1→2→{3,4}, 1→3→{2,4}
+    assert res == {(1, 2, 3), (1, 2, 4), (1, 3, 2), (1, 3, 4)}
+    assert len(res) == 4
 
 
 def test_empty_when_mark_missing():
@@ -72,14 +71,17 @@ def test_no_same_horse_in_combo():
 
 
 def test_marks_from_ranking():
-    m = marks_from_ranking([7, 3, 9, 4, 1, 6], max_rest=None)
-    assert m["◎"] == [7] and m["○"] == [3] and m["▲"] == [9] and m["☆"] == [4]
-    assert m["△"] == [1, 6]
+    # 上位5頭に ◎○▲△Ⅲ を1頭ずつ (AI印 markSet=2 と同語彙)
+    m = marks_from_ranking([7, 3, 9, 4, 1, 6])
+    assert m["◎"] == [7] and m["○"] == [3] and m["▲"] == [9]
+    assert m["△"] == [4] and m["Ⅲ"] == [1]
 
 
-def test_marks_from_ranking_max_rest():
-    m = marks_from_ranking([7, 3, 9, 4, 1, 6, 8], max_rest=2)
-    assert m["△"] == [1, 6]  # 8 は切られる
+def test_marks_from_ranking_top5_only():
+    # 6位以降は無印 (印の付いた馬しか買わない)
+    m = marks_from_ranking([7, 3, 9, 4, 1, 6, 8])
+    assert set(m.keys()) == {"◎", "○", "▲", "△", "Ⅲ"}
+    assert 6 not in sum(m.values(), []) and 8 not in sum(m.values(), [])
 
 
 def test_template_honmei_hoken_points():

@@ -250,7 +250,7 @@ def run(races, *, template_names, max_rest, split_date):
         if re_ is None or not re_.strengths:
             continue
         ranking = [s.umaban for s in re_.strengths]  # composite 降順
-        marks = bt.marks_from_ranking(ranking, max_rest=max_rest)
+        marks = bt.marks_from_ranking(ranking)
         feats = race_features(re_)
         rpay = haraimodoshi.get(str(pred["race_id"]), {})
         for name in template_names:

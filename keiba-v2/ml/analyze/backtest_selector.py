@@ -30,6 +30,7 @@ from typing import Callable, Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from ml.ai_marks.assign import CLIFF_RATIO, MARK_LADDER  # noqa: E402
 from ml.analyze.backtest_bettype_fund import cache_race_to_pred  # noqa: E402
 from ml.analyze.backtest_bet_templates import (  # noqa: E402
     load_haraimodoshi, ticket_payout,
@@ -40,8 +41,40 @@ from ml.utils.backtest_cache import load_backtest_cache  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# 崖 = レース自信度 (Session 148 / F5)
+# AI印 Step2 (assign.py) と同じ「複勝率(P)の崖」検出で勝負圏の頭数を出す。
+# 1=◎抜け(画面の印は◎単独) / 2=2強 / ... / 5=崖なし(団子)。
+# ---------------------------------------------------------------------------
+
+def cliff_n_marks(strengths, ratio: float = CLIFF_RATIO) -> int:
+    """composite 降順 strengths の pred_p 比 (prev/cur >= ratio) で勝負圏頭数。
+
+    ratio=CLIFF_RATIO(2.5) は assign.py Step2 と同条件 (None は median 補完、
+    cap = min(5, n-1))。 ただし 2.5 の崖は希少 (崖1 ≈ 1% / Session 148 実測) で
+    セレクタ条件には痩せすぎ → ratio を下げた「ソフト崖」を条件用に使う
+    (1.5: 崖1≈19% / 1.8: 崖1≈6.6%)。
+    """
+    from statistics import median
+    ps = [s.pred_p for s in strengths]
+    valid = [p for p in ps if p is not None]
+    if not valid:
+        return len(MARK_LADDER)
+    p_med = median(valid)
+    ps = [p if p is not None else p_med for p in ps]
+    n = len(ps)
+    cap = min(len(MARK_LADDER), max(1, n - 1))
+    n_marks = 1
+    for i in range(1, cap):
+        prev_p, cur_p = ps[i - 1], ps[i]
+        if cur_p <= 0 or prev_p / cur_p >= ratio:
+            break
+        n_marks += 1
+    return n_marks
+
+
+# ---------------------------------------------------------------------------
 # 勝負レース条件 (データ駆動・race record -> bool)
-# record: {fav_odds, axis_ev, n, top2, rid, date}
+# record: {fav_odds, axis_ev, n, top2, cliff, rid, date}
 # ---------------------------------------------------------------------------
 
 CONDITIONS: Dict[str, Callable[[dict], bool]] = {
@@ -52,6 +85,15 @@ CONDITIONS: Dict[str, Callable[[dict], bool]] = {
     "荒れ & 多頭16+": lambda r: r["fav_odds"] >= 4.0 and r["n"] >= 16,
     "軸強 & 中頭数": lambda r: r["axis_ev"] >= 1.1 and r["n"] <= 15,
     "堅い2強": lambda r: r["top2"] >= 0.50,
+    # --- 崖 = AI印の勝負圏頭数 (Session 148 / F5) ---
+    #   本物の崖 (2.5) は崖1≈1%で痩せすぎ → ソフト崖 (P比 1.5/1.8) で層別。
+    "ソフト崖1.5=1 ◎断層": lambda r: r["cliff15"] == 1,
+    "ソフト崖1.5<=2 (2強迄)": lambda r: r["cliff15"] <= 2,
+    "ソフト崖1.8=1 ◎強断層": lambda r: r["cliff18"] == 1,
+    "ソフト団子 (1.5で崖無)": lambda r: r["cliff15"] >= 5,
+    "崖1.5=1 & 軸強EV>=1.1": lambda r: r["cliff15"] == 1 and r["axis_ev"] >= 1.1,
+    "崖1.5=1 & 1人気>=3": lambda r: r["cliff15"] == 1 and r["fav_odds"] >= 3.0,
+    "崖2.5<=2 (本物の崖)": lambda r: r["cliff"] <= 2,
 }
 
 
@@ -76,7 +118,7 @@ def build_records(races, *, template_names, max_rest, haraimodoshi) -> List[dict
         fav_odds = min((x.odds for x in s if x.odds and x.odds > 0), default=0.0)
         axis_ev = (axis.win_prob * axis.odds) if (axis and axis.odds) else 0.0
         top2 = (s[0].win_prob + s[1].win_prob) if n >= 2 else axis.win_prob
-        marks = bt.marks_from_ranking([x.umaban for x in s], max_rest=max_rest)
+        marks = bt.marks_from_ranking([x.umaban for x in s])
         rid = str(pred["race_id"])
         rpay = haraimodoshi.get(rid, {})
         tpl_cp: Dict[str, Tuple[float, float]] = {}
@@ -87,7 +129,9 @@ def build_records(races, *, template_names, max_rest, haraimodoshi) -> List[dict
             tpl_cp[name] = (cost, payout)
         recs.append({
             "rid": rid, "date": rid[:8], "n": n, "fav_odds": fav_odds,
-            "axis_ev": axis_ev, "top2": top2, "tpl": tpl_cp,
+            "axis_ev": axis_ev, "top2": top2, "cliff": cliff_n_marks(s),
+            "cliff15": cliff_n_marks(s, 1.5), "cliff18": cliff_n_marks(s, 1.8),
+            "tpl": tpl_cp,
         })
     return recs
 

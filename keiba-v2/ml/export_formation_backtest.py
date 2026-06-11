@@ -16,6 +16,7 @@ Usage:
 
 import glob
 import json
+import statistics
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -28,8 +29,74 @@ if sys.stdout.encoding != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from ml.ai_marks.assign import assign_ai_marks
 from ml.simulate_sanrentan_ev import load_sanrentan_payouts
+from ml.strategies import bet_templates as bt
+from ml.strategies.role_split import detect_no_head
 from ml.utils.filters import is_obstacle
+
+# ===========================================================================
+# AI印テンプレ系 strategies (Session 148 — 役割分化の検証場)
+#   VB系 (妙味馬頭) と別系統: AI印 (assign_ai_marks step2) の ◎○▲ を使う本命系。
+#   AI_BOX3 vs AI_BOX3_RS の対決が「○の頭はない」(捨て馬券) の効果測定。
+# ===========================================================================
+
+AI_TO_TEMPLATE_MARK = {"◎": "◎", "○": "○", "▲": "▲", "△": "△", "Ⅲ": "Ⅲ", "穴": "Ⅲ"}
+
+AI_STRATEGIES = {
+    "AI_BOX3": {
+        "label": "AI印 ◎○▲BOX (基準)",
+        "tier": "ai",
+        "type": "ai_template",
+        "columns": [["◎", "○", "▲"]] * 3,
+    },
+    "AI_BOX3_RS": {
+        "label": "AI印 BOX+役割分化 (P型の頭捨て)",
+        "tier": "ai",
+        "type": "ai_template",
+        "columns": [["◎", "○", "▲"]] * 3,
+        "role_split": True,
+    },
+    "AI_HONMEI_FIX": {
+        "label": "AI印 ◎頭固定 (◎→○▲△→○▲△Ⅲ)",
+        "tier": "ai",
+        "type": "ai_template",
+        "columns": [["◎"], ["○", "▲", "△"], ["○", "▲", "△", "Ⅲ"]],
+    },
+}
+
+
+def build_ai_template_tickets(race: dict, strat: dict) -> Set[Tuple[int, ...]]:
+    """AI印 (step2 = 複勝率の崖カット) ベースの三連単買い目。
+
+    role_split=True なら W/P 乖離 (role_split.detect_no_head) で P型と判定した
+    頭候補を 1 列目から外す (S148 捨て馬券の機械化)。
+    """
+    entries = race.get("entries", [])
+    res = assign_ai_marks(entries, step=2)
+    if res.skipped:
+        return set()
+    marks: Dict[str, List[int]] = {}
+    for uma, sym in res.marks.items():
+        t = AI_TO_TEMPLATE_MARK.get(sym)
+        if t:
+            marks.setdefault(t, []).append(int(uma))
+    need = strat.get("need_marks", ("◎", "○", "▲"))
+    if not all(marks.get(m) for m in need):
+        return set()
+    no_head: List[int] = []
+    if strat.get("role_split"):
+        by_uma = {int(e["umaban"]): e for e in entries if e.get("umaban") is not None}
+        heads = []
+        for m in ("◎", "○", "▲"):
+            if marks.get(m) and marks[m][0] in by_uma:
+                e = by_uma[marks[m][0]]
+                heads.append((marks[m][0], e.get("pred_proba_w_cal"), e.get("pred_proba_p")))
+        if len(heads) >= 2:
+            no_head = detect_no_head(heads)
+    comp = bt.BetComponent("sanrentan", strat["columns"])
+    return {tk.horses for tk in bt.expand_component(comp, marks, no_head=no_head)}
+
 
 # ===========================================================================
 # Extended strategies (base + combined filters)
@@ -247,7 +314,8 @@ def run_backtest(races: List[dict], payouts: dict) -> dict:
     """全戦略のバックテスト実行 → JSON出力用辞書を返す"""
     strategies_out = []
 
-    for strat_key, strat in EXTENDED_STRATEGIES.items():
+    all_strategies = {**AI_STRATEGIES, **EXTENDED_STRATEGIES}
+    for strat_key, strat in all_strategies.items():
         fired = 0
         inv = 0
         ret = 0
@@ -255,7 +323,8 @@ def run_backtest(races: List[dict], payouts: dict) -> dict:
         hit_details = []
         monthly = defaultdict(lambda: {"races": 0, "inv": 0, "ret": 0, "hits": 0})
 
-        cfg = strat["cfg"]
+        is_ai = strat.get("type") == "ai_template"
+        cfg = strat.get("cfg", {})
         rf = strat.get("race_filter", {})
         ext = strat.get("ext_filter", {})
         min_vb = strat.get("min_vb", 0)
@@ -274,24 +343,31 @@ def run_backtest(races: List[dict], payouts: dict) -> dict:
                 continue
             if analysis["n_runners"] < 8:
                 continue
-            if not check_race_filter(analysis, rf):
-                continue
-            if not check_ext_filter(analysis, race_id, ext):
-                continue
 
-            # VB候補数チェック
-            min_ev = cfg.get("min_win_ev", 1.5)
-            min_odds = cfg.get("min_odds", 10.0)
-            vb_count = sum(
-                1 for h in analysis["horses"]
-                if h["win_ev"] >= min_ev and h["odds"] >= min_odds
-            )
-            if vb_count < min_vb:
-                continue
+            if is_ai:
+                # AI印テンプレ系 (S148): フィルタは AI印自体 (崖カット/印3頭) が担う
+                tickets = build_ai_template_tickets(race, strat)
+                if not tickets:
+                    continue
+            else:
+                if not check_race_filter(analysis, rf):
+                    continue
+                if not check_ext_filter(analysis, race_id, ext):
+                    continue
 
-            tickets = build_vb_head_tickets(analysis, cfg)
-            if not tickets:
-                continue
+                # VB候補数チェック
+                min_ev = cfg.get("min_win_ev", 1.5)
+                min_odds = cfg.get("min_odds", 10.0)
+                vb_count = sum(
+                    1 for h in analysis["horses"]
+                    if h["win_ev"] >= min_ev and h["odds"] >= min_odds
+                )
+                if vb_count < min_vb:
+                    continue
+
+                tickets = build_vb_head_tickets(analysis, cfg)
+                if not tickets:
+                    continue
 
             fired += 1
             race_inv = len(tickets) * 100
@@ -330,10 +406,18 @@ def run_backtest(races: List[dict], payouts: dict) -> dict:
 
         n_months = max(len(monthly), 1)
 
+        # 月別中央値 (S148: 万馬券1本の上振れを排除する主軸・買い方ラボと統一)
+        roi_vals = [monthly[m]["ret"] / monthly[m]["inv"] * 100
+                    for m in months_sorted if monthly[m]["inv"] > 0]
+        median_roi = statistics.median(roi_vals) if roi_vals else 0.0
+        plus_m = sum(1 for v in roi_vals if v >= 100)
+
         strategies_out.append({
             "key": strat_key,
             "label": strat["label"],
             "tier": strat["tier"],
+            "median_roi": round(median_roi, 1),
+            "plus_months": f"{plus_m}/{len(roi_vals)}",
             "fired_races": fired,
             "total_hits": hits,
             "total_invested": inv,
@@ -386,7 +470,7 @@ def main():
     print("  Formation Backtest → JSON Export (predictions.json based)")
     print("=" * 80)
 
-    races = load_predictions_races(start_date="2025-03", end_date="2026-03")
+    races = load_predictions_races(start_date="2025-03", end_date="2026-12")
     race_ids = [r["race_id"] for r in races]
     payouts = load_sanrentan_payouts(race_ids)
     print(f"  Predictions: {len(races)} races, Payouts: {len(payouts)}")

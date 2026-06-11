@@ -27,6 +27,8 @@ interface Strategy {
   key: string;
   label: string;
   tier: string;
+  median_roi?: number;      // 月別ROIの中央値 (S148 — 万馬券上振れを排除する主軸)
+  plus_months?: string;     // ROI>=100% の月数 "7/11"
   fired_races: number;
   total_hits: number;
   total_invested: number;
@@ -89,6 +91,7 @@ const TIER_COLORS: Record<string, string> = {
   recommended: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
   base: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
   aggressive: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+  ai: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
 };
 
 const TIER_LABELS: Record<string, string> = {
@@ -96,6 +99,7 @@ const TIER_LABELS: Record<string, string> = {
   recommended: 'A',
   base: 'Base',
   aggressive: 'B',
+  ai: 'AI印',
 };
 
 function StrategyTable({ strategies, onSelect, selected }: {
@@ -113,6 +117,8 @@ function StrategyTable({ strategies, onSelect, selected }: {
             <th className="px-3 py-2 font-medium text-right">Fire</th>
             <th className="px-3 py-2 font-medium text-right">Hits</th>
             <th className="px-3 py-2 font-medium text-right">ROI</th>
+            <th className="px-3 py-2 font-medium text-right">月中央値</th>
+            <th className="px-3 py-2 font-medium text-right">+月</th>
             <th className="px-3 py-2 font-medium text-right">Top1除外</th>
             <th className="px-3 py-2 font-medium text-right">前半</th>
             <th className="px-3 py-2 font-medium text-right">後半</th>
@@ -146,6 +152,13 @@ function StrategyTable({ strategies, onSelect, selected }: {
               <td className={cn('px-3 py-2 text-right tabular-nums font-bold',
                 s.roi >= 200 ? 'text-emerald-600' : s.roi >= 100 ? 'text-blue-600' : 'text-red-500')}>
                 {s.roi.toFixed(1)}%
+              </td>
+              <td className={cn('px-3 py-2 text-right tabular-nums font-semibold',
+                (s.median_roi ?? 0) >= 100 ? 'text-emerald-600' : 'text-red-500')}>
+                {s.median_roi != null ? `${s.median_roi.toFixed(0)}%${s.median_roi >= 100 ? '★' : ''}` : '—'}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                {s.plus_months ?? '—'}
               </td>
               <td className={cn('px-3 py-2 text-right tabular-nums',
                 s.roi_ex_top1 >= 100 ? 'text-emerald-600' : 'text-red-500')}>

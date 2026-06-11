@@ -64,6 +64,10 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--cache-path", default=None)
     p.add_argument("--max-rest", type=int, default=4)
+    p.add_argument("--conditions", default=None,
+                   help="カンマ区切りの条件名 (既定=FOCUS_CONDITIONS)")
+    p.add_argument("--templates", default=None,
+                   help="カンマ区切りのテンプレ名 (既定=FOCUS_TEMPLATES)")
     return p.parse_args()
 
 
@@ -86,14 +90,18 @@ def main() -> int:
     months = sorted({r["date"][:6] for r in recs})
     print(f"  records={len(recs)}  months={len(months)} ({months[0]}~{months[-1]})\n")
 
-    for cond_name in FOCUS_CONDITIONS:
+    focus_conds = ([x.strip() for x in args.conditions.split(",")] if args.conditions
+                   else FOCUS_CONDITIONS)
+    focus_tpls = ([x.strip() for x in args.templates.split(",")] if args.templates
+                  else FOCUS_TEMPLATES)
+    for cond_name in focus_conds:
         cond = CONDITIONS[cond_name]
         print(f"{'='*112}")
         print(f"  ◆ 条件: {cond_name}")
         print(f"  {'template':<18}" + "".join(f"{m[2:]:>6}" for m in months)
               + f"{'│+月':>6}{'中央値':>7}{'平均':>6}{'月fire':>7}")
         print(f"  {'-'*108}")
-        for tpl in FOCUS_TEMPLATES:
+        for tpl in focus_tpls:
             series = monthly_roi(recs, cond=cond, template=tpl, months=months)
             roi_vals = [roi for _, roi, _ in series if roi is not None]
             fires = [f for _, _, f in series]
