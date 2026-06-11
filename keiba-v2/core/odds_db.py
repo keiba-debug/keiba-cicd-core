@@ -43,6 +43,17 @@ def parse_odds_value(raw: str, digits: int = 1) -> Optional[float]:
         return None
 
 
+def _parse_ninki(raw) -> Optional[int]:
+    """NINKI(人気)文字列を安全に int へ。 '**'(エラー)/'----'(取消)/空 は None。
+
+    JRA-VAN は未確定/エラー時 NINKI に '**' を入れることがあり、 素朴な int() は落ちる。
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return int(s) if s.isdigit() else None
+
+
 # === 確定オッズ ===
 
 def get_final_win_odds(race_code: str) -> Dict[int, dict]:
@@ -59,7 +70,7 @@ def get_final_win_odds(race_code: str) -> Dict[int, dict]:
     for r in rows:
         umaban = int(r['UMABAN'])
         odds = parse_odds_value(r['ODDS'])
-        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        ninki = _parse_ninki(r['NINKI'])
         if odds is not None:
             result[umaban] = {'odds': odds, 'ninki': ninki}
     return result
@@ -80,7 +91,7 @@ def get_final_place_odds(race_code: str) -> Dict[int, dict]:
         umaban = int(r['UMABAN'])
         low = parse_odds_value(r.get('ODDS_SAITEI', ''))
         high = parse_odds_value(r.get('ODDS_SAIKOU', ''))
-        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        ninki = _parse_ninki(r['NINKI'])
         if low is not None:
             result[umaban] = {'odds_low': low, 'odds_high': high, 'ninki': ninki}
     return result
@@ -109,7 +120,7 @@ def get_timeseries_win_odds(race_code: str) -> List[dict]:
                 'time': r['HAPPYO_TSUKIHI_JIFUN'],
                 'umaban': int(r['UMABAN']),
                 'odds': odds,
-                'ninki': int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None,
+                'ninki': _parse_ninki(r['NINKI']),
             })
     return result
 
@@ -144,13 +155,154 @@ def get_latest_pre_race_win_odds(race_code: str) -> Dict[int, dict]:
     for r in rows:
         umaban = int(r['UMABAN'])
         odds = parse_odds_value(r['ODDS'])
-        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        ninki = _parse_ninki(r['NINKI'])
         if odds is not None:
             result[umaban] = {
                 'odds': odds,
                 'ninki': ninki,
                 'snapshot_time': latest_time,
             }
+    return result
+
+
+def _hhmi_minus(hhmi: str, minutes: int) -> str:
+    """'HHMI'(4桁) から minutes 分引いた 'HHMI'。 負側のみ24h戻し(日跨ぎはレア)。"""
+    try:
+        h, m = int(hhmi[:2]), int(hhmi[2:])
+    except (ValueError, TypeError, IndexError):
+        return hhmi
+    total = (h * 60 + m - minutes) % (24 * 60)
+    return f"{total // 60:02d}{total % 60:02d}"
+
+
+def get_win_odds_at_cutoff(race_code: str, minutes_before: int = 5) -> Dict[int, dict]:
+    """発走 minutes_before 分前(以前) の最後の時系列単勝オッズ。
+
+    = 投票締切時点で実際に見えるオッズ = 後知恵でない直前オッズ。
+    時系列の単純な最終スナップショットは「発走後に配信される確定オッズ」を含む
+    (実測: 発走14:30 のレースに 14:43 のスナップショットがある) ため、 HASSO_JIKOKU を
+    基準にカットオフして発走後データを除外する。 較正/EV検証/実運用で同一時点を使うのが肝。
+
+    フォールバック: 発走時刻欠損 → 確定オッズ(source=final_fallback)。
+                    カットオフ以前のtsが無い → 最終pre(source=latest_pre_fallback)。
+    Returns: {umaban: {'odds', 'ninki', 'snapshot_time', 'source'}}
+    """
+    rs = query("SELECT HASSO_JIKOKU FROM race_shosai WHERE RACE_CODE = %s", (race_code,))
+    hasso = str(rs[0]["HASSO_JIKOKU"]).strip() if rs and rs[0].get("HASSO_JIKOKU") else ""
+    if not (hasso.isdigit() and len(hasso) == 4):
+        return {u: {**v, 'source': 'final_fallback'}
+                for u, v in get_final_win_odds(race_code).items()}
+    cutoff = race_code[4:8] + _hhmi_minus(hasso, minutes_before)
+    mt = query(
+        "SELECT MAX(HAPPYO_TSUKIHI_JIFUN) m FROM odds1_tansho_jikeiretsu "
+        "WHERE RACE_CODE = %s AND HAPPYO_TSUKIHI_JIFUN <= %s", (race_code, cutoff))
+    if not mt or not mt[0].get("m"):
+        return {u: {**v, 'source': 'latest_pre_fallback'}
+                for u, v in get_latest_pre_race_win_odds(race_code).items()}
+    snap = mt[0]["m"]
+    result = {}
+    rows = query(
+        "SELECT UMABAN, ODDS, NINKI FROM odds1_tansho_jikeiretsu "
+        "WHERE RACE_CODE = %s AND HAPPYO_TSUKIHI_JIFUN = %s", (race_code, snap))
+    for r in rows:
+        odds = parse_odds_value(r['ODDS'])
+        if odds is not None:
+            result[int(r['UMABAN'])] = {
+                'odds': odds, 'ninki': _parse_ninki(r['NINKI']),
+                'snapshot_time': snap, 'source': 'cutoff',
+            }
+    return result
+
+
+def get_place_odds_at_cutoff(race_code: str, minutes_before: int = 5) -> Dict[int, dict]:
+    """発走 minutes_before 分前(以前) の最後の時系列複勝オッズ (low/high)。
+
+    get_win_odds_at_cutoff の複勝版。 複勝EV(=補正P×複勝最低オッズ) の検証で使う。
+    Returns: {umaban: {'odds_low', 'odds_high', 'ninki', 'snapshot_time', 'source'}}
+    """
+    rs = query("SELECT HASSO_JIKOKU FROM race_shosai WHERE RACE_CODE = %s", (race_code,))
+    hasso = str(rs[0]["HASSO_JIKOKU"]).strip() if rs and rs[0].get("HASSO_JIKOKU") else ""
+    if not (hasso.isdigit() and len(hasso) == 4):
+        return {u: {**v, 'source': 'final_fallback'}
+                for u, v in get_final_place_odds(race_code).items()}
+    cutoff = race_code[4:8] + _hhmi_minus(hasso, minutes_before)
+    mt = query(
+        "SELECT MAX(HAPPYO_TSUKIHI_JIFUN) m FROM odds1_fukusho_jikeiretsu "
+        "WHERE RACE_CODE = %s AND HAPPYO_TSUKIHI_JIFUN <= %s", (race_code, cutoff))
+    if not mt or not mt[0].get("m"):
+        return {}
+    snap = mt[0]["m"]
+    result = {}
+    rows = query(
+        "SELECT UMABAN, ODDS_SAITEI, ODDS_SAIKOU, NINKI FROM odds1_fukusho_jikeiretsu "
+        "WHERE RACE_CODE = %s AND HAPPYO_TSUKIHI_JIFUN = %s", (race_code, snap))
+    for r in rows:
+        low = parse_odds_value(r.get('ODDS_SAITEI', ''))
+        high = parse_odds_value(r.get('ODDS_SAIKOU', ''))
+        if low is not None:
+            result[int(r['UMABAN'])] = {
+                'odds_low': low, 'odds_high': high, 'ninki': _parse_ninki(r['NINKI']),
+                'snapshot_time': snap, 'source': 'cutoff',
+            }
+    return result
+
+
+def batch_get_win_odds_at_cutoff(
+    race_codes: List[str],
+    minutes_before: int = 5,
+) -> Dict[str, Dict[int, dict]]:
+    """複数レースの「発走 minutes_before 分前(以前)」単勝オッズを一括取得 (較正fit/診断用)。
+
+    get_win_odds_at_cutoff のバッチ版。 HASSO を一括取得して race 別カットオフを決め、
+    各レースで cutoff 以前の最終スナップショットを引く。 HASSO 欠損 race は確定オッズに
+    フォールバック。 1 接続で race ごとにサブクエリ実行 (時系列全行 fetch は重いため回避)。
+
+    Returns: {race_code: {umaban: {'odds', 'ninki', 'snapshot_time', 'source'}}}
+    """
+    from core.db import get_connection
+
+    if not race_codes:
+        return {}
+
+    # 1) HASSO_JIKOKU を一括取得 → race 別カットオフ文字列(MMDDHHMI)
+    cutoffs: Dict[str, str] = {}
+    bs = 500
+    for i in range(0, len(race_codes), bs):
+        b = race_codes[i:i + bs]
+        ph = ",".join(["%s"] * len(b))
+        for r in query(f"SELECT RACE_CODE, HASSO_JIKOKU FROM race_shosai WHERE RACE_CODE IN ({ph})",
+                       tuple(b)):
+            h = str(r["HASSO_JIKOKU"] or "").strip()
+            if h.isdigit() and len(h) == 4:
+                rc = r["RACE_CODE"]
+                cutoffs[rc] = rc[4:8] + _hhmi_minus(h, minutes_before)
+
+    # 2) race ごとに cutoff 以前の最終スナップショットを引く
+    result: Dict[str, Dict[int, dict]] = {}
+    with get_connection() as conn:
+        cur = conn.cursor(dictionary=True)
+        for rc in race_codes:
+            co = cutoffs.get(rc)
+            if co is None:
+                cur.execute(
+                    "SELECT UMABAN, ODDS, NINKI, NULL AS HAPPYO_TSUKIHI_JIFUN "
+                    "FROM odds1_tansho WHERE RACE_CODE = %s", (rc,))
+                src = "final_fallback"
+            else:
+                cur.execute(
+                    "SELECT UMABAN, ODDS, NINKI, HAPPYO_TSUKIHI_JIFUN FROM odds1_tansho_jikeiretsu "
+                    "WHERE RACE_CODE = %s AND HAPPYO_TSUKIHI_JIFUN = ("
+                    "  SELECT MAX(HAPPYO_TSUKIHI_JIFUN) FROM odds1_tansho_jikeiretsu "
+                    "  WHERE RACE_CODE = %s AND HAPPYO_TSUKIHI_JIFUN <= %s)", (rc, rc, co))
+                src = "cutoff"
+            for r in cur.fetchall():
+                odds = parse_odds_value(r["ODDS"])
+                if odds is not None:
+                    result.setdefault(rc, {})[int(r["UMABAN"])] = {
+                        'odds': odds, 'ninki': _parse_ninki(r["NINKI"]),
+                        'snapshot_time': r.get("HAPPYO_TSUKIHI_JIFUN"), 'source': src,
+                    }
+        cur.close()
     return result
 
 
@@ -179,7 +331,7 @@ def get_final_quinella_odds(race_code: str) -> Dict[str, dict]:
     result = {}
     for r in rows:
         odds = parse_odds_value(r['ODDS'])
-        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        ninki = _parse_ninki(r['NINKI'])
         if odds is not None:
             result[r['KUMIBAN']] = {'odds': odds, 'ninki': ninki}
     return result
@@ -202,7 +354,7 @@ def get_final_wide_odds(race_code: str) -> Dict[str, dict]:
     for r in rows:
         low = parse_odds_value(r.get('ODDS_SAITEI', ''))
         high = parse_odds_value(r.get('ODDS_SAIKOU', ''))
-        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        ninki = _parse_ninki(r['NINKI'])
         if low is not None:
             result[r['KUMIBAN']] = {'odds_low': low, 'odds_high': high, 'ninki': ninki}
     return result
@@ -224,7 +376,7 @@ def get_final_exacta_odds(race_code: str) -> Dict[str, dict]:
     result = {}
     for r in rows:
         odds = parse_odds_value(r['ODDS'])
-        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        ninki = _parse_ninki(r['NINKI'])
         if odds is not None:
             result[r['KUMIBAN']] = {'odds': odds, 'ninki': ninki}
     return result
@@ -246,7 +398,7 @@ def get_final_trio_odds(race_code: str) -> Dict[str, dict]:
     result = {}
     for r in rows:
         odds = parse_odds_value(r['ODDS'])
-        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        ninki = _parse_ninki(r['NINKI'])
         if odds is not None:
             result[r['KUMIBAN']] = {'odds': odds, 'ninki': ninki}
     return result
@@ -268,7 +420,7 @@ def get_final_trifecta_odds(race_code: str) -> Dict[str, dict]:
     result = {}
     for r in rows:
         odds = parse_odds_value(r['ODDS'])
-        ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+        ninki = _parse_ninki(r['NINKI'])
         if odds is not None:
             result[r['KUMIBAN']] = {'odds': odds, 'ninki': ninki}
     return result
@@ -377,7 +529,7 @@ def batch_get_pre_race_odds(
                     result[rc] = {}
                 umaban = int(r['UMABAN'])
                 odds = parse_odds_value(r['ODDS'])
-                ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+                ninki = _parse_ninki(r['NINKI'])
                 if odds is not None:
                     result[rc][umaban] = {'odds': odds, 'ninki': ninki, 'source': 'timeseries'}
 
@@ -398,7 +550,7 @@ def batch_get_pre_race_odds(
                         result[rc] = {}
                     umaban = int(r['UMABAN'])
                     odds = parse_odds_value(r['ODDS'])
-                    ninki = int(r['NINKI']) if r['NINKI'] and r['NINKI'].strip() else None
+                    ninki = _parse_ninki(r['NINKI'])
                     if odds is not None:
                         result[rc][umaban] = {'odds': odds, 'ninki': ninki, 'source': 'final'}
 

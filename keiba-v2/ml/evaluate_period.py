@@ -75,7 +75,8 @@ def calc_top1_roi_bootstrap(
     }
 
 
-def evaluate_model(version: str, test_years: str, sire_cutoff: str = None) -> dict:
+def evaluate_model(version: str, test_years: str, sire_cutoff: str = None,
+                   dump_path: str = None) -> dict:
     test_min, test_min_m, test_max, test_max_m = parse_period_range(test_years)
 
     bundle = load_model("polaris", version=None if version == "live" else version)
@@ -134,6 +135,16 @@ def evaluate_model(version: str, test_years: str, sire_cutoff: str = None) -> di
     df_test["pred_rank_w"] = df_test.groupby("race_id")["pred_proba_w"].rank(
         ascending=False, method="min")
 
+    # Session 150: オッズ条件付き較正(cal_p_oc)の学習用に raw+結果+オッズを保存。
+    # 別工程で直前オッズ(T-5)を join して OddsConditionedCalibrator を fit/eval する。
+    if dump_path:
+        df_test["pred_proba_p_raw"] = pred_p_raw
+        keep = ["race_id", "umaban", "odds", "finish_position", "is_top3", "is_win",
+                "pred_proba_p_raw", "pred_proba_p", "place_odds_low"]
+        keep = [c for c in keep if c in df_test.columns]
+        df_test[keep].to_pickle(dump_path)
+        print(f"  [dump] dataset → {dump_path}  ({len(df_test):,} rows, cols={keep})")
+
     from sklearn.metrics import roc_auc_score
     p_auc = roc_auc_score(df_test["is_top3"], pred_p)
     w_auc = roc_auc_score(df_test["is_win"], pred_w)
@@ -176,9 +187,12 @@ def main():
     ap.add_argument("--test-years", required=True, help="評価期間 (例: 2025.07-2026.05)")
     ap.add_argument("--sire-cutoff", default=None, help="血統統計カットオフ YYYY-MM-DD")
     ap.add_argument("--output", default=None, help="結果 JSON 出力パス")
+    ap.add_argument("--dump-dataset", default=None,
+                    help="raw+結果+オッズを pickle 保存 (cal_p_oc 学習用)")
     args = ap.parse_args()
 
-    result = evaluate_model(args.version, args.test_years, args.sire_cutoff)
+    result = evaluate_model(args.version, args.test_years, args.sire_cutoff,
+                            dump_path=args.dump_dataset)
     if args.output:
         out = Path(args.output)
         out.parent.mkdir(parents=True, exist_ok=True)
