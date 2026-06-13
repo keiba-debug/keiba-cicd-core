@@ -285,28 +285,35 @@ export function AutoVoteControl() {
           </div>
         )}
 
-        {/* 当日投票額 vs 日次上限 (= 本日のスタート額/入金額。 朝に凍結) */}
+        {/* 純投資 (= 投票額 − 回収額) vs 日次上限 (= 本日のスタート額/入金額。 朝に凍結)。
+            日次ゲートは純投資ベースで判定する (回収できた払戻分だけ上限に余裕が出る)。 */}
         <div>
           <div className="flex items-center justify-between text-sm mb-1">
-            <span className="text-muted-foreground">本日の投票額 (成立分)</span>
+            <span className="text-muted-foreground">本日の純投資 (投票−回収)</span>
             <span className="font-mono font-bold">
-              {yen(status?.voted_yen)} / {yen(status?.per_day_max_yen)}
+              {yen(status?.net_spent_yen ?? status?.voted_yen)} / {yen(status?.per_day_max_yen)}
             </span>
           </div>
           <Progress
             value={status?.per_day_max_yen
-              ? Math.min(100, ((status?.voted_yen ?? 0) / status.per_day_max_yen) * 100)
+              ? Math.min(100, Math.max(0,
+                  ((status?.net_spent_yen ?? status?.voted_yen ?? 0) / status.per_day_max_yen) * 100))
               : 0}
           />
           <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
             <span>
-              {status?.day_budget_source
-                ? `上限の根拠: ${status.day_budget_source}`
-                : '上限: 既定値 (本日のスタート額 未設定)'}
+              投票 {yen(status?.voted_yen)}
+              {(status?.recovered_yen ?? 0) > 0 ? ` − 回収 ${yen(status?.recovered_yen)}` : ''}
             </span>
             <span className="font-mono">
-              残 {yen(Math.max(0, (status?.per_day_max_yen ?? 0) - (status?.voted_yen ?? 0)))}
+              残 {yen(Math.max(0, (status?.per_day_max_yen ?? 0)
+                - (status?.net_spent_yen ?? status?.voted_yen ?? 0)))}
             </span>
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {status?.day_budget_source
+              ? `上限の根拠: ${status.day_budget_source}`
+              : '上限: 既定値 (本日のスタート額 未設定)'}
           </div>
         </div>
 

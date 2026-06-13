@@ -46,6 +46,7 @@ from ml.strategies.freebudget_scheduler import (  # noqa: E402
 )
 from ml.strategies.freebudget_race import load_post_times, race_timing  # noqa: E402
 from ml.strategies.freebudget import resolve_date  # noqa: E402
+from ml.strategies.day_recovery import compute_recovery  # noqa: E402
 from ml.strategies.bettype_selection import evaluate_and_select, STRATEGIES  # noqa: E402
 from ml.strategies import bettype_efficiency as be  # noqa: E402
 from ml.strategies.bettype_sizing import get_sizer, DEFAULT_SIZER, SIZERS  # noqa: E402
@@ -235,6 +236,15 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
 
     voted_yen = sum(v.get("amount", 0) for v in state["votes"].values()
                     if v.get("exit_code") == 0)
+    # ★日次ゲートを「収支 (純損失) ベース」にする (ふくだ 2026-06-13)。 既に投票し着順確定した
+    #   レースの払戻 (回収額) を mykeibadb から算出し voted_yen から差し引く。 net_spent =
+    #   純投資 = 純損失。 IPAT は的中払戻を当日中に残高反映し再投票できる (ふくだ確認済) ので、
+    #   回収分だけ上限に余裕が生まれる。 「最大損失 ≤ 入金額」は net ベースでも保たれる
+    #   (入金超の投票は必ず回収から出るため)。 失敗時 compute_recovery は回収0 = 現行グロス挙動。
+    rec = compute_recovery(date_str, state["votes"])
+    recovered_yen = int(rec.get("recovered_yen", 0) or 0)
+    state["recovered_yen"] = recovered_yen
+    state["recovery_detail"] = rec.get("detail", {})
     notified_skips = state.setdefault("notified_skips", [])  # 見送り通知済 race_id (重複防止)
     skip_reasons = state.setdefault("skips", {})  # 穴B: per-race スキップ理由を永続化 (web表示用)
 
@@ -261,7 +271,9 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
     if verbose:
         print(f"[bettype] {date_str} now={now.strftime('%H:%M')} "
               f"mode={'LIVE' if live else 'dry-run'} strategy={strategy} sizing={sizing} "
-              f"odds={vb_ref} レース={len(pred_by_id)} 既投票={voted_yen}円")
+              f"odds={vb_ref} レース={len(pred_by_id)} "
+              f"既投票={voted_yen}円 回収={recovered_yen}円 "
+              f"純投資={voted_yen - recovered_yen}円/上限{per_day_max_yen}円")
 
     # オッズ鮮度ガード (freebudget と同一: live のみ作動)
     if live and vb_ref:
@@ -311,9 +323,14 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
                 notify_skip(label, "買い目なし")
                 notified_skips.append(race_id)
             continue
-        if voted_yen + rs.total_yen > per_day_max_yen:
+        # 日次キャップは ★純投資 (純損失) ベース★ で判定する。 net_spent = 投票累計 − 回収額。
+        #   voted_yen はパス内で投票成立ごとに増えるので毎回ここで再計算する (recovered_yen は
+        #   パス頭に凍結: 今パスで新規投票するレースはまだ未確定 = 回収0 のため再計算不要)。
+        net_spent = voted_yen - recovered_yen
+        if net_spent + rs.total_yen > per_day_max_yen:
             skipped.append((race_id, f"{label} 日次キャップ超過 "
-                            f"({voted_yen}+{rs.total_yen}>{per_day_max_yen})"))
+                            f"(純投資{net_spent}+{rs.total_yen}>{per_day_max_yen} "
+                            f"[投票{voted_yen}-回収{recovered_yen}])"))
             if live and notify_on_skip and race_id not in notified_skips:
                 notify_skip(label, "日次予算上限")
                 notified_skips.append(race_id)
@@ -328,7 +345,8 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
 
         res = vote_one_race_multi(day_dir, race_id, rs, live=live,
                                   login_timeout=login_timeout, per_race_cap=per_race_cap,
-                                  per_day_remaining=max(0, per_day_max_yen - voted_yen))
+                                  per_day_remaining=max(0, per_day_max_yen
+                                                        - (voted_yen - recovered_yen)))
         res["at"] = now.isoformat(timespec="seconds")
         res["label"] = label
         res["strategy"] = strategy
@@ -366,6 +384,9 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
         if v.get("exit_code") == 0:
             skip_reasons.pop(rid, None)
 
+    # 純投資 (= 投票累計 − 回収額) を記録 (web 表示用)。 voted_yen はパス内投票で増えた最終値。
+    state["voted_yen"] = voted_yen
+    state["net_spent_yen"] = voted_yen - recovered_yen
     save_state(sp, state)
     if verbose:
         print(f"[bettype] 今パス: 投票{len(newly_voted)}件 / "

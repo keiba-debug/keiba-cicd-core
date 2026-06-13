@@ -63,6 +63,7 @@ from ml.strategies.freebudget_race import (  # noqa: E402
     race_timing,
 )
 from ml.utils.race_io import date_dir_for, load_predictions  # noqa: E402
+from ml.strategies.day_recovery import compute_recovery  # noqa: E402
 
 # runner が「無人で継続してはいけない」 系のエラーで返す exit code
 HALT_EXIT_CODES = {5, 7, 8}      # 5=投票後セッション切れ / 7=起動/preflight NG / 8=直近切れ
@@ -245,8 +246,11 @@ def vote_one_race(day_dir: Path, race_id: str, sub_result, *,
     """1 レースを投票 (live) または投票予定をログ (dry-run)。 結果 dict を返す"""
     umaban = [b.umaban for b in sub_result.bets]
     amount = sub_result.total_yen
+    # 収支ベース日次ゲート (day_recovery) 用に per-bet の leg を残す。 freebudget は全て単勝。
+    legs = [{"bet_type": "tansho", "horses": [b.umaban], "amount": b.amount}
+            for b in sub_result.bets]
     if not live:
-        return {"mode": "dry-run", "amount": amount, "umaban": umaban,
+        return {"mode": "dry-run", "amount": amount, "umaban": umaban, "legs": legs,
                 "exit_code": 0, "note": "WOULD VOTE (dry-run)"}
 
     # live: filtered JSON を書いて runner --confirm をサブプロセス起動 (テスト済経路)
@@ -266,7 +270,7 @@ def vote_one_race(day_dir: Path, race_id: str, sub_result, *,
            "--max-yen", str(max_yen), "--max-bets", str(len(sub_result.bets)),
            "--confirm"]
     proc = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parents[2]))
-    return {"mode": "live", "amount": amount, "umaban": umaban,
+    return {"mode": "live", "amount": amount, "umaban": umaban, "legs": legs,
             "exit_code": proc.returncode,
             "note": "voted" if proc.returncode == 0 else "vote error"}
 
@@ -322,6 +326,13 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
     # 既投票の累計額 (idempotency + cap)
     voted_yen = sum(v.get("amount", 0) for v in state["votes"].values()
                     if v.get("exit_code") == 0)
+    # ★日次ゲートを収支 (純損失) ベースに (ふくだ 2026-06-13)。 着順確定済みレースの払戻を
+    #   差し引いた net_spent で上限判定する。 詳細は ml.strategies.day_recovery の docstring。
+    #   失敗時は回収0 = 現行グロス挙動に縮退 (安全側)。
+    rec = compute_recovery(date_str, state["votes"])
+    recovered_yen = int(rec.get("recovered_yen", 0) or 0)
+    state["recovered_yen"] = recovered_yen
+    state["recovery_detail"] = rec.get("detail", {})
 
     # per_race ハードキャップ (config per_race_max_yen)。 0 = キャップ無し扱い。
     per_race_cap = read_per_race_cap()
@@ -337,7 +348,9 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
     if verbose:
         print(f"[scheduler] {date_str} now={now.strftime('%H:%M')} "
               f"mode={'LIVE' if live else 'dry-run'} "
-              f"odds={vb_ref} 候補={len(by_race)} 既投票={voted_yen}円")
+              f"odds={vb_ref} 候補={len(by_race)} "
+              f"既投票={voted_yen}円 回収={recovered_yen}円 "
+              f"純投資={voted_yen - recovered_yen}円/上限{per_day_max_yen}円")
 
     # 🟡-3: オッズ鮮度ガード。 vb_refresh が止まり古いオッズで投票するのを防ぐ。
     #   live のみ作動 (dry-run は鮮度に関わらず予定を表示)。 stale なら投票せず次パスに委ねる。
@@ -397,9 +410,12 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
             if verbose:
                 print(f"  ⚖ {label} per_race按分 {before}→{sub.total_yen}円 "
                       f"(cap {per_race_cap}, drop {info['dropped']})", file=sys.stderr)
-        if voted_yen + sub.total_yen > per_day_max_yen:
+        # 日次キャップは純投資 (= 投票累計 − 回収額) ベースで判定 (収支ベース)。
+        net_spent = voted_yen - recovered_yen
+        if net_spent + sub.total_yen > per_day_max_yen:
             skipped.append((race_id, f"{label} 日次キャップ超過 "
-                            f"({voted_yen}+{sub.total_yen}>{per_day_max_yen})"))
+                            f"(純投資{net_spent}+{sub.total_yen}>{per_day_max_yen} "
+                            f"[投票{voted_yen}-回収{recovered_yen}])"))
             continue
 
         if verbose:
@@ -438,6 +454,8 @@ def _run_pass_inner(date_str: str, day_dir: Path, *, now: datetime, live: bool,
                     print(f"  ⛔ {state['halt_reason']}", file=sys.stderr)
                 break
 
+    state["voted_yen"] = voted_yen
+    state["net_spent_yen"] = voted_yen - recovered_yen
     save_state(sp, state)
     if verbose:
         print(f"[scheduler] 今パス: 投票{len(newly_voted)}件 / "

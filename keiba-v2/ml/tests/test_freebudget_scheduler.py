@@ -91,6 +91,14 @@ def test_vote_one_race_dry_run_no_subprocess(monkeypatch, tmp_path):
     assert called["n"] == 0          # dry-run は subprocess 起動しない
 
 
+def test_vote_one_race_records_legs(monkeypatch, tmp_path):
+    # 収支ベースゲート用に per-bet leg (全て単勝) を記録する (dry-run でも記録)。
+    res = sch.vote_one_race(tmp_path, "2026053008031108",
+                            _sub(n=2, amount_each=300), live=False)
+    assert res["legs"] == [{"bet_type": "tansho", "horses": [10], "amount": 300},
+                           {"bet_type": "tansho", "horses": [11], "amount": 300}]
+
+
 def test_vote_one_race_live_passes_exact_max(monkeypatch, tmp_path):
     captured = {}
 
@@ -252,6 +260,66 @@ def test_run_pass_under_cap_votes_unadjusted(monkeypatch, tmp_path):
     assert calls["n"] == 1
     rid, res = out["voted"][0]
     assert "per_race_adjusted" not in res
+
+
+# --- 収支ベース日次ゲート (2026-06-13 / 回収額を考慮) ---
+
+def _run_inner_with_recovery(monkeypatch, tmp_path, *, recovered, prior_amount,
+                             new_total=600, per_day=10000):
+    """既投票 prior_amount + 回収 recovered の状態で 1 レース(new_total)を評価させる。"""
+    rid = "2026053008031108"
+    sub = _sub(n=1, amount_each=new_total)
+    monkeypatch.setattr(sch, "load_predictions",
+                        lambda dd: {"races": [], "vb_refreshed_at": None})
+    monkeypatch.setattr(sch, "extract_freebudget_bets", lambda *a, **k: sub)
+    monkeypatch.setattr(sch, "load_post_times", lambda dd, date_str=None: {rid: "15:00"})
+    now = datetime(2026, 5, 30, 14, 55)
+    monkeypatch.setattr(sch, "race_timing",
+                        lambda d, st, n: {"deadline": now + timedelta(minutes=3),
+                                          "vote_at": now - timedelta(minutes=1)})
+    monkeypatch.setattr(sch, "filter_result_by_race", lambda result, race_id: sub)
+    monkeypatch.setattr(sch, "read_per_race_cap", lambda: 0)
+    prior = {"PRIOR": {"exit_code": 0, "amount": prior_amount,
+                       "legs": [{"bet_type": "tansho", "horses": [1],
+                                 "amount": prior_amount}]}}
+    monkeypatch.setattr(sch, "load_state",
+                        lambda sp, ds, mode: {"date": ds, "mode": mode, "halted": False,
+                                              "halt_reason": None,
+                                              "consecutive_failures": 0,
+                                              "votes": dict(prior)})
+    monkeypatch.setattr(sch, "save_state", lambda sp, st: None)
+    monkeypatch.setattr(sch, "compute_recovery",
+                        lambda ds, votes, **k: {"recovered_yen": recovered,
+                                                "settled_races": 1 if recovered else 0,
+                                                "pending_races": 0 if recovered else 1,
+                                                "detail": {}})
+    calls = {"n": 0}
+    monkeypatch.setattr(sch, "vote_one_race",
+                        lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1),
+                                         {"mode": "dry-run", "amount": new_total,
+                                          "umaban": [], "legs": [], "exit_code": 0,
+                                          "note": "x"})[1])
+    out = sch._run_pass_inner(
+        "2026-05-30", tmp_path, now=now, live=False, bankroll=10000,
+        kelly_fraction=0.25, per_bet_cap_pct=0.10, preset="standard",
+        per_day_max_yen=per_day, login_timeout=180, verbose=False)
+    return out, calls
+
+
+def test_run_pass_net_cage_allows_with_recovery(monkeypatch, tmp_path):
+    # 既に上限到達 (10000) だが 7000 回収済 → 純投資3000 → 新規600 を投票できる。
+    out, calls = _run_inner_with_recovery(monkeypatch, tmp_path,
+                                          recovered=7000, prior_amount=10000)
+    assert calls["n"] == 1
+    assert not any("日次キャップ" in r for _, r in out["skipped"])
+
+
+def test_run_pass_net_cage_skips_without_recovery(monkeypatch, tmp_path):
+    # 回収0なら従来どおりグロス到達で skip。
+    out, calls = _run_inner_with_recovery(monkeypatch, tmp_path,
+                                          recovered=0, prior_amount=10000)
+    assert calls["n"] == 0
+    assert any("日次キャップ" in r for _, r in out["skipped"])
 
 
 # --- halt_day (Session 139 / web「停止」= 当日 halt) ---

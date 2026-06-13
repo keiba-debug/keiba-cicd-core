@@ -52,6 +52,10 @@ export interface SchedulerStatus {
   lock_age_sec: number | null;
   votes: VoteEntry[];
   voted_yen: number;           // 成功投票の累計 (exit_code==0)
+  // 収支ベース日次ゲート (2026-06-13): 着順確定済みレースの払戻 (回収額) と、 それを引いた
+  //   純投資 (= 純損失)。 日次上限は voted_yen でなく net_spent_yen と比較される。
+  recovered_yen: number;       // 当日の確定済み回収額 (払戻合計)
+  net_spent_yen: number;       // 純投資 = voted_yen - recovered_yen (日次上限と比較する値)
   per_day_max_yen: number;     // 当日上限 (= state.day_budget_yen 凍結値があればそれ)
   // 当日予算の根拠 (Session145): 「本日のスタート額(入金額)」を朝に凍結した値とその出所
   day_budget_yen: number | null;
@@ -177,6 +181,15 @@ export function getSchedulerStatus(dateInput?: string): SchedulerStatus {
     .filter((v) => v.exit_code === 0)
     .reduce((s, v) => s + (v.amount ?? 0), 0);
 
+  // 収支ベース: scheduler が state に書いた回収額/純投資を読む。 旧 state (未記録) は
+  //   recovered=0・net=voted にフォールバック (= 従来のグロス挙動表示)。
+  const recoveredYen = typeof state?.recovered_yen === 'number'
+    ? (state.recovered_yen as number)
+    : 0;
+  const netSpentYen = typeof state?.net_spent_yen === 'number'
+    ? (state.net_spent_yen as number)
+    : votedYen - recoveredYen;
+
   // 当日上限: scheduler が朝に凍結した day_budget_yen を最優先。 無ければ state の
   //   per_day_max_yen、 それも無ければ定数フォールバック。
   const dayBudget = typeof state?.day_budget_yen === 'number'
@@ -204,6 +217,8 @@ export function getSchedulerStatus(dateInput?: string): SchedulerStatus {
     lock_age_sec: lockAge,
     votes,
     voted_yen: votedYen,
+    recovered_yen: recoveredYen,
+    net_spent_yen: netSpentYen,
     per_day_max_yen: perDay,
     day_budget_yen: dayBudget,
     day_budget_source: (state?.day_budget_source as string) ?? null,

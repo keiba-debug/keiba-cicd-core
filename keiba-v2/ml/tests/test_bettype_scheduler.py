@@ -288,3 +288,39 @@ def test_inner_skip_reason_persisted_to_state(monkeypatch, tmp_path):
     assert state["halted"] is False
     assert RID in state["skips"]
     assert "日次キャップ" in state["skips"][RID]
+
+
+# --- 収支ベース日次ゲート (2026-06-13 / 回収額を考慮) ---
+
+def test_inner_net_cage_allows_when_recovered(monkeypatch, tmp_path):
+    # 既に上限到達 (30000投票) だが 20000 回収済 → 純投資10000 → 新規600 を投票できる。
+    now, per_day, state = _setup_inner_capture(monkeypatch, tmp_path, rs_total=600)
+    state["votes"]["PRIOR"] = {"exit_code": 0, "amount": 30000,
+                               "legs": [{"bet_type": "tansho", "horses": [1],
+                                         "amount": 30000}]}
+    monkeypatch.setattr(sch, "read_day_budget", lambda: (30000, "test"))
+    monkeypatch.setattr(sch, "compute_recovery",
+                        lambda ds, votes, **k: {"recovered_yen": 20000,
+                                                "settled_races": 1, "pending_races": 0,
+                                                "detail": {}})
+    out = sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=False,
+                              per_day_max_yen=30000, **_COMMON)
+    assert len(out["voted"]) == 1                      # net 10000+600 <= 30000 → 投票
+    assert state["recovered_yen"] == 20000
+    assert state["net_spent_yen"] == 30600 - 20000     # 投票30600(PRIOR+新規) − 回収20000
+
+
+def test_inner_net_cage_skips_without_recovery(monkeypatch, tmp_path):
+    # 回収0なら従来どおりグロス到達で skip (安全側に縮退することの確認)。
+    now, per_day, state = _setup_inner_capture(monkeypatch, tmp_path, rs_total=600)
+    state["votes"]["PRIOR"] = {"exit_code": 0, "amount": 30000,
+                               "legs": [{"bet_type": "tansho", "horses": [1],
+                                         "amount": 30000}]}
+    monkeypatch.setattr(sch, "read_day_budget", lambda: (30000, "test"))
+    monkeypatch.setattr(sch, "compute_recovery",
+                        lambda ds, votes, **k: {"recovered_yen": 0, "settled_races": 0,
+                                                "pending_races": 1, "detail": {}})
+    out = sch._run_pass_inner("2026-05-31", tmp_path, now=now, live=False,
+                              per_day_max_yen=30000, **_COMMON)
+    assert out["voted"] == []                           # net 30000+600 > 30000 → skip
+    assert any("日次キャップ" in r for _, r in out["skipped"])
