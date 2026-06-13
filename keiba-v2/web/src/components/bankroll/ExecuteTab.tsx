@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import type { MultiLegRecommendation, PredictionRace } from '@/lib/data/predictions-reader';
 import { MultiLegRecommendations } from '@/app/predictions/components/multi-leg-recommendations';
+import { OddsFreshnessBadge } from '@/components/odds/OddsFreshnessBadge';
+import type { OddsFreshness } from '@/lib/data/rt-data-types';
 
 // =====================================================================
 // 型定義
@@ -877,6 +879,21 @@ export function ExecuteTab() {
             </div>
 
             <div className="flex items-center gap-2">
+              {predictions?.bets_generated_at && (() => {
+                const ms = Date.parse(predictions.bets_generated_at);
+                if (!Number.isFinite(ms)) return null;
+                const d = new Date(ms);
+                const label = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                const fresh: OddsFreshness = { asOf: ms, label, exact: true, kind: 'RT' };
+                return (
+                  <OddsFreshnessBadge
+                    freshness={fresh}
+                    prefix="オッズ生成"
+                    warnMin={20}
+                    staleMin={45}
+                  />
+                );
+              })()}
               <Button variant="outline" size="sm" onClick={() => loadPredictions(selectedDate)}
                 disabled={loading}>
                 <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
@@ -1283,12 +1300,38 @@ export function ExecuteTab() {
                           />
                         </td>
                         <td className="py-2 px-2 font-medium">
-                          {rec.venue}
-                          {rec.track_type === 'obstacle' && (
-                            <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                              障害
+                          <div className="flex flex-col gap-0.5">
+                            <span className="flex items-center">
+                              {rec.venue}
+                              {rec.track_type === 'obstacle' && (
+                                <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                  障害
+                                </span>
+                              )}
                             </span>
-                          )}
+                            {rec.race_id?.length === 16 && (
+                              <span className="flex items-center gap-1.5 text-[10px] font-normal">
+                                <a
+                                  href={`/races-v2/${rec.race_id.slice(0, 4)}-${rec.race_id.slice(4, 6)}-${rec.race_id.slice(6, 8)}/${encodeURIComponent(rec.venue)}/${rec.race_number}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-indigo-600 hover:underline"
+                                  title="レース詳細（出馬表・予想）を別タブで開く"
+                                >
+                                  詳細→
+                                </a>
+                                <a
+                                  href={`/odds-race/${rec.race_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sky-600 hover:underline"
+                                  title="このレースのオッズ表を別タブで開く"
+                                >
+                                  オッズ→
+                                </a>
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2 px-1 text-center">{rec.race_number}</td>
                         <td className="py-2 px-1 text-center">

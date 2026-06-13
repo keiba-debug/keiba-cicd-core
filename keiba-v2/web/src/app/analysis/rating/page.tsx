@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * BR分析ページ
+ * レイティング分析ページ
  * クラス別レイティング統計・レースレベル判定基準を表示
  */
 
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, ArrowLeft, Star } from 'lucide-react';
 import Link from 'next/link';
 import { RecalcButton } from '@/components/admin/recalc-button';
+import { FreshnessHeader } from '@/components/analysis/FreshnessHeader';
 
 // 型定義
 interface RatingStats {
@@ -80,6 +81,8 @@ interface RatingStandardsResponse {
     years: string;
     total_races: number;
     description: string;
+    schema_version?: string;
+    coverage?: { from_date?: string; to_date?: string };
   };
 }
 
@@ -176,13 +179,13 @@ export default function RatingAnalysisPage() {
           トップ
         </Link>
         <span>/</span>
-        <span className="text-foreground">BR分析</span>
+        <span className="text-foreground">レイティング分析</span>
       </nav>
 
       {/* ヘッダー */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          📈 BR分析
+          📈 レイティング分析
         </h1>
         <p className="text-muted-foreground mt-1">
           クラス別BR統計・レースレベル判定基準
@@ -239,21 +242,28 @@ export default function RatingAnalysisPage() {
           </div>
 
           {/* メタデータ */}
-          <div className="text-xs text-muted-foreground flex items-center justify-between">
-            <span>
-              更新日時: {new Date(data.metadata.created_at).toLocaleString('ja-JP')} | ソース: {data.metadata.source}
-            </span>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={fetchData}
-                className="flex items-center gap-1 hover:text-foreground transition-colors"
-                disabled={loading}
-              >
-                <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-                再読み込み
-              </button>
-              <RecalcButton actionId="calc_rating_standards" onComplete={fetchData} />
+          <div className="space-y-1.5">
+            <div className="text-xs text-muted-foreground flex items-center justify-between">
+              <span>
+                更新日時: {new Date(data.metadata.created_at).toLocaleString('ja-JP')} | ソース: {data.metadata.source}
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={fetchData}
+                  className="flex items-center gap-1 hover:text-foreground transition-colors"
+                  disabled={loading}
+                >
+                  <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+                  再読み込み
+                </button>
+                <RecalcButton actionId="calc_rating_standards" onComplete={fetchData} />
+              </div>
             </div>
+            <FreshnessHeader
+              coverage={data.metadata.coverage}
+              createdAt={data.metadata.created_at}
+              schemaVersion={data.metadata.schema_version}
+            />
           </div>
 
           {/* クラス別レイティング */}

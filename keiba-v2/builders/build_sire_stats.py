@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from core.jravan import um_parser
+from analysis.quality_meta import quality_meta, PRIORS
 
 
 # ============================================================
@@ -308,11 +309,17 @@ def build_sire_stats(races: List[dict], pedigree_index: Dict[str, dict]) -> dict
     dam_result = _finalize_stats(dam_stats)
     bms_result = _finalize_stats(bms_stats)
 
+    # coverage（E-001 S-3: データ期間を JSON 自体に刻む）
+    _dates = [r.get('date') for r in races if r.get('date')]
+    _coverage = {"from_date": min(_dates), "to_date": max(_dates)} if _dates else None
+
     return {
         'sire': sire_result,
         'dam': dam_result,
         'bms': bms_result,
         'meta': {
+            'schema_version': 'quality_meta/1',
+            'coverage': _coverage,
             'total_races': len(races),
             'total_entries': total_entries,
             'matched_entries': matched_entries,
@@ -438,6 +445,13 @@ def _finalize_stats(raw_stats: dict) -> dict:
             'top3': s['top3'],
             'win_rate': bayesian_rate(s['wins'], total, PRIOR_WIN_ALPHA, PRIOR_WIN_BETA),
             'top3_rate': bayesian_rate(s['top3'], total, PRIOR_TOP3_ALPHA, PRIOR_TOP3_BETA),
+            # E-001 品質メタ: top3_rate は既にベイズ事後平均 → ci95 も同一 prior の bayesian で系列統一（S-5）。
+            # PRIORS['top3_rate']=(2.5,7.5) は上の PRIOR_TOP3 と一致。条件別(fresh等)の生カウントは無く Phase 2。
+            'quality': quality_meta(
+                metric='top3_rate', algo='bayesian_beta_binomial',
+                hits=s['top3'], n=total, prior=PRIORS['top3_rate'],
+                min_n=MIN_RUNS_CONDITIONAL,
+            ),
         }
 
         # 条件別レート（runs >= MIN_RUNS_CONDITIONAL で有効）

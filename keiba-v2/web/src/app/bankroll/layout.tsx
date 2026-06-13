@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: '馬券',
+  title: '推奨馬券',
 };
 
 export default function BankrollLayout({

@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import dataclasses
 import json
 import pickle
 import re
@@ -208,6 +209,9 @@ def main():
                         help='モデルディレクトリ（未指定時はlive ml_dir）例: data3/ml/versions/v7.9')
     parser.add_argument('--cache-suffix', type=str, default=None,
                         help='backtest_cache出力ファイルのsuffix 例: v7.9 → backtest_cache_v7.9.json')
+    parser.add_argument('--test-years', type=str, default=None,
+                        help='test期間オーバーライド 例: 2025.05-2026.05 '
+                             '(未指定時はmodel_metaのsplit.test。キャッシュ拡張時に使用)')
     args = parser.parse_args()
 
     print('=' * 70)
@@ -350,9 +354,14 @@ def main():
             cal_w = cals.get('cal_w')
             print(f'[Model] Calibrators: {list(cals.keys())}')
 
-        # Build test dataset using model's split
-        test_min_y, test_max_y, test_min_m, test_max_m = _parse_split_label(split['test'])
-        print(f'[Dataset] Test period: {split["test"]}')
+        # Build test dataset using model's split (--test-years でオーバーライド可)
+        if args.test_years:
+            from ml.experiment import parse_period_range
+            test_min_y, test_min_m, test_max_y, test_max_m = parse_period_range(args.test_years)
+            print(f'[Dataset] Test period: {args.test_years} (override; meta={split["test"]})')
+        else:
+            test_min_y, test_max_y, test_min_m, test_max_m = _parse_split_label(split['test'])
+            print(f'[Dataset] Test period: {split["test"]}')
 
         df_test = build_dataset(
             date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -485,6 +494,40 @@ def main():
               f' {roi.get("wide_bet",0):>9,} {roi.get("wide_return",0):>9,} {wide_roi:>7.1f}%'
               f' {roi.get("umaren_bet",0):>8,} {roi.get("umaren_return",0):>8,} {umaren_roi:>7.1f}%'
               f' {roi.get("umatan_bet",0):>8,} {roi.get("umatan_return",0):>8,} {umatan_roi:>7.1f}%')
+
+    # === E-003 接戦タイブレーク 有無比較 ===
+    # composite vb_score 同点時、騎手の接戦勝率(ci95.lower)で単勝/複勝降格を解消。
+    # 買う/買わない判定は変えず、max_win_per_race の溢れ解消順序だけが変わる純タイブレーク。
+    print(f'\n{"=" * 70}')
+    print(f'  E-003 接戦タイブレーク 有無比較 (enable_close_tiebreak)')
+    print(f'{"=" * 70}')
+    import dataclasses as _dc
+    from ml.strategies.jockey_close import load_jockey_close_map
+    jc_map = load_jockey_close_map()
+    print(f'  jockey_close map: {len(jc_map)} 騎手')
+    print(f'  {"Preset":>14} {"Mode":>10} {"Bets":>5} {"WinBet":>9} {"WinRet":>9} '
+          f'{"WinROI":>7} {"WinHits":>7} {"WinP&L":>9} {"diff":>5}')
+    print(f'  {"-" * 90}')
+
+    for preset_name, preset_params in PRESETS.items():
+        # OFF（既定）と ON で単勝選定がどう変わるか
+        recs_off = generate_recommendations(race_preds, preset_params, budget=30000)
+        params_on = _dc.replace(preset_params, enable_close_tiebreak=True)
+        recs_on = generate_recommendations(race_preds, params_on, budget=30000,
+                                           jockey_close_map=jc_map)
+        # 単勝選定の差分頭数
+        win_off = {(r.race_id, r.umaban) for r in recs_off if r.bet_type in ('単勝', '単複')}
+        win_on = {(r.race_id, r.umaban) for r in recs_on if r.bet_type in ('単勝', '単複')}
+        diff = len(win_off ^ win_on) // 2  # 入替は2件で1組
+
+        for mode, recs in [('OFF', recs_off), ('ON', recs_on)]:
+            roi = calc_bet_engine_roi(recs, race_preds)
+            pnl = roi['win_return'] - roi['win_bet']
+            marker = ' ***' if roi['win_roi'] >= 100 else ''
+            diff_label = f'{diff}' if mode == 'ON' else ''
+            print(f'  {preset_name:>14} {mode:>10} {roi["num_bets"]:>5} '
+                  f'{roi["win_bet"]:>9,} {roi["win_return"]:>9,} {roi["win_roi"]:>6.1f}%{marker}'
+                  f' {roi["win_hits"]:>7} {pnl:>+9,} {diff_label:>5}')
 
     # === Method A 有無比較 ===
     print(f'\n{"=" * 70}')
@@ -954,7 +997,6 @@ def main():
             roi_on = calc_bet_engine_roi(recs_on, race_preds)
 
             # Boost OFF (threshold=0 → 無効)
-            import dataclasses
             params_off = dataclasses.replace(preset_params, closing_boost_threshold=0.0)
             recs_off = generate_recommendations(race_preds, params_off, budget=30000)
             roi_off = calc_bet_engine_roi(recs_off, race_preds)

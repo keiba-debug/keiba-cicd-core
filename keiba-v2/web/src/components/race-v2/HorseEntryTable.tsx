@@ -33,6 +33,8 @@ import { cn } from '@/lib/utils';
 import { MessageSquareText } from 'lucide-react';
 import { getCourseBiasAlert, type CourseBiasAlert } from '@/lib/course-bias';
 import { NoveltyBadges } from './NoveltyBadges';
+import { ReasonTagBadges } from '@/components/analysis/ReasonTagBadges';
+import type { ReasonTag } from '@/lib/data/predictions-reader';
 import { TrendIndicator, StreakBadge, calculateStreak, calculateStreakWithCurrent, toRaceResult, type RecentFormEntry } from '@/components/ui/visualization';
 import type { TrainingSummaryData } from '@/lib/data/training-summary-reader';
 import type { RaceHorseComment, HorseComment } from '@/lib/data/target-comment-reader';
@@ -83,6 +85,8 @@ export interface MlPredictionEntry {
   novelty_long_layoff?: number;
   novelty_jockey_change?: number;
   ar_deviation_adj?: number | null;
+  // E-005 理由タグ（接戦◎/出遅れ注意/低信頼）— 表示専用・買い目には影響しない
+  reason_tags?: ReasonTag[];
 }
 
 /** DB odds レスポンス型 */
@@ -860,6 +864,10 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
             {/* 未知数度バッジ (Session 119) */}
             {mlPrediction !== undefined && (
               <NoveltyBadges entry={mlPrediction} variant="compact" />
+            )}
+            {/* E-005 理由タグ（接戦◎/出遅れ注意/低信頼）— 表示専用 (Session 155) */}
+            {mlPrediction?.reason_tags && mlPrediction.reason_tags.length > 0 && (
+              <ReasonTagBadges tags={mlPrediction.reason_tags} />
             )}
             {/* TARGETコメントアイコン */}
             {(horseComment || predictionComment || resultComment) && (

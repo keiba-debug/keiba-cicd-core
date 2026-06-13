@@ -11,6 +11,7 @@ import {
   getRaceLink, getArdColor,
 } from '../lib/helpers';
 import type { RaceResultsMap } from '@/lib/data/predictions-reader';
+import { ReasonTagBadges } from '@/components/analysis/ReasonTagBadges';
 
 // --- 市場シグナル バッジ色 ---
 function getSignalBadge(signal: string | null | undefined) {
@@ -342,6 +343,7 @@ function HorseTable({
                       )}
                     </>
                   )}
+                  <ReasonTagBadges tags={entry.reason_tags} className="ml-1" />
                 </td>
                 <td className="px-2 py-1.5 border text-center font-mono text-xs">
                   {(entry.pred_proba_p * 100).toFixed(1)}

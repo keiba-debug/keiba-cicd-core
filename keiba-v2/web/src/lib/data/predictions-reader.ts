@@ -75,8 +75,19 @@ export interface PredictionEntry {
   novelty_long_layoff?: number;        // 長期休養 140日+ (0/1)
   novelty_jockey_change?: number;      // 騎手乗替 (0/1)
   ar_deviation_adj?: number | null;    // AR偏差値の未知数度補正版
+  // E-005 理由タグ（接戦◎/出遅れ注意/低信頼）— 表示専用・買い目には影響しない
+  reason_tags?: ReasonTag[];
   // vega-niigata1000 overlay (Phase 3d)
   niigata1000?: NiigataOverlay;
+}
+
+/** E-005 理由タグ（表示専用）。Python ml/strategies/reason_tags.py が生成。 */
+export interface ReasonTag {
+  type: 'close_finish' | 'slow_start' | 'low_confidence';
+  label: string;                 // 表示ラベル（接戦◎/出遅れ注意/低信頼）
+  level: 'good' | 'caution' | 'warn';
+  detail: string;                // ツールチップ用の根拠説明
+  low_confidence: boolean;       // 根拠データが小標本か
 }
 
 /** vega-niigata1000 ルールエンジン v0.2 オーバーレイ結果 (千直レースのみ) */

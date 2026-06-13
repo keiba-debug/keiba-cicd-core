@@ -11,6 +11,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { DATA3_ROOT } from '@/lib/config';
+import type { ReasonTag } from './predictions-reader';
 
 // --- 型定義（既存互換） ---
 
@@ -45,6 +46,8 @@ export interface MlHorsePrediction {
   novelty_long_layoff?: number;
   novelty_jockey_change?: number;
   ar_deviation_adj?: number | null;
+  // E-005 理由タグ（接戦◎/出遅れ注意/低信頼）— 表示専用・買い目には影響しない
+  reason_tags?: ReasonTag[];
 }
 
 export interface MlRacePrediction {
@@ -108,6 +111,8 @@ interface V4Entry {
   novelty_long_layoff?: number;
   novelty_jockey_change?: number;
   ar_deviation_adj?: number | null;
+  // E-005 理由タグ（接戦◎/出遅れ注意/低信頼）— predict.py が付与・表示専用
+  reason_tags?: ReasonTag[];
 }
 
 interface V4Race {
@@ -182,6 +187,7 @@ function convertV4Entry(e: V4Entry): MlHorsePrediction {
     novelty_long_layoff: e.novelty_long_layoff,
     novelty_jockey_change: e.novelty_jockey_change,
     ar_deviation_adj: e.ar_deviation_adj ?? null,
+    reason_tags: e.reason_tags,
   };
 }
 

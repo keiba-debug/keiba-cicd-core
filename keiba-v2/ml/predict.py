@@ -64,9 +64,25 @@ from ml.bet_engine import (
     VB_FLOOR_MIN_DEV_GAP, VB_FLOOR_DEV_MIN_ARD,
     passes_novelty_filter,
 )
+from ml.strategies.jockey_close import load_jockey_close_map
+from ml.strategies.slow_start import load_slow_start_maps
+from ml.strategies.reason_tags import build_reason_tags
 
 # === Value Bet閾値 ===
 VALUE_BET_MIN_GAP = 3  # experiment_v3.pyと統一
+
+
+def _load_reason_tag_maps():
+    """E-005 理由タグ用の分析 map を1回だけロード（プロセス内キャッシュ）。"""
+    global _REASON_TAG_MAPS
+    try:
+        return _REASON_TAG_MAPS
+    except NameError:
+        pass
+    jclose = load_jockey_close_map()
+    ss_jmap, ss_hmap = load_slow_start_maps()
+    _REASON_TAG_MAPS = (jclose, ss_jmap, ss_hmap)
+    return _REASON_TAG_MAPS
 
 
 def compute_market_signal(odds_move, ar_deviation, rank_p):
@@ -1095,6 +1111,7 @@ def predict_race(
         predictions.append({
             'umaban': umaban,
             'ketto_num': ketto_num,
+            'jockey_code': str(entry.get('jockey_code', '')),  # E-005 理由タグ（接戦◎/出遅れ注意）用
             'horse_name': entry.get('horse_name', ''),
             'odds': feat.get('odds', 0),           # DB更新後の値を使用
             'popularity': feat.get('popularity', 0), # DB更新後の値を使用
@@ -1378,6 +1395,16 @@ def predict_race(
             'novelty_jockey_change': int(p['features'].get('uncertainty_jockey_change', 0) or 0),
         }
         entry['is_value_bet'] = False  # AR偏差値計算後に更新
+
+        # E-005 理由タグ（接戦◎/出遅れ注意/低信頼）— 表示専用・買い目には影響しない
+        _jclose, _ss_j, _ss_h = _load_reason_tag_maps()
+        entry['reason_tags'] = build_reason_tags(
+            jockey_code=p.get('jockey_code'),
+            ketto_num=p.get('ketto_num'),
+            horse_ss_rate=p['features'].get('horse_slow_start_rate'),
+            first_corner_ratio=p['features'].get('avg_first_corner_ratio'),
+            jclose_map=_jclose, ss_jmap=_ss_j, ss_hmap=_ss_h,
+        )
         result_entries.append(entry)
 
     # ソート: Place(P)確率の高い順
@@ -1690,6 +1717,14 @@ def main():
 
     print(f"\n[Predict] {len(races)} races for {date}")
 
+    # ML特徴量キャッシュ鮮度チェック（Session 152 / 再発防止①検知）
+    # horse_history_cache / race_date_index が古いまま予測に使われると、全馬の直近走が
+    # 見えず人気馬を系統的に過小評価する（Session 151 の3ヶ月凍結事故）。stale でも運用は
+    # 止めず警告のみ。同じ結果を predictions メタにも記録する（③検証可能性, output dict）。
+    from ml.cache_freshness import check_freshness, format_status
+    _fresh = check_freshness(date, history_cache=history_cache)
+    print(f"  {format_status(_fresh)}")
+
     # DB事前オッズ取得
     db_odds_index = {}
     db_place_odds_index = {}
@@ -1928,6 +1963,7 @@ def main():
         'odds_source': 'mykeibadb' if db_odds_index else 'json',
         'pit_mode': True,
         'db_odds_coverage': f"{len(db_odds_index)}/{len(races)}",
+        'cache_freshness': _fresh,
         'races': all_predictions,
         'summary': {
             'total_races': len(all_predictions),

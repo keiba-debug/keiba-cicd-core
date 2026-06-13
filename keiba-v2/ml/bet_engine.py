@@ -31,6 +31,8 @@ from pathlib import Path
 from itertools import combinations
 from typing import Dict, List, Optional, Tuple
 
+from ml.strategies.jockey_close import jockey_close_reliable
+
 # 能力R変換定数 (ability_score → rating) — IDMスケール
 # ability_score = -pred_margin_ar (符号反転: 高い=強い)
 # rating = RATING_BASE + ability_score * RATING_SCALE
@@ -219,6 +221,12 @@ class BetStrategyParams:
     # 0=制限なし, 1=従来(1レース1単勝), 2=最大2頭(推奨)
     # バックテスト: max=2がROI最良。2番手候補の的中率>全体平均。
     max_win_per_race: int = 2
+
+    # --- E-003 接戦タイブレーク (騎手 close_win_rate で同点解消) ---
+    # max_win_per_race で単勝候補が溢れたとき、composite vb_score が同点なら
+    # 騎手の接戦勝率(ci95.lower 採用)が高い馬を優先する。買う/買わない判定は変えない。
+    # 既定 OFF（jockey_close_map を generate_recommendations に渡しても OFF なら無効）。
+    enable_close_tiebreak: bool = False
 
     # --- Closing Race Boost (差し決着予測レースでのVBスコア加算) ---
     # closing_race_proba >= closing_boost_threshold のレースで
@@ -853,6 +861,7 @@ def generate_recommendations(
     race_predictions: List[dict],
     params: BetStrategyParams,
     budget: int = 30000,
+    jockey_close_map: Optional[Dict[str, dict]] = None,
 ) -> List[BetRecommendation]:
     """全レースの推奨買い目を生成
 
@@ -873,6 +882,10 @@ def generate_recommendations(
     """
     all_recs: List[BetRecommendation] = []
 
+    # E-003 接戦タイブレーク: 有効時のみ (race_id, umaban) → 騎手接戦信頼値を事前計算
+    use_close_tiebreak = params.enable_close_tiebreak and bool(jockey_close_map)
+    close_lookup: Dict[tuple, float] = {}
+
     for race in race_predictions:
         race_id = race['race_id']
         entries = race.get('entries', [])
@@ -880,6 +893,11 @@ def generate_recommendations(
 
         if not entries:
             continue
+
+        if use_close_tiebreak:
+            for e in entries:
+                close_lookup[(race_id, e['umaban'])] = jockey_close_reliable(
+                    jockey_close_map, e.get('jockey_code'))
 
         # 危険馬検出 (odds<=8 & ARd<53 & P%<15%) — ラベルのみ、gap boostなし
         # 障害レースはARなし → danger検出スキップ
@@ -1188,7 +1206,10 @@ def generate_recommendations(
             race_recs.append(rec)
 
         # 1レースN単勝制約 (max_win_per_race: 0=無制限, 2=推奨)
-        race_recs = apply_win_per_race_limit(race_recs, max_win=params.max_win_per_race)
+        race_recs = apply_win_per_race_limit(
+            race_recs, max_win=params.max_win_per_race,
+            close_lookup=close_lookup if use_close_tiebreak else None,
+        )
         all_recs.extend(race_recs)
 
         # --- ワイド/馬連オッズの事前取得 ---
@@ -1441,6 +1462,7 @@ def generate_recommendations(
 def apply_win_per_race_limit(
     recs: List[BetRecommendation],
     max_win: int = 2,
+    close_lookup: Optional[Dict[tuple, float]] = None,
 ) -> List[BetRecommendation]:
     """1レースN単勝制約: N+1番目以降の単勝を複勝に降格
 
@@ -1450,7 +1472,9 @@ def apply_win_per_race_limit(
       制限なし: aggressive ROI 406%, wide ROI 135%
     2番手候補の的中率は全体平均より高い（14.3% vs 5.3%）
 
-    優先順位: dev_gap (偏差値乖離) → gap (rank差) → odds の順
+    優先順位: vb_score → dev_gap (偏差値乖離) → gap (rank差) → odds の順。
+    close_lookup（E-003 接戦タイブレーク, {(race_id,umaban): 騎手接戦信頼値}）が
+    渡された場合は vb_score 同点を **dev_gap より先に** 騎手接戦勝率で解消する。
     """
     if max_win <= 0:
         # 0 = 制限なし
@@ -1463,7 +1487,13 @@ def apply_win_per_race_limit(
         return recs
 
     # vb_score 降順ソート (複合スコアで優先順位)
-    win_candidates.sort(key=lambda r: (-r.vb_score, -r.dev_gap, -r.odds))
+    if close_lookup is not None:
+        win_candidates.sort(key=lambda r: (
+            -r.vb_score,
+            -close_lookup.get((r.race_id, r.umaban), 0.0),
+            -r.dev_gap, -r.odds))
+    else:
+        win_candidates.sort(key=lambda r: (-r.vb_score, -r.dev_gap, -r.odds))
 
     # 上位max_win頭はそのまま、それ以降を降格
     for r in win_candidates[max_win:]:
@@ -1721,6 +1751,7 @@ def df_to_race_predictions(
             entries.append({
                 'umaban': int(row['umaban']),
                 'horse_name': str(row.get('horse_name', '')),
+                'jockey_code': str(row.get('jockey_code', '')),  # E-003 接戦タイブレーク用
                 'odds': float(row.get('odds', 0)),
                 'vb_gap': int(row.get('vb_gap', 0)),
                 'win_vb_gap': int(row.get('win_vb_gap', 0)),

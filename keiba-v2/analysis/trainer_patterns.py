@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from analysis.quality_meta import quality_meta, PRIORS
 
 
 # ========================================================================
@@ -377,8 +378,18 @@ def analyze_patterns(trainer_history: dict) -> dict:
                 'win_rate': round(p_win_rate, 4),
                 'top3_rate': round(p_top3_rate, 4),
                 'sample_size': p_n,
+                # 生カウント（E-001 B-2: 率×n復元を禁止し直接保持）
+                'win_count': p_wins,
+                'top3_count': p_top3,
                 'lift': round(lift, 4),
                 'score': round(score, 4),
+                # E-001 品質メタ: 選抜系（約900比較からのtop5）なので bayesian+selected。
+                # year_data（stability）は年別集計レイヤ＝Phase 2。
+                'quality': quality_meta(
+                    metric='top3_rate', algo='bayesian_beta_binomial',
+                    hits=p_top3, n=p_n, prior=PRIORS['top3_rate'],
+                    min_n=8, selected=True,
+                ),
             })
 
         # スコア順でtop5
@@ -432,10 +443,17 @@ def main():
     print("\n[STEP 2] Analyzing patterns...")
     results = analyze_patterns(history)
 
+    # coverage（E-001 S-3: データ期間を JSON 自体に刻む。鮮度不明の常態化を防ぐ）
+    _dates = [r.get('race_date') for d in history.values()
+              for r in d['records'] if r.get('race_date')]
+    coverage = {"from_date": min(_dates), "to_date": max(_dates)} if _dates else None
+
     # Save
     output_data = {
         "metadata": {
             "created_at": datetime.now().isoformat(),
+            "schema_version": "quality_meta/1",
+            "coverage": coverage,
             "source": "data3/races + data3/keibabook (cyokyo_detail)",
             "since": args.since,
             "total_trainers": len(results),

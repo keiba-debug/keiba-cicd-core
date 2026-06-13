@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from analysis.quality_meta import quality_meta
 
 
 # ========================================================================
@@ -184,7 +185,8 @@ def compute_stats(records: list) -> dict:
     """レコード群から統計を計算"""
     n = len(records)
     if n == 0:
-        return {'sample_size': 0, 'win_rate': 0, 'top3_rate': 0, 'top5_rate': 0, 'avg_finish': 0, 'avg_odds': 0}
+        return {'sample_size': 0, 'win_rate': 0, 'top3_rate': 0, 'top5_rate': 0,
+                'win_count': 0, 'top3_count': 0, 'top5_count': 0, 'avg_finish': 0, 'avg_odds': 0}
 
     wins = sum(1 for r in records if r['finish'] == 1)
     top3 = sum(1 for r in records if r['finish'] <= 3)
@@ -197,6 +199,10 @@ def compute_stats(records: list) -> dict:
         'win_rate': round(wins / n, 4),
         'top3_rate': round(top3 / n, 4),
         'top5_rate': round(top5 / n, 4),
+        # 生カウント（E-001 B-2: 率×n復元を禁止し直接保持）
+        'win_count': wins,
+        'top3_count': top3,
+        'top5_count': top5,
         'avg_finish': round(statistics.mean(finishes), 1),
         'avg_odds': round(statistics.mean(odds_vals), 1) if odds_vals else 0,
     }
@@ -423,6 +429,13 @@ def compute_overall_analysis(records: list) -> dict:
 
     # 単一軸
     overall['by_lapRank'] = group_and_compute(records, lambda r: r.get('lapRank', '') or None)
+    # E-001 品質メタ: by_lapRank は非選抜の全数集計 → wilson。Phase 1 対象（他軸は Phase 2）。
+    for _st in overall['by_lapRank'].values():
+        if _st.get('sample_size', 0) > 0:
+            _st['quality'] = quality_meta(
+                metric='top3_rate', algo='wilson_binomial',
+                hits=_st['top3_count'], n=_st['sample_size'], min_n=5,
+            )
     overall['by_timeLevel'] = group_and_compute(records, lambda r: r.get('timeLevel', '') or None)
     overall['by_location'] = group_and_compute(records, lambda r: r.get('finalLocation', '') or None)
     overall['by_acceleration'] = group_and_compute(records, lambda r: r.get('acceleration', '') or None)
@@ -636,10 +649,16 @@ def main():
     print("\n[STEP 3] Computing trainer-specific analysis...")
     trainers = compute_trainer_analysis(records)
 
+    # coverage（E-001 S-3: データ期間を JSON 自体に刻む）
+    _dates = [r.get('race_date') for r in records if r.get('race_date')]
+    coverage = {"from_date": min(_dates), "to_date": max(_dates)} if _dates else None
+
     # Save
     output_data = {
         "metadata": {
             "created_at": datetime.now().isoformat(),
+            "schema_version": "quality_meta/1",
+            "coverage": coverage,
             "source": "data3/races/training_summary + data3/keibabook + data3/races",
             "since": args.since,
             "total_records": len(records),

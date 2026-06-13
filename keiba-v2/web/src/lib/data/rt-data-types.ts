@@ -80,6 +80,44 @@ export interface RaceOdds {
   raceCondition?: RaceCondition;
   /** オッズ分析コメント */
   analysis?: OddsAnalysis;
+  /** O1レコードの発表時刻 (MMDDHHmm) — 表示中オッズの as-of */
+  happyoTime?: string;
+  /** 表示中オッズの鮮度（as-of）。/api/odds/race が付与 */
+  oddsFreshness?: OddsFreshness;
+}
+
+/**
+ * 表示中オッズの鮮度（as-of）情報。
+ * EV>1.0 判定の土台が「いつ時点のオッズか」を画面に出すための共通型。
+ */
+export interface OddsFreshness {
+  /** as-of の epoch ms（正確な発表/取得時刻が分かる場合のみ）。不明なら null */
+  asOf: number | null;
+  /** 表示用ラベル "HH:MM"（不明なら null） */
+  label: string | null;
+  /** asOf が実際の発表時刻として信頼できるか。false=速報等で正確な分単位は不明 */
+  exact: boolean;
+  /** どの経路のオッズか（デバッグ/表示分岐用） */
+  kind: 'RT' | 'DB_TS' | 'DB_FINAL';
+}
+
+/**
+ * 発表時刻 (MMDDHHmm) + raceId(先頭4桁=年) から epoch ms を構築する純粋関数。
+ * サーバー(JST)で実行して絶対時刻(ms)に変換し、クライアントは Date.now() と比較する。
+ * 不正値は null（鮮度表示をスキップ）。
+ */
+export function happyoTimeToMs(raceId: string, mmddhhmm: string | null | undefined): number | null {
+  if (!raceId || raceId.length < 4) return null;
+  const s = (mmddhhmm ?? '').trim();
+  if (!/^\d{8}$/.test(s)) return null;
+  const year = parseInt(raceId.substring(0, 4), 10);
+  const mm = parseInt(s.substring(0, 2), 10);
+  const dd = parseInt(s.substring(2, 4), 10);
+  const hh = parseInt(s.substring(4, 6), 10);
+  const mi = parseInt(s.substring(6, 8), 10);
+  if (!year || mm < 1 || mm > 12 || dd < 1 || dd > 31 || hh > 23 || mi > 59) return null;
+  const t = new Date(year, mm - 1, dd, hh, mi, 0, 0).getTime();
+  return Number.isFinite(t) ? t : null;
 }
 
 /**

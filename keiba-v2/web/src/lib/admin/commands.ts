@@ -21,6 +21,8 @@ export type ActionType =
   | 'analyze_training'           // 調教分析
   | 'rebuild_sire_stats'         // 血統統計再集計
   | 'rebuild_slow_start'         // 出遅れ分析再集計
+  | 'rebuild_jockey_close'       // 騎手接戦 再集計（master再構築→接戦集計）
+  | 'calc_idm_standards'         // IDM基準値算出
   | 'rebuild_race_search_index'  // レース検索インデックス再構築
   | 'v4_build_race'              // JRA-VAN → data3/races/
   | 'v4_predict'                 // ML予測 → races/YYYY/MM/DD/predictions.json
@@ -305,6 +307,8 @@ export function getCommandArgs(action: ActionType, date: string, options?: Comma
     case 'analyze_training':
     case 'rebuild_sire_stats':
     case 'rebuild_slow_start':
+    case 'rebuild_jockey_close':
+    case 'calc_idm_standards':
     case 'rebuild_race_search_index':
     case 'v4_build_race':
     case 'v4_predict':
@@ -377,6 +381,8 @@ export function getCommandArgsRange(
     case 'analyze_training':
     case 'rebuild_sire_stats':
     case 'rebuild_slow_start':
+    case 'rebuild_jockey_close':
+    case 'calc_idm_standards':
     case 'rebuild_race_search_index':
     case 'v4_build_race':
     case 'v4_predict':

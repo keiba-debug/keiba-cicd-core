@@ -12,6 +12,7 @@ import { RefreshCw, TrendingUp, TrendingDown, Minus, ArrowLeft, ArrowUpRight, Ar
 import Link from 'next/link';
 import { RpciGauge, RpciBar, StatCard } from '@/components/ui/visualization';
 import { RecalcButton } from '@/components/admin/recalc-button';
+import { FreshnessHeader } from '@/components/analysis/FreshnessHeader';
 import { cn } from '@/lib/utils';
 
 // 型定義
@@ -78,6 +79,8 @@ interface RpciStandardsResponse {
     years_list?: number[];
     description: string;
     calculation: string;
+    schema_version?: string;
+    coverage?: { from_date?: string; to_date?: string };
   };
 }
 
@@ -583,23 +586,31 @@ export default function RpciAnalysisPage() {
           </div>
 
           {/* メタデータ */}
-          <div className="text-xs text-muted-foreground flex items-center justify-between">
-            <span>
-              対象期間: <strong className="text-foreground">{data.metadata.years || '不明'}</strong> |
-              更新: {new Date(data.metadata.created_at).toLocaleString('ja-JP')} |
-              ソース: {data.metadata.source}
-            </span>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={fetchData}
-                className="flex items-center gap-1 hover:text-foreground transition-colors"
-                disabled={loading}
-              >
-                <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-                再読み込み
-              </button>
-              <RecalcButton actionId="calc_race_type_standards" onComplete={fetchData} />
+          <div className="space-y-1.5">
+            <div className="text-xs text-muted-foreground flex items-center justify-between">
+              <span>
+                対象期間: <strong className="text-foreground">{data.metadata.years || '不明'}</strong> |
+                更新: {new Date(data.metadata.created_at).toLocaleString('ja-JP')} |
+                ソース: {data.metadata.source}
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={fetchData}
+                  className="flex items-center gap-1 hover:text-foreground transition-colors"
+                  disabled={loading}
+                >
+                  <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+                  再読み込み
+                </button>
+                <RecalcButton actionId="calc_race_type_standards" onComplete={fetchData} />
+              </div>
             </div>
+            <FreshnessHeader
+              coverage={data.metadata.coverage}
+              createdAt={data.metadata.created_at}
+              schemaVersion={data.metadata.schema_version}
+              note="RPCI は pace/lap データ由来のため確定が数日遅れる（直近開催が未反映でも異常ではない）"
+            />
           </div>
 
           {/* タブ */}

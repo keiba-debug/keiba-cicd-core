@@ -21,6 +21,7 @@ interface BetDetail {
   odds: number;
   is_hit: boolean;
   payout: number;
+  source?: 'auto' | 'target';
 }
 
 interface RacePurchase {
@@ -236,7 +237,14 @@ export function DailyPurchaseList({ dateStr, refreshKey }: DailyPurchaseListProp
                     {race.post_time || '--:--'}
                   </span>
                   {/* 場所・R */}
-                  <span className="font-bold w-20 flex-shrink-0">{race.venue} {race.race_number}R</span>
+                  <span className="font-bold w-28 flex-shrink-0 flex items-center gap-1">
+                    <span>{race.venue} {race.race_number}R</span>
+                    {race.bets?.some(b => b.source === 'auto') && (
+                      <span className="text-[10px] font-normal px-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
+                        {race.bets.every(b => b.source === 'auto') ? '自動' : '混在'}
+                      </span>
+                    )}
+                  </span>
                   {/* レース名・距離 */}
                   <span className="text-sm truncate flex-1 min-w-0">
                     {race.race_name && (
@@ -318,7 +326,14 @@ export function DailyPurchaseList({ dateStr, refreshKey }: DailyPurchaseListProp
                           
                           return (
                             <TableRow key={betIndex} className={rowClass}>
-                              <TableCell className="font-medium">{bet.bet_type}</TableCell>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-1">
+                                  {bet.source === 'auto' && (
+                                    <span className="text-[10px] px-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 shrink-0">自動</span>
+                                  )}
+                                  {bet.bet_type}
+                                </div>
+                              </TableCell>
                               <TableCell>{bet.selection}</TableCell>
                               <TableCell className="text-right">{formatCurrency(bet.amount)}</TableCell>
                               <TableCell className="text-right">{bet.odds.toFixed(1)}</TableCell>

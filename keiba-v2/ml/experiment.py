@@ -922,11 +922,13 @@ def build_pit_sire_timeline(date_index: dict, pedigree_index: dict) -> Tuple[dic
     return dict(sire_tl), dict(dam_tl), dict(bms_tl)
 
 
-def load_data(sire_cutoff: str = None) -> tuple:
+def load_data(sire_cutoff: str = None, allow_sire_leak: bool = False) -> tuple:
     """data3からデータをロード
 
     Args:
         sire_cutoff: 血統統計カットオフ日 (YYYY-MM-DD)。指定時はcutoff付きインデックスを使用。
+        allow_sire_leak: E-008。cutoff指定でcutoff付きファイルが無い場合、True なら通常版に
+            フォールバック（リーク許可）、False（既定）なら停止する。
     """
     print("[Load] Loading data3...")
 
@@ -981,10 +983,16 @@ def load_data(sire_cutoff: str = None) -> tuple:
         suffix = sire_cutoff.replace('-', '')
         sire_path = config.indexes_dir() / f"sire_stats_index_cutoff_{suffix}.json"
         if not sire_path.exists():
+            # E-008: cutoff指定なのに該当ファイルが無いとき、黙って通常版（リーク有り）に
+            # フォールバックするとPIT安全のつもりが崩れる。--allow-sire-leak が無ければ停止。
             print(f"  Sire stats (cutoff={sire_cutoff}): NOT FOUND → {sire_path}")
             print(f"  Run: python -m builders.build_sire_stats --cutoff {sire_cutoff}")
+            if not allow_sire_leak:
+                print(f"  [E-008] STOP: cutoff付き血統統計が無いため停止（--allow-sire-leak で"
+                      f"通常版フォールバックを許可）")
+                sys.exit(2)
             sire_path = config.indexes_dir() / "sire_stats_index.json"
-            print(f"  Falling back to default: {sire_path}")
+            print(f"  Falling back to default (--allow-sire-leak): {sire_path}")
     else:
         sire_path = config.indexes_dir() / "sire_stats_index.json"
     sire_stats_index = {}
@@ -1320,6 +1328,7 @@ def compute_features_for_race(
         feat['ketto_num'] = ketto_num
         feat['horse_name'] = entry.get('horse_name', '')
         feat['umaban'] = entry.get('umaban', 0)
+        feat['jockey_code'] = str(entry.get('jockey_code', ''))  # E-003 接戦タイブレーク用（学習には使わない）
         feat['venue_name'] = race.get('venue_name', '')
         feat['grade'] = current_grade
         feat['age_class'] = current_age_class
@@ -2536,6 +2545,9 @@ def main():
                         help='特徴量スナップショットをdata3/features/に保存')
     parser.add_argument('--sire-cutoff', type=str, default=None,
                         help='血統統計カットオフ日 (YYYY-MM-DD)。cutoff付きインデックスを使用')
+    parser.add_argument('--allow-sire-leak', action='store_true',
+                        help='E-008: --sire-cutoff 未指定/テスト期間リークを許可（本番最終学習など'
+                             '意図的な全データ利用時のみ）。既定は未指定で停止しPITリークを防ぐ')
     parser.add_argument('--perf-stack', action='store_true',
                         help='Perfモデル予測をスタッキング特徴量として追加')
     parser.add_argument('--ar-stack', action='store_true',
@@ -2614,19 +2626,33 @@ def main():
 
     t0 = time.time()
 
-    # === リーク防止チェック: sire_cutoff vs テスト期間 ===
+    # === E-008: 血統 cutoff の PIT リーク防止（既定で停止・--allow-sire-leak で明示許可）===
+    # 従来は WARNING を print して続行＝リークしたまま学習が走るリスクがあった。
+    # cutoff 未指定 / cutoff>=test_start は黙って通すと再現性のない過大評価を生むため、
+    # 明示オプトアウト（本番最終学習など意図的な全データ利用）が無い限り停止する。
     if args.sire_cutoff:
         # テスト期間の開始日を構築
         test_start = f"{test_min}-{test_min_m:02d}-01" if test_min_m else f"{test_min}-01-01"
         if args.sire_cutoff >= test_start:
-            print(f"\n  {'!'*60}")
-            print(f"  WARNING: sire_cutoff ({args.sire_cutoff}) >= test start ({test_start})")
-            print(f"  血統統計にテスト期間のデータが含まれ、リークが発生します！")
-            print(f"  推奨: --sire-cutoff をテスト期間の開始前に設定してください")
-            print(f"  {'!'*60}\n")
+            msg = (f"sire_cutoff ({args.sire_cutoff}) >= test start ({test_start})＝"
+                   f"血統統計にテスト期間が混入しPITリーク。"
+                   f"--sire-cutoff をテスト期間開始前に設定してください")
+            if args.allow_sire_leak:
+                print(f"\n  [E-008] WARNING (--allow-sire-leak): {msg}\n")
+            else:
+                print(f"\n  {'!'*60}\n  [E-008] STOP: {msg}\n"
+                      f"  意図的に全データを使う場合は --allow-sire-leak を付与\n  {'!'*60}\n")
+                sys.exit(2)
+    elif args.allow_sire_leak:
+        print(f"\n  [E-008] WARNING (--allow-sire-leak): --sire-cutoff 未指定 → "
+              f"全データの血統統計を使用（テスト期間リークあり）\n")
     else:
-        print(f"\n  WARNING: --sire-cutoff 未指定 → 全データの血統統計を使用（テスト期間リークあり）")
-        print(f"  推奨: --sire-cutoff YYYY-MM-DD でテスト期間前のcutoffを指定\n")
+        print(f"\n  {'!'*60}")
+        print(f"  [E-008] STOP: --sire-cutoff 未指定 → 全データの血統統計でPITリーク。")
+        print(f"  推奨: --sire-cutoff YYYY-MM-DD（テスト期間開始前）を指定。")
+        print(f"  意図的に全データを使う場合のみ --allow-sire-leak を付与。")
+        print(f"  {'!'*60}\n")
+        sys.exit(2)
 
     # データロード
     (history_cache, trainer_index, jockey_index,
@@ -2634,7 +2660,7 @@ def main():
      race_level_index, pedigree_index, sire_stats_index,
      jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index,
      jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index) = load_data(
-        sire_cutoff=args.sire_cutoff)
+        sire_cutoff=args.sire_cutoff, allow_sire_leak=args.allow_sire_leak)
 
     # Point-in-time: 調教師・騎手の累積タイムライン構築
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()

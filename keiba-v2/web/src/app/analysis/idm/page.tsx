@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { getIDMStandards, type IDMGradeStandard } from '@/lib/data/idm-standards-reader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { FreshnessHeader } from '@/components/analysis/FreshnessHeader';
+import { RecalcRefreshButton } from '@/components/admin/recalc-refresh-button';
 
 // ── 定数 ──
 
@@ -108,11 +110,14 @@ export default function IDMAnalysisPage() {
       </nav>
 
       {/* ヘッダー */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">IDM分析 — クラス別 JRDB IDM 基準</h1>
-        <p className="text-muted-foreground mt-1">
-          各クラスの全馬平均IDMと勝ち馬平均IDMの比較
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">IDM分析 — クラス別 JRDB IDM 基準</h1>
+          <p className="text-muted-foreground mt-1">
+            各クラスの全馬平均IDMと勝ち馬平均IDMの比較
+          </p>
+        </div>
+        <RecalcRefreshButton actionId="calc_idm_standards" />
       </div>
 
       {/* サマリー */}
@@ -144,10 +149,18 @@ export default function IDMAnalysisPage() {
       </div>
 
       {/* メタデータ */}
-      <div className="text-xs text-muted-foreground mb-6">
-        更新: {new Date(metadata.created_at).toLocaleString('ja-JP')} |
-        対象: {metadata.years} |
-        ソース: {metadata.source}
+      <div className="space-y-1.5 mb-6">
+        <div className="text-xs text-muted-foreground">
+          更新: {new Date(metadata.created_at).toLocaleString('ja-JP')} |
+          対象: {metadata.years} |
+          ソース: {metadata.source}
+        </div>
+        <FreshnessHeader
+          coverage={metadata.coverage}
+          createdAt={metadata.created_at}
+          schemaVersion={metadata.schema_version}
+          note="IDM は JRDB 確定データ由来のため反映が1〜2週遅れる（直近開催が未反映でも異常ではない）"
+        />
       </div>
 
       {/* メインテーブル */}

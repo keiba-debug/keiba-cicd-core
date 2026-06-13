@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import copy
 import json
 import statistics
 import sys
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from core.constants import GRADE_CODES, JOKEN_CLASS_MAP, GRADE_NORMALIZE
+from analysis.quality_meta import quality_meta
 
 
 # ── 定数 ──
@@ -252,8 +254,16 @@ def _compute_grade_stats(grade_races: list) -> Optional[dict]:
             "min": round(min(winner_idms), 2),
             "max": round(max(winner_idms), 2),
         }
+        # E-010: 連続量 quality。対象は winner.mean（n=winner_count）の mean_se。
+        # winner_count/horse_count は≈1/頭数の構造定数で率ではない（bayesian不能, B-3）。
+        # stability の年別集計は Phase 2（現状 year_data 無し→insufficient）。
+        result["quality"] = quality_meta(
+            metric="winner_idm_mean", algo="mean_se",
+            mean=mean_win, stdev=stdev_win, n=len(winner_idms), min_n=10,
+        )
     else:
         result["winner"] = None
+        result["quality"] = quality_meta(metric="winner_idm_mean", algo="none")
 
     return result
 
@@ -290,10 +300,16 @@ def calculate_stats(races: list) -> dict:
 
         base_grade = grade.rsplit('_', 1)[0] if '_' in grade else ''
         if s['sample_count'] < MIN_SAMPLE_COUNT and base_grade in pooled_stats:
-            fallback = dict(pooled_stats[base_grade])
+            # deepcopy: pooled の quality dict を共有参照したまま注記すると
+            # プール側エントリまで汚染するため（S-6）。
+            fallback = copy.deepcopy(pooled_stats[base_grade])
             fallback['fallback_from'] = grade
             fallback['fallback_to'] = base_grade
             fallback['original_sample_count'] = s['sample_count']
+            # quality はプール由来であることを source/original_n で明示（S-6）
+            if isinstance(fallback.get('quality'), dict):
+                fallback['quality']['source'] = base_grade
+                fallback['quality']['original_n'] = s['sample_count']
             stats[grade] = fallback
             fallback_count += 1
         else:
@@ -412,6 +428,16 @@ def main():
     print(f"\n  Global mean IDM: {global_mean}")
     print(f"  Global winner mean IDM: {global_winner_mean}")
 
+    # E-010: coverage（鮮度メタ）。created_at では IDM 元データ（JRDB）の凍結を
+    # 検知できないため実データの開催日レンジを刻む（check_coverage 連携）。
+    rec_dates = [r['race_date'] for r in races if r.get('race_date')]
+    coverage = {
+        "from_date": min(rec_dates) if rec_dates else "",
+        "to_date": max(rec_dates) if rec_dates else "",
+        "granularity": "day",
+        "total_races": len(races),
+    }
+
     # 出力
     standards = {
         "metadata": {
@@ -420,9 +446,12 @@ def main():
             "years": f"{args.since}-{datetime.now().year}",
             "total_races": len(races),
             "version": "1.0",
+            "schema_version": "quality_meta/1",
+            "coverage": coverage,
             "global_mean_idm": global_mean,
             "global_winner_mean_idm": global_winner_mean,
         },
+        "coverage": coverage,
         "by_grade": grade_stats,
         "by_race_name": by_race_name,
     }

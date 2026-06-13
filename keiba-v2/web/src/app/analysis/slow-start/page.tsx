@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RecalcButton } from '@/components/admin/recalc-button';
+import { FreshnessHeader } from '@/components/analysis/FreshnessHeader';
 
 // ============================================================
 // Types
@@ -74,6 +75,7 @@ interface HorseStat {
 
 interface SlowStartData {
   generated_at: string;
+  schema_version?: string;
   coverage: Coverage;
   jockey_ranking: JockeyRanking[];
   recent_incidents: Incident[];
@@ -188,6 +190,14 @@ export default function SlowStartAnalysisPage() {
               {' '}{data.coverage.total_slow_starts.toLocaleString()}件の出遅れ
               {' '}({pct(data.coverage.total_slow_starts / data.coverage.total_entries)})
             </p>
+            <div className="mt-1.5">
+              <FreshnessHeader
+                coverage={data.coverage}
+                createdAt={data.generated_at}
+                schemaVersion={data.schema_version}
+                note="最新年は部分年（季節偏り）のため年次トレンド比較は注意"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5">

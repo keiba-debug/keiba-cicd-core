@@ -44,6 +44,12 @@ from pywinauto.keyboard import send_keys
 
 TARGET_WINDOW_KEYWORD = "TARGET frontier JV"
 
+# 保存 (F10) 押下前の settle と F10 再送 (Session 155)
+#   投票終了ダイアログを閉じた直後は「買い目一括処理」 窓が再前面化する途中で、
+#   set_focus → 即 {F10} だと F10 が吸われ情報ダイアログが出ず、 保存が無言で失敗する。
+#   set_focus 後に settle を入れ、 情報ダイアログが出なければ F10 を 1 度だけ再送する。
+SAVE_F10_SETTLE_SEC = float(os.getenv("KEIBA_SAVE_F10_SETTLE_SEC", "0.6"))
+
 # メニューパス (実環境で確認した完全一致)
 MENU_LOAD_CSV = "ﾌｧｲﾙ(&F)->特定フォーマットの買い目の一括読み込み->買い目CSV形式(C)"
 
@@ -630,7 +636,9 @@ def step2_confirm_import(*, verbose: bool = True, timeout: int = 15) -> bool:
         return False
     _vp(verbose, "buy-list batch process window detected")
     win.set_focus()
-    time.sleep(0.3)
+    # Session 155: 投票終了ダイアログを閉じた直後は窓が再前面化する途中。
+    #   settle を入れてから F10 を送らないと F10 が吸われ情報ダイアログが出ない。
+    time.sleep(SAVE_F10_SETTLE_SEC)
 
     # 「OK (F10)」 を F10 キーで押下 (ボタンラベルが 'OK (F10)' か 'OK' か揺れるため)
     _vp(verbose, "send_keys: {F10} (取り込み確定)")
@@ -640,8 +648,24 @@ def step2_confirm_import(*, verbose: bool = True, timeout: int = 15) -> bool:
     # 「情報」 ダイアログ 「読み込んだ買い目を…」 → はい
     info_dlg = _wait_window(DLG_INFO_CONFIRM, by_regex=False, timeout=10)
     if info_dlg is None:
-        _vp(verbose, f"info dialog {DLG_INFO_CONFIRM!r} not appeared (skip)")
-        return True   # info ダイアログ無くても取り込み成功と判断
+        # Session 155: F10 が吸われた可能性。 窓を取り直して再 focus → F10 を 1 度だけ再送。
+        _vp(verbose, f"info dialog {DLG_INFO_CONFIRM!r} not appeared — re-focus + {{F10}} 再送")
+        win2 = _wait_window(WIN_BATCH_PROCESS_RE, by_regex=True, timeout=3)
+        if win2 is not None:
+            try:
+                win2.set_focus()
+            except Exception:
+                pass
+            time.sleep(SAVE_F10_SETTLE_SEC)
+            send_keys("{F10}")
+            time.sleep(0.5)
+            info_dlg = _wait_window(DLG_INFO_CONFIRM, by_regex=False, timeout=8)
+    if info_dlg is None:
+        # 再送しても情報ダイアログ無し = 既に取込確定済 or 保存失敗。 区別できないため
+        #   呼び出し元 (runner) が True を「保存成功」 と誤認しないよう loud 警告を残す。
+        _vp(verbose, f"⚠ info dialog {DLG_INFO_CONFIRM!r} still not appeared after retry "
+                     f"— 取込確定済とみなすが手動で TARGET 買い目データ保存を確認のこと")
+        return True   # info ダイアログ無くても取り込み成功と判断 (従来挙動を維持)
     _vp(verbose, "info confirm dialog detected")
     info_dlg.set_focus()
     time.sleep(0.2)

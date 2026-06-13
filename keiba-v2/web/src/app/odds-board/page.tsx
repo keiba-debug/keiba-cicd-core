@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { RaceOdds, HorseOdds } from '@/lib/data/rt-data-types';
 import { getTrackNameFromRaceId } from '@/lib/data/rt-data-types';
+import { OddsFreshnessBadge } from '@/components/odds/OddsFreshnessBadge';
 import { getWakuColor } from '@/types/race-data';
 import type { ExpectedValueResponse } from '@/types/prediction';
 import type { PredictionsLive, PredictionRace, PredictionEntry } from '@/lib/data/predictions-reader';
@@ -948,6 +949,12 @@ export default function OddsBoardPage() {
                   </CardTitle>
                   {/* 2行目: レース条件 + 分析コメント + MLサマリー */}
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    {odds.oddsFreshness && (
+                      <OddsFreshnessBadge
+                        freshness={odds.oddsFreshness}
+                        hasResults={odds.horses.some((h) => h.finishPosition != null && h.finishPosition !== '')}
+                      />
+                    )}
                     {condText && (
                       <span className="font-medium">{condText}</span>
                     )}

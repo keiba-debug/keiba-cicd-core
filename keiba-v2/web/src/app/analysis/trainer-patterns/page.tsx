@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RecalcButton } from '@/components/admin/recalc-button';
+import { FreshnessHeader } from '@/components/analysis/FreshnessHeader';
 
 // =============================================
 // Types
@@ -83,6 +84,8 @@ interface ApiResponse {
     since: number;
     total_records: number;
     version: string;
+    coverage?: { from_date?: string; to_date?: string };
+    schema_version?: string;
   };
   overall?: OverallAnalysis;
   trainers: Record<string, TrainerInfo>;
@@ -986,9 +989,16 @@ export default function TrainingAnalysisPage() {
           </div>
         </div>
         {metadata && (
-          <p className="text-sm text-muted-foreground mt-1">
-            対象期間: {metadata.since}年~ / レコード: {metadata.total_records?.toLocaleString()} / 生成: {metadata.created_at?.slice(0, 10)}
-          </p>
+          <div className="mt-1.5 space-y-1">
+            <p className="text-sm text-muted-foreground">
+              対象期間: {metadata.since}年~ / レコード: {metadata.total_records?.toLocaleString()}
+            </p>
+            <FreshnessHeader
+              coverage={metadata.coverage}
+              createdAt={metadata.created_at}
+              schemaVersion={metadata.schema_version}
+            />
+          </div>
         )}
       </div>
 

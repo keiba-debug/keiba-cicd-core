@@ -1,397 +1,283 @@
 # ML期待値ベット抽出プロジェクト ソース解説
 
-> JRA-VAN + 競馬ブックデータを活用し、機械学習で期待値の高いベットを抽出するプロジェクトのソースコード解説。
-> 開発中ソースや状況を正しく理解するためのガイド。
+> JRA-VAN + 競馬ブック + JRDB データを活用し、機械学習で期待値の高いベットを抽出するプロジェクトのソースガイド。
+> 開発中ソースや状況を正しく理解するための地図。
 
-**最終更新**: 2026-02-22
+**最終更新**: 2026-06-13（Session 156 全面改訂 — 旧版 2026-02-22 は Model A/B・model_reg_b 時代の記述。
+現行の P/W/AR + Stars/Nebula + model_registry 体系でコード裏取りして書き直した）
 
 ---
 
 ## 目次
 
 1. [プロジェクト概要](#1-プロジェクト概要)
-2. [アーキテクチャ概要](#2-アーキテクチャ概要)
-3. [ディレクトリ構成](#3-ディレクトリ構成)
-4. [MLモジュール詳細](#4-mlモジュール詳細)
-5. [予測パイプライン](#5-予測パイプライン)
-6. [買い目エンジン (bet_engine)](#6-買い目エンジン-bet_engine)
-7. [特徴量エンジニアリング](#7-特徴量エンジニアリング)
-8. [Web Predictions画面](#8-web-predictions画面)
-9. [実験・バックテスト](#9-実験バックテスト)
+2. [モデル体系（Stars / Nebula）](#2-モデル体系stars--nebula)
+3. [ディレクトリ構成（ml/）](#3-ディレクトリ構成ml)
+4. [日次の推論→買い目→投票フロー](#4-日次の推論買い目投票フロー)
+5. [特徴量エンジニアリング](#5-特徴量エンジニアリング)
+6. [実験・バックテスト・検証ハーネス](#6-実験バックテスト検証ハーネス)
+7. [バージョン管理・ロールバック](#7-バージョン管理ロールバック)
+8. [Web表示チェーン（表示更新漏れ防止）](#8-web表示チェーン表示更新漏れ防止)
+9. [データの場所](#9-データの場所)
 10. [関連ドキュメント一覧](#10-関連ドキュメント一覧)
 
 ---
 
 ## 1. プロジェクト概要
 
-### 目的
-
-- **期待値ベースの馬券購入支援**: 機械学習で「市場が過小評価している馬（Value Bet）」を検出し、期待値の高いベットを推奨する
-- **Value Bet戦略**: Model A（市場含む）と Model B（市場系除外）の順位乖離（Gap）を利用
-- **単勝・複勝の推奨**: Win ROI 119.9%、gap>=6+EV>=1.2+m<=0.8 で統計的有意なCI下限>100%を達成
+- **期待値ベースの馬券購入支援**: 市場が過小評価している馬（Value Bet）を検出する
+- **VB gap**: 市場順位とモデル順位の直接乖離（experiment.py:3247）
+  - `vb_gap = (odds_rank - pred_rank_p).clip(lower=0)` … 複勝系
+  - `win_vb_gap = (odds_rank - pred_rank_w).clip(lower=0)` … 単勝系
+- **EV 計算**（CLAUDE.md 準拠）: 単勝EV = `pred_proba_w_cal × 単勝オッズ`、複勝EV = `pred_proba_p_raw × 複勝最低オッズ`
+- **検証の柱**: 的中率でなくキャリブレーション（ブライアスコア/ECE）と gap別ROIブートCI
 
 ### 技術スタック
 
 | 領域 | 技術 |
 |------|------|
-| ML | LightGBM (分類4本 + 回帰1本), IsotonicRegression (キャリブレーション) |
-| 言語 | Python 3.11, TypeScript |
-| Web | Next.js 16, React 19 |
-| データ | JRA-VAN (C:\TFJV), mykeibadb (MySQL), 競馬ブックスクレイピング |
+| ML | LightGBM（P/W 分類 + AR 回帰）, IsotonicRegression（キャリブレーション） |
+| 言語 | Python 3.11（venv: `keiba-v2/.venv`）, TypeScript |
+| Web | Next.js 16, React 19, Tailwind 4 + shadcn/ui |
+| データ | JRA-VAN (C:/TFJV), mykeibadb (MySQL オッズ), 競馬ブック, JRDB (8種DL済) |
 
 ---
 
-## 2. アーキテクチャ概要
+## 2. モデル体系（Stars / Nebula）
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                           データソース                                        │
-│  JRA-VAN (TFJV)  競馬ブック (Web)  mykeibadb (事前オッズ・確定オッズ)          │
-└─────────────────────┬────────────────────────────────────────────────────────┘
-                      │
-                      ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  builders/  マスタJSON構築                                                    │
-│  build_race_master, build_horse_master, build_horse_history, ...              │
-└─────────────────────┬────────────────────────────────────────────────────────┘
-                      │ data3/races, data3/masters, data3/keibabook
-                      ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  ml/  機械学習パイプライン                                                    │
-│                                                                              │
-│  experiment.py ────► モデル訓練 (LightGBM)  ────► model_a/b.txt, model_w/wv   │
-│                     calibrators.pkl, model_reg_b.txt                          │
-│                                                                              │
-│  predict.py ───────► 当日予測  ────► predictions_live.json                    │
-│                     bet_engine.py で買い目推奨を生成                           │
-└─────────────────────┬────────────────────────────────────────────────────────┘
-                      │ predictions_live.json
-                      ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  web/src/app/predictions/  Predictions 画面                                   │
-│  レース一覧、Value Bet候補、推奨買い目、ROI分析、TARGET連携                    │
-└──────────────────────────────────────────────────────────────────────────────┘
+`data3/ml/model_registry.json`（schema v2）が**唯一の真実**。`ml/model_loader.py` がロードを一元化。
+
+### Stars系（馬単位: この馬が走るか）
+
+| モデル | 中身 | ファイル | 出力 |
+|--------|------|---------|------|
+| **polaris** | 平地メイン。**P**(is_top3分類) / **W**(is_win分類) / **AR**(着差Huber回帰) の3本 + calibrators | `model_p.txt` / `model_w.txt` / `model_ar.txt` / `calibrators.pkl` | `pred_proba_p(_raw)`, `pred_proba_w_cal`, `pred_margin_ar`, `rank_p/w` |
+| **enif** | 障害専用 (P/W) | `model_obstacle_*.txt` | 同上（障害レースのみ） |
+
+### Nebula系（レース単位: このレースがどうなるか）
+
+| モデル | 中身 | ファイル | 出力 |
+|--------|------|---------|------|
+| **eclipse** | 差し決着優勢レース判定（旧称 Closing） | `model_closing.txt` | `closing_race_proba` |
+
+将来枠: sirius（激走/伏兵検出）、nova（残差/新興）、vega（血統）等 — `docs/` の各設計メモ参照。
+**スタッキング禁止**: Stars/Nebula の視点独立性が ROI の収益源（AR→W スタッキングは失敗実証済み）。
+
+### model_loader API
+
+```python
+from ml.model_loader import load_model, list_models, list_versions, get_active_version
+bundle = load_model("polaris")            # live（registry の active_version）
+bundle = load_model("polaris", "2.2")     # アーカイブ版
+bundle.model_p / bundle.model_w / bundle.model_ar / bundle.calibrators / bundle.meta
 ```
 
+パス解決: 新構造 `ml/models/{name}/live/` → 旧構造 `ml_dir` 直下（polaris は `model_meta.json`）の順でフォールバック。
+
 ---
 
-## 3. ディレクトリ構成
+## 3. ディレクトリ構成（ml/）
 
 ```
-keiba-v2/
-├── ml/                          # 機械学習モジュール
-│   ├── experiment.py            # メイン実験・訓練スクリプト
-│   ├── predict.py               # 当日予測・predictions_live.json 生成
-│   ├── bet_engine.py            # 買い目推奨エンジン (Python側ロジック)
-│   ├── backtest_bet_engine.py   # bet_engine バックテスト
-│   ├── backtest_vb.py           # VB均一買いバックテスト
-│   ├── experiment_regression.py # 着差回帰実験
-│   ├── experiment_lambdarank.py # LambdaRank実験
-│   ├── features/                # 特徴量エンジニアリング
-│   │   ├── base_features.py
-│   │   ├── past_features.py
-│   │   ├── trainer_features.py
-│   │   ├── jockey_features.py
-│   │   ├── running_style_features.py
-│   │   ├── rotation_features.py
-│   │   ├── pace_features.py
-│   │   ├── training_features.py
-│   │   ├── speed_features.py
-│   │   ├── comment_features.py
-│   │   ├── slow_start_features.py
-│   │   ├── margin_target.py
-│   │   └── training_features.py
-│   └── tests/
-│       └── test_bet_engine.py
-│
-├── web/src/app/predictions/     # Predictions 画面 (Next.js)
-│   ├── page.tsx                 # ページエントリ
-│   ├── predictions-content.tsx  # メインコンテンツ
-│   ├── lib/
-│   │   ├── bet-logic.ts         # 予算リスケール・均等配分
-│   │   ├── types.ts
-│   │   └── helpers.tsx
-│   └── components/
-│       ├── bet-recommendations.tsx
-│       ├── vb-table.tsx
-│       ├── race-card.tsx
-│       ├── filter-bar.tsx
-│       ├── roi-summary.tsx
-│       └── ...
-│
-└── docs/                        # ドキュメント
-    ├── ML_SOURCE_GUIDE.md       # 本ドキュメント
-    ├── models_and_features.md   # モデル・特徴量定義
-    ├── BETTING_STRATEGY.md      # ベッティング戦略
-    ├── ml-experiments/          # 実験レポート
-    │   ├── README.md
-    │   ├── v5.6_ev_gap_analysis.md
-    │   └── ...
-    └── ...
+keiba-v2/ml/
+├── 学習・実験
+│   ├── experiment.py            # 本番実験CLI（P/W/AR学習・VB分析・バージョン保存）★中核
+│   ├── experiment_obstacle.py   # enif（障害）実験
+│   ├── experiment_closing.py    # eclipse 実験
+│   ├── optuna_tuner(_obstacle).py
+│   └── experiment_*.py          # lambdarank/regression 等の実験系列
+├── 推論・運用（日次）
+│   ├── predict.py               # polaris/enif 当日予測 → predictions.json ★中核
+│   ├── predict_closing.py       # eclipse 追記
+│   ├── generate_bets.py         # bet_engine で買い目 recommendations 追記
+│   ├── vb_refresh.py            # オッズ更新+買い目再計算（task scheduler 定時実行）
+│   ├── bet_engine.py            # 買い目エンジン（preset/EV/配分）★中核
+│   ├── preflight.py             # predict smoke test
+│   └── cache_freshness.py       # MLキャッシュ鮮度チェック（Session 152）
+├── バージョン管理
+│   ├── model_loader.py          # registry 一元ローダー ★中核
+│   ├── restore_live.py          # archive→live ファイル復元（registry 不変）
+│   ├── set_active.py            # active_version 正式切替
+│   └── switch_model.py          # 旧式切替（--list/--current が便利）
+├── 検証・分析
+│   ├── backtest_bet_engine.py   # backtest_cache × bet_engine プリセット比較
+│   ├── backtest_vb.py           # VB gap別 ROI
+│   ├── extend_backtest_cache.py # backtest_cache に日付追加
+│   ├── analyze/                 # 検証ハーネス・調査スクリプト群
+│   │   ├── validate_live_predictions.py  # ★E-009 採否判定ハーネス（ROI+ブートCI+月別+--option）
+│   │   ├── check_calibration.py / check_wp_separation.py
+│   │   ├── backtest_*.py        # walkforward / templates / cliff 等
+│   │   ├── bankroll_core.py + simulate_bankroll_character.py  # キャラ別複利sim
+│   │   └── analyze_slow_start_edge.py 等（E-004 採否証跡）
+│   ├── analyze_*.py（直下）     # 旧分析スクリプト群（teppan/wide/sanrentan 等）
+│   ├── simulate_*.py / win5_*.py
+│   └── compute_p_bootstrap.py / ci_power_analysis.py
+├── 較正
+│   └── calibration/             # odds_conditioned.py + build_oc_calibrator.py（案X系・oc_calib_*.pkl）
+├── 特徴量
+│   └── features/                # §5 参照（19モジュール）
+├── 買い方戦略（買い目層・表示層の純関数群）
+│   └── strategies/              # bet_templates, harville, kelly, synthetic_odds, role_split,
+│                                #   quality_gate(E-002), jockey_close(E-003), slow_start,
+│                                #   reason_tags(E-005), characters, bettype_*, freebudget_* 等
+├── 自動投票（3軸目: 馬券購入エージェント）
+│   ├── ai_marks/                # AI印付与（markSet）・buy_marks・DAT書出し
+│   ├── target_clicker/          # IPAT自動投票（launcher/runner/auto_vote/notify）
+│   └── purchase_ledger/         # 購入記録（改ざん防止・税務）+ settle_ledger.py
+├── 共通
+│   └── utils/                   # backtest_cache ローダー（唯一の真実）, roi, filters, atomic_write 等
+└── tests/                       # pytest（quality_meta/quality_gate/reason_tags/strategies 系 等）
 ```
 
+> ⚠ 既知のテスト負債: `tests/test_bet_engine.py` 7件が Session 90 時点の仕様のまま赤（実体が先に変わった）。
+> bet_engine 改修前に要修正（2026-06 時点）。
+
 ---
 
-## 4. MLモジュール詳細
+## 4. 日次の推論→買い目→投票フロー
 
-### 4.1 experiment.py
+```bash
+# 0. MLキャッシュ再構築（keiba-data-prep スキル ②-4.5 — 予測直前に毎回。凍結インシデント再発防止）
+python -m builders.build_race_index
+python -m builders.build_horse_history
 
-**役割**: モデル訓練・評価パイプライン。LightGBMで4つの分類モデル（A/B/W/WV）と1つの回帰モデル（Reg B）を学習する。
-
-**主な処理フロー**:
-
-1. **データロード**: `load_data()` で horse_history_cache, trainer_index, jockey_index, date_index 等を取得
-2. **データセット構築**: `build_dataset()` で train/val/test を年別に構築（デフォルト: train=2020-2024, test=2025-2026）
-3. **特徴量**: `FEATURE_COLS_ALL`（全特徴量）と `FEATURE_COLS_VALUE`（市場系除外）を定義
-4. **訓練**:
-   - `train_model()` で分類モデル (A, B, W, WV) を訓練
-   - `train_regression_model()` で Reg B（着差回帰）を訓練
-   - IsotonicRegression で Win モデルをキャリブレーション
-5. **バックテスト**: VB均一買い、bet_engine ROI を計算
-6. **出力**: model_meta.json, model_*.txt, calibrators.pkl, model_reg_b.txt
-
-**起動方法**:
-```powershell
-python -m ml.experiment [--train-years 2020-2024] [--test-years 2025-2026]
+# 1. 日次フル実行（各コマンドが predictions.json を順次追記）
+python -m ml.predict          --date YYYY-MM-DD   # polaris/enif 予測
+python -m ml.predict_closing  --date YYYY-MM-DD   # eclipse closing_race_proba 追記
+python -m ml.generate_bets    --date YYYY-MM-DD   # recommendations（買い目）追記
+python -m ml.vb_refresh       --date YYYY-MM-DD   # オッズ更新+再計算（scripts/vb_refresh_auto.bat で定時）
 ```
 
-**特徴量定義場所**:
-- `BASE_FEATURES`, `PAST_FEATURES`, `TRAINER_FEATURES`, ... は experiment.py 内で定義
-- 各特徴量の実計算は `ml/features/` 配下モジュールで実行
+- 出力: `data3/races/YYYY/MM/DD/predictions.json`（model_version, created_at, odds_source 等のメタ付き）
+- predict.py は registry の active_version を解決してロード（`--model-version` で一時上書き可）
+- 自動投票層: ai_marks → target_clicker（IPAT）→ purchase_ledger 記帳 → notify（投票通知）
+- 買い目層の方針: **新規介入はROIを動かさない/逆効果が実証済み（E-003/E-004）。
+  分析シグナルの居場所は ①ML特徴量 ②表示・運用（reason_tags / FreshnessHeader）**
 
 ---
 
-### 4.2 predict.py
+## 5. 特徴量エンジニアリング
 
-**役割**: 当日の全レースに対して予測を実行し、`predictions_live.json` を生成する。bet_engine で買い目推奨も生成。
+### 定義場所
 
-**主な処理フロー**:
+- 各グループは `ml/features/*.py` に `compute_xxx_features()` + `XXX_FEATURE_COLS` で定義
+- experiment.py が `FEATURE_COLS_ALL` に集約（line ~228）:
+  BASE / PAST / TRAINER / JOCKEY / RUNNING_STYLE / ROTATION / PACE / TRAINING / KB_MARK /
+  SPEED / COMMENT / SLOW_START / PEDIGREE / BABA / **JRDB(53)** / **TRACK_BIAS(11)** + odds系
 
-1. **モデルロード**: `load_model_and_meta()` で model_a, model_b, model_w, model_wv, calibrators, model_reg_b をロード
-2. **マスタロード**: history_cache, trainer_index, jockey_index, pace_index, kb_ext_index
-3. **レース取得**: `get_races_for_date(date)` で race_{id}.json を読み込み
-4. **DB事前オッズ**: mykeibadb から単勝・複勝オッズを取得（`batch_get_pre_race_odds`, `batch_get_place_odds`）
-5. **各レース予測**: `predict_race()` で特徴量構築→推論→EV計算→VB gap計算
-6. **買い目推奨**: `generate_recommendations()` で4プリセット（win_only, conservative, standard, aggressive）の推奨を生成
-7. **保存**: `data3/ml/predictions_live.json` と `data3/races/YYYY/MM/DD/predictions.json`
+### 3つの特徴量セット（experiment.py:205-250）
 
-**起動方法**:
-```powershell
-python -m ml.predict --date 2026-02-22
-python -m ml.predict --latest
-python -m ml.predict --model-version 5.0
-python -m ml.predict --list-versions
+| セット | 用途 | 注意 |
+|--------|------|------|
+| `FEATURE_COLS_ALL` | 全特徴量（市場系含む） | 差分検出・分析用 |
+| `MARKET_FEATURES` | **VALUEから除外する市場系** | odds/popularity/印/平滑化率/JRDB事前指数6種（pre_idm, sogo, info, jockey, training, stable）— VB差別化を守るため意図的除外 |
+| `FEATURE_COLS_VALUE` | P/W/AR の学習に使う非市場特徴量 | `P_ONLY_FEATURES`（不利補正・CID系等）は P にだけ追加 |
+
+### 新特徴量の追加
+
+手順・チェックリストは `docs/ml-debug-procedure.md` §4 を参照。
+**experiment.py（学習側）と predict.py（ライブ側）は別経路** — 両方に配線しないとライブで全欠損になる。
+JRDB 未活用フィールドの候補は `docs/jrdb_data_inventory.md`（v2, 6段パイプライン表）を見る。
+
+---
+
+## 6. 実験・バックテスト・検証ハーネス
+
+### experiment.py（本番実験CLI）
+
+```bash
+python -m ml.experiment --version 2.5 ^
+    --train-years 2020-2025.06 --val-years 2025.07 --test-years 2025.08-2026.05 ^
+    --sire-cutoff 2025-07-31 --no-set-active
 ```
 
----
+- 特徴量を変更すると `--version` 必須（差分検出で exit 1）
+- `--sire-cutoff` 必須（E-008: 血統PITリーク防止。未指定/test開始以降/ファイル欠落は exit 2。
+  明示オプトアウトは `--allow-sire-leak`）
+- **実行プリフライト**（キャッシュ鮮度確認）を省略しない — `ml-debug-procedure.md` §0。
+  凍結キャッシュだと test 期間が黙って切り詰められる（v8.4 で実証: 宣言2026-05まで→実データ2026-03止まり）
 
-### 4.3 モデル構成
+### バックテスト資産
 
-| モデル | 用途 | 特徴量 | ラベル |
-|--------|------|--------|--------|
-| Model A | 複勝予測（市場含む） | FEATURE_COLS_ALL | is_top3 |
-| Model B | 複勝予測（市場除外） | FEATURE_COLS_VALUE | is_top3 |
-| Model W | 単勝予測（市場含む） | FEATURE_COLS_ALL | is_win |
-| Model WV | 単勝予測（市場除外） | FEATURE_COLS_VALUE | is_win |
-| Reg B | 着差回帰（margin） | FEATURE_COLS_VALUE | target_margin |
+| ツール | データ源 | 用途 |
+|--------|---------|------|
+| `backtest_cache.json` | experiment の OOS 予測ダンプ（`utils/backtest_cache.py` が唯一の真実） | フル学習なしの戦略比較全般 |
+| `ml.backtest_bet_engine` | backtest_cache | bet_engine プリセット別 ROI |
+| `ml.analyze.validate_live_predictions` | **predictions.json（ライブ実物）** | **E-009 採否ハーネス**: 単勝T-5実行価格/複勝確定配当の ROI + ブートCI + `--monthly` walk-forward + `--option` 前後比較 |
+| `ml.analyze.check_calibration` | predictions + 結果 | W/P較正（ECE・帯別乖離） |
 
-**Value Bet の考え方**:
-- `vb_gap = odds_rank - rank_v` （人気順位 − Model B順位）
-- gap が大きいほど「市場が過小評価している馬」
-- gap >= 3 で VB とみなす（`VALUE_BET_MIN_GAP`）
+### 検証の原則（確立済み）
 
----
-
-## 5. 予測パイプライン
-
-### predict_race() の処理内容
-
-1. **特徴量構築**  
-   各馬に対して以下を順に実行:
-   - `extract_base_features` → 基本・オッズ等
-   - `compute_past_features` → 過去走
-   - `get_trainer_features`, `get_jockey_features`
-   - `compute_running_style_features`
-   - `compute_rotation_features`
-   - `compute_pace_features`
-   - `compute_training_features` (調教)
-   - `compute_speed_features`
-   - `compute_comment_features`
-   - `compute_slow_start_features`
-
-2. **推論**  
-   - Place: model_a.predict(), model_b.predict()
-   - Win: model_w.predict(), model_wv.predict()
-   - Margin: model_reg_b.predict()
-
-3. **EV計算**  
-   - 単勝EV = calibrated P(win) × 単勝オッズ
-   - 複勝EV = calibrated P(top3) × 複勝最低オッズ
-
-4. **VB判定**  
-   - `is_value_bet = (vb_gap >= VALUE_BET_MIN_GAP) and (odds_rank > 0)`
+1. オッズ条件ゲートは確定オッズ判定だと後知恵 — predictions（直前オッズ）ソースで再検証必須
+2. 点推定でなく**ブートCI**で採否判定。月別 walk-forward で「幸運な窓」を排除
+3. ライブ予測の異常診断は「ライブvs再推論の同一馬join」が最強（Session 151 の手法）
+4. 較正が悪く見えたらまずデータ鮮度を疑う（較正補正は対症療法）
 
 ---
 
-## 6. 買い目エンジン (bet_engine)
+## 7. バージョン管理・ロールバック
 
-### 6.1 概要
+詳細手順は `ml-debug-procedure.md` §6。要点:
 
-`ml/bet_engine.py` は、Python側で買い目推奨を一元生成するモジュール。predict.py と experiment.py の両方から利用される。
+- **registry** (`model_registry.json`) の `active_version` が live を決める。ファイル実体は
+  `ml_dir` 直下（旧）+ `models/polaris/live/`（新）の両方に保存される
+- **experiment.py は実行のたびに live ファイルを上書きする**。`--no-set-active` は registry だけ守る
+  → 実験後は `python -m ml.restore_live polaris <ver>`（ファイル復元・registry不変・レース中も安全）
+- 昇格は `python -m ml.set_active polaris <ver>` → `python -m ml.preflight` で smoke test
+- 上書き前の自動退避: `versions/v{old}/`（旧構造・冪等）+ `models/polaris/archive/v{prev}/`（新構造）
+- 分析JSONのバージョニングは `core/versioning.py`（`archive_before_save` / `archive_flat`）
 
-**設計原則**:
-- **Win**: ルールベース（gap + margin）。Win ECE が悪いため Kelly は使わない
-- **Place**: gap + margin + calibrated EV + 1/4 Kelly
-- **1レース1単勝制約**: 2番目以降の単勝候補は複勝に降格
-- **4プリセット**: win_only, standard, conservative, aggressive
+---
 
-### 6.2 主要関数
+## 8. Web表示チェーン（表示更新漏れ防止）
 
-| 関数 | 役割 |
+### モデルバージョンが表示される場所
+
+| 画面 | ファイル | 表示内容 |
+|------|---------|---------|
+| モデル一覧 `/models` | `web/src/app/models/page.tsx` | registry の active_version + 版履歴（AUC/features） |
+| 予測 `/predictions` | `app/predictions/page.tsx` + `predictions-content.tsx` | predictions.json の `model_version` / `created_at` / 版セレクタ（`/api/ml/prediction-versions`） |
+| レース詳細 `/races-v2/...` | `app/races-v2/[date]/[track]/[id]/page.tsx` | ML予測列 + race_confidence |
+| 管理 `/admin` | `lib/admin/commands.ts` + `api/admin/execute` | ML予測/VB再計算等の実行アクション（SSE） |
+
+### predictions.json にフィールドを追加したときのチェックリスト
+
+1. **Python側**: predict.py（または strategies/ の純関数）で entry に付与
+2. **型定義**: `web/src/lib/data/predictions-reader.ts` の `PredictionEntry`（オプショナル `?` で後方互換）
+3. **races-v2 経路**: `web/src/lib/data/ml-prediction-reader.ts` の `MlHorsePrediction` + `convertV4Entry()`
+4. **表示**: `app/predictions/components/vb-table.tsx` / `components/race-v2/HorseEntryTable.tsx`
+5. **フィルタ/買い目に関与する場合**: `predictions-content.tsx` の state / `lib/bet-engine.ts`
+6. **確認**: `npx tsc --noEmit`・古い predictions.json でも壊れない・動的ルートの `force-dynamic`
+
+参考実装（Session 154-155 の配線パターン）:
+- 理由タグ: `ml/strategies/reason_tags.py` → `PredictionEntry.reason_tags` → `components/analysis/ReasonTagBadges.tsx`
+- データ鮮度: 分析JSON `coverage.to_date` → `lib/freshness.ts` → `components/analysis/FreshnessHeader.tsx`
+  （**created_at でなく coverage.to_date で凍結検知** — 生成時刻が新しくてもデータが古い事故を捕まえる）
+
+---
+
+## 9. データの場所
+
+| パス | 内容 |
 |------|------|
-| `evaluate_win(gap, margin, params, is_danger)` | 単勝対象かどうか、ベット倍率を返す |
-| `evaluate_place(gap, margin, p_top3, place_odds, params, is_danger)` | 複勝対象かどうか、Kelly割合を返す |
-| `calc_kelly_fraction(prob, odds)` | Kelly Criterion 計算 |
-| `detect_danger(entries, threshold)` | 危険馬検出（comment_memo_trouble_score） |
-| `generate_recommendations(race_predictions, params, budget)` | 全レースの推奨買い目を生成 |
-| `apply_single_win_constraint(recs)` | 1レース1単勝制約適用 |
-| `apply_budget(recs, budget, params)` | Kelly→実金額に変換し予算内にスケーリング |
-
-### 6.3 プリセット
-
-| プリセット | win_min_gap | win_max_margin | place_min_gap | place_max_margin | place_min_ev |
-|-----------|-------------|----------------|---------------|------------------|--------------|
-| win_only | 5 | 1.2 | 99(無効) | - | - |
-| conservative | 5 | 1.2 | 5 | 0.8 | 1.2 |
-| standard | 4 | 1.2 | 4 | 0.8 | 1.2 |
-| aggressive | 3 | 1.5 | 2 | 1.5 | 0.9 |
-
-### 6.4 バックテスト用
-
-- `df_to_race_predictions(df_test)`: DataFrame → generate_recommendations 入力形式
-- `calc_bet_engine_roi(recs, race_predictions)`: 推奨買い目の実ROI計算
-
----
-
-## 7. 特徴量エンジニアリング
-
-### 7.1 モジュール一覧
-
-| ファイル | 主な関数 | 役割 |
-|----------|----------|------|
-| base_features.py | extract_base_features | 馬齢・性別・斤量・オッズ等 |
-| past_features.py | compute_past_features | 過去走・着差・上がり3F等 |
-| trainer_features.py | get_trainer_features | 調教師勝率・距離適性 |
-| jockey_features.py | get_jockey_features | 騎手勝率・乗替わり効果 |
-| running_style_features.py | compute_running_style_features | 脚質・展開適性 |
-| rotation_features.py | compute_rotation_features | 降格ローテ・レースレベル |
-| pace_features.py | compute_pace_features | RPCI・33ラップ等 |
-| training_features.py | compute_training_features | CK_DATA調教・KB印 |
-| speed_features.py | compute_speed_features | スピード指数 |
-| comment_features.py | compute_comment_features | 厩舎コメントNLP |
-| slow_start_features.py | compute_slow_start_features | 出遅れ（現状無効化） |
-| margin_target.py | add_margin_target_to_df | 着差ターゲット生成 |
-
-### 7.2 特徴量の分類
-
-- **MARKET**: オッズ・人気・odds_rank・KB印・CK_DATA調教等 → Model B では除外
-- **VALUE**: 過去走・調教師・騎手・脚質・ペース・コメントNLP等 → Model B に含める
-
-詳細は `keiba-v2/docs/models_and_features.md` を参照。
-
----
-
-## 8. Web Predictions画面
-
-### 8.1 構成
-
-| コンポーネント | 役割 |
-|----------------|------|
-| page.tsx | ルート。predictions_live.json を読み込み PredictionsContent に渡す |
-| predictions-content.tsx | メイン。フィルタ・オッズ・ROI・推奨買い目・VB候補を統合 |
-| bet-recommendations.tsx | 推奨買い目一覧。プリセット選択・予算変更・TARGET書込み |
-| vb-table.tsx | Value Bet候補テーブル。ソート・VB印反映 |
-| race-card.tsx | レース単位の出馬表 |
-| filter-bar.tsx | 会場・芝/ダ・gap・EV・margin・betOnly フィルタ |
-| roi-summary.tsx | ROIサマリー（全VB / 推奨のみ / 推奨外） |
-
-### 8.2 データフロー
-
-1. **入力**: `predictions_live.json`（predict.py の出力）
-2. **オッズ更新**: `/api/odds/db-latest` でリアルタイムオッズ取得（当日は30秒ごと）
-3. **推奨買い目**: サーバー側 bet_engine が生成した `recommendations[preset].bets` を使用
-4. **予算変更**: `bet-logic.ts` の `rescaleBudget()` でユーザー予算に按分
-5. **TARGET連携**: `/api/target-marks/auto-vb`, `/api/target-marks/auto-bet` でVB印・買い目を書き込み
-
-### 8.3 bet-logic.ts
-
-- `BET_CONFIG`: defaultBudget=30000, minBet=100, betUnit=100
-- `rescaleBudget(recs, newBudget, baseBudget)`: サーバーの30,000円基準をユーザー予算に按分
-- `equalDistribute(recs, budget)`: 均等配分モード（Kellyではなく均等割り）
-
----
-
-## 9. 実験・バックテスト
-
-### 9.1 スクリプト一覧
-
-| スクリプト | 役割 |
-|------------|------|
-| backtest_bet_engine.py | bet_engine 各プリセットのROIをバックテスト |
-| backtest_vb.py | VB均一買いのROI分析（gap閾値別） |
-| experiment_regression.py | 着差回帰の実験 |
-| experiment_lambdarank.py | LambdaRankの実験 |
-| ci_power_analysis.py | Bootstrap CI・検出力分析 |
-| cumulative_pnl_analysis.py | 累積損益分析 |
-| analyze_margin_vb.py | margin と VB の相関分析 |
-| verify_bet_engine_params.py | bet_engine パラメータ検証 |
-
-### 9.2 実験レポート
-
-- `keiba-v2/docs/ml-experiments/README.md`: 実験一覧・ROI推移・学び
-- 個別レポート: `v5.6_ev_gap_analysis.md`, `v5.5_bootstrap_ci_pruning.md` 等
-- `docs/ml-experiments/`: 旧実験レポート（v3.0〜v5.4）
+| `data3/ml/` | live モデル・registry・各種キャッシュ（horse_history_cache 等）・実験結果JSON |
+| `data3/ml/models/{name}/live\|archive/` | 新構造のモデル実体 |
+| `data3/ml/versions/` | 旧構造アーカイブ（実験スナップショット多数） |
+| `data3/indexes/` | race_date_index + **jrdb_{sed,kyi,kaa,cyb,cha,kka,ukc,joa,srb}_index.json**（9種） |
+| `data3/races/YYYY/MM/DD/` | race JSON + predictions.json |
+| `data3/analysis/` | 分析JSON（quality_meta/coverage 付き）+ versions/ |
+| `data3/jrdb/` | JRDB raw/zip/docs（仕様書48ファイル） |
 
 ---
 
 ## 10. 関連ドキュメント一覧
 
-| ドキュメント | パス | 内容 |
-|--------------|------|------|
-| モデル・特徴量定義 | keiba-v2/docs/models_and_features.md | 5モデル構成、特徴量一覧、EV計算 |
-| ベッティング戦略 | keiba-v2/docs/BETTING_STRATEGY.md | EV計算、Kelly、リスク管理 |
-| ML実験レポート | keiba-v2/docs/ml-experiments/README.md | バージョン別ROI・AUC・学び |
-| 特徴量戦略 | keiba-v2/docs/feature_engineering_strategy.md | 特徴量設計方針 |
-| トレーニング仕様 | keiba-v2/docs/TRAINING_SPEC.md | 訓練データ仕様 |
-| データ仕様 | keiba-v2/docs/DATA_SPEC.md | データ形式 |
-| ドメインモデル | keiba-v2/docs/DOMAIN_MODEL.md | ドメイン概念 |
-
----
-
-## 付録: クイックリファレンス
-
-### よく使うコマンド
-
-```powershell
-# 予測実行
-python -m ml.predict --date 2026-02-22
-
-# モデル訓練
-python -m ml.experiment
-
-# bet_engine バックテスト
-python -m ml.backtest_bet_engine
-
-# 利用可能モデル一覧
-python -m ml.predict --list-versions
-```
-
-### 主要設定値
-
-| 項目 | 値 |
-|------|-----|
-| VALUE_BET_MIN_GAP | 3 |
-| デフォルト予算 | 30,000円 |
-| win_only 推奨 | gap>=5, margin<=1.2 |
-| 訓練期間 | 2020-2024（デフォルト） |
-| テスト期間 | 2025-2026（デフォルト） |
+| ドキュメント | 内容 |
+|------|------|
+| `docs/ml_experiment_log.md` | 実験ログ（バージョン別・新しい順）★実験したら必ず記録 |
+| `docs/ml-debug-procedure.md` | 実験・デバッグ手順書（プリフライト/Notebook/バージョン管理） |
+| `docs/jrdb_data_inventory.md` | JRDB全データ棚卸し v2（6段パイプライン・未活用フィールド） |
+| `docs/ml-experiments/` | 実験詳細レポート（v{ver}_{名前}.md） |
+| `docs/ml-experiments/202606_analysis_reuse/` | 分析再利用プロジェクト（E-001〜E-010 全done・E001品質メタ仕様 v1.2） |
+| `docs/DOMAIN_MODEL.md` / `docs/DATA_SPEC.md` | ドメインモデル / JRA-VANデータ仕様 |
+| `keiba-cicd-core/.claude/CLAUDE.md` | プロジェクト共通規約（ID体系・EV定義・コーディングルール） |

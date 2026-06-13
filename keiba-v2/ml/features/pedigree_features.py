@@ -15,11 +15,11 @@ v5.12: point-in-time対応（pit_*_tl使用時）
 import bisect
 from typing import Dict, Tuple
 
+# Bayesian smoothing constants は E-001 で analysis/quality_meta.py に一元化（B-4）。
+# build_sire_stats.py / quality_meta.PRIORS と同一値を単一ソースから引く（将来の乖離防止）。
+from analysis.quality_meta import PRIORS, MIN_RUNS_CONDITIONAL as _MIN_RUNS_CONDITIONAL
 
-# Bayesian smoothing constants (same as build_sire_stats.py)
-_PRIOR_TOP3_ALPHA = 2.5
-_PRIOR_TOP3_BETA = 7.5
-_MIN_RUNS_CONDITIONAL = 10
+_PRIOR_TOP3_ALPHA, _PRIOR_TOP3_BETA = PRIORS["top3_rate"]
 
 
 def _bayesian_rate(successes: int, total: int) -> float:

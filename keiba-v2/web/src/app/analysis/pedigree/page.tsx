@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RecalcButton } from '@/components/admin/recalc-button';
+import { FreshnessHeader } from '@/components/analysis/FreshnessHeader';
 
 // ============================================================
 // Types
@@ -44,6 +45,8 @@ interface Meta {
   unique_sires: number;
   unique_bms: number;
   built_at: string;
+  schema_version?: string;
+  coverage?: { from_date?: string; to_date?: string };
 }
 
 interface PedigreeData {
@@ -187,6 +190,14 @@ export default function PedigreeAnalysisPage() {
             </Button>
             <RecalcButton actionId="rebuild_sire_stats" onComplete={fetchData} />
           </div>
+        </div>
+        <div className="mt-2">
+          <FreshnessHeader
+            coverage={data.meta.coverage}
+            createdAt={data.meta.built_at}
+            schemaVersion={data.meta.schema_version}
+            note="血統は確定SE_DATA由来。年次集計のため最新開催の反映に時間差が出ることがある"
+          />
         </div>
       </div>
 

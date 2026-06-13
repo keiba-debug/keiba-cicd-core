@@ -26,6 +26,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from analysis.quality_meta import quality_meta
 from analysis.race_classifier import (
     classify_race_v2, compute_lap33, TREND_V2_TYPES, TREND_V2_LABELS, V2_TO_V1,
 )
@@ -177,13 +178,19 @@ def calculate_course_stats(records: list, current_year: int) -> Optional[dict]:
     stdev = statistics.stdev(rpci_values) if len(rpci_values) > 1 else 0
     median = statistics.median(rpci_values)
 
-    weighted_sum = 0.0
-    weight_total = 0.0
-    for r in records:
-        w = 2.0 if r['year'] >= current_year - 1 else 1.0
-        weighted_sum += r['rpci'] * w
-        weight_total += w
+    weights = [2.0 if r['year'] >= current_year - 1 else 1.0 for r in records]
+    weighted_sum = sum(v * w for v, w in zip(rpci_values, weights))
+    weight_total = sum(weights)
     w_mean = weighted_sum / weight_total if weight_total > 0 else mean
+
+    # E-010: 連続量 quality（仕様 §連続量 RPCI 規定）。運用閾値が weighted_mean±0.5σ
+    # 基準のため ci95 も weighted_mean 基準: SE=√(Σw²)·σ/Σw、effective_n=(Σw)²/Σw²。
+    # thresholds 自体の不確実性は別物（mean の区間であって閾値の区間ではない）。
+    # stability の年別集計は Phase 2（現状 year_data 無し→insufficient）。
+    quality = quality_meta(
+        metric="rpci_weighted_mean", algo="mean_se",
+        mean=w_mean, stdev=stdev, weights=weights, min_n=10,
+    )
 
     return {
         "sample_count": len(rpci_values),
@@ -199,6 +206,7 @@ def calculate_course_stats(records: list, current_year: int) -> Optional[dict]:
             "sustained": round(w_mean + stdev * 0.5, 2),
             "instantaneous": round(w_mean - stdev * 0.5, 2),
         },
+        "quality": quality,
     }
 
 
@@ -237,6 +245,16 @@ def calculate_standards(records: list, since_year: int) -> dict:
     years = list(range(since_year, current_year + 1))
     years_str = f"{min(years)}-{max(years)}"
 
+    # E-010: coverage（鮮度メタ）。created_at では凍結を検知できないため実データの
+    # 開催日レンジを刻む（ml-cache-staleness-incident 同型予防 / check_coverage 連携）。
+    rec_dates = [r['date'] for r in records if r.get('date')]
+    coverage = {
+        "from_date": min(rec_dates) if rec_dates else "",
+        "to_date": max(rec_dates) if rec_dates else "",
+        "granularity": "day",
+        "total_races": len(records),
+    }
+
     standards = {
         "metadata": {
             "created_at": datetime.now().isoformat(),
@@ -244,7 +262,10 @@ def calculate_standards(records: list, since_year: int) -> dict:
             "years": years_str,
             "years_list": years,
             "version": "5.0",
+            "schema_version": "quality_meta/1",
+            "coverage": coverage,
         },
+        "coverage": coverage,
         "by_distance_group": {},
         "courses": {},
         "by_baba": {},

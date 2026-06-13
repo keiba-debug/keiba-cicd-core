@@ -101,6 +101,7 @@ function parseO1Record(content: string): RaceOdds | null {
     raceId: parsed.raceId,
     source: 'RT_DATA',
     horses: parsed.horses,
+    happyoTime: parsed.happyoTime || undefined,
   };
 }
 

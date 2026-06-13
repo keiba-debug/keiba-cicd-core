@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -116,6 +116,9 @@ export function PerformanceTab() {
   const [loading, setLoading] = useState(true);
   const [yearTotal, setYearTotal] = useState<MonthlyRow | null>(null);
 
+  // 自動投票 ledger 月次内訳
+  const [ledgerMonthly, setLedgerMonthly] = useState<Map<string, { invested: number; returned: number; profit: number }>>(new Map());
+
   // Intersection 成績
   const [strategyData, setStrategyData] = useState<StrategyPerformance | null>(null);
   const [strategyLoading, setStrategyLoading] = useState(true);
@@ -128,37 +131,59 @@ export function PerformanceTab() {
       const maxMonth = selectedYear === currentYear ? currentMonth : 12;
 
       const promises = Array.from({ length: maxMonth }, (_, i) => i + 1).map(async (month) => {
+        const monthStr = `${selectedYear}-${String(month).padStart(2, '0')}`;
         try {
-          const res = await fetch(
-            `/api/bankroll/summary?year=${selectedYear}&month=${month}`
-          );
-          if (!res.ok) return null;
-          const data: MonthlySummary = await res.json();
-          if (!data.has_data && !data.file_exists) return null;
+          const [targetRes, ledgerRes] = await Promise.all([
+            fetch(`/api/bankroll/summary?year=${selectedYear}&month=${month}`),
+            fetch(`/api/bankroll/ledger/summary?year=${selectedYear}&month=${month}`).catch(() => null),
+          ]);
 
-          return {
-            month: `${selectedYear}-${String(month).padStart(2, '0')}`,
-            bets: data.race_count || 0,
-            hits: data.hit_count || 0,
-            hitRate: data.race_count > 0 && data.hit_count
-              ? (data.hit_count / data.race_count) * 100
-              : 0,
-            invested: data.total_bet,
-            returned: data.total_payout,
-            profit: data.profit,
-            roi: data.recovery_rate,
-          } satisfies MonthlyRow;
+          let targetRow: MonthlyRow | null = null;
+          if (targetRes.ok) {
+            const data: MonthlySummary = await targetRes.json();
+            if (data.has_data || data.file_exists) {
+              targetRow = {
+                month: monthStr,
+                bets: data.race_count || 0,
+                hits: data.hit_count || 0,
+                hitRate: data.race_count > 0 && data.hit_count
+                  ? (data.hit_count / data.race_count) * 100
+                  : 0,
+                invested: data.total_bet,
+                returned: data.total_payout,
+                profit: data.profit,
+                roi: data.recovery_rate,
+              };
+            }
+          }
+
+          let autoStat: { invested: number; returned: number; profit: number } | null = null;
+          if (ledgerRes?.ok) {
+            const ld = await ledgerRes.json();
+            if (ld.summary && (ld.summary.total_bet > 0 || ld.summary.total_payout > 0)) {
+              autoStat = {
+                invested: ld.summary.total_bet || 0,
+                returned: ld.summary.total_payout || 0,
+                profit: ld.summary.profit || 0,
+              };
+            }
+          }
+
+          return { monthStr, targetRow, autoStat };
         } catch {
-          return null;
+          return { monthStr, targetRow: null, autoStat: null };
         }
       });
 
       const results = await Promise.all(promises);
+      const newLedgerMonthly = new Map<string, { invested: number; returned: number; profit: number }>();
       for (const r of results) {
-        if (r && (r.invested > 0 || r.returned > 0)) {
-          rows.push(r);
+        if (r.targetRow && (r.targetRow.invested > 0 || r.targetRow.returned > 0)) {
+          rows.push(r.targetRow);
         }
+        if (r.autoStat) newLedgerMonthly.set(r.monthStr, r.autoStat);
       }
+      setLedgerMonthly(newLedgerMonthly);
 
       setMonthlyData(rows);
 
@@ -208,6 +233,17 @@ export function PerformanceTab() {
     };
     fetchStrategy();
   }, [selectedYear]);
+
+  const ledgerYearTotals = useMemo(() => {
+    if (ledgerMonthly.size === 0) return null;
+    let invested = 0, returned = 0, profit = 0;
+    for (const v of ledgerMonthly.values()) {
+      invested += v.invested;
+      returned += v.returned;
+      profit += v.profit;
+    }
+    return { invested, returned, profit };
+  }, [ledgerMonthly]);
 
   const formatCurrency = (amount: number) =>
     `¥${Math.abs(amount).toLocaleString()}`;
@@ -556,6 +592,18 @@ export function PerformanceTab() {
                 {yearTotal.profit >= 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
                 {yearTotal.profit >= 0 ? '+' : '-'}{formatCurrency(yearTotal.profit)}
               </div>
+              {ledgerYearTotals && (
+                <div className="mt-1 space-y-0.5 text-xs">
+                  <div className={`flex items-center gap-1 ${getProfitColor(ledgerYearTotals.profit)}`}>
+                    <span className="px-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">自動</span>
+                    {ledgerYearTotals.profit >= 0 ? '+' : '-'}{formatCurrency(ledgerYearTotals.profit)}
+                  </div>
+                  <div className={`flex items-center gap-1 ${getProfitColor(yearTotal.profit - ledgerYearTotals.profit)}`}>
+                    <span className="px-1 rounded bg-muted text-muted-foreground">手動</span>
+                    {(yearTotal.profit - ledgerYearTotals.profit) >= 0 ? '+' : '-'}{formatCurrency(yearTotal.profit - ledgerYearTotals.profit)}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -615,33 +663,46 @@ export function PerformanceTab() {
                     <th className="py-2 px-2 text-right">レース数</th>
                     <th className="py-2 px-2 text-right">投資額</th>
                     <th className="py-2 px-2 text-right">払戻額</th>
-                    <th className="py-2 px-2 text-right">収支</th>
+                    <th className="py-2 px-2 text-right">収支(合計)</th>
+                    <th className="py-2 px-2 text-right text-blue-600 dark:text-blue-400">自動</th>
+                    <th className="py-2 px-2 text-right text-muted-foreground">手動</th>
                     <th className="py-2 px-2 text-right">回収率</th>
                     <th className="py-2 px-2 text-center">状態</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {monthlyData.map((row) => (
-                    <tr key={row.month} className="border-b hover:bg-muted/50">
-                      <td className="py-2 px-2 font-medium">{row.month}</td>
-                      <td className="py-2 px-2 text-right font-mono">{row.bets}</td>
-                      <td className="py-2 px-2 text-right font-mono">{formatCurrency(row.invested)}</td>
-                      <td className="py-2 px-2 text-right font-mono">{formatCurrency(row.returned)}</td>
-                      <td className={`py-2 px-2 text-right font-mono ${getProfitColor(row.profit)}`}>
-                        {row.profit >= 0 ? '+' : '-'}{formatCurrency(row.profit)}
-                      </td>
-                      <td className={`py-2 px-2 text-right font-mono ${getRoiColor(row.roi)}`}>
-                        {row.roi.toFixed(1)}%
-                      </td>
-                      <td className="py-2 px-2 text-center">
-                        {row.roi >= 100 ? (
-                          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">黒字</Badge>
-                        ) : (
-                          <Badge variant="secondary" className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">赤字</Badge>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {monthlyData.map((row) => {
+                    const auto = ledgerMonthly.get(row.month);
+                    const autoProfit = auto?.profit ?? null;
+                    const manualProfit = autoProfit !== null ? row.profit - autoProfit : null;
+                    return (
+                      <tr key={row.month} className="border-b hover:bg-muted/50">
+                        <td className="py-2 px-2 font-medium">{row.month}</td>
+                        <td className="py-2 px-2 text-right font-mono">{row.bets}</td>
+                        <td className="py-2 px-2 text-right font-mono">{formatCurrency(row.invested)}</td>
+                        <td className="py-2 px-2 text-right font-mono">{formatCurrency(row.returned)}</td>
+                        <td className={`py-2 px-2 text-right font-mono ${getProfitColor(row.profit)}`}>
+                          {row.profit >= 0 ? '+' : '-'}{formatCurrency(row.profit)}
+                        </td>
+                        <td className={`py-2 px-2 text-right font-mono text-sm ${autoProfit !== null ? getProfitColor(autoProfit) : 'text-muted-foreground'}`}>
+                          {autoProfit !== null ? `${autoProfit >= 0 ? '+' : '-'}${formatCurrency(autoProfit)}` : '—'}
+                        </td>
+                        <td className={`py-2 px-2 text-right font-mono text-sm ${manualProfit !== null ? getProfitColor(manualProfit) : 'text-muted-foreground'}`}>
+                          {manualProfit !== null ? `${manualProfit >= 0 ? '+' : '-'}${formatCurrency(manualProfit)}` : '—'}
+                        </td>
+                        <td className={`py-2 px-2 text-right font-mono ${getRoiColor(row.roi)}`}>
+                          {row.roi.toFixed(1)}%
+                        </td>
+                        <td className="py-2 px-2 text-center">
+                          {row.roi >= 100 ? (
+                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">黒字</Badge>
+                          ) : (
+                            <Badge variant="secondary" className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">赤字</Badge>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 {yearTotal && (
                   <tfoot>
@@ -652,6 +713,12 @@ export function PerformanceTab() {
                       <td className="py-2 px-2 text-right font-mono">{formatCurrency(yearTotal.returned)}</td>
                       <td className={`py-2 px-2 text-right font-mono ${getProfitColor(yearTotal.profit)}`}>
                         {yearTotal.profit >= 0 ? '+' : '-'}{formatCurrency(yearTotal.profit)}
+                      </td>
+                      <td className={`py-2 px-2 text-right font-mono ${ledgerYearTotals ? getProfitColor(ledgerYearTotals.profit) : 'text-muted-foreground'}`}>
+                        {ledgerYearTotals ? `${ledgerYearTotals.profit >= 0 ? '+' : '-'}${formatCurrency(ledgerYearTotals.profit)}` : '—'}
+                      </td>
+                      <td className={`py-2 px-2 text-right font-mono ${ledgerYearTotals ? getProfitColor(yearTotal.profit - ledgerYearTotals.profit) : 'text-muted-foreground'}`}>
+                        {ledgerYearTotals ? `${(yearTotal.profit - ledgerYearTotals.profit) >= 0 ? '+' : '-'}${formatCurrency(yearTotal.profit - ledgerYearTotals.profit)}` : '—'}
                       </td>
                       <td className={`py-2 px-2 text-right font-mono ${getRoiColor(yearTotal.roi)}`}>
                         {yearTotal.roi.toFixed(1)}%

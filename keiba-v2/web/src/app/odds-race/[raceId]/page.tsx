@@ -32,6 +32,7 @@ import BetTypeEfficiencyTab from '@/components/odds-race/BetTypeEfficiencyTab';
 import BetTypeSelectionTab from '@/components/odds-race/BetTypeSelectionTab';
 import { enrichHorses, getMyMarkColor } from '@/components/odds-race/buy-zone';
 import { parseRaceIdForMarks, fetchMyMarksBoth } from '@/components/odds-race/my-marks-utils';
+import { OddsFreshnessBadge } from '@/components/odds/OddsFreshnessBadge';
 
 /** 新潟芝1000m直線（千直）判定 */
 function isNiigataChoku(
@@ -1016,6 +1017,14 @@ export default function OddsRacePage() {
                 </Link>
               )}
             </h1>
+            {odds?.oddsFreshness && (
+              <div className="mt-1">
+                <OddsFreshnessBadge
+                  freshness={odds.oddsFreshness}
+                  hasResults={odds.horses.some((h) => h.finishPosition != null && h.finishPosition !== '')}
+                />
+              </div>
+            )}
             {raceConditionLabel && (
               <p className="text-sm text-muted-foreground mt-1">{raceConditionLabel}</p>
             )}

@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from analysis.quality_meta import quality_meta, PRIORS
 
 MIN_CLOSE_TOTAL = 10   # ランキング表示の最低接戦数
 MIN_YEAR_TOTAL = 5     # 年度別トレンドの最低接戦数
@@ -47,6 +48,13 @@ def build_ranking(jockeys: list) -> list:
             'close_win_rate': j['close_win_rate'],
             'close_by_track': j.get('close_by_track', {}),
             'close_by_distance': j.get('close_by_distance', {}),
+            # E-001 品質メタ: 接戦勝率（ベース0.5）の bayesian CI。生率降順ソートの選抜系なので selected=True。
+            # year別 stability は Phase 2（by_track/distance と同時）。
+            'quality': quality_meta(
+                metric='close_win_rate', algo='bayesian_beta_binomial',
+                hits=j['close_wins'], n=j['close_total'], prior=PRIORS['close_win_rate'],
+                min_n=MIN_CLOSE_TOTAL, selected=True,
+            ),
         }
         for i, j in enumerate(ranked)
     ]
@@ -193,8 +201,18 @@ def main():
     conditions = build_condition_analysis(jockeys)
     summary = build_summary(jockeys, ranking)
 
+    # coverage（E-001 S-3）。源データ jockeys.json は年単位集計のため日付粒度が無い。
+    # granularity=year を明示し、日次鮮度は created_at / jockeys.json 側で担保する旨を注記。
+    _yf, _yt = summary.get('year_from', ''), summary.get('year_to', '')
+    coverage = ({"from_date": f"{_yf}-01-01", "to_date": f"{_yt}-12-31",
+                 "granularity": "year",
+                 "note": "源データ jockeys.json は年単位集計。日次鮮度は created_at と jockeys.json の鮮度で担保"}
+                if _yf and _yt else None)
+
     result = {
         'created_at': datetime.now().isoformat(),
+        'schema_version': 'quality_meta/1',
+        'coverage': coverage,
         'summary': summary,
         'ranking': ranking,
         'growth_trends': trends,

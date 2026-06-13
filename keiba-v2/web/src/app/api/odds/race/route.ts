@@ -23,8 +23,8 @@ import {
   resolveKeibabookRaceId,
   getRaceConditionInfo,
 } from '@/lib/data/race-horse-names';
-import { analyzeOddsPattern } from '@/lib/data/rt-data-types';
-import type { HorseOdds } from '@/lib/data/rt-data-types';
+import { analyzeOddsPattern, happyoTimeToMs } from '@/lib/data/rt-data-types';
+import type { HorseOdds, OddsFreshness } from '@/lib/data/rt-data-types';
 import { getDbLatestOdds, extractTimeLabel } from '@/lib/data/db-odds';
 import path from 'path';
 import { DATA3_ROOT } from '@/lib/config';
@@ -129,6 +129,18 @@ export async function GET(request: NextRequest) {
       source: 'DB' as const,
     } : undefined;
 
+    // 表示中オッズの as-of（鮮度）
+    // - timeseries: HAPPYO_TSUKIHI_JIFUN が実際の発表時刻 → 正確
+    // - final (odds1_tansho/OB15速報): 行レベルの時刻が無い → 正確な分単位は不明（速報/確定はクライアントが着順有無で判定）
+    const oddsFreshness: OddsFreshness = dbOdds.source === 'timeseries'
+      ? {
+          asOf: happyoTimeToMs(targetRaceId, dbOdds.snapshotTime),
+          label: dbOdds.snapshotTime ? extractTimeLabel(dbOdds.snapshotTime) : null,
+          exact: true,
+          kind: 'DB_TS',
+        }
+      : { asOf: null, label: null, exact: false, kind: 'DB_FINAL' };
+
     return NextResponse.json({
       raceId: targetRaceId,
       source: 'DB',
@@ -137,6 +149,7 @@ export async function GET(request: NextRequest) {
       raceCondition: raceCondition ?? undefined,
       analysis: analysis.pattern !== 'normal' ? analysis : undefined,
       timeSeriesSummary,
+      oddsFreshness,
     });
   }
 
@@ -225,11 +238,20 @@ export async function GET(request: NextRequest) {
         }
       : undefined;
 
+  // 表示中オッズの as-of（鮮度）— O1 レコードの発表時刻 HappyoTime が正確な as-of
+  const oddsFreshness: OddsFreshness = {
+    asOf: happyoTimeToMs(targetRaceId, odds.happyoTime),
+    label: odds.happyoTime ? extractTimeLabel(odds.happyoTime) : null,
+    exact: true,
+    kind: 'RT',
+  };
+
   return NextResponse.json({
     ...odds,
     keibabookRaceId: keibabookRaceId ?? undefined,
     raceCondition: raceCondition ?? undefined,
     analysis: analysis.pattern !== 'normal' ? analysis : undefined,
     timeSeriesSummary,
+    oddsFreshness,
   });
 }

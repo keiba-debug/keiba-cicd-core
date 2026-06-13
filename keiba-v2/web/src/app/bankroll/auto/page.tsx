@@ -1,6 +1,11 @@
 import { AutoPurchaseHistory } from '@/components/bankroll/AutoPurchaseHistory';
 import { AutoPurchaseMonthly } from '@/components/bankroll/AutoPurchaseMonthly';
 import { AutoVoteControl } from '@/components/bankroll/AutoVoteControl';
+import { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: '自動投票',
+};
 
 export const dynamic = 'force-dynamic';
 

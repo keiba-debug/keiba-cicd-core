@@ -8,4 +8,3 @@ export { BetTypeStats } from './BetTypeStats';
 
 // 以下は廃止予定（Phase 1で削除対象）
 // export { AllocationGuide } from './AllocationGuide';
-// export { PurchasePlanSection } from './PurchasePlanSection';

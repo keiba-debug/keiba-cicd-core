@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import copy
 import json
 import statistics
 import sys
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
 from core.constants import GRADE_CODES, JOKEN_CLASS_MAP, GRADE_NORMALIZE
+from analysis.quality_meta import quality_meta
 
 
 def parse_rating(rating_str) -> Optional[float]:
@@ -241,6 +243,7 @@ def scan_data(since_year: int) -> list:
                     'month': month,
                     'age_class': age_class,
                     'venue_name': race.get('venue_name', ''),
+                    'race_date': race_date,
                 })
                 year_count += 1
 
@@ -305,6 +308,14 @@ def _compute_grade_stats(grade_races: list) -> Optional[dict]:
     mean_race_stdev = statistics.mean(all_stdevs) if all_stdevs else 0
     mean_top3_diff = statistics.mean(all_top3_diffs) if all_top3_diffs else 0
 
+    # E-010: 連続量 quality。rating.mean（n=horse_count）の mean_se。
+    # 同一レース内の馬は相関するため SE はやや過小（RPCI 同様 N-2 注記事項）。
+    # stability の年別集計は Phase 2（現状 year_data 無し→insufficient）。
+    quality = quality_meta(
+        metric="rating_mean", algo="mean_se",
+        mean=mean_rating, stdev=stdev_rating, n=len(all_ratings), min_n=10,
+    )
+
     return {
         "sample_count": len(grade_races),
         "horse_count": len(all_ratings),
@@ -324,6 +335,7 @@ def _compute_grade_stats(grade_races: list) -> Optional[dict]:
             "high_level": round(mean_rating + stdev_rating * 0.5, 2),
             "low_level": round(mean_rating - stdev_rating * 0.5, 2),
         },
+        "quality": quality,
     }
 
 
@@ -361,10 +373,14 @@ def calculate_stats(races: list) -> dict:
         # 小サンプル→全年齢プールにフォールバック
         base_grade = grade.rsplit('_', 1)[0] if '_' in grade else ''
         if s['sample_count'] < MIN_SAMPLE_COUNT and base_grade in pooled_stats:
-            fallback = dict(pooled_stats[base_grade])
+            # deepcopy: pooled の quality dict 共有参照によるプール側汚染を防ぐ（S-6）
+            fallback = copy.deepcopy(pooled_stats[base_grade])
             fallback['fallback_from'] = grade
             fallback['fallback_to'] = base_grade
             fallback['original_sample_count'] = s['sample_count']
+            if isinstance(fallback.get('quality'), dict):
+                fallback['quality']['source'] = base_grade
+                fallback['quality']['original_n'] = s['sample_count']
             stats[grade] = fallback
             fallback_count += 1
         else:
@@ -601,6 +617,15 @@ def main():
     global_mean_rating = round(statistics.mean(all_global_ratings), 2) if all_global_ratings else 0
     print(f"\n  Global mean rating: {global_mean_rating}")
 
+    # E-010: coverage（鮮度メタ）。keibabook rating の凍結も実データ日付で検知。
+    rec_dates = [r['race_date'] for r in races if r.get('race_date')]
+    coverage = {
+        "from_date": min(rec_dates) if rec_dates else "",
+        "to_date": max(rec_dates) if rec_dates else "",
+        "granularity": "day",
+        "total_races": len(races),
+    }
+
     # 出力
     standards = {
         "metadata": {
@@ -609,8 +634,11 @@ def main():
             "years": f"{args.since}-{datetime.now().year}",
             "total_races": len(races),
             "version": "4.0",
+            "schema_version": "quality_meta/1",
+            "coverage": coverage,
             "global_mean_rating": global_mean_rating,
         },
+        "coverage": coverage,
         "by_grade": grade_stats,
         "competitiveness_thresholds": comp_thresholds,
         "maiden_by_season": maiden_season_stats,

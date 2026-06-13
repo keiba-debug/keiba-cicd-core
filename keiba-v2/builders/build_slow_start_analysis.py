@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import config
+from analysis.quality_meta import quality_meta
 
 
 def _extract_hassou_excerpt(hassou_text: str, umaban: int) -> str:
@@ -265,6 +266,13 @@ def build_slow_start_analysis() -> dict:
             'top3_rate_normal': round(top3_normal / len(fps_normal), 4)
                 if fps_normal else None,
             'year_stats': year_stats,
+            # E-001 品質メタ: 出遅れ率の wilson CI。year_buckets で stability も判定（Phase 1 で年別が揃う数少ない分析）。
+            'quality': quality_meta(
+                metric='slow_start_rate', algo='wilson_binomial',
+                hits=js['slow_starts'], n=js['total_rides'], min_n=30,
+                year_data={y: {'hits': yb['slow'], 'n': yb['total']}
+                           for y, yb in js['year_buckets'].items() if yb['total'] > 0},
+            ),
         })
     jockey_ranking.sort(key=lambda x: x['slow_start_rate'], reverse=True)
 
@@ -310,6 +318,7 @@ def build_slow_start_analysis() -> dict:
 
     result = {
         'generated_at': datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
+        'schema_version': 'quality_meta/1',
         'coverage': {
             'from_date': from_date,
             'to_date': to_date,

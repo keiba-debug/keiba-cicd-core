@@ -168,10 +168,11 @@ def _resolve_model_dir(model_name: str, version: Optional[str] = None) -> Path:
         )
     else:
         # アーカイブ版
-        # 新構造
-        new_path = ml_dir / "models" / model_name / "archive" / version
-        if new_path.exists():
-            return new_path
+        # 新構造（ディレクトリ名は v接頭辞付き "v2.3" が正だが、素の "2.3" too 許容）
+        for cand in (f"v{version}", version):
+            new_path = ml_dir / "models" / model_name / "archive" / cand
+            if new_path.exists() and _find_file(new_path, model_name, "meta") is not None:
+                return new_path
 
         # 旧構造: model_registry の versions 配列から dir を検索
         for v_entry in model_entry.get('versions', []):

@@ -9,6 +9,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { FreshnessHeader } from '@/components/analysis/FreshnessHeader';
+import { RecalcButton } from '@/components/admin/recalc-button';
 
 // ============================================================
 // Types
@@ -75,6 +77,8 @@ interface ConditionData {
 
 interface JockeyCloseFinishData {
   created_at: string;
+  coverage?: { from_date?: string; to_date?: string };
+  schema_version?: string;
   summary: Summary;
   ranking: RankEntry[];
   growth_trends: GrowthEntry[];
@@ -620,9 +624,13 @@ export default function JockeyCloseFinishPage() {
               {data.summary.year_from}-{data.summary.year_to}年 / {data.summary.total_races.toLocaleString()}走
             </Badge>
           )}
-          <span className="text-xs text-gray-500">
-            {new Date(data.created_at).toLocaleDateString('ja-JP')} 生成
-          </span>
+          <FreshnessHeader
+            coverage={data.coverage}
+            createdAt={data.created_at}
+            schemaVersion={data.schema_version}
+          />
+          {/* E-007: master再構築→接戦再集計を1ボタンで（jockeys.json凍結の根治導線） */}
+          <RecalcButton actionId="rebuild_jockey_close" onComplete={fetchData} />
           <button
             onClick={fetchData}
             className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"

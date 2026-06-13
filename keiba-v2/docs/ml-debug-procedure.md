@@ -1,6 +1,9 @@
-# ML デバッグ・強化 開発手順書
+# ML デバッグ・実験 開発手順書
 
-keiba-v2 の ML パイプラインを Jupyter Notebook で段階的にデバッグ・検証・強化するための実践的手順書。
+keiba-v2 の ML パイプラインを段階的にデバッグ・検証・強化するための実践的手順書。
+
+> **最終更新**: 2026-06-13（Session 156 全面改訂 — 旧版 2026-02-21 は Model A/B 時代の記述で現行と乖離していたため、
+> 現行コード（P/W/AR + model_registry + E-008/E-009）で全文裏取りして書き直した）
 
 ---
 
@@ -8,21 +11,55 @@ keiba-v2 の ML パイプラインを Jupyter Notebook で段階的にデバッ�
 
 | モード | 目的 | ツール |
 |--------|------|--------|
-| **探索モード** | 特徴量分析・仮説検証・可視化 | Jupyter Notebook |
+| **探索モード** | 特徴量分析・仮説検証・可視化 | Jupyter Notebook（テンプレは §3） |
 | **実験モード** | フルモデル学習・バックテスト・バージョン管理 | `python -m ml.experiment` CLI |
 
-**基本フロー**: Notebook で仮説検証 → experiment.py で本番実験 → バックテスト → デプロイ
+**基本フロー**: §0 プリフライト → Notebook で仮説検証 → experiment.py で本番実験 → 検証ハーネスで採否判定 → （採用時のみ）live昇格
+
+---
+
+## 0. 実験前プリフライト（必須）★
+
+**教訓**: ML特徴量キャッシュが3ヶ月凍結したまま実験・ライブ予測が走り続けた事故（2026-06 Session 151 発覚）。
+`experiment.py` は `horse_history_cache.json` と `race_date_index.json` を直読みするため、
+**キャッシュが古いと「宣言したtest期間」と「実際のtestデータ」が黙ってズレる**
+（実例: v8.4 は test宣言 2025-07〜2026-05 に対し実データ 2026-03 止まり）。
+
+```bash
+cd keiba-cicd-core/keiba-v2
+
+# 1. MLキャッシュ鮮度チェック（race_date_index / horse_history_cache の被覆末日を確認）
+python -m ml.cache_freshness                # --quick --json で軽量版（status-check用）
+
+# 2. 古ければ再構築（keiba-data-prep スキル ②-4.5 と同じ手順）
+python -m builders.build_race_index
+python -m builders.build_horse_history
+
+# 3. 分析JSONの被覆チェック（quality_meta/coverage 付き分析の凍結検知）
+python -m analysis.check_coverage --expect <直近開催日>   # lag_days許容あり（RPCI=10日/IDM=21日）
+
+# 4. predict.py の smoke test（ライブ系を触る前に）
+python -m ml.preflight                      # --date YYYY-MM-DD で特定日
+```
+
+**実験を始める前に確認する4点**:
+- [ ] `race_date_index.json` の max 日付が直近開催日か
+- [ ] `horse_history_cache.json` が同日まで含むか（`ml.cache_freshness`）
+- [ ] test期間として使う月のレースが実際にデータセットに乗るか（build後の件数を月別に確認）
+- [ ] 血統系を使うなら `--sire-cutoff` の指定値（§4 Step 6 参照）
 
 ---
 
 ## 1. 環境セットアップ
 
 ```bash
-cd c:\KEIBA-CICD\_keiba\keiba-cicd-core
-pip install jupyter ipykernel matplotlib seaborn shap
+cd c:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2
+# venv 実体: keiba-v2/.venv/Scripts/python.exe（Session 121 で独立化）
+pip install jupyter ipykernel matplotlib seaborn shap   # 探索モード用（任意）
 ```
 
-Cursor/VSCode で `.ipynb` ファイルを開き、右上でカーネル（keiba-v2 の venv）を選択。
+Cursor/VSCode で `.ipynb` を開き、カーネルに keiba-v2 の venv を選択。
+※ `notebooks/` ディレクトリは現状リポジトリに無い。以下のセル例は任意のNotebookに貼って使うテンプレート。
 
 ---
 
@@ -50,115 +87,105 @@ print(f"Data root: {config.data_root()}")
 
 ### Cell 1: データロード
 
+`load_data()` は **17要素 tuple** を返す（JRDB 7種を含む）。E-008 以降、血統リーク防止のため
+cutoff の扱いに注意（cutoff付きファイルが無い場合は既定で停止）。
+
 ```python
 from ml.experiment import load_data
 
-history_cache, trainer_index, jockey_index, \
-    date_index, pace_index, kb_ext_index, training_summary_index = load_data()
+(history_cache, trainer_index, jockey_index,
+ date_index, pace_index, kb_ext_index, training_summary_index,
+ race_level_index, pedigree_index, sire_stats_index,
+ jrdb_sed_index, jrdb_kyi_index, jrdb_kaa_index,
+ jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index) = load_data(
+    sire_cutoff="2025-06-30",   # test開始より前の日付を指定（PITリーク防止）
+)
 
-print(f"馬: {len(history_cache):,}")
-print(f"レース日: {len(date_index):,}")
-print(f"KB ext: {len(kb_ext_index):,}")
+print(f"馬: {len(history_cache):,} / レース日: {len(date_index):,} / KYI: {len(jrdb_kyi_index):,}")
 ```
 
-> **所要時間**: 約2-3分（pace_index/kb_ext_index構築がボトルネック）
+> **所要時間**: 数分（インデックス読込がボトルネック。jrdb_kyi_index は500MB）
 
 ### Cell 2: データセット構築
 
 ```python
 from ml.experiment import build_dataset
 
+common = dict(
+    training_summary_index=training_summary_index,
+    race_level_index=race_level_index,
+    pedigree_index=pedigree_index,
+    sire_stats_index=sire_stats_index,
+    jrdb_sed_index=jrdb_sed_index, jrdb_kyi_index=jrdb_kyi_index,
+    jrdb_kaa_index=jrdb_kaa_index, jrdb_cyb_index=jrdb_cyb_index,
+    jrdb_cha_index=jrdb_cha_index, jrdb_kka_index=jrdb_kka_index,
+    jrdb_joa_index=jrdb_joa_index,
+)
+
 # 3-way split: train / val(early stopping) / test(純粋評価)
 df_train = build_dataset(date_index, history_cache, trainer_index, jockey_index,
-                         pace_index, kb_ext_index, 2020, 2023,
-                         training_summary_index=training_summary_index)
+                         pace_index, kb_ext_index, 2020, 2024, **common)
 df_val   = build_dataset(date_index, history_cache, trainer_index, jockey_index,
-                         pace_index, kb_ext_index, 2024, 2024,
-                         training_summary_index=training_summary_index)
+                         pace_index, kb_ext_index, 2025, 2025, max_month=6, **common)
 df_test  = build_dataset(date_index, history_cache, trainer_index, jockey_index,
-                         pace_index, kb_ext_index, 2025, 2026,
-                         training_summary_index=training_summary_index)
+                         pace_index, kb_ext_index, 2025, 2026, min_month=7, **common)
 
-print(f"Train: {len(df_train):,} entries")
-print(f"Val:   {len(df_val):,} entries")
-print(f"Test:  {len(df_test):,} entries")
+print(f"Train: {len(df_train):,} / Val: {len(df_val):,} / Test: {len(df_test):,}")
+# ★ test の月別件数を必ず確認（キャッシュ凍結だと末尾の月が黙って消える）
+print(df_test['date'].str[:7].value_counts().sort_index().tail(6))
 ```
 
-> **所要時間**: 約5-10分（全レースの特徴量計算）
+> JRDB index を渡し忘れると該当特徴量が全欠損のまま学習が走る（エラーにならない）。
+> 件数と欠損率の確認を省略しないこと。
 
 ---
 
-## 3. デバッグ用ノートブック一覧
+## 3. デバッグ用ノートブックテンプレ
 
-### 3.1 特徴量診断 (`notebooks/01_feature_diagnosis.ipynb`)
+現行モデルは **P (Place/is_top3) / W (Win/is_win) / AR (着差回帰)** の3本 + IsotonicRegression キャリブレーター。
+ハイパラは `PARAMS_P` / `PARAMS_W` / `PARAMS_AR`（experiment.py）。
 
-**目的**: 新特徴量の品質チェック、欠損率、分布、相関を確認
+### 3.1 特徴量診断
 
 ```python
-from ml.experiment import FEATURE_COLS_ALL, FEATURE_COLS_VALUE, MARKET_FEATURES
+from ml.experiment import FEATURE_COLS_ALL, FEATURE_COLS_VALUE, MARKET_FEATURES, P_ONLY_FEATURES
 
 # --- 欠損率チェック ---
 missing = df_train[FEATURE_COLS_ALL].isnull().mean().sort_values(ascending=False)
-print("=== 欠損率 Top 20 ===")
 print(missing.head(20))
 
-# --- 分布確認（ヒストグラム） ---
-target_features = ['horse_slow_start_rate', 'comment_stable_condition']  # 確認したい特徴量
+# --- 分布確認 ---
+target_features = ['jrdb_cid_score', 'horse_slow_start_rate']  # 確認したい特徴量
 fig, axes = plt.subplots(1, len(target_features), figsize=(5*len(target_features), 4))
 for ax, feat in zip(axes, target_features):
     df_train[feat].dropna().hist(bins=50, ax=ax)
     ax.set_title(feat)
-plt.tight_layout()
-plt.show()
+plt.tight_layout(); plt.show()
 
-# --- 目的変数との相関 ---
+# --- 目的変数との相関 / 多重共線性 ---
 corr = df_train[FEATURE_COLS_ALL + ['is_top3', 'is_win']].corr()
-top3_corr = corr['is_top3'].drop(['is_top3', 'is_win']).abs().sort_values(ascending=False)
-print("\n=== is_top3 相関 Top 20 ===")
-print(top3_corr.head(20))
-
-# --- 特徴量間の多重共線性チェック ---
-import seaborn as sns
-fig, ax = plt.subplots(figsize=(16, 14))
-sns.heatmap(corr[FEATURE_COLS_ALL].loc[FEATURE_COLS_ALL].abs(),
-            cmap='YlOrRd', vmin=0, vmax=1, ax=ax)
-ax.set_title('特徴量相関ヒートマップ')
-plt.tight_layout()
-plt.show()
+print(corr['is_top3'].drop(['is_top3', 'is_win']).abs().sort_values(ascending=False).head(20))
 ```
 
-### 3.2 モデル学習＆評価 (`notebooks/02_model_training.ipynb`)
-
-**目的**: モデル学習の過程を可視化、ハイパーパラメータの影響を確認
+### 3.2 モデル学習＆評価
 
 ```python
-from ml.experiment import (
-    train_model, FEATURE_COLS_ALL, FEATURE_COLS_VALUE,
-    PARAMS_A, PARAMS_B, PARAMS_W, PARAMS_WV
+from ml.experiment import train_model, FEATURE_COLS_VALUE, PARAMS_P
+
+# P モデル（VALUE特徴量 = MARKET除外）
+model_p, metrics_p, importance_p, pred_p = train_model(
+    df_train, df_val, df_test, FEATURE_COLS_VALUE, PARAMS_P,
+    label_col='is_top3', model_name='P'
 )
+print(f"P: AUC={metrics_p['auc']}, ECE={metrics_p['ece']}")
 
-# --- Model A (Place Accuracy) ---
-model_a, metrics_a, importance_a, pred_a = train_model(
-    df_train, df_val, df_test, FEATURE_COLS_ALL, PARAMS_A,
-    label_col='is_top3', model_name='Model A'
-)
-print(f"Model A: AUC={metrics_a['auc']}, ECE={metrics_a['ece']}")
-
-# --- 特徴量重要度 Top 30 ---
-imp_df = pd.DataFrame.from_dict(importance_a, orient='index', columns=['gain'])
-imp_df = imp_df.sort_values('gain', ascending=False)
-
-fig, ax = plt.subplots(figsize=(10, 8))
-imp_df.head(30).plot.barh(ax=ax)
-ax.set_title('Model A 特徴量重要度 Top 30')
-ax.invert_yaxis()
-plt.tight_layout()
-plt.show()
+# 特徴量重要度 Top 30
+imp_df = pd.DataFrame.from_dict(importance_p, orient='index', columns=['gain'])
+imp_df.sort_values('gain', ascending=False).head(30).plot.barh(figsize=(10, 8))
+plt.gca().invert_yaxis(); plt.tight_layout(); plt.show()
 ```
 
-### 3.3 キャリブレーション分析 (`notebooks/03_calibration.ipynb`)
-
-**目的**: 予測確率の信頼性を確認（ECE、キャリブレーションカーブ）
+### 3.3 キャリブレーション分析
 
 ```python
 from sklearn.calibration import calibration_curve
@@ -166,195 +193,81 @@ from sklearn.calibration import calibration_curve
 def plot_calibration(y_true, y_pred, model_name, n_bins=10):
     prob_true, prob_pred = calibration_curve(y_true, y_pred, n_bins=n_bins)
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.plot([0, 1], [0, 1], 'k--', label='完全キャリブレーション')
+    ax.plot([0, 1], [0, 1], 'k--')
     ax.plot(prob_pred, prob_true, 'o-', label=model_name)
-    ax.set_xlabel('予測確率')
-    ax.set_ylabel('実際の正例率')
-    ax.set_title(f'{model_name} キャリブレーションカーブ')
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
+    ax.set_xlabel('予測確率'); ax.set_ylabel('実際の正例率'); ax.legend()
+    plt.tight_layout(); plt.show()
 
-# Model A
-plot_calibration(df_test['is_top3'].values, pred_a, 'Model A')
-
-# Model B
-plot_calibration(df_test['is_top3'].values, pred_b, 'Model B')
+plot_calibration(df_test['is_top3'].values, pred_p, 'P')
 ```
 
-### 3.4 Value Bet 分析 (`notebooks/04_value_bet_analysis.ipynb`)
+> ライブ予測の較正検証は Notebook より `ml/analyze/check_calibration.py` /
+> `ml/analyze/validate_live_predictions.py`（E-009）の方が早い。較正の検証は
+> 「ライブvs再推論の同一馬join」が最強の診断（Session 151 の教訓）。
 
-**目的**: VB戦略の有効性をオッズ帯・トラック別に深掘り
+### 3.4 Value Bet 分析
+
+**現行の VB gap 定義**（experiment.py:3247）: 市場順位とモデル順位の直接乖離。
+
+```
+vb_gap     = (odds_rank - pred_rank_p).clip(lower=0)   # 複勝系
+win_vb_gap = (odds_rank - pred_rank_w).clip(lower=0)   # 単勝系
+```
 
 ```python
 from ml.experiment import calc_value_bet_analysis, collect_value_bet_picks
 
-# --- 全4モデルの予測を追加 ---
-df_test['pred_proba_a'] = model_a.predict(df_test[FEATURE_COLS_ALL])
-df_test['pred_proba_v'] = model_b.predict(df_test[FEATURE_COLS_VALUE])
-df_test['pred_rank_a'] = df_test.groupby('race_id')['pred_proba_a'].rank(ascending=False)
-df_test['pred_rank_v'] = df_test.groupby('race_id')['pred_proba_v'].rank(ascending=False)
+df_test['pred_proba_p'] = model_p.predict(df_test[FEATURE_COLS_VALUE])
+df_test['pred_rank_p'] = df_test.groupby('race_id')['pred_proba_p'].rank(ascending=False)
 
-# --- VB gap別 ROI ---
-vb_results = calc_value_bet_analysis(df_test)
-vb_df = pd.DataFrame(vb_results)
-print(vb_df.to_string(index=False))
+vb_results = calc_value_bet_analysis(df_test, rank_col='pred_rank_p')
+print(pd.DataFrame(vb_results).to_string(index=False))
 
-# --- 芝/ダート別 VB分析 ---
-for track in ['芝', 'ダート']:
-    subset = df_test[df_test['track_type'] == (1 if track == '芝' else 2)]
-    if len(subset) == 0:
-        continue
-    vb = calc_value_bet_analysis(subset)
-    print(f"\n--- {track} ---")
-    print(pd.DataFrame(vb).to_string(index=False))
-
-# --- VB候補のオッズ分布 ---
 picks = collect_value_bet_picks(df_test, min_gap=3)
-picks_df = pd.DataFrame(picks)
-fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-picks_df[picks_df['is_top3']==1]['odds'].hist(bins=30, ax=axes[0], alpha=0.7, label='的中')
-picks_df[picks_df['is_top3']==0]['odds'].hist(bins=30, ax=axes[0], alpha=0.7, label='不的中')
-axes[0].set_title('VB候補のオッズ分布')
-axes[0].legend()
-picks_df.groupby('gap')['is_top3'].mean().plot.bar(ax=axes[1])
-axes[1].set_title('gap別 複勝的中率')
-plt.tight_layout()
-plt.show()
 ```
 
-### 3.5 SHAP値分析 (`notebooks/05_shap_analysis.ipynb`)
-
-**目的**: 個別予測の理由を解明、特徴量の非線形効果を把握
+### 3.5 SHAP値分析
 
 ```python
 import shap
 
-# Model A の SHAP値計算（テストセットのサブセットで実行、全件だと時間かかる）
 sample = df_test.sample(min(2000, len(df_test)), random_state=42)
-X_sample = sample[FEATURE_COLS_ALL]
-
-explainer = shap.TreeExplainer(model_a)
+X_sample = sample[FEATURE_COLS_VALUE]
+explainer = shap.TreeExplainer(model_p)
 shap_values = explainer.shap_values(X_sample)
-
-# --- Summary Plot ---
 shap.summary_plot(shap_values, X_sample, max_display=30)
-
-# --- 個別の予測を説明 ---
-# 例: VB候補のうち、最もgapが大きかった馬
-idx = picks_df['gap'].idxmax()
-vb_horse = picks_df.loc[idx]
-race_entries = sample[sample['race_id'] == vb_horse['race_id']]
-if len(race_entries) > 0:
-    horse_idx = race_entries.index[0]
-    shap.force_plot(explainer.expected_value, shap_values[horse_idx],
-                    X_sample.loc[horse_idx], matplotlib=True)
-
-# --- 特定特徴量の部分依存 ---
-shap.dependence_plot('comment_stable_condition', shap_values, X_sample)
 ```
 
-### 3.6 特徴量実験 (`notebooks/06_feature_experiment.ipynb`)
-
-**目的**: 新特徴量の追加/除外の影響をクイック検証
+### 3.6 特徴量アブレーション（グループ別寄与度）
 
 ```python
-# --- Ablation Study: 特徴量グループ別の寄与度 ---
-from ml.experiment import train_model, PARAMS_A, PARAMS_B
+from ml.experiment import train_model, PARAMS_P
 
-feature_groups = {
-    'BASE': BASE_FEATURES + ['odds', 'popularity', 'odds_rank'],
-    'PAST': PAST_FEATURES,
-    'RUNNING_STYLE': RUNNING_STYLE_FEATURES,
-    'ROTATION': ROTATION_FEATURES,
-    'PACE': PACE_FEATURES,
-    'TRAINING': TRAINING_FEATURES + KB_MARK_FEATURES,
-    'SPEED': SPEED_FEATURES,
-    'COMMENT': COMMENT_FEATURES,
-    'SLOW_START': SLOW_START_FEATURES,
-}
-
-# 1グループずつ除外して影響を測定
+# 1グループずつ除外して影響を測定（CLI なら --exclude-features / --prune-bottom）
 results = []
-baseline_cols = FEATURE_COLS_ALL.copy()
-_, baseline_metrics, _, _ = train_model(
-    df_train, df_val, df_test, baseline_cols, PARAMS_A,
-    label_col='is_top3', model_name='Baseline'
-)
-
-for group_name, group_features in feature_groups.items():
-    ablated_cols = [f for f in baseline_cols if f not in group_features]
-    _, metrics, _, _ = train_model(
-        df_train, df_val, df_test, ablated_cols, PARAMS_A,
-        label_col='is_top3', model_name=f'w/o {group_name}'
-    )
-    delta = metrics['auc'] - baseline_metrics['auc']
-    results.append({
-        'group': group_name,
-        'features': len(group_features),
-        'auc_without': metrics['auc'],
-        'delta': delta,
-    })
-
-results_df = pd.DataFrame(results).sort_values('delta')
-print(results_df.to_string(index=False))
-
-fig, ax = plt.subplots(figsize=(10, 5))
-results_df.plot.barh(x='group', y='delta', ax=ax, color='coral')
-ax.axvline(x=0, color='k', linewidth=0.5)
-ax.set_title('特徴量グループ除外時のAUC変化（負=重要）')
-plt.tight_layout()
-plt.show()
+for group_name, group_features in feature_groups.items():   # 任意のグループ辞書
+    ablated = [f for f in FEATURE_COLS_VALUE if f not in group_features]
+    _, metrics, _, _ = train_model(df_train, df_val, df_test, ablated, PARAMS_P,
+                                   label_col='is_top3', model_name=f'w/o {group_name}')
+    results.append({'group': group_name, 'auc_without': metrics['auc']})
 ```
 
-### 3.7 エラー分析 (`notebooks/07_error_analysis.ipynb`)
-
-**目的**: モデルが間違えるケースのパターン分析
+### 3.7 エラー分析（高確信ミス / 穴馬的中 / 条件別AUC）
 
 ```python
-# --- 予測追加 ---
-df_test['pred_proba_a'] = pred_a
-df_test['pred_rank_a'] = df_test.groupby('race_id')['pred_proba_a'].rank(ascending=False)
-
-# --- 高確信ミス: モデルが上位予測したが凡走した馬 ---
-high_conf_miss = df_test[
-    (df_test['pred_rank_a'] == 1) &  # モデルTop1
-    (df_test['finish_position'] > 5)   # 5着以下
-].copy()
-high_conf_miss = high_conf_miss.sort_values('pred_proba_a', ascending=False)
-
-print(f"=== 高確信ミス: {len(high_conf_miss)} 件 ===")
-print(high_conf_miss[['date', 'venue_name', 'horse_name', 'pred_proba_a',
-                       'odds_rank', 'finish_position']].head(20).to_string())
-
-# --- 穴馬的中: オッズ上位10位以下で3着以内 ---
-upset_hits = df_test[
-    (df_test['odds_rank'] >= 10) &
-    (df_test['is_top3'] == 1) &
-    (df_test['pred_rank_a'] <= 5)  # モデルがTop5に入れていたか
-]
-print(f"\n=== 穴馬的中 (オッズ10位以下, 3着以内): {len(upset_hits)} 件 ===")
-
-# --- トラック別・距離帯別のAUC ---
 from sklearn.metrics import roc_auc_score
 
+df_test['pred_rank_p'] = df_test.groupby('race_id')['pred_proba_p'].rank(ascending=False)
+
+# 高確信ミス: モデルTop1 で5着以下
+high_conf_miss = df_test[(df_test['pred_rank_p'] == 1) & (df_test['finish_position'] > 5)]
+
+# トラック別AUC
 for track in [1, 2]:  # 1=芝, 2=ダート
     subset = df_test[df_test['track_type'] == track]
-    if len(subset) < 100:
-        continue
-    auc = roc_auc_score(subset['is_top3'], subset['pred_proba_a'])
-    track_name = '芝' if track == 1 else 'ダート'
-    print(f"{track_name}: AUC={auc:.4f} (n={len(subset):,})")
-
-    # 距離帯別
-    for dist_range, label in [
-        ((0, 1400), '短距離'), ((1400, 1800), 'マイル'),
-        ((1800, 2200), '中距離'), ((2200, 9999), '長距離')
-    ]:
-        s = subset[(subset['distance'] >= dist_range[0]) & (subset['distance'] < dist_range[1])]
-        if len(s) >= 50:
-            auc_d = roc_auc_score(s['is_top3'], s['pred_proba_a'])
-            print(f"  {label}: AUC={auc_d:.4f} (n={len(s):,})")
+    if len(subset) >= 100:
+        print(f"{'芝' if track==1 else 'ダート'}: "
+              f"AUC={roc_auc_score(subset['is_top3'], subset['pred_proba_p']):.4f}")
 ```
 
 ---
@@ -363,217 +276,207 @@ for track in [1, 2]:  # 1=芝, 2=ダート
 
 ### Step 1: 仮説を立てる
 「この情報は勝敗に影響するはずだが、現在のモデルは考慮していない」
+→ success criteria を先に明文化する（どの指標がどれだけ動いたら採用か）。
 
 ### Step 2: データ確認（Notebook）
 ```python
-# 例: 出遅れ率 × 着順の関係
-df_test.groupby(pd.cut(df_test['horse_slow_start_rate'], bins=5))['is_top3'].mean()
+df_test.groupby(pd.cut(df_test['new_feat'], bins=5))['is_top3'].mean()
 ```
 
 ### Step 3: 特徴量モジュール作成
-`ml/features/xxx_features.py` に `compute_xxx_features()` 関数を作成
+`ml/features/xxx_features.py` に `compute_xxx_features()` と `XXX_FEATURE_COLS` を定義。
+JRDB系なら `docs/jrdb_data_inventory.md`（v2）で「インデックス到達済みか」を先に確認
+（KYI はインデックスに約75フィールド格納済み＝特徴量関数を書くだけで届くものが多い）。
 
 ### Step 4: experiment.py に統合
-1. `XXX_FEATURES` リストを定義
-2. `FEATURE_COLS_ALL` に追加
-3. `MARKET_FEATURES` に該当するものがあれば追加
+1. import + `FEATURE_COLS_ALL` への追加
+2. **市場相関が濃いものは `MARKET_FEATURES` へ**（オッズ・人気・印・指数系。
+   VALUE側に入れると VB 差別化を壊す — v7.0 で JRDB事前指数6個を除外した教訓）
+3. P にだけ効かせたいものは `P_ONLY_FEATURES` へ
 4. `compute_features_for_race()` に呼び出し追加
+5. predict.py 側の特徴量計算にも同じ呼び出しを配線（experiment と predict は別経路）
 
 ### Step 5: Notebook でクイック検証
 ```python
-# 既存のdf_train/val/testに新特徴量を追加して学習
-new_features = FEATURE_COLS_ALL + ['new_feat1', 'new_feat2']
-model_new, metrics_new, _, pred_new = train_model(
-    df_train, df_val, df_test, new_features, PARAMS_A,
-    label_col='is_top3', model_name='Model A (new)'
-)
-print(f"AUC: {metrics_a['auc']} → {metrics_new['auc']} (Δ={metrics_new['auc']-metrics_a['auc']:+.4f})")
+new_features = FEATURE_COLS_VALUE + ['new_feat1', 'new_feat2']
+model_new, metrics_new, _, _ = train_model(df_train, df_val, df_test, new_features,
+                                           PARAMS_P, label_col='is_top3')
 ```
 
-### Step 6: フル実験
+### Step 6: フル実験（CLI）
+
 ```bash
-python -m ml.experiment --version 5.5
+# 特徴量を変更した場合 --version は必須（未指定だと差分検出で exit 1）
+# 血統統計を使うため --sire-cutoff も必須（E-008: 未指定は exit 2。test開始より前の日付）
+# live を切り替えたくない実験は必ず --no-set-active
+python -m ml.experiment --version 2.5 ^
+    --train-years 2020-2025.06 --val-years 2025.07 --test-years 2025.08-2026.05 ^
+    --sire-cutoff 2025-07-31 --no-set-active
 ```
 
-### Step 7: バックテスト
+主要オプション: `--exclude-features` / `--prune-bottom N` / `--use-optuna` / `--time-decay` /
+`--margin-mode adjusted` / `--allow-sire-leak`（本番最終学習で全データを使う時の明示オプトアウト）
+
+> ⚠ **experiment.py は実行のたびに live のモデルファイル（ml_dir直下 + models/polaris/live/）を上書きする**。
+> `--no-set-active` が守るのは registry の active_version ポインタだけ。
+> 実験後にライブ運用へ戻すには §6 の `restore_live` を必ず実行する。
+
+### Step 7: 採否判定（検証ハーネス）
+
 ```bash
-python -m ml.backtest_vb --version 5.5
+# モデル比較: フル学習なしで backtest_cache ベースの即比較
+python -m ml.backtest_bet_engine --cache-suffix <suffix>    # プリセット別 ROI
+#   --test-years 2025.05-2026.05 で test 期間をオーバーライド可（既定は model_meta の split.test。
+#   backtest_cache.json のフル再生成＝期間拡張はこのオーバーライドで行う。Session 157 実績:
+#   --test-years 2025.05-2026.05 --sire-cutoff 2025-03-31 → 3,653R / 2026-05まで）
+python -m ml.backtest_vb                                     # VB gap別 ROI
+
+# 買い目層オプションの採否: E-009 ハーネス（単勝T-5/複勝確定の ROI + ブートCI + 月別 walk-forward）
+python -m ml.analyze.validate_live_predictions --monthly --option <name>
 ```
 
 ### Step 8: 判定基準
-| 指標 | 改善条件 | 重要度 |
-|------|---------|--------|
-| Place VB gap≥5 ROI | +2pp 以上 | ★★★★★ 最重要 |
-| Model A AUC | 変動 ±0.002 以内 | ★★★ |
-| Model B AUC | 低下 0.005 以内 | ★★ |
-| ECE | 0.005 未満維持 | ★★★ |
-| Win VB gap≥5 ROI | +2pp 以上 | ★★★★ |
 
-> **重要な教訓**: AUC改善 ≠ ROI改善。Model B の精度が上がりすぎると市場との乖離が縮まり VB 効果が死ぬ。
+| 指標 | 条件 | 備考 |
+|------|------|------|
+| gap別 ROI **ブートCI下限** | ベースライン超過 | 点推定でなく CI で判定（v8.4 の判定方式） |
+| 月別 walk-forward | 特定 gap 帯で各月プラス | 幸運な窓に騙されない（E-009 `--monthly`） |
+| P/W AUC | 参考値 | AUC改善 ≠ ROI改善 |
+| ECE | 悪化しない | キャリブレーション崩れ検知 |
+
+> **重要な教訓**:
+> - AUC改善 ≠ ROI改善。VALUE側の精度が上がりすぎると市場との乖離が縮み VB が死ぬ。
+> - 「入替/除外が起きること ≠ 収支が良くなること」（E-003/E-004 の連続実証）。
+>   買い目層への新規介入はまず効かない。効くなら特徴量、効かないなら表示・運用（UI）へ。
 
 ---
 
 ## 5. ハイパーパラメータチューニング
 
-### 5.1 Notebook でのグリッドサーチ
-
-```python
-import itertools
-
-param_grid = {
-    'num_leaves': [31, 63, 127],
-    'learning_rate': [0.01, 0.03, 0.05],
-    'max_depth': [6, 7, 8],
-}
-
-results = []
-for nl, lr, md in itertools.product(
-    param_grid['num_leaves'],
-    param_grid['learning_rate'],
-    param_grid['max_depth'],
-):
-    params = {**PARAMS_A, 'num_leaves': nl, 'learning_rate': lr, 'max_depth': md}
-    _, metrics, _, _ = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_ALL, params,
-        label_col='is_top3', model_name=f'nl={nl},lr={lr},md={md}'
-    )
-    results.append({'num_leaves': nl, 'learning_rate': lr, 'max_depth': md,
-                    'auc': metrics['auc'], 'ece': metrics['ece']})
-
-results_df = pd.DataFrame(results).sort_values('auc', ascending=False)
-print(results_df.head(10).to_string(index=False))
+```bash
+python -m ml.experiment --use-optuna ...    # 本番実験に統合済み（モデル別特徴量リスト対応）
+python -m ml.optuna_tuner                    # 単体チューナー
 ```
 
-### 5.2 Optuna による自動チューニング
-
-```python
-import optuna
-
-def objective(trial):
-    params = {
-        'objective': 'binary',
-        'metric': 'auc',
-        'num_leaves': trial.suggest_int('num_leaves', 31, 255),
-        'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.1, log=True),
-        'feature_fraction': trial.suggest_float('feature_fraction', 0.6, 1.0),
-        'bagging_fraction': trial.suggest_float('bagging_fraction', 0.6, 1.0),
-        'bagging_freq': trial.suggest_int('bagging_freq', 1, 10),
-        'min_child_samples': trial.suggest_int('min_child_samples', 10, 100),
-        'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 10.0, log=True),
-        'reg_lambda': trial.suggest_float('reg_lambda', 0.01, 10.0, log=True),
-        'max_depth': trial.suggest_int('max_depth', 4, 10),
-        'verbose': -1,
-    }
-    _, metrics, _, _ = train_model(
-        df_train, df_val, df_test, FEATURE_COLS_ALL, params,
-        label_col='is_top3', model_name=f'Trial {trial.number}'
-    )
-    return metrics['auc']
-
-study = optuna.create_study(direction='maximize')
-study.optimize(objective, n_trials=50)
-
-print(f"Best AUC: {study.best_value:.4f}")
-print(f"Best params: {study.best_params}")
-```
+Notebook での手動グリッドサーチは `PARAMS_P` をベースに `train_model` を回す（§3.6 と同型）。
 
 ---
 
-## 6. デバッグチェックリスト
+## 6. バージョン管理・ロールバック ★
+
+### 構成要素
+
+| 要素 | 場所 | 役割 |
+|------|------|------|
+| `model_registry.json` | `data3/ml/` | **唯一の真実**。モデル×バージョン一覧 + `active_version` |
+| live モデル | `data3/ml/` 直下（旧構造）+ `data3/ml/models/polaris/live/`（新構造） | predict.py が読む実体。両方に同内容が書かれる |
+| アーカイブ | `data3/ml/models/polaris/archive/v{ver}/` + `data3/ml/versions/v{ver}/`（旧） | 上書き前に自動退避（冪等） |
+| `ml/model_loader.py` | — | `load_model("polaris", version=...)` でパス解決・ロード（新→旧フォールバック） |
+
+### experiment.py 実行時に起きること（保存フロー）
+
+1. 旧バージョンを `versions/v{old}/` にアーカイブ（`core/versioning.archive_before_save`、冪等）
+2. `ml_dir` 直下に model_p/w/ar.txt + calibrators.pkl + model_meta.json を**上書き**
+3. 新構造 `models/polaris/live/` にもコピー（上書き前に旧liveを `archive/v{prev}/` へ退避）
+4. registry に `register_version`（**既定で active_version も切替**。`--no-set-active` で抑止）
+
+### よく使うコマンド
+
+```bash
+# バージョン一覧 / 現在の active
+python -m ml.predict --list-versions
+python -m ml.switch_model --current
+
+# 実験後にライブへ戻す（ファイルコピーのみ・registry は触らない — レース中も安全）
+# ⚠ restore_live は現 live をアーカイブしない。実験モデルを残したい場合は
+#   restore 前に live/ → models/polaris/archive/v{ver}/ へ手動コピーすること
+#   （v8.4 初回で 2.4b の実体が消失した実例あり。Session 157 で退避手順を実施）
+python -m ml.restore_live polaris 2.3
+python -m ml.restore_live polaris 2.3 --dry-run
+
+# active_version の正式切替（昇格・ロールバック両方）
+python -m ml.set_active polaris 2.5
+python -m ml.set_active polaris --list
+
+# 旧バージョンでの予測（一時的な検証）
+python -m ml.predict --date 2026-06-13 --model-version 2.2
+```
+
+### 昇格（live化）の標準手順
+
+1. `--no-set-active` で実験 → 検証ハーネスで採否判定
+2. 採用なら `python -m ml.set_active polaris <ver>`（restore_live 済みなら再学習 or archive からコピー）
+3. `python -m ml.preflight` で smoke test
+4. `ml_experiment_log.md` に記録 + `docs/ml-experiments/` に詳細レポート
+5. 不採用なら `python -m ml.restore_live polaris <旧ver>` で復旧（v8.4 で実証済みの手順）
+
+---
+
+## 7. デバッグチェックリスト
 
 ### 新特徴量が効かないとき
 - [ ] 欠損率が高すぎないか（>50%なら要注意）
-- [ ] 分散がゼロに近くないか（定数特徴量）
+- [ ] 分散がゼロに近くないか（定数特徴量 — pace_match 死特徴量化の教訓）
 - [ ] 既存特徴量と相関 > 0.9 ではないか（冗長）
 - [ ] MARKET_FEATURES に入れるべきものが VALUE に入っていないか
-- [ ] LightGBM の feature_fraction が低すぎないか（特徴量増加時は 0.8 推奨）
+- [ ] **experiment 側に足して predict 側に配線し忘れていないか**（学習時のみ存在→ライブで全欠損）
+- [ ] JRDB index を build_dataset に渡し忘れていないか（黙って全欠損になる）
 
 ### ROI が下がったとき
-- [ ] Model B の AUC が上がりすぎていないか（市場との乖離が縮小）
+- [ ] VALUE側の AUC が上がりすぎていないか（市場との乖離が縮小）
 - [ ] 新特徴量が MARKET 系ではないか（人気に織り込み済みの情報）
-- [ ] テスト期間が短すぎないか（分散が大きい）
-- [ ] ECE が悪化していないか（キャリブレーション崩れ）
+- [ ] テスト期間が短すぎないか / **test の月別件数が宣言期間と一致しているか**（キャッシュ凍結検知）
+- [ ] ECE が悪化していないか
+- [ ] オッズ条件は確定オッズで判定していないか（後知恵 — predictions の直前オッズで再検証）
 
 ### AUC が下がったとき
-- [ ] 新特徴量にノイズが多くないか（辞書拡充版 v5.3b の教訓）
-- [ ] データリークがないか（将来情報が特徴量に含まれていないか）
-- [ ] NaN の扱いが変わっていないか
+- [ ] 新特徴量にノイズが多くないか
+- [ ] データリークがないか（血統 cutoff / 将来情報。E-008 で血統は既定ガード済み）
+- [ ] NaN の扱いが変わっていないか（LightGBM ネイティブに委ねる方針）
+
+### ライブ予測がおかしいとき
+- [ ] §0 のキャッシュ鮮度（人気馬の過小評価はキャッシュ凍結の典型症状）
+- [ ] `model_meta.json` の version が想定どおりか（実験でliveを上書きしたまま戻し忘れ）
+- [ ] ライブvs再推論の同一馬join で「ライブ時点で何が欠けていたか」を定量化
 
 ---
 
-## 7. 実験記録テンプレート
+## 8. 実験記録テンプレート
 
-各実験の結果は `ml-experiment-log.md` に以下のフォーマットで記録:
+実験は `docs/ml_experiment_log.md` に記録（新しいものが上）。詳細は `docs/ml-experiments/vX.Y_名前.md` に分離。
 
 ```markdown
-### vX.Y — 実験名 (YYYY-MM-DD)
+## vX.Y / 実験名 (YYYY-MM-DD, セッション)
 
-**変更点**:
-- (何を追加/変更/削除したか)
+### 背景
+（仮説と success criteria）
 
-**結果**:
-| モデル | vX.Y-1 AUC | vX.Y AUC | Delta |
-|--------|-----------|----------|-------|
-| Model A | 0.XXXX | 0.XXXX | +0.XXXX |
-| Model B | 0.XXXX | 0.XXXX | +0.XXXX |
-| Model W | 0.XXXX | 0.XXXX | +0.XXXX |
-| Model WV | 0.XXXX | 0.XXXX | +0.XXXX |
+### 分割
+train / val / test（★testの実データ月別件数も記録 — 宣言とのズレ検知）
 
-**VB ROI**:
-- Place gap≥5: XXX.X% → XXX.X% (ΔXX.Xpp)
-- Win gap≥5: XXX.X% → XXX.X% (ΔXX.Xpp)
+### 結果
+| 指標 | 旧 | 新 |
+|------|----|----|
+| P AUC / W AUC | | |
+| gap別 ROI（ブートCI下限） | | |
 
-**判定**: ✅ 採用 / ❌ 不採用 / 🔄 要追加検証
+### 判定
+採用 / 不採用（理由・CI根拠）・live切替の有無（--no-set-active / restore_live / set_active）
 
-**学習事項**: (何がわかったか)
+→ 詳細: docs/ml-experiments/vX.Y_xxx.md
 ```
 
 ---
 
-## 8. ファイル構成
+## 9. predictions にフィールドを追加したときの表示更新チェックリスト ★
 
-```
-keiba-v2/
-├── notebooks/                    # ← 新規作成
-│   ├── 01_feature_diagnosis.ipynb
-│   ├── 02_model_training.ipynb
-│   ├── 03_calibration.ipynb
-│   ├── 04_value_bet_analysis.ipynb
-│   ├── 05_shap_analysis.ipynb
-│   ├── 06_feature_experiment.ipynb
-│   └── 07_error_analysis.ipynb
-├── ml/
-│   ├── experiment.py             # フル実験（CLI）
-│   ├── predict.py                # 本番予測
-│   ├── backtest_vb.py            # VBバックテスト
-│   └── features/                 # 特徴量モジュール群
-└── docs/
-    ├── ml-debug-procedure.md     # ← 本ファイル
-    └── jupyter_notebook_procedure.md
-```
+モデル/予測の出力を変えたら web 側の更新漏れを防ぐ（詳細は `ML_SOURCE_GUIDE.md` §8）:
 
----
+- [ ] `web/src/lib/data/predictions-reader.ts` — `PredictionEntry` 型に追加（オプショナル `?` で後方互換）
+- [ ] `web/src/lib/data/ml-prediction-reader.ts` — `MlHorsePrediction` + `convertV4Entry()`（races-v2 経路）
+- [ ] 表示コンポーネント — `predictions/components/vb-table.tsx` / `components/race-v2/HorseEntryTable.tsx`
+- [ ] フィルタ/買い目に関与するなら `predictions-content.tsx` の state / bet-engine
+- [ ] `npx tsc --noEmit` で型チェック・古い predictions.json でも壊れないこと
+- [ ] 動的サブルートの `force-dynamic` 指定（無いと未来日レースが静的キャッシュ→404）
 
-## 9. 典型的なセッション例
-
-### シナリオ: 「騎手乗り替わり×過去相性」特徴量を追加したい
-
-1. **Notebook Cell**: 過去データで「乗り替わり時の勝率」を調べる
-2. **Notebook Cell**: 騎手×馬の過去組み合わせ勝率を計算
-3. **Notebook Cell**: 新特徴量を df_train に追加して分布・相関確認
-4. **Notebook Cell**: Model A/B を学習して AUC/ECE 変化を確認
-5. **Notebook Cell**: VB ROI の変化を確認
-6. 結果が良ければ → `ml/features/jockey_features.py` に実装
-7. `python -m ml.experiment --version 5.5` でフル実験
-8. `ml-experiment-log.md` に記録
-9. 判定基準（§4 Step 8）に基づき採用/不採用を決定
-
----
-
-## 10. 注意事項
-
-- **データリーク厳禁**: 特徴量計算時に「レース当日以降の情報」を使わないこと
-- **テストセットは神聖**: df_test で何度もチューニングしない。仮説検証は df_val で
-- **辞書は少数精鋭**: NLP特徴量で「曖昧な語を追加するとノイズになる」教訓（v5.3b）
-- **MARKET分類は慎重に**: 新特徴量がオッズと相関 > 0.3 なら MARKET_FEATURES に入れることを検討
-- **feature_fraction**: 特徴量が増えたら 0.7 → 0.8 に上げる（LightGBM がサンプルしやすくする）
+参考実装パターン: reason_tags（E-005, Session 154）= predict.py 付与 → reader 型 → `ReasonTagBadges` 表示。

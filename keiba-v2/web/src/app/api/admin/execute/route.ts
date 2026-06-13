@@ -227,6 +227,15 @@ export async function POST(request: NextRequest) {
           commands = [['-m', 'builders.build_sire_stats']];
         } else if (action === 'rebuild_slow_start') {
           commands = [['-m', 'builders.build_slow_start_analysis']];
+        } else if (action === 'rebuild_jockey_close') {
+          // E-007: 騎手接戦の再集計導線。源データ jockeys.json（SE_DATA集計）の凍結が
+          // 接戦分析の鮮度ギャップ主因だったため、master 再構築→接戦再集計の2段で根治。
+          commands = [
+            ['-m', 'builders.build_jockey_master'],
+            ['-m', 'analysis.jockey_close_finish'],
+          ];
+        } else if (action === 'calc_idm_standards') {
+          commands = [['-m', 'analysis.idm_standards', '--since', '2023']];
         } else if (action === 'rebuild_race_search_index') {
           commands = [['-m', 'builders.build_race_search_index']];
         } else if (action === 'v4_build_race') {

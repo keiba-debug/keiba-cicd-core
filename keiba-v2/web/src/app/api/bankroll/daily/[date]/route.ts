@@ -12,6 +12,8 @@ import path from 'path';
 import fs from 'fs/promises';
 import { DATA3_ROOT } from '@/lib/config';
 import { ADMIN_CONFIG } from '@/lib/admin/config';
+import { readLedger, flattenLedger } from '@/lib/data/ledger-reader';
+import { betDedupKey } from '@/lib/data/race-purchase-reader';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -219,26 +221,49 @@ export async function GET(
 
     const scriptPath = path.join(ADMIN_CONFIG.aiToolsPath, 'target_reader.py');
 
-    // TARGETデータを取得
-    const result = await executePythonScript(scriptPath, ['--date', dateStr]);
+    // TARGET + ledger + レース情報マップを並列取得
+    const dateIso = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
+    const [result, raceInfoMap, ledger] = await Promise.all([
+      executePythonScript(scriptPath, ['--date', dateStr]),
+      loadRaceInfoMap(dateStr),
+      readLedger(dateIso).catch(() => null),
+    ]);
 
-    // レース情報マップを読み込み（race_info.json + integrated_*.json）
-    const raceInfoMap = await loadRaceInfoMap(dateStr);
+    // ledger から「自動投票」買い目キーセットを構築 (venue-raceNum → Set<dedupKey>)
+    const autoKeysByRace = new Map<string, Set<string>>();
+    if (ledger) {
+      const ledgerDaily = flattenLedger(ledger);
+      for (const lr of ledgerDaily.races) {
+        const raceKey = `${lr.venue}-${lr.race_number}`;
+        const keys = new Set<string>();
+        for (const b of lr.bets) keys.add(betDedupKey(b.bet_type, b.selection, b.amount));
+        autoKeysByRace.set(raceKey, keys);
+      }
+    }
 
-    // レース情報を結合
+    // レース情報を結合 + 自動/手動ソースをタグ付け
     if (result.races && Array.isArray(result.races)) {
       for (const race of result.races) {
         // キー: "場所-レース番号" でマッチング
         const key = `${race.venue}-${race.race_number}`;
         const raceInfo = raceInfoMap.get(key);
-        
+
         if (raceInfo) {
           race.post_time = raceInfo.post_time;
           race.race_name = raceInfo.race_name;
-          race.distance = raceInfo.distance > 0 
-            ? `${raceInfo.track}${raceInfo.distance}m` 
+          race.distance = raceInfo.distance > 0
+            ? `${raceInfo.track}${raceInfo.distance}m`
             : '';
           race.grade = raceInfo.grade;
+        }
+
+        // 買い目ごとに source タグ付け ('auto' | 'target')
+        const autoSet = autoKeysByRace.get(key) ?? new Set<string>();
+        if (race.bets && Array.isArray(race.bets)) {
+          for (const bet of race.bets) {
+            bet.source = autoSet.has(betDedupKey(bet.bet_type, bet.selection, bet.amount))
+              ? 'auto' : 'target';
+          }
         }
       }
       

@@ -31,6 +31,12 @@ const formatDateDisplay = (dateStr: string): string => {
   return `${year}年${month}月${day}日`;
 };
 
+interface LedgerDayStat {
+  invested: number;
+  returned: number;
+  profit: number;
+}
+
 export function TodaySummary({ dateStr, onSyncComplete, refreshKey }: TodaySummaryProps) {
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,6 +44,7 @@ export function TodaySummary({ dateStr, onSyncComplete, refreshKey }: TodaySumma
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [ledgerDay, setLedgerDay] = useState<LedgerDayStat | null>(null);
 
   // デフォルトは今日の日付
   const today = new Date();
@@ -116,13 +123,27 @@ export function TodaySummary({ dateStr, onSyncComplete, refreshKey }: TodaySumma
       setLoading(true);
       setError(null);
 
+      const dateIso = `${targetDateStr.slice(0, 4)}-${targetDateStr.slice(4, 6)}-${targetDateStr.slice(6, 8)}`;
       try {
-        const res = await fetch(`/api/bankroll/summary?date=${targetDateStr}`);
-        if (!res.ok) {
-          throw new Error('成績の取得に失敗しました');
+        const [targetRes, ledgerRes] = await Promise.all([
+          fetch(`/api/bankroll/summary?date=${targetDateStr}`),
+          fetch(`/api/bankroll/ledger/summary?from=${dateIso}&to=${dateIso}`).catch(() => null),
+        ]);
+        if (!targetRes.ok) throw new Error('成績の取得に失敗しました');
+        setSummary(await targetRes.json());
+
+        if (ledgerRes?.ok) {
+          const ld = await ledgerRes.json();
+          if (ld.summary && (ld.summary.total_bet > 0 || ld.summary.total_payout > 0)) {
+            setLedgerDay({
+              invested: ld.summary.total_bet || 0,
+              returned: ld.summary.total_payout || 0,
+              profit: ld.summary.profit || 0,
+            });
+          } else {
+            setLedgerDay(null);
+          }
         }
-        const data = await res.json();
-        setSummary(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'エラーが発生しました');
       } finally {
@@ -246,6 +267,18 @@ export function TodaySummary({ dateStr, onSyncComplete, refreshKey }: TodaySumma
               )}
               {formatCurrency(summary.profit)}
             </div>
+            {ledgerDay && (
+              <div className="mt-1 space-y-0.5 text-xs">
+                <div className={`flex items-center gap-1 ${getProfitColor(ledgerDay.profit)}`}>
+                  <span className="px-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">自動</span>
+                  {formatCurrency(ledgerDay.profit)}
+                </div>
+                <div className={`flex items-center gap-1 ${getProfitColor(summary.profit - ledgerDay.profit)}`}>
+                  <span className="px-1 rounded bg-muted text-muted-foreground">手動</span>
+                  {formatCurrency(summary.profit - ledgerDay.profit)}
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <div className="text-sm text-muted-foreground mb-1">回収率</div>

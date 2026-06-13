@@ -17,12 +17,25 @@ export interface IDMStatsBlock {
   max: number;
 }
 
+/** E-010 品質メタ（quality_meta/1）。連続量は mean_se。 */
+export interface QualityMeta {
+  metric: string;
+  ci95: { lower: number; upper: number } | null;
+  effective_n: number | null;
+  stability_flag: 'stable' | 'drift' | 'insufficient';
+  algo: string;
+  selected?: boolean;
+  source?: string;
+  original_n?: number;
+}
+
 export interface IDMGradeStandard {
   sample_count: number;
   horse_count: number;
   winner_count: number;
   all: IDMStatsBlock;
   winner: IDMStatsBlock | null;
+  quality?: QualityMeta;
   fallback_from?: string;
   fallback_to?: string;
   original_sample_count?: number;
@@ -48,6 +61,8 @@ export interface IDMStandards {
     version: string;
     global_mean_idm: number;
     global_winner_mean_idm: number;
+    schema_version?: string;
+    coverage?: { from_date?: string; to_date?: string };
   };
   by_grade: Record<string, IDMGradeStandard>;
   by_race_name?: Record<string, IDMRaceNameStandard>;

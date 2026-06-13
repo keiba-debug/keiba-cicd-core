@@ -51,6 +51,15 @@ CANCEL_BUTTON_TITLE = "キャンセル"
 RESULT_DIALOG_TITLE = "投票終了"
 OK_BUTTON_TITLE = "OK"
 
+# 「投票終了」 ダイアログの OK 押下タイミング制御 (Session 155)
+#   症状: ダイアログ枠は出ても受付番号が JRA から返る前に読取→即 OK click すると
+#   receipt_number=None になり、 誤 session_expired 事後検知 (Phase 4-C-full) に流れる。
+#   対策: 出現後に settle を入れ、 受付番号が埋まるまで短い間隔で再読取してから OK を押す。
+#   いずれも環境変数で当日チューニング可能 (コード再デプロイ不要)。
+RESULT_SETTLE_SEC = float(os.getenv("KEIBA_RESULT_SETTLE_SEC", "0.8"))
+RESULT_RECEIPT_POLL_SEC = float(os.getenv("KEIBA_RESULT_RECEIPT_POLL_SEC", "0.4"))
+RESULT_RECEIPT_MAX_WAIT_SEC = float(os.getenv("KEIBA_RESULT_RECEIPT_MAX_WAIT_SEC", "4.0"))
+
 AUDIT_DIR = Path(os.getenv("KEIBA_DATA_ROOT", "C:/KEIBA-CICD/data3")) \
     / "userdata" / "target_clicker"
 
@@ -291,29 +300,63 @@ def _read_receipt(dlg) -> ReceiptInfo:
     )
 
 
-def close_result_dialog(timeout_sec: int = 10, verbose: bool = True
+def close_result_dialog(timeout_sec: int = 10, verbose: bool = True,
+                        *,
+                        settle_sec: float = RESULT_SETTLE_SEC,
+                        receipt_poll_sec: float = RESULT_RECEIPT_POLL_SEC,
+                        receipt_max_wait_sec: float = RESULT_RECEIPT_MAX_WAIT_SEC,
                         ) -> tuple[bool, Optional[ReceiptInfo]]:
-    """投票終了ダイアログを検出して OK 押下。 (closed, receipt) を返す"""
+    """投票終了ダイアログを検出して OK 押下。 (closed, receipt) を返す
+
+    Session 155: 「OK 押下まで待機がない」 問題への対策。
+      1. ダイアログ出現 (枠) 検知後すぐ読まず settle_sec 待つ
+      2. 受付番号が埋まるまで receipt_poll_sec 間隔で再読取 (最大 receipt_max_wait_sec)
+         — JRA から受付情報が返るまで枠だけ先に出るケースの取りこぼし防止
+      3. OK は click_input (実マウス) を優先し、 失敗時のみ programmatic click に fallback
+         — 32bit TARGET / 64bit Python では click() が無反応のことがあるため
+    """
     dlg = find_dialog_by_title(RESULT_DIALOG_TITLE, timeout_sec=timeout_sec)
     if dlg is None:
         if verbose:
             print(f"[{_now_iso()}] result dialog {RESULT_DIALOG_TITLE!r} "
                   f"not found within {timeout_sec}s (skip)")
         return (False, None)
+
+    # 1) settle: 枠は出ても中身 (受付番号) の描画前に読むと None になるため少し待つ
+    if settle_sec > 0:
+        time.sleep(settle_sec)
+
+    # 2) 受付番号が埋まるまで再読取 (JRA round-trip 待ち)。 max_wait 内で諦めても OK は押す
     receipt = _read_receipt(dlg)
+    if receipt_max_wait_sec > 0 and receipt_poll_sec > 0:
+        deadline = time.time() + receipt_max_wait_sec
+        while receipt.receipt_number is None and time.time() < deadline:
+            time.sleep(receipt_poll_sec)
+            try:
+                receipt = _read_receipt(dlg)
+            except Exception:
+                break
     if verbose:
         print(f"[{_now_iso()}] result dialog detected: "
               f"受付番号={receipt.receipt_number} 時刻={receipt.receipt_time} "
               f"ベット数={receipt.receipt_bets} 合計={receipt.receipt_total_yen}円")
+        if receipt.receipt_number is None:
+            print(f"[{_now_iso()}] ⚠ 受付番号が {receipt_max_wait_sec}s 待っても未取得 "
+                  f"— OK は押すが手動照合推奨")
     try:
         ok_btn = dlg.child_window(title=OK_BUTTON_TITLE)
         if not ok_btn.exists(timeout=2):
             if verbose:
                 print(f"[{_now_iso()}] OK button not found in result dialog")
             return (False, receipt)
-        ok_btn.click()
+        try:
+            ok_btn.click_input()
+            click_how = "click_input"
+        except Exception:
+            ok_btn.click()
+            click_how = "click(fallback)"
         if verbose:
-            print(f"[{_now_iso()}] CLICKED [OK] on result dialog")
+            print(f"[{_now_iso()}] CLICKED [OK] on result dialog ({click_how})")
         return (True, receipt)
     except Exception as e:
         if verbose:
