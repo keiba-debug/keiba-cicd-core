@@ -54,6 +54,14 @@ set EXIT_CODE=%ERRORLEVEL%
 
 echo [%date% %time%] settle end (exit=%EXIT_CODE%) >> "%LOG_FILE%"
 if not "%EXIT_CODE%"=="0" echo [ERROR] settle exited non-zero - check log >> "%LOG_FILE%"
+REM --- 買い軸印 (markSet=3) を TARGET に書込み (投票後=settle後なので ledger に当日購入が入っている) ---
+REM   表示用 (web「AI直前」列に ★軸/☆相手)。購入正本は purchase_ledger。失敗は settle exit に影響させない。
+if "%~1"=="" (
+    python -m ml.ai_marks.write_buy_marks --today --catchup-days 2 --apply >> "%LOG_FILE%" 2>&1
+) else (
+    python -m ml.ai_marks.write_buy_marks --date %~1 --apply >> "%LOG_FILE%" 2>&1
+)
+if errorlevel 1 echo [WARN] write_buy_marks 非ゼロ (表示用印のみ・settle は成功扱い) >> "%LOG_FILE%"
 
 REM --- ロック解除 ---
 del "%LOCK_FILE%" 2>nul

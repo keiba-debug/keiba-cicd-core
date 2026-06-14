@@ -24,8 +24,9 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List
 
 # Windows コンソール (cp932) で — や★☆ を表示できるよう utf-8 に揃える (runner.py と同様)。
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
@@ -61,15 +62,28 @@ def _venue_rno(race_id: str) -> str:
         return race_id[-4:]
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="買い軸印 (markSet=3) 書込み")
-    ap.add_argument("--date", required=True, help="YYYY-MM-DD")
-    ap.add_argument("--apply", action="store_true",
-                    help="DAT (markSet=3) に実書込み + 監査ログ (未指定は dry-run)")
-    args = ap.parse_args(argv)
+def _resolve_dates(base_date: str, catchup_days: int) -> List[str]:
+    """基準日 + 直近 catchup_days 日の YYYY-MM-DD を新しい順 (base 含む) で返す。
 
-    lp = _ledger_path(args.date)
+    settle_ledger._resolve_dates と同慣習。投票後の遅延 settle を翌日以降の run で
+    拾うのと同じく、 買い軸印も「前日分が後から確定した portfolio」を冪等 catch-up する。
+    """
+    base = datetime.strptime(base_date, "%Y-%m-%d")
+    return [(base - timedelta(days=i)).strftime("%Y-%m-%d")
+            for i in range(max(0, catchup_days) + 1)]
+
+
+def _apply_one_date(date: str, *, apply: bool, missing_ledger_ok: bool) -> int:
+    """1 日分の買い軸印を抽出 (apply なら markSet=3 に書込み)。 終了コードを返す。
+
+    missing_ledger_ok=True (catch-up/--today) のとき ledger 不在は no-op (exit 0)。
+    単発 --date 指定の手動実行では従来通り ledger 不在を exit 2 にする。
+    """
+    lp = _ledger_path(date)
     if not lp.exists():
+        if missing_ledger_ok:
+            print(f"[buy-marks] {date} ledger なし → スキップ (非開催/未投票日)")
+            return 0
         print(f"[buy-marks] ledger なし: {lp}", file=sys.stderr)
         return 2
 
@@ -81,11 +95,11 @@ def main(argv=None) -> int:
         return 2
 
     races = ledger.get("races", [])
-    mode = "APPLY" if args.apply else "DRY-RUN"
-    print(f"[buy-marks] {args.date} {mode} races={len(races)}  ({DISPLAY_ONLY_NOTE})")
+    mode = "APPLY" if apply else "DRY-RUN"
+    print(f"[buy-marks] {date} {mode} races={len(races)}  ({DISPLAY_ONLY_NOTE})")
     print()
 
-    now_iso = datetime.now().isoformat(timespec="seconds") if args.apply else None
+    now_iso = datetime.now().isoformat(timespec="seconds") if apply else None
 
     n_marked = 0
     n_written = 0
@@ -111,22 +125,49 @@ def main(argv=None) -> int:
             "display_only_note": DISPLAY_ONLY_NOTE,
         }
 
-        if args.apply:
+        if apply:
             try:
                 w = write_buy_marks_to_dat(rbm.race_id, rbm.marks, mark_set=3)
                 n_written += w
             except Exception as e:  # noqa: BLE001
                 print(f"    [WARN] DAT書込み失敗 {rbm.race_id}: {e}", file=sys.stderr)
                 audit_rec["write_error"] = str(e)
-            append_audit(args.date, audit_rec, ts=now_iso, subdir=_AUDIT_SUBDIR)
+            append_audit(date, audit_rec, ts=now_iso, subdir=_AUDIT_SUBDIR)
 
     print()
-    if args.apply:
-        print(f"[buy-marks] 印あり={n_marked}R → markSet=3 に {n_written}頭 書込み + 監査ログ追記")
+    if apply:
+        print(f"[buy-marks] {date} 印あり={n_marked}R → markSet=3 に {n_written}頭 書込み + 監査ログ追記")
     else:
-        print(f"[buy-marks] 印あり={n_marked}R  (dry-run: DAT 未書込み)")
-
+        print(f"[buy-marks] {date} 印あり={n_marked}R  (dry-run: DAT 未書込み)")
     return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="買い軸印 (markSet=3) 書込み")
+    ap.add_argument("--date", help="YYYY-MM-DD (省略時は --today)")
+    ap.add_argument("--today", action="store_true",
+                    help="今日の日付を基準にする (settle_auto と同慣習)")
+    ap.add_argument("--catchup-days", type=int, default=0,
+                    help="基準日に加えて直近 N 日も処理 (前日確定の遅延 portfolio を拾う冪等 catch-up)")
+    ap.add_argument("--apply", action="store_true",
+                    help="DAT (markSet=3) に実書込み + 監査ログ (未指定は dry-run)")
+    args = ap.parse_args(argv)
+
+    if args.today:
+        base_date = datetime.now().strftime("%Y-%m-%d")
+    elif args.date:
+        base_date = args.date
+    else:
+        ap.error("--date YYYY-MM-DD または --today が必要")
+
+    dates = _resolve_dates(base_date, args.catchup_days)
+    # catch-up (複数日) / --today では ledger 不在を no-op 扱い。 単発 --date のみ厳格 (exit 2)。
+    missing_ok = args.today or args.catchup_days > 0
+    worst = 0
+    for d in dates:
+        rc = _apply_one_date(d, apply=args.apply, missing_ledger_ok=missing_ok)
+        worst = max(worst, rc)
+    return worst
 
 
 if __name__ == "__main__":

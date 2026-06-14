@@ -210,3 +210,38 @@ def test_buy_write_does_not_touch_markset6(jv_root):
     # markSet=3 は買い軸のみ
     m3 = dat_writer.read_marks_from_dat(rid, mark_set=3)
     assert m3 == {5: "★", 7: "☆"}
+
+
+# ---------------------------------------------------------------------------
+# CLI 日付解決 + catch-up (settle_auto から呼ぶ --today --catchup-days の配線担保)
+# ---------------------------------------------------------------------------
+
+def test_cli_resolve_dates_catchup_order():
+    """基準日 + 直近 N 日を新しい順 (base 含む) で返す。 settle_ledger と同慣習。"""
+    from ml.ai_marks import write_buy_marks as wbm
+    assert wbm._resolve_dates("2026-06-14", 0) == ["2026-06-14"]
+    assert wbm._resolve_dates("2026-06-14", 2) == [
+        "2026-06-14", "2026-06-13", "2026-06-12"]
+
+
+def test_cli_missing_ledger_single_date_is_error(monkeypatch, tmp_path):
+    """単発 --date で ledger 不在 → exit 2 (手動実行の厳格モード維持)。"""
+    from ml.ai_marks import write_buy_marks as wbm
+    monkeypatch.setenv("KEIBA_DATA_ROOT", str(tmp_path))
+    assert wbm.main(["--date", "2099-01-01"]) == 2
+
+
+def test_cli_missing_ledger_catchup_is_noop(monkeypatch, tmp_path):
+    """--catchup-days 指定では ledger 不在を no-op (exit 0)。 非開催日を踏んでも止めない。"""
+    from ml.ai_marks import write_buy_marks as wbm
+    monkeypatch.setenv("KEIBA_DATA_ROOT", str(tmp_path))
+    # ledger ディレクトリ自体無し = 全日 ledger 不在 → catch-up は no-op で 0
+    assert wbm.main(["--date", "2099-01-01", "--catchup-days", "2"]) == 0
+
+
+def test_cli_requires_date_or_today(tmp_path, monkeypatch):
+    """--date も --today も無ければ argparse error (SystemExit)。"""
+    from ml.ai_marks import write_buy_marks as wbm
+    monkeypatch.setenv("KEIBA_DATA_ROOT", str(tmp_path))
+    with pytest.raises(SystemExit):
+        wbm.main([])
