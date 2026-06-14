@@ -86,6 +86,24 @@ class TestShouldFund:
         assert bs.should_fund(p, ev_floor=1.20) is False
         assert bs.should_fund(p, ev_floor=1.05) is True
 
+    def test_combo_ev_floor_overrides_for_combo(self):
+        # ★Session 163: combo 専用 floor (0.85) で combo を緩く fund★。
+        #   控除率20%で combo EV<1.0 が普通 → 0.85 に緩めて「単のみ」を解消。
+        p = _plan("umaren", "馬連", ev=0.90)
+        assert bs.should_fund(p) is False                          # 既定 1.0 → 弾く
+        assert bs.should_fund(p, combo_ev_floor=0.85) is True      # 0.85 → fund
+        # EV が combo_floor 未満なら依然 fund しない
+        p2 = _plan("umaren", "馬連", ev=0.80)
+        assert bs.should_fund(p2, combo_ev_floor=0.85) is False
+
+    def test_combo_ev_floor_does_not_affect_anchor(self):
+        # 単/複アンカーは combo_ev_floor に関係なく常に fund (不変)
+        assert bs.should_fund(_tansho_plan(), combo_ev_floor=0.85) is True
+
+    def test_default_combo_floor_constant_is_085(self):
+        # 本番既定 (回帰ガード: 値を変えるときは sweep 根拠を更新すること)
+        assert bs.DEFAULT_COMBO_EV_FLOOR == 0.85
+
 
 # ---------------------------------------------------------------------------
 # select_plans — 各プリセット
@@ -116,6 +134,20 @@ class TestConcentrate:
         assert funded == {"tansho", "umaren"}
         skipped = {s.bet_type for s in sel.skipped_plans}
         assert "wide" in skipped
+
+    def test_combo_floor_085_funds_sub1_ev_combo_with_merit(self):
+        # ★Session 163: 「単のみ」バグ修正の本体★。 EV=0.90 (控除後ほぼトントン) でも
+        #   合成>単 (vs='gt') なら既定 combo_floor=0.85 で fund される (旧 1.0 では弾かれていた)。
+        plans = [
+            _tansho_plan(),
+            _plan("umaren", "馬連 ◎-相手2", ev=0.90, g=3.0, vs="gt"),
+        ]
+        # 既定 (combo_ev_floor=0.85) → 馬連が選ばれる
+        sel = bs.select_plans(_race_eff(plans), strategy="concentrate")
+        assert {s.bet_type for s in sel.selected_plans} == {"tansho", "umaren"}
+        # 旧挙動 (combo_ev_floor=1.0) → 単のみ (回帰: floor を 1.0 に戻せば元通り)
+        sel_old = bs.select_plans(_race_eff(plans), strategy="concentrate", combo_ev_floor=1.0)
+        assert {s.bet_type for s in sel_old.selected_plans} == {"tansho"}
 
     def test_high_ev_but_lt_not_funded(self):
         # EV>=floor だが vs_tansho=='lt' (合成<=単) → concentrate は単に集中

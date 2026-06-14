@@ -68,6 +68,15 @@ SOURCE = "bettype_selection"    # selective_loader.ALLOWED_SOURCES に追加し�
 # 運用上はプリセット (spread_if_worth) や --ev-floor で緩めるが、 既定は数学的中立点。
 DEFAULT_EV_FLOOR = 1.0
 
+# ★複合券種 (馬連〜三連単) 専用の EV floor (Session 163)。 1.0 では控除率20%で combo の EV が
+#   ほぼ常に <1.0 → combo が一切選ばれず、 ★27%のレースが「単のみ」bet★ になっていた
+#   (fixed_grade_v2 は「単薄く combo 厚く=天井を取る」思想なのに配分先 combo が selection 段階で消滅)。
+#   実払戻 2 期間 sweep (sweep_combo_ev_floor.py) で 0.85 が最適: 単のみ率 27%→14-15%・
+#   ROI 両期間改善 (+1.2/+1.9pt)・maxDD 同等以下。 0.7 以下は P2 で DD 膨張 = 下げすぎ。
+#   ★合成オッズ>単 (vs_tansho=='gt') の merit フィルタと AND なので「広げる価値ある combo だけ」を拾う。
+#   1.0 に戻せば旧挙動 (リバーシブル)。 単/複アンカーは常に fund=この floor の対象外 (不変)。
+DEFAULT_COMBO_EV_FLOOR = 0.85
+
 # 基準券種 = 軸◎そのものの買い方 (広げる券種ではない)。 vs_tansho を持たず、
 # 「広げる/降りる」の選択対象外。 fund 判定でも複合券種と分けて常に採用候補とする。
 # (単勝は EV=None=基準、 複勝も axis_place が無ければ EV=None で同列に扱う)
@@ -133,7 +142,8 @@ class BetSelection:
 # fund 判定 (シズネ置き土産の本体) — EV 絶対水準のみで判断、 vs_tansho は使わない
 # ---------------------------------------------------------------------------
 
-def should_fund(plan: "be.Plan", *, ev_floor: float = DEFAULT_EV_FLOOR) -> bool:
+def should_fund(plan: "be.Plan", *, ev_floor: float = DEFAULT_EV_FLOOR,
+                combo_ev_floor: Optional[float] = None) -> bool:
     """このプランを fund 対象とするか。 複合券種は ★EV の絶対水準のみで判断する★。
 
     - 基準券種 (単勝/複勝 = 軸◎そのもの = アンカー): ★常に fund★。
@@ -141,8 +151,9 @@ def should_fund(plan: "be.Plan", *, ev_floor: float = DEFAULT_EV_FLOOR) -> bool:
       素直な買い方なので EV floor で足切りしない。 EV<1.0 (低オッズ本命など) でも
       候補に残し EV を情報として見せる。 -EV 保護は下流の Kelly サイジングが担う
       (候補段階は amount 無し)。 → -EV は _base_reason で正直に注記する。
-    - 複合券種 (馬連〜三連単): EV (expected_return) >= ev_floor のときだけ True。
-      EV が None (市場オッズ未取得) なら判定不能 → False (買わない)。
+    - 複合券種 (馬連〜三連単): EV (expected_return) >= floor のときだけ True。
+      ★floor は combo_ev_floor (指定時) を優先★ (= combo 専用に ev_floor と別の閾値を持てる)。
+      None なら ev_floor を使う (後方互換)。 EV が None (市場オッズ未取得) なら False (買わない)。
 
     ★vs_tansho は一切参照しない★ (合成>単でも EV<1.0 はあり得るため。 シズネ Session 138)。
     """
@@ -150,7 +161,8 @@ def should_fund(plan: "be.Plan", *, ev_floor: float = DEFAULT_EV_FLOOR) -> bool:
         return True
     if plan.expected_return is None:
         return False
-    return plan.expected_return >= ev_floor
+    floor = combo_ev_floor if combo_ev_floor is not None else ev_floor
+    return plan.expected_return >= floor
 
 
 def _has_relative_spread_merit(plan: "be.Plan") -> bool:
@@ -259,22 +271,27 @@ def _base_reason(p) -> str:
     return base
 
 
-def _select_concentrate(plans, ev_floor) -> Tuple[list, list]:
-    """基準券種 (単/複) + (EV>=floor かつ vs_tansho=='gt') の複合券種だけ fund。"""
+def _select_concentrate(plans, ev_floor, combo_ev_floor=None) -> Tuple[list, list]:
+    """基準券種 (単/複) + (EV>=combo_floor かつ vs_tansho=='gt') の複合券種だけ fund。
+
+    combo_ev_floor (既定 None→ev_floor) で複合券種の閾値を独立に緩められる
+    (Session 163: 控除率で combo EV<1.0 が普通 → 0.85 に緩めて「単のみ」を解消)。
+    """
+    cfloor = combo_ev_floor if combo_ev_floor is not None else ev_floor
     selected, skipped = [], []
     for p in plans:
         if p.bet_type in BASE_BET_TYPES:
             # 基準券種 (◎単/複) はアンカー = 常に fund (should_fund 契約)。
             selected.append(_to_selected(p, _base_reason(p)))
             continue
-        funded = should_fund(p, ev_floor=ev_floor)
+        funded = should_fund(p, ev_floor=ev_floor, combo_ev_floor=combo_ev_floor)
         merit = _has_relative_spread_merit(p)
         if funded and merit:
             selected.append(_to_selected(
-                p, f"EV={p.expected_return:.2f}>=floor かつ合成>単 (広げる相対妙味あり)"))
+                p, f"EV={p.expected_return:.2f}>={cfloor} かつ合成>単 (広げる相対妙味あり)"))
         elif not funded:
             ev_s = f"{p.expected_return:.2f}" if p.expected_return is not None else "N/A"
-            skipped.append(_to_skipped(p, f"EV={ev_s}<floor({ev_floor}) → 降りる"))
+            skipped.append(_to_skipped(p, f"EV={ev_s}<floor({cfloor}) → 降りる"))
         else:  # funded but no relative merit
             skipped.append(_to_skipped(
                 p, "EV>=floor だが合成<=単 (広げる相対妙味薄) → 単に集中"))
@@ -357,6 +374,7 @@ def select_plans(
     *,
     strategy: str = "concentrate",
     ev_floor: float = DEFAULT_EV_FLOOR,
+    combo_ev_floor: Optional[float] = DEFAULT_COMBO_EV_FLOOR,
     taste: Optional[str] = None,
     bankroll: int = 10000,
     kelly_fraction: float = 0.25,
@@ -366,6 +384,9 @@ def select_plans(
 
     ★fund 判定は should_fund (EV絶対水準) が唯一の門番★。 vs_tansho は
     『どの券種に広げるか』の補助フィルタとしてのみ使い、 fund の可否を単独で決めない。
+
+    combo_ev_floor: 複合券種専用 EV floor (Session 163・既定 0.85)。 concentrate のみ使用。
+      None で ev_floor にフォールバック (= 旧挙動)。 単/複アンカーは常に fund で不変。
     """
     if strategy not in STRATEGIES:
         raise ValueError(f"unknown strategy: {strategy!r} (allowed: {STRATEGIES})")
@@ -379,7 +400,7 @@ def select_plans(
     kelly_boost = 1.0
 
     if strategy == "concentrate":
-        selected, skipped = _select_concentrate(eff.plans, ev_floor)
+        selected, skipped = _select_concentrate(eff.plans, ev_floor, combo_ev_floor)
     elif strategy == "ev_floor":
         selected, skipped = _select_ev_floor(eff.plans, ev_floor)
     elif strategy == "spread_if_worth":
@@ -446,6 +467,7 @@ def evaluate_and_select(
     *,
     strategy: str = "concentrate",
     ev_floor: float = DEFAULT_EV_FLOOR,
+    combo_ev_floor: Optional[float] = DEFAULT_COMBO_EV_FLOOR,
     taste: Optional[str] = None,
     axis: Optional[int] = None,
     weights: Tuple[float, float, float] = be.DEFAULT_WEIGHTS,
@@ -471,7 +493,8 @@ def evaluate_and_select(
             if re_ is None:
                 return None
 
-    return select_plans(re_, strategy=strategy, ev_floor=ev_floor, taste=taste)
+    return select_plans(re_, strategy=strategy, ev_floor=ev_floor,
+                        combo_ev_floor=combo_ev_floor, taste=taste)
 
 
 # ---------------------------------------------------------------------------
