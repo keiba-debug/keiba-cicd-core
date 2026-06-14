@@ -1,14 +1,14 @@
 @echo off
 REM ============================================
 REM multi-bettype auto-vote scheduler launcher (Session 140)
-REM Task Scheduler から 1-2 分ごとに呼ばれる単発パス。
-REM   bettype_auto.bat dry   = dry-run (金は動かない・計画のみ)
-REM   bettype_auto.bat live  = LIVE 実投票 (TARGET 起動+IPATログイン+入金 必須)
-REM scheduler 自身が冪等 + 各レース [発走-6分, 発走-2分] のみ投票。
-REM strategy=hole_seeker (妙味軸=過小評価馬。value無いレースは composite軸にフォールバック)
-REM   / sizing=anchor_kelly_combo_ev / per_day=30000 / per_race=3000(config)。
-REM 音声=VOICEVOX ぞん子 実況風(ID93) を bat 内で明示設定 (User env 非依存で確実に実況風)。
-REM ★freebudget_auto と同時に live 起動しない (IPAT 排他)。
+REM Task Scheduler ・ｽ・ｽ・ｽ・ｽ 1-2 ・ｽ・ｽ・ｽ・ｽ・ｽﾆに呼ばゑｿｽ・ｽP・ｽ・ｽ・ｽp・ｽX・ｽB
+REM   bettype_auto.bat dry   = dry-run (・ｽ・ｽ・ｽﾍ難ｿｽ・ｽ・ｽ・ｽﾈゑｿｽ・ｽE・ｽv・ｽ・ｽﾌゑｿｽ)
+REM   bettype_auto.bat live  = LIVE ・ｽ・ｽ・ｽ・ｽ・ｽ[ (TARGET ・ｽN・ｽ・ｽ+IPAT・ｽ・ｽ・ｽO・ｽC・ｽ・ｽ+・ｽ・ｽ・ｽ・ｽ ・ｽK・ｽ{)
+REM scheduler ・ｽ・ｽ・ｽg・ｽ・ｽ・ｽp・ｽ・ｽ + ・ｽe・ｽ・ｽ・ｽ[・ｽX [・ｽ・ｽ・ｽ・ｽ-6・ｽ・ｽ, ・ｽ・ｽ・ｽ・ｽ-2・ｽ・ｽ] ・ｽﾌみ難ｿｽ・ｽ[・ｽB
+REM strategy=concentrate (AI mark = composite top axis. Session162: sizing=fixed_grade_v2)
+REM   / sizing=fixed_grade_v2 (v1 + heavy-combo-on-strong-axis; skip-gate DISABLED S163: hindsight-trap, hurt ROI) / per_day=30000 / per_race=3000(config).
+REM ・ｽ・ｽ・ｽ・ｽ=VOICEVOX ・ｽ・ｽ・ｽ・ｽq ・ｽ・ｽ・ｽ・ｽ・ｽ・ｽ(ID93) ・ｽ・ｽ bat ・ｽ・ｽ・ｽﾅ厄ｿｽ・ｽ・ｽ・ｽﾝ抵ｿｽ (User env ・ｽ・ｽﾋ托ｿｽ・ｽﾅ確・ｽ・ｽ・ｽﾉ趣ｿｽ・ｽ・ｽ・ｽ・ｽ)・ｽB
+REM ・ｽ・ｽfreebudget_auto ・ｽﾆ難ｿｽ・ｽ・ｽ・ｽ・ｽ live ・ｽN・ｽ・ｽ・ｽ・ｽ・ｽﾈゑｿｽ (IPAT ・ｽr・ｽ・ｽ)・ｽB
 REM ============================================
 setlocal
 set KEIBA_V2=C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2
@@ -24,11 +24,11 @@ set LOG_FILE=%LOG_DIR%\%TODAY%.log
 cd /d "%KEIBA_V2%"
 call "%VENV%"
 if /i "%MODE%"=="live" (
-    python -m ml.strategies.bettype_scheduler --date today --confirm --i-understand-live --strategy hole_seeker --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
+    python -m ml.strategies.bettype_scheduler --date today --confirm --i-understand-live --strategy concentrate --sizing fixed_grade_v2 --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
 ) else (
-    python -m ml.strategies.bettype_scheduler --date today --strategy hole_seeker --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
+    python -m ml.strategies.bettype_scheduler --date today --strategy concentrate --sizing fixed_grade_v2 --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
 )
 set EXIT_CODE=%ERRORLEVEL%
-echo [%date% %time%] bettype_auto mode=%MODE% strategy=hole_seeker exit=%EXIT_CODE% >> "%LOG_FILE%"
+echo [%date% %time%] bettype_auto mode=%MODE% strategy=concentrate exit=%EXIT_CODE% >> "%LOG_FILE%"
 endlocal
 exit /b %EXIT_CODE%
