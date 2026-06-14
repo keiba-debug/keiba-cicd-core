@@ -548,6 +548,33 @@ def test_v2_strong_tier_thins_tansho_vs_v1():
     assert c2 > c1
 
 
+def test_v2_emits_no_fukusho_budget_to_combo():
+    """★Session 163: 複勝はメインから外した (FIXED_SHARES_V2 の複 share=0)★。
+
+    ふくだ「数十円取りにいくゴミ複に意味なし」+ 複勝は専門キャラに移譲。 v2 は複を出さず、
+    その予算が combo に回る (v1=複あり より v2=複なし の方が combo が厚い)。
+    """
+    assert all(a == 0.0 for _, a in sz.FIXED_SHARES_V2.values())  # 複 share 全 tier 0 (回帰ガード)
+    axis = 3
+    strengths = [_strength_g(3, 0.3, 5.0, composite=1.5, place_odds_min=1.4)]  # mid 寄り
+    plans = [
+        _plan("tansho", [[3]], hit_prob=0.4, ev=None, g=5.0, odds_legs=[5.0]),
+        _plan("fukusho", [[3]], hit_prob=0.6, ev=None, g=1.4, odds_legs=[1.4]),
+        _plan("sanrenpuku", [[3, 7, 11]], hit_prob=0.1, ev=1.5, g=20.0, odds_legs=[20.0]),
+    ]
+    eff = _race_eff(axis, 5.0, strengths, plans)
+    sel = _selection(axis, 5.0, [
+        _sel_plan("tansho", [[3]]), _sel_plan("fukusho", [[3]]),
+        _sel_plan("sanrenpuku", [[3, 7, 11]], ev=1.5, g=20.0)])
+    v1 = sz.size_race_fixed_grade(eff, sel, bankroll=10000, per_race_cap=3000)  # 複あり
+    v2 = sz.size_race_fixed_grade_v2(eff, sel, bankroll=10000, per_race_cap=3000)  # 複なし
+    assert not any(l.bet_type == "fukusho" for l in v2.legs)          # ★v2 は複を出さない
+    assert any(l.bet_type == "fukusho" for l in v1.legs)              # v1 は複を出す (対比)
+    c1 = sum(l.amount for l in v1.legs if l.bet_type == "sanrenpuku")
+    c2 = sum(l.amount for l in v2.legs if l.bet_type == "sanrenpuku")
+    assert c2 > c1                                                    # 複の予算が combo に回る
+
+
 def test_v1_unchanged_no_skip_no_v2_shares():
     """v1 は見送りせず FIXED_SHARES のまま (回帰・v2 追加で壊れてない)。"""
     axis = 3
