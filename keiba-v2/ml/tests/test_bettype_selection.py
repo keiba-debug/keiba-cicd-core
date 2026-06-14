@@ -101,7 +101,7 @@ class TestShouldFund:
         assert bs.should_fund(_tansho_plan(), combo_ev_floor=0.85) is True
 
     def test_default_combo_floor_constant_is_085(self):
-        # 本番既定 (回帰ガード: 値を変えるときは sweep 根拠を更新すること)
+        # 本番既定 (回帰ガード: 実払戻2期間でROI最高・DD最小→0.85確定。0.70は束効果でDD膨張=下げすぎ Session163)
         assert bs.DEFAULT_COMBO_EV_FLOOR == 0.85
 
 
@@ -481,16 +481,19 @@ class TestArtifactCompat:
 # ---------------------------------------------------------------------------
 
 class TestShizuneConstraintRegression:
-    def test_no_negative_ev_funded_in_concentrate(self):
-        # 全複合券種が「合成>単 (gt)」だが EV<1.0。 concentrate は単のみのはず。
+    def test_combo_below_floor_not_funded_in_concentrate(self):
+        # ★Session 163: combo floor=0.70 に引き下げ★ (券種別ROIで0.70-0.85帯が最良)。
+        #   EV<0.70 (floor 未満) の combo は「合成>単」でも fund しない (旧シズネ制約の floor 版)。
         plans = [_tansho_plan()]
         for bt in ("umaren", "wide", "umatan", "sanrenpuku", "sanrentan"):
-            plans.append(_plan(bt, bt, ev=0.75, g=10.0, vs="gt"))
+            plans.append(_plan(bt, bt, ev=0.60, g=10.0, vs="gt"))   # 0.60 < floor 0.70
         sel = bs.select_plans(_race_eff(plans), strategy="concentrate")
         for s in sel.selected_plans:
             if s.bet_type != "tansho":
-                assert s.expected_return is not None and s.expected_return >= 1.0, \
-                    f"{s.bet_type} は EV<1.0 なのに fund された (誤誘導)"
+                assert s.expected_return is not None and s.expected_return >= bs.DEFAULT_COMBO_EV_FLOOR, \
+                    f"{s.bet_type} は EV<floor({bs.DEFAULT_COMBO_EV_FLOOR}) なのに fund された"
+        # EV=0.60 の combo は全部 skipped (単のみ)
+        assert {s.bet_type for s in sel.selected_plans} == {"tansho"}
 
     def test_no_negative_ev_funded_in_ev_floor(self):
         plans = [_tansho_plan()]

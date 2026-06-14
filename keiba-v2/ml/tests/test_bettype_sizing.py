@@ -269,22 +269,37 @@ def test_get_sizer_fixed_grade_known():
     assert sz.get_sizer("fixed_grade_v1") is sz.size_race_fixed_grade
 
 
+def _absorbing_combo_plan():
+    """残予算を吸収する fundable な combo plan (使い切り上乗せを抑止し tier share を観測するため)。
+
+    Session 163 で「combo が出ないと残予算を単に上乗せ」(使い切り保証) を入れたため、 単独軸
+    (tansho のみ) だと単が常に cap=3000 に膨らみ tier share が観測できない。 EV>=floor かつ
+    vs='gt' の広い combo を置いて residual を combo に吸わせ、 単を tier share のまま残す。
+    """
+    return _plan("sanrenpuku", [[3, 7, 11], [3, 7, 12], [3, 11, 12]],
+                 hit_prob=0.1, ev=1.5, g=20.0, odds_legs=[20.0, 22.0, 24.0])
+
+
 def test_fixed_grade_tansho_is_fixed_not_kelly():
     """単勝額がオッズに依らず一定 = Kelly でなく固定割合であることを証明。"""
     axis = 3
-    sel = _selection(axis, None, [_sel_plan("tansho", [[3]])])
+    sel = _selection(axis, None, [_sel_plan("tansho", [[3]]),
+                                  _sel_plan("sanrenpuku", [[3, 7, 11], [3, 7, 12],
+                                                           [3, 11, 12]], ev=1.5, g=20.0)])
     amounts = []
     for odds in (1.3, 8.0):
         eff = _race_eff(axis, odds,
                         [_strength_g(3, 0.3, odds, composite=1.0)],
                         [_plan("tansho", [[3]], hit_prob=0.3, ev=None, g=None,
-                               odds_legs=[odds])])
+                               odds_legs=[odds]),
+                         _absorbing_combo_plan()])
         sel.axis_odds = odds
         rs = sz.size_race_fixed_grade(eff, sel, bankroll=10000, per_race_cap=3000)
         tansho = [l for l in rs.legs if l.bet_type == "tansho"]
         assert len(tansho) == 1
         amounts.append(tansho[0].amount)
-    # 単独軸 → gap = composite 1.0 >= 1.0 → strong tier → 30% × 3000 = 900
+    # 単独軸 → gap = composite 1.0 >= 1.0 → strong tier → v1 FIXED_SHARES 30% × 3000 = 900。
+    #   combo が residual を吸うので使い切り上乗せは発火しない。
     assert amounts[0] == amounts[1] == 900
     # Kelly なら 1.3倍と8.0倍で額が変わるはず。 固定なので同一。
     assert sz.kelly_amount(0.3, 1.3, bankroll=10000, kelly_fraction=0.25,
@@ -292,18 +307,22 @@ def test_fixed_grade_tansho_is_fixed_not_kelly():
 
 
 def test_fixed_grade_tier_modulation():
-    """composite tier (strong/mid/weak) で単勝割合が変わる。"""
+    """composite tier (strong/mid/weak) で単勝割合が変わる (v1 FIXED_SHARES)。"""
     axis = 3
-    sel = _selection(axis, 5.0, [_sel_plan("tansho", [[3]])])
+    sel = _selection(axis, 5.0, [_sel_plan("tansho", [[3]]),
+                                 _sel_plan("sanrenpuku", [[3, 7, 11], [3, 7, 12],
+                                                          [3, 11, 12]], ev=1.5, g=20.0)])
     got = {}
     for tier, comp in (("strong", 1.0), ("mid", 0.5), ("weak", 0.1)):
         eff = _race_eff(axis, 5.0, [_strength_g(3, 0.3, 5.0, composite=comp)],
                         [_plan("tansho", [[3]], hit_prob=0.3, ev=None, g=None,
-                               odds_legs=[5.0])])
+                               odds_legs=[5.0]),
+                         _absorbing_combo_plan()])
+        # 既定 FIXED_SHARES (v1) で tier modulation を見る (combo が residual を吸う)。
         rs = sz.size_race_fixed_grade(eff, sel, bankroll=10000, per_race_cap=3000)
         got[tier] = next(l.amount for l in rs.legs if l.bet_type == "tansho")
-    # 単独軸 → gap=composite。 strong 30%×3000=900 / mid 25%×3000=750→700 /
-    # weak 15%×3000=450→400 (_round_unit 100円単位切捨)。 strong>mid>weak が要件。
+    # 単独軸 → gap=composite。 v1 FIXED_SHARES: strong 30%×3000=900 / mid 25%=750→700 /
+    # weak 15%=450→400 (float 449.99→100円切捨)。 strong>mid>weak が要件。
     assert got["strong"] == 900 and got["mid"] == 700 and got["weak"] == 400
     assert got["strong"] > got["mid"] > got["weak"]
 
@@ -548,6 +567,27 @@ def test_v2_strong_tier_thins_tansho_vs_v1():
     assert c2 > c1
 
 
+def test_fixed_grade_useitup_topup_tansho_when_no_combo():
+    """★Session 163: 使い切り保証★。 combo が出ないレースで残予算を単勝◎に上乗せし cap を使い切る。
+
+    ふくだ「3000円を使い切る・残余は単に上乗せ」。 combo plan が selection に無い (= weak で
+    全 combo が floor 未満等) と、 単 tier share だけでは cap が大量に余る → 残余を単に topup。
+    """
+    axis = 3
+    strengths = [_strength_g(3, 0.3, 5.0, composite=0.1)]  # weak tier (gap=0.1)
+    # combo plan 無し (単のみ)。 使い切り保証で単が cap=3000 まで膨らむはず。
+    plans = [_plan("tansho", [[3]], hit_prob=0.3, ev=None, g=None, odds_legs=[5.0])]
+    eff = _race_eff(axis, 5.0, strengths, plans)
+    sel = _selection(axis, 5.0, [_sel_plan("tansho", [[3]])])
+    rs = sz.size_race_fixed_grade(eff, sel, bankroll=10000, per_race_cap=3000,
+                                  _shares_table=sz.FIXED_SHARES_V2)
+    tansho = [l for l in rs.legs if l.bet_type == "tansho"]
+    assert len(tansho) == 1
+    assert tansho[0].amount == 3000            # ★残余を全部単に上乗せ → cap 使い切り
+    assert sum(l.amount for l in rs.legs) == 3000
+    assert any("使い切り" in w for w in rs.warnings)
+
+
 def test_v2_emits_no_fukusho_budget_to_combo():
     """★Session 163: 複勝はメインから外した (FIXED_SHARES_V2 の複 share=0)★。
 
@@ -579,9 +619,13 @@ def test_v1_unchanged_no_skip_no_v2_shares():
     """v1 は見送りせず FIXED_SHARES のまま (回帰・v2 追加で壊れてない)。"""
     axis = 3
     strengths = [_strength_g(3, 0.3, 1.2, composite=1.5, place_odds_min=1.1)]
-    plans = [_plan("tansho", [[3]], hit_prob=0.6, ev=None, g=1.2, odds_legs=[1.2])]
+    # 残予算を吸う combo を置き、 使い切り上乗せを抑止して tier share (30%=900) を観測。
+    plans = [_plan("tansho", [[3]], hit_prob=0.6, ev=None, g=1.2, odds_legs=[1.2]),
+             _absorbing_combo_plan()]
     eff = _race_eff(axis, 1.2, strengths, plans)
-    sel = _selection(axis, 1.2, [_sel_plan("tansho", [[3]])])
+    sel = _selection(axis, 1.2, [_sel_plan("tansho", [[3]]),
+                                 _sel_plan("sanrenpuku", [[3, 7, 11], [3, 7, 12],
+                                                          [3, 11, 12]], ev=1.5, g=20.0)])
     rs = sz.size_race_fixed_grade(eff, sel, bankroll=10000, per_race_cap=3000)
     # v1 は天井が低くても見送らない & strong 単30%×3000=900
     assert any(l.bet_type == "tansho" and l.amount == 900 for l in rs.legs)

@@ -598,8 +598,32 @@ def size_race_fixed_grade(race_eff, selection, *, bankroll: int, per_race_cap: i
     residual = max(0, cap - anchor_yen)
     combo_budget = int(residual * combo_share_of_residual)
     exclude = frozenset([swapped_wide_key]) if swapped_wide_key else frozenset()
-    legs.extend(_size_combo_legs(rid, race_eff, selection, eff_by_key, combo_budget,
-                                 weight_key=weight_key, exclude_keys=exclude))
+    combo_legs = _size_combo_legs(rid, race_eff, selection, eff_by_key, combo_budget,
+                                  weight_key=weight_key, exclude_keys=exclude)
+    legs.extend(combo_legs)
+
+    # (B') ★使い切り保証 (ふくだ Session 163)★: combo が出ない/出ても薄いレースで cap が大量に
+    #   余ると「単400だけ」で 3000円中 400円しか使わない問題が起きる。 ★余った予算を単勝◎に
+    #   上乗せ★ して cap を使い切る (ふくだ「残余は単に上乗せ・複は復活させない」)。
+    #   axis_odds が無効 (単勝が買えない) ときは上乗せできないのでそのまま (無理に他券種に回さない)。
+    combo_used = sum(l.amount for l in combo_legs)
+    leftover = cap - anchor_yen - combo_used
+    if leftover >= BET_UNIT_YEN and axis_odds is not None and axis_odds > 1.0:
+        tansho_leg = next((l for l in legs if l.bet_type == "tansho"), None)
+        topup = (leftover // BET_UNIT_YEN) * BET_UNIT_YEN
+        if tansho_leg is not None:
+            # 既存の単勝◎に上乗せ (金額を増やす)。
+            tansho_leg.amount += topup
+            tansho_leg.note += f" +使い切り上乗せ{topup}"
+        elif sel_tansho is not None and topup >= MIN_BET_YEN:
+            # 単勝 leg が無い (tier 配分が min 割れ等) → 残余で単勝◎を新規に立てる。
+            tp = eff_by_key.get(("tansho", _legs_key(sel_tansho.legs)))
+            legs.insert(0, SizedLeg(rid, "tansho", [axis], topup,
+                                    tp.label if tp else "単勝 ◎", axis_odds,
+                                    None, (tp.hit_prob if tp else None),
+                                    f"使い切り (combo不足の残余{topup}を単へ)"))
+        if topup > 0:
+            warnings.append(f"使い切り: 残余{topup}を単勝◎に上乗せ (combo不足)")
 
     # (C) per_race cap で最終 truncate (アンカー保護)
     pre_total = sum(l.amount for l in legs)
