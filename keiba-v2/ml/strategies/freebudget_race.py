@@ -76,6 +76,30 @@ def _load_post_times_from_file(date_dir: Path) -> dict[str, str]:
     return out
 
 
+def _cache_path(date_dir: Path) -> Path:
+    return Path(date_dir) / "post_times_cache.json"
+
+
+def _load_post_times_cache(date_dir: Path) -> dict[str, str]:
+    """過去に DB から取得済みの発走時刻キャッシュ (race_id_16 → 'HH:MM')。"""
+    p = _cache_path(date_dir)
+    if not p.exists():
+        return {}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in d.items()} if isinstance(d, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_post_times_cache(date_dir: Path, times: dict[str, str]) -> None:
+    try:
+        _cache_path(date_dir).write_text(
+            json.dumps(times, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _query_post_times_db(yyyymmdd: str) -> dict[str, str]:
     """mykeibadb RACE_SHOSAI.HASSO_JIKOKU (HHmm) を race_id_16 → 'HH:MM' (ブロッキング本体)"""
     out: dict[str, str] = {}
@@ -138,13 +162,27 @@ def load_post_times(date_dir: Path, *, date_str: Optional[str] = None,
     🔴-3: DB(正本) 優先 + race_info.json フォールバック/補完。 date_str を渡すと
     mykeibadb から当日の HASSO_JIKOKU を引き、 file 値を上書き (DB が当日変更に追従)。
     DB が引けない race は file 値で補完。 date_str 無しは従来通り file のみ。
+
+    ★Session 169 (発走時刻不明 取りこぼし対策): race_info.json は早レースの start_time が
+    空 (夜スクレイプ時点で未確定)、 DB は開催日に raceday_odds とロック競合して timeout し
+    {} を返す → 早レースが「発走時刻不明」で vote 取りこぼし (実機で 10R/日)。
+    対策 = 永続キャッシュ層。 DB から取れた時刻を post_times_cache.json に蓄積し、 DB が
+    timeout した回でも前回キャッシュで補完する。 ふくだ invariant「発走は早まらない」より
+    キャッシュ(過去のDB値)は必ず実時刻以下 = 締切を前倒し見積もる方向 = 早めに投票するだけで
+    取りこぼさない (遅延しても締切は後ろにずれるので安全)。 優先度: file < cache < DB(最新)。
     """
     file_times = _load_post_times_from_file(date_dir)
     if not (prefer_db and date_str):
         return file_times
+    cache_times = _load_post_times_cache(date_dir)
     db_times = load_post_times_from_db(date_str)
     merged = dict(file_times)
-    merged.update(db_times)        # DB(正本) で上書き
+    merged.update(cache_times)     # 過去にDBから取れた時刻で補完 (timeout 耐性)
+    merged.update(db_times)        # DB(正本・最新) で上書き = 当日変更に追従
+    if db_times:                   # DB が取れた回はキャッシュを更新 (次回 timeout に備える)
+        new_cache = dict(cache_times)
+        new_cache.update(db_times)
+        _save_post_times_cache(date_dir, new_cache)
     return merged
 
 

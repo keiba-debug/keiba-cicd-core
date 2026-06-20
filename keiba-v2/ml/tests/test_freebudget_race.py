@@ -126,6 +126,54 @@ def test_load_post_times_skips_blank(tmp_path):
     assert fr.load_post_times(tmp_path) == {}
 
 
+# --- Session 169: 発走時刻 永続キャッシュ (timeout 耐性) ---
+
+def _write_info(tmp_path):
+    """race_info.json: 遅レースのみ start_time あり (本番の早レース空 を再現)"""
+    info = {"kaisai_data": {"東京": [
+        {"race_id_16": "2026062005031103", "start_time": ""},      # 早レース=空
+        {"race_id_16": "2026062005031110", "start_time": "15:10"}, # 遅レース=あり
+    ]}}
+    (tmp_path / "race_info.json").write_text(
+        json.dumps(info, ensure_ascii=False), encoding="utf-8")
+
+
+def test_post_times_cache_written_on_db_success(tmp_path, monkeypatch):
+    _write_info(tmp_path)
+    monkeypatch.setattr(fr, "load_post_times_from_db",
+                        lambda ds, **k: {"2026062005031103": "11:10"})
+    m = fr.load_post_times(tmp_path, date_str="2026-06-20")
+    assert m["2026062005031103"] == "11:10"   # DB が早レースを補完
+    assert m["2026062005031110"] == "15:10"   # file 値は維持
+    cache = json.loads((tmp_path / "post_times_cache.json").read_text(encoding="utf-8"))
+    assert cache["2026062005031103"] == "11:10"
+
+
+def test_post_times_cache_fallback_on_db_timeout(tmp_path, monkeypatch):
+    _write_info(tmp_path)
+    # 1回目: DB 成功 → キャッシュ生成
+    monkeypatch.setattr(fr, "load_post_times_from_db",
+                        lambda ds, **k: {"2026062005031103": "11:10"})
+    fr.load_post_times(tmp_path, date_str="2026-06-20")
+    # 2回目: DB timeout ({}) → キャッシュで補完されるべき (発走時刻不明にならない)
+    monkeypatch.setattr(fr, "load_post_times_from_db", lambda ds, **k: {})
+    m = fr.load_post_times(tmp_path, date_str="2026-06-20")
+    assert m["2026062005031103"] == "11:10"    # ★取りこぼし防止★
+    assert m["2026062005031110"] == "15:10"
+
+
+def test_post_times_db_overrides_cache(tmp_path, monkeypatch):
+    # 当日変更 (繰下げ等) は DB が最新 → cache を上書き
+    _write_info(tmp_path)
+    monkeypatch.setattr(fr, "load_post_times_from_db",
+                        lambda ds, **k: {"2026062005031103": "11:10"})
+    fr.load_post_times(tmp_path, date_str="2026-06-20")
+    monkeypatch.setattr(fr, "load_post_times_from_db",
+                        lambda ds, **k: {"2026062005031103": "11:25"})  # 繰下げ
+    m = fr.load_post_times(tmp_path, date_str="2026-06-20")
+    assert m["2026062005031103"] == "11:25"    # DB(最新) 優先
+
+
 # --- 🔴-3 mykeibadb 発走時刻 正本 (DB優先) ---
 
 class _FakeCursor:
