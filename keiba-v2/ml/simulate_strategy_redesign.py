@@ -911,7 +911,10 @@ def export_json(all_results: List[SimResult], initial: int, output_path: Path,
             for bl in budget_labels
         ],
         'strategies': [
-            {'mode': m, 'label': next((r.label for r in all_results if r.mode == m), m)}
+            {'mode': m,
+             'label': next((r.label for r in all_results if r.mode == m), m),
+             # desc = 買い目の条件 (Web画面表示用・真実源は NEW_PRESETS)。
+             'desc': NEW_PRESETS.get(m, {}).get('desc', '')}
             for m in modes
         ],
         'presets': modes,

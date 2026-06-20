@@ -13,6 +13,8 @@ import {
   DataStatusCard,
   ValidationResultsCard,
   SystemHealthCard,
+  PrepSummaryCard,
+  DataStatusTable,
   type LogEntry,
   type ExecutionStatus,
 } from '@/components/admin';
@@ -79,6 +81,8 @@ export default function AdminPage() {
   // 折りたたみ状態
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [isSystemStatusOpen, setIsSystemStatusOpen] = useState(false);
+  // 手動操作（登録ボタン群）: 通常はスキル keiba-data-prep で実行するため既定で閉じる
+  const [isManualOpsOpen, setIsManualOpsOpen] = useState(false);
 
   // パイプラインステータス
   interface StepStatus {
@@ -606,18 +610,47 @@ export default function AdminPage() {
     <div className="container py-6 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2">
-          📊 データ登録
+          📊 データ管理ダッシュボード
         </h1>
         <div className="flex items-center gap-3">
           <a
             href="/admin/data-status"
             className="text-sm text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
           >
-            📋 登録状況確認
+            📋 詳細ページ
           </a>
           <StatusBadge status={status} />
         </div>
       </div>
+
+      {/* ── ダッシュボード（主役）: 状態確認メイン ── */}
+      <div className="space-y-4 mb-6">
+        <PrepSummaryCard />
+        <DataStatusTable weeks={12} />
+      </div>
+
+      {/* ── 手動操作（登録ボタン群）: 通常はスキル keiba-data-prep で実行 ── */}
+      <Collapsible open={isManualOpsOpen} onOpenChange={setIsManualOpsOpen}>
+        <Card className="border-muted mb-6">
+          <CollapsibleTrigger asChild>
+            <CardHeader className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors">
+              <CardTitle className="text-lg flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  🔧 手動操作（登録・生成）
+                  <span className="text-xs font-normal text-muted-foreground">
+                    （通常は keiba-data-prep スキルで自動実行。馬場入力・個別再実行など画面が必要な操作はここ）
+                  </span>
+                </span>
+                {isManualOpsOpen ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </CardTitle>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-6 pt-2">
 
       {/* 日付設定（単一/範囲切り替え） */}
       <Card className="mb-6">
@@ -886,6 +919,11 @@ export default function AdminPage() {
 
         </CardContent>
       </Card>
+
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       <Separator className="my-6" />
 

@@ -8,4 +8,6 @@ export {
   DataStatusCard,
   ValidationResultsCard,
   SystemHealthCard,
+  PrepSummaryCard,
+  DataStatusTable,
 } from './data-quality';

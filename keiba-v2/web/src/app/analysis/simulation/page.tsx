@@ -21,6 +21,17 @@ const MODE_COLORS: Record<string, string> = {
   simple_wide: '#64748b',
 };
 
+// 各戦略の「買い目の条件」を人間語で説明 (JSON の desc が無い/英語のときのフォールバック)。
+// 真実源は ml/bet_engine.py PRESETS['tansho_ippon'] と simulate_strategy_redesign.py NEW_PRESETS。
+const MODE_CONDITIONS: Record<string, string> = {
+  tansho_ippon:
+    '◎の単勝1点。AI勝率1位 ∧ 人気とAI評価のズレ≥3(過小評価) ∧ 単勝EV≥1.3 ∧ 着差予測≤60(接戦)。複勝なし・1レース1点。',
+  honmei_umaren:
+    '単勝一本と同じ◎を軸に、複勝率(rp)上位2頭への馬連2点を追加。',
+  umaren_hirome:
+    '単勝一本と同じ◎を軸に、着差偏差(ARd)上位3頭への馬連3点を追加(広め)。',
+};
+
 function MetricCard({ label, value, sub, color }: {
   label: string;
   value: string;
@@ -344,6 +355,54 @@ export default function SimulationPage() {
           />
         </div>
       )}
+
+      {/* 買い目の条件 + 出現率 (Best Strategy) */}
+      {bestResult && (() => {
+        const cfg = data.strategies.find(s => s.mode === bestResult.mode);
+        const cond = cfg?.desc || MODE_CONDITIONS[bestResult.mode] || '';
+        const racingDays = frequencyStats?.estimatedRacingDays ?? 0;
+        const perRacingDay = racingDays > 0 ? bestResult.total_bets / racingDays : 0;
+        return (
+          <div className="mb-6 rounded-xl border bg-blue-50/50 dark:bg-blue-950/20 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span
+                className="inline-block h-3 w-3 rounded-full"
+                style={{ backgroundColor: MODE_COLORS[bestResult.mode] ?? '#3b82f6' }}
+              />
+              <h2 className="text-base font-semibold">買い目の条件: {bestResult.label}</h2>
+            </div>
+            {cond && (
+              <p className="text-sm text-foreground/80 mb-3 leading-relaxed">{cond}</p>
+            )}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <MetricCard
+                label="出現率 (開催日あたり)"
+                value={`約 ${perRacingDay.toFixed(1)} R/日`}
+                sub={`${bestResult.total_bets}件 / 約${racingDays}開催日`}
+                color="blue"
+              />
+              <MetricCard
+                label="出現率 (買った日あたり)"
+                value={`約 ${bestResult.bet_days > 0 ? (bestResult.total_bets / bestResult.bet_days).toFixed(1) : '0'} R/日`}
+                sub={`${bestResult.total_bets}件 / ${bestResult.bet_days}日`}
+                color="gray"
+              />
+              <MetricCard
+                label="月平均"
+                value={`約 ${frequencyStats ? frequencyStats.monthlyAvg : 0} R`}
+                sub={`${frequencyStats ? frequencyStats.months.length : 0}ヶ月`}
+                color="gray"
+              />
+              <MetricCard
+                label="券の的中率"
+                value={`${bestResult.win_hit_rate ?? 0}%`}
+                sub="単勝が当たった割合"
+                color="gray"
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Chart */}
       <div className="mb-6 rounded-xl border bg-background p-4">

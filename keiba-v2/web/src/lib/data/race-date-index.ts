@@ -190,8 +190,13 @@ function saveIndexToFile(raceCount: number): void {
       fs.mkdirSync(cacheDir, { recursive: true });
     }
 
+    // atomic write: tmp に書いてから rename（同一ボリューム内で atomic）。
+    // 5MB超のファイルを直接上書きすると、書き込み中に data-status API 等が
+    // 途中状態を読んで JSON パース失敗しうる。tmp→rename で常に完全なファイルだけを見せる。
     const data = Object.fromEntries(dateIndex);
-    fs.writeFileSync(INDEX_FILE, JSON.stringify(data), 'utf-8');
+    const tmpIndex = `${INDEX_FILE}.tmp`;
+    fs.writeFileSync(tmpIndex, JSON.stringify(data), 'utf-8');
+    fs.renameSync(tmpIndex, INDEX_FILE);
 
     const meta: IndexMeta = {
       builtAt: new Date().toISOString(),
@@ -199,7 +204,9 @@ function saveIndexToFile(raceCount: number): void {
       raceCount,
       version: INDEX_VERSION,
     };
-    fs.writeFileSync(INDEX_META_FILE, JSON.stringify(meta, null, 2), 'utf-8');
+    const tmpMeta = `${INDEX_META_FILE}.tmp`;
+    fs.writeFileSync(tmpMeta, JSON.stringify(meta, null, 2), 'utf-8');
+    fs.renameSync(tmpMeta, INDEX_META_FILE);
 
     // 書いた直後の mtime を記録しておくと、同一プロセス内で次回 stat した時に
     // 「外部更新あり」と誤検知して無駄な再読込を防げる。

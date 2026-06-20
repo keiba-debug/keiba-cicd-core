@@ -40,6 +40,7 @@ export interface BudgetConfig {
 export interface StrategyConfig {
   mode: string;
   label: string;
+  desc?: string;   // 買い目の条件 (例: 単勝一本 = rw1+gap≥3+EV≥1.3+margin≤60)
 }
 
 export interface SimulationData {
