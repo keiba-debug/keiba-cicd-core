@@ -49,7 +49,10 @@ from ml.strategies.freebudget import resolve_date  # noqa: E402
 from ml.strategies.day_recovery import compute_recovery  # noqa: E402
 from ml.strategies.bettype_selection import evaluate_and_select, STRATEGIES  # noqa: E402
 from ml.strategies import bettype_efficiency as be  # noqa: E402
-from ml.strategies.bettype_sizing import get_sizer, DEFAULT_SIZER, SIZERS  # noqa: E402
+from ml.strategies.bettype_sizing import (  # noqa: E402
+    get_sizer, make_template_sizer, DEFAULT_SIZER, DEFAULT_TEMPLATE,
+    FLAT_STAKE_YEN, TEMPLATE_FLAT_SIZER, SIZERS,
+)
 from ml.utils.race_io import date_dir_for, load_predictions  # noqa: E402
 
 DEFAULT_BANKROLL = 10000
@@ -91,9 +94,54 @@ def halt_day(date_str: str, *, live: bool, reason: str) -> dict:
             "halt_reason": state.get("halt_reason"), "state_path": str(sp)}
 
 
+def resume_day(date_str: str, *, live: bool) -> dict:
+    """当日の bettype state の halted を解除して投票を再開 (web/CLI「再開」= halt_day の対)。
+
+    halted=False + halt_reason/halted_at クリア + ★consecutive_failures=0★ にリセット
+    (再開直後にカウンタが MAX のままだと次の1失敗で即 re-halt するため戻す)。 freebudget
+    state は触らない。 state ファイルが無ければ (= halt されていない) no-op。
+
+    ★再開は「異常を確認した上での手動操作」★ (旧設計の sticky halt を解除する明示行為)。
+    停止理由が一時的 (フォアグラウンドロック=SetForegroundWindow 失敗等) なら再開で復帰するが、
+    根因が残っていれば次パスで再び失敗→再 halt する。 呼び出し側 (web/runner) が条件を担保する。
+    """
+    date_str = resolve_date(date_str)
+    day_dir = date_dir_for(date_str)
+    sp = state_path(day_dir, live=live)
+    if not sp.exists():
+        return {"resumed": False, "was_halted": False, "state_path": str(sp),
+                "note": "state なし (未投票/非開催) → 再開対象なし"}
+    state = load_state(sp, date_str, "live" if live else "dry-run")
+    was_halted = bool(state.get("halted"))
+    prev_reason = state.get("halt_reason")
+    state["halted"] = False
+    state["halt_reason"] = None
+    state["halted_at"] = None
+    state["consecutive_failures"] = 0
+    state["resumed_at"] = datetime.now().isoformat(timespec="seconds")
+    save_state(sp, state)
+    return {"resumed": True, "was_halted": was_halted, "prev_halt_reason": prev_reason,
+            "state_path": str(sp)}
+
+
 # ---------------------------------------------------------------------------
 # 候補生成 (差し替え①): bettype_selection + bettype_sizing
 # ---------------------------------------------------------------------------
+
+def resolve_sizer(sizing: str):
+    """--sizing 文字列を SizerFn に解決する。
+
+    `template_flat:<テンプレ名>[:<flat円>]` 構文に対応 (例 template_flat:wide_anchor:200)。
+    これでテンプレ名を全関数チェーンに新引数で通さず --sizing 既存経路だけで切替できる
+    (bat は --sizing 未指定 = DEFAULT_SIZER。 テンプレ実戦化時のみ明示指定)。
+    """
+    if sizing.startswith(TEMPLATE_FLAT_SIZER + ":"):
+        parts = sizing.split(":")
+        tmpl = parts[1] if len(parts) > 1 and parts[1] else DEFAULT_TEMPLATE
+        stake = int(parts[2]) if len(parts) > 2 and parts[2] else FLAT_STAKE_YEN
+        return make_template_sizer(tmpl, stake)
+    return get_sizer(sizing)
+
 
 def size_one_race(pred_race: dict, *, strategy: str, ev_floor: float, sizing: str,
                   bankroll: int, per_race_cap: int):
@@ -101,6 +149,11 @@ def size_one_race(pred_race: dict, *, strategy: str, ev_floor: float, sizing: st
 
     軸は evaluate_and_select の選定軸を be.process_race に明示で渡す (hole_seeker の
     軸差し替えと sizing を必ず一致させる)。 fund 対象 0 件なら None。
+
+    ★template_flat 系サイザーは selection を使わず race_eff の composite 序列だけで買い目を
+      決める (ラボのテンプレをそのまま実戦化)。 ただし evaluate_and_select は「このレースを
+      買うか/降りるか + 軸」のゲートとして通す (ev_floor で機械買いを抑制し軸を strategy と
+      一致させる。 hole_seeker の軸差し替えも sizing に反映される)。
     """
     sel = evaluate_and_select(pred_race, strategy=strategy, ev_floor=ev_floor)
     if sel is None or not sel.selected_plans:
@@ -108,7 +161,7 @@ def size_one_race(pred_race: dict, *, strategy: str, ev_floor: float, sizing: st
     race_eff = be.process_race(pred_race, axis=sel.axis_umaban)
     if race_eff is None:
         return None
-    rs = get_sizer(sizing)(race_eff, sel, bankroll=bankroll, per_race_cap=per_race_cap)
+    rs = resolve_sizer(sizing)(race_eff, sel, bankroll=bankroll, per_race_cap=per_race_cap)
     return rs if rs.legs else None
 
 
@@ -411,9 +464,21 @@ def parse_args():
     p.add_argument("--halt", action="store_true",
                    help="当日 state を halted=True にして以降のパスを停止")
     p.add_argument("--halt-reason", default="manual_stop")
+    p.add_argument("--resume", action="store_true",
+                   help="当日 state の halted を解除して投票を再開 (halt の対・"
+                        "consecutive_failures も 0 に戻す)")
     p.add_argument("--strategy", default=DEFAULT_STRATEGY, choices=STRATEGIES)
     p.add_argument("--ev-floor", type=float, default=DEFAULT_EV_FLOOR)
-    p.add_argument("--sizing", default=DEFAULT_SIZER, choices=tuple(SIZERS))
+    # --sizing は registry 名 (fixed_grade_v1 等) か `template_flat:<テンプレ>[:<円>]` 構文。
+    #   choices で縛らず resolve_sizer に検証を委ねる (テンプレ複合文字列を許すため)。
+    p.add_argument("--sizing", default=DEFAULT_SIZER,
+                   help=f"サイザー名 {tuple(SIZERS)} または "
+                        f"template_flat:<テンプレ名>[:<flat円>] (例 template_flat:wide_anchor:100)")
+    p.add_argument("--template", default=None,
+                   help="買い方ラボのテンプレ名 (指定すると --sizing を template_flat:<名> に上書き)。"
+                        " 例: fukusho_korogashi / wide_anchor / sanrenpuku_1jiku")
+    p.add_argument("--flat-stake", type=int, default=FLAT_STAKE_YEN,
+                   help=f"template_flat の1点あたり円 (既定 {FLAT_STAKE_YEN})")
     p.add_argument("--bankroll", type=int, default=DEFAULT_BANKROLL)
     p.add_argument("--per-day-max-yen", type=int, default=DEFAULT_BETTYPE_PER_DAY_MAX_YEN)
     p.add_argument("--login-timeout", type=int, default=180)
@@ -433,12 +498,32 @@ def main() -> int:
     args = parse_args()
     live = bool(args.confirm)
 
+    # --template 指定時は --sizing を template_flat:<名>:<円> に組み立てる (UX 糖衣)。
+    sizing = args.sizing
+    if args.template:
+        sizing = f"{TEMPLATE_FLAT_SIZER}:{args.template}:{args.flat_stake}"
+    # sizing の妥当性をここで早期検証 (不正な sizer 名/テンプレ名は run 前に弾く)。
+    try:
+        resolve_sizer(sizing)
+    except (ValueError, KeyError) as e:
+        print(f"[bettype] --sizing 不正: {e}", file=sys.stderr)
+        return 2
+
     if args.halt:
         date_str = resolve_date(args.date)
         out_live = halt_day(date_str, live=True, reason=args.halt_reason)
         out_dry = halt_day(date_str, live=False, reason=args.halt_reason)
         print(f"[bettype] HALTED {date_str}: live={out_live['halt_reason']} "
               f"(already={out_live['already_halted']}) / dry={out_dry['already_halted']}")
+        return 0
+
+    if args.resume:
+        date_str = resolve_date(args.date)
+        out_live = resume_day(date_str, live=True)
+        out_dry = resume_day(date_str, live=False)
+        print(f"[bettype] RESUMED {date_str}: "
+              f"live(was_halted={out_live.get('was_halted')}) / "
+              f"dry(was_halted={out_dry.get('was_halted')})")
         return 0
 
     if live and not args.i_understand_live:
@@ -449,7 +534,7 @@ def main() -> int:
     now = parse_now(args.now, date_str)
     out = run_pass(
         date_str, now=now, live=live, bankroll=args.bankroll, strategy=args.strategy,
-        ev_floor=args.ev_floor, sizing=args.sizing, per_day_max_yen=args.per_day_max_yen,
+        ev_floor=args.ev_floor, sizing=sizing, per_day_max_yen=args.per_day_max_yen,
         login_timeout=args.login_timeout, notify_on_skip=not args.no_skip_notify,
         verbose=not args.quiet)
     return 3 if out.get("halted") else 0

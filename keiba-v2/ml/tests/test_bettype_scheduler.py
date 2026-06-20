@@ -10,6 +10,8 @@
 """
 from datetime import datetime, timedelta
 
+import pytest
+
 from ml.strategies import bettype_scheduler as sch
 from ml.strategies.bettype_sizing import SizedLeg, RaceSizing
 from ml.target_clicker.ff_writer import parse_bet_spec, BET_TYPE_CODE
@@ -324,3 +326,47 @@ def test_inner_net_cage_skips_without_recovery(monkeypatch, tmp_path):
                               per_day_max_yen=30000, **_COMMON)
     assert out["voted"] == []                           # net 30000+600 > 30000 → skip
     assert any("日次キャップ" in r for _, r in out["skipped"])
+
+
+# --- resolve_sizer: --sizing 文字列 → SizerFn 解決 (Session 162 template_flat 配線) ---
+
+def test_resolve_sizer_registry_name():
+    import ml.strategies.bettype_sizing as sz
+    assert sch.resolve_sizer("fixed_grade_v1") is sz.size_race_fixed_grade
+    assert sch.resolve_sizer("anchor_kelly_combo_ev") is sz.size_race
+
+
+def test_resolve_sizer_template_flat_syntax():
+    # template_flat:<テンプレ>:<円> 構文 → 部分適用された SizerFn (callable) を返す
+    fn = sch.resolve_sizer("template_flat:wide_anchor:200")
+    assert callable(fn)
+    # 実際に呼んで wide_anchor が flat 200円で出ることを確認
+    import ml.strategies.bettype_efficiency as be
+
+    def _sr(umaban, comp, rank):
+        s = be.HorseStrength(umaban=umaban, horse_name=f"H{umaban}", win_prob=0.2,
+                             odds=5.0, place_odds_min=None, pred_w=0.2, pred_p=None,
+                             ar_deviation=None, z_w=None, z_p=None, z_adr=None, composite=comp)
+        s.rank_composite = rank
+        return s
+
+    eff = be.RaceEfficiency(
+        race_id="2026053108031109", date="2026-05-31", venue_name="東京",
+        race_number=11, grade="", track_type="芝", distance=1600, num_runners=12,
+        axis_umaban=7, axis_name="H7", axis_odds=3.0, partners=[], weights=(1, 1, 1),
+        specialist=None, plans=[], warnings=[],
+        strengths=[_sr(7, 5.0, 1), _sr(3, 4.0, 2), _sr(9, 3.0, 3), _sr(4, 2.0, 4),
+                   _sr(1, 1.0, 5)])
+    rs = fn(eff, None, bankroll=10000, per_race_cap=3000)
+    assert rs.legs and all(l.amount == 200 for l in rs.legs)
+
+
+def test_resolve_sizer_template_flat_defaults():
+    # template_flat: のみ (テンプレ名省略) → DEFAULT_TEMPLATE で解決
+    fn = sch.resolve_sizer("template_flat:")
+    assert callable(fn)
+
+
+def test_resolve_sizer_unknown_raises():
+    with pytest.raises((ValueError, KeyError)):
+        sch.resolve_sizer("nonexistent_sizer")

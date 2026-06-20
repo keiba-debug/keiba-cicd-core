@@ -56,9 +56,15 @@ OK_BUTTON_TITLE = "OK"
 #   receipt_number=None になり、 誤 session_expired 事後検知 (Phase 4-C-full) に流れる。
 #   対策: 出現後に settle を入れ、 受付番号が埋まるまで短い間隔で再読取してから OK を押す。
 #   いずれも環境変数で当日チューニング可能 (コード再デプロイ不要)。
-RESULT_SETTLE_SEC = float(os.getenv("KEIBA_RESULT_SETTLE_SEC", "0.8"))
+RESULT_SETTLE_SEC = float(os.getenv("KEIBA_RESULT_SETTLE_SEC", "0.5"))
 RESULT_RECEIPT_POLL_SEC = float(os.getenv("KEIBA_RESULT_RECEIPT_POLL_SEC", "0.4"))
 RESULT_RECEIPT_MAX_WAIT_SEC = float(os.getenv("KEIBA_RESULT_RECEIPT_MAX_WAIT_SEC", "4.0"))
+# 投票 click 後、 「投票終了」 ダイアログを探し始める前の固定待ち (Session 161)。
+#   ふくだ要望「各画面の OK 待ちが数秒で遅い」への対応。 ダイアログ検出自体は
+#   find_dialog_by_title が出たら即進むポーリングなので、 ここを短くしても
+#   「枠が出る前に探し始める」→ poll で待つだけ (取りこぼさない)。 0 でも可。
+#   ※受付番号待ち (RECEIPT 系) は触らない = 税務記録の安全装置。
+RESULT_PRE_CLOSE_SLEEP_SEC = float(os.getenv("KEIBA_RESULT_PRE_CLOSE_SLEEP_SEC", "0.5"))
 
 AUDIT_DIR = Path(os.getenv("KEIBA_DATA_ROOT", "C:/KEIBA-CICD/data3")) \
     / "userdata" / "target_clicker"
@@ -484,8 +490,10 @@ def click_vote_button(
     receipt: Optional[ReceiptInfo] = None
     closed = False
     if close_result:
-        # ダイアログ表示まで少し待つ
-        time.sleep(1.0)
+        # ダイアログ表示まで少し待つ (Session 161: 1.0→env 既定0.5 に短縮。 検出は下流の
+        #   find_dialog_by_title が出るまでポーリングするので取りこぼさない)。
+        if RESULT_PRE_CLOSE_SLEEP_SEC > 0:
+            time.sleep(RESULT_PRE_CLOSE_SLEEP_SEC)
         closed, receipt = close_result_dialog(
             timeout_sec=result_timeout_sec, verbose=verbose,
         )

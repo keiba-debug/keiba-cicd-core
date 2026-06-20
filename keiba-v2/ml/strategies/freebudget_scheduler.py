@@ -44,7 +44,7 @@ import time
 from dataclasses import replace as dc_replace
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -87,6 +87,13 @@ def read_per_race_cap() -> int:
     取れない/無効なら 0 (= キャップ無し扱い)。 runner の _check_per_race_limits が
     config を直読みする正本だが、 scheduler 側でも同値を読んで ① 投票前に over-cap
     レースを skip (day-halt 回避) ② --max-yen を per_race で min キャップ (二次防御) する。
+
+    ★Session 166: 「基準金額 × レート」対応 (shobu_rate サイザー)★。 config に
+    daily_start_balance_yen (基準金額=入金額) と shobu_rate_pct (勝負レート%) が両方あれば、
+    per_race の上限 = ★基準金額 × 勝負レート★ を返す (上限側=大きい方)。 これにより runner の
+    番人 (_check_per_race_limits) も勝負R の厚い投票を通せる。 通常R を通常レートに絞るのは
+    shobu_rate サイザー内 (per_race_cap を受けても通常R は通常レート相当に縮める)。
+    どちらか欠ければ従来の per_race_max_yen (固定値) にフォールバック (後方互換)。
     """
     try:
         if not BANKROLL_CONFIG_PATH.exists():
@@ -95,9 +102,32 @@ def read_per_race_cap() -> int:
         settings = cfg.get("settings", {}) or {}
         if settings.get("limit_mode") != "absolute":
             return 0
+        base = int(settings.get("daily_start_balance_yen", 0) or 0)
+        shobu_pct = float(settings.get("shobu_rate_pct", 0) or 0)
+        if base > 0 and shobu_pct > 0:
+            # 基準金額 × 勝負レート (100円単位に丸め)。 = per_race の上限 (勝負R が通る大きさ)。
+            return int(base * shobu_pct / 100 // 100 * 100)
         return int(settings.get("per_race_max_yen", 0) or 0)
     except (OSError, ValueError, TypeError):
         return 0
+
+
+def read_rate_pcts() -> Tuple[float, float]:
+    """config.json から (通常レート%, 勝負レート%) を返す。 shobu_rate サイザー用。
+
+    既定 = (5.0, 15.0) (ふくだ確定 Session 166)。 daily_start_balance_yen が無い/0 の環境では
+    レート方式を使わない (呼び出し側がフォールバック判定する) ので、 ここはレート値だけ返す。
+    """
+    try:
+        if not BANKROLL_CONFIG_PATH.exists():
+            return 5.0, 15.0
+        cfg = json.loads(BANKROLL_CONFIG_PATH.read_text(encoding="utf-8"))
+        settings = cfg.get("settings", {}) or {}
+        normal = float(settings.get("normal_rate_pct", 0) or 0) or 5.0
+        shobu = float(settings.get("shobu_rate_pct", 0) or 0) or 15.0
+        return normal, shobu
+    except (OSError, ValueError, TypeError):
+        return 5.0, 15.0
 
 
 def read_day_budget() -> tuple[int, str]:
@@ -490,6 +520,32 @@ def halt_day(date_str: str, *, live: bool, reason: str) -> dict:
             "halt_reason": state.get("halt_reason"), "state_path": str(sp)}
 
 
+def resume_day(date_str: str, *, live: bool) -> dict:
+    """当日の state の halted を解除して投票を再開する (web「再開」= halt_day の対)。
+
+    halted=False + halt_reason/halted_at クリア + ★consecutive_failures=0★ にリセット
+    (再開直後にカウンタが MAX のままだと次の1失敗で即 re-halt するため)。 state ファイルが
+    無ければ (= halt されていない) no-op。 ★再開は異常を確認した上での手動操作★。
+    """
+    date_str = resolve_date(date_str)
+    day_dir = date_dir_for(date_str)
+    sp = state_path(day_dir, live=live)
+    if not sp.exists():
+        return {"resumed": False, "was_halted": False, "state_path": str(sp),
+                "note": "state なし → 再開対象なし"}
+    state = load_state(sp, date_str, "live" if live else "dry-run")
+    was_halted = bool(state.get("halted"))
+    prev_reason = state.get("halt_reason")
+    state["halted"] = False
+    state["halt_reason"] = None
+    state["halted_at"] = None
+    state["consecutive_failures"] = 0
+    state["resumed_at"] = datetime.now().isoformat(timespec="seconds")
+    save_state(sp, state)
+    return {"resumed": True, "was_halted": was_halted, "prev_halt_reason": prev_reason,
+            "state_path": str(sp)}
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--date", default="today")
@@ -501,6 +557,8 @@ def parse_args():
                    help="当日 state を halted=True にして以降のパスを停止 (web「停止」)")
     p.add_argument("--halt-reason", default="manual_stop_via_web",
                    help="--halt 時の停止理由")
+    p.add_argument("--resume", action="store_true",
+                   help="当日 state の halted を解除して再開 (halt の対・web「再開」)")
     p.add_argument("--bankroll", type=int, default=DEFAULT_BANKROLL)
     p.add_argument("--kelly-fraction", type=float, default=DEFAULT_KELLY_FRACTION)
     p.add_argument("--per-bet-cap-pct", type=float, default=DEFAULT_PER_BET_CAP_PCT)
@@ -530,6 +588,16 @@ def main() -> int:
         print(f"[scheduler] HALTED {date_str}: live={out_live['halt_reason']} "
               f"(already={out_live['already_halted']}) / "
               f"dry={out_dry['already_halted']}")
+        return 0
+
+    # --resume: 当日の halted を解除して再開 (web「再開」)。 live/dry 両方を解除。
+    if args.resume:
+        date_str = resolve_date(args.date)
+        out_live = resume_day(date_str, live=True)
+        out_dry = resume_day(date_str, live=False)
+        print(f"[scheduler] RESUMED {date_str}: "
+              f"live(was_halted={out_live.get('was_halted')}) / "
+              f"dry(was_halted={out_dry.get('was_halted')})")
         return 0
 
     if live and not args.i_understand_live:

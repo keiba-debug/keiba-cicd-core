@@ -13,7 +13,8 @@
  *   - LIVE (実投票) ボタンは funded artifact (freebudget_bets.json) がある時だけ活性。
  *     押すと金額確認ダイアログ → チェックボックス必須 → confirmed_total_yen を送信。
  *     API 側が artifact の total_yen と再照合 (二重ゲート。 画面の金額と実投票の一致保証)。
- *   - halt は安全側操作 (止めるだけ) かつ sticky (web から再開不可)。
+ *   - halt は安全側操作 (止めるだけ)。 再開は [再開する] ボタン (POST /api/freebudget/resume)
+ *     で halt を解除する明示操作 (停止原因を解消した上で押す)。
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -26,7 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   Play, Loader2, CheckCircle2, XCircle, OctagonX, RefreshCw,
-  ShieldAlert, AlertTriangle, Clock, CircleSlash, Ban,
+  ShieldAlert, AlertTriangle, Clock, CircleSlash, Ban, RotateCcw,
 } from 'lucide-react';
 import type {
   SchedulerStatus, VoteEntry, FundedBet,
@@ -89,7 +90,7 @@ export function AutoVoteControl() {
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
 
-  const [busy, setBusy] = useState<'dryrun' | 'live' | 'halt' | null>(null);
+  const [busy, setBusy] = useState<'dryrun' | 'live' | 'halt' | 'resume' | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [logStatus, setLogStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
 
@@ -203,6 +204,26 @@ export function AutoVoteControl() {
     }
   }, [date, fetchStatus]);
 
+  // 当日 halt を解除して再開 (原因解消後の手動操作)。 bettype/freebudget 両 state を解除。
+  const doResume = useCallback(async () => {
+    setBusy('resume');
+    try {
+      const res = await fetch('/api/freebudget/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setLog((p) => [...p, `▶ 再開しました:\n${data.output ?? ''}`]);
+      else setLog((p) => [...p, `Error: ${data.error ?? `HTTP ${res.status}`}`]);
+    } catch (e) {
+      setLog((p) => [...p, `Error: ${String(e)}`]);
+    } finally {
+      setBusy(null);
+      fetchStatus(date);
+    }
+  }, [date, fetchStatus]);
+
   const hasFunded = (status?.funded_total_yen ?? null) != null && (status?.funded_n_bets ?? 0) > 0;
   const halted = status?.halted ?? false;
   const running = status?.running ?? false;
@@ -280,8 +301,21 @@ export function AutoVoteControl() {
             </div>
             <div className="text-red-600/90 mt-1">{status?.halt_reason}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              ※ 停止は安全機構です。 web からは再開できません (再開には state ファイルの手動操作が必要)。
+              ※ 停止は安全機構です。 原因 (TARGET 窓が前面にない / PC操作中 = フォアグラウンドロック等) を
+              解消してから再開してください。 再開すると次パスから投票を再試行します
+              (根因が残っていれば再び停止します)。
             </div>
+            <Button
+              size="sm"
+              className="mt-2 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
+              onClick={doResume}
+              disabled={busy !== null}
+            >
+              {busy === 'resume'
+                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                : <RotateCcw className="h-4 w-4 mr-2" />}
+              再開する (halt 解除)
+            </Button>
           </div>
         )}
 
@@ -547,8 +581,8 @@ export function AutoVoteControl() {
             </DialogDescription>
           </DialogHeader>
           <div className="text-sm text-muted-foreground">
-            ⚠ 停止すると当日は <strong>web から再開できません</strong> (再開には state ファイルの手動操作が必要)。
-            既に投票成立した馬券は取り消されません。
+            ⚠ 以降の自動投票を止めます。 再開は上部の <strong>[再開する]</strong> ボタンから可能です
+            (停止原因を解消してから)。 既に投票成立した馬券は取り消されません。
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setHaltDialogOpen(false)} disabled={busy === 'halt'}>
