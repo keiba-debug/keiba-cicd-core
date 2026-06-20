@@ -75,8 +75,30 @@ def _predictions(date_str: str) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def log_picks(date_str: str, params: dict = None, *, now: str = None) -> dict:
-    """predictions.json から穴単勝を選定し picks_{date}.json に追記 (race 単位で冪等)。"""
+def _window_race_ids(date_str: str, window_min: float) -> set:
+    """発走時刻の投票窓 (deadline の window_min 分前〜deadline) に居るレースの race_id 集合。
+    load_post_times (Session 169 cache 堅牢化) を再利用 = standalone でも bet 時オッズで記録。"""
+    from ml.strategies.freebudget_race import load_post_times, race_timing
+    y, m, d = date_str.split("-")
+    day_dir = config.races_dir() / y / m / d
+    post_times = load_post_times(day_dir, date_str=date_str)
+    now = datetime.now()
+    out = set()
+    for rid, st in post_times.items():
+        t = race_timing(date_str, st, now)
+        mtd = t.get("mins_to_deadline")
+        if mtd is not None and 0 <= mtd <= window_min:   # 締切前 window_min 分以内 (未締切)
+            out.add(str(rid))
+    return out
+
+
+def log_picks(date_str: str, params: dict = None, *, now: str = None,
+              window_min: float = None) -> dict:
+    """predictions.json から穴単勝を選定し picks_{date}.json に追記 (race 単位で冪等)。
+
+    window_min 指定時は「投票窓内のレースのみ」記録 = 締切間際の bet 時オッズで記録
+    (standalone bat を数分おきに回すと各レースを1回だけ近-締切で拾う)。None=全レース。
+    """
     params = params or dict(DEFAULT_PARAMS)
     path = _picks_path(date_str)
     if path.exists():
@@ -84,6 +106,7 @@ def log_picks(date_str: str, params: dict = None, *, now: str = None) -> dict:
     else:
         doc = {"date": date_str, "params": params, "picks": [], "settled": False}
     already = {p["race_id"] for p in doc["picks"]}
+    in_window = _window_race_ids(date_str, window_min) if window_min is not None else None
     preds = _predictions(date_str)
     ts = now or datetime.now().isoformat(timespec="seconds")
     added = 0
@@ -91,13 +114,16 @@ def log_picks(date_str: str, params: dict = None, *, now: str = None) -> dict:
         rid = str(race.get("race_id"))
         if rid in already:
             continue
-        for pk in select_ana_tansho(race, **params):
+        if in_window is not None and rid not in in_window:
+            continue
+        picks = select_ana_tansho(race, **params)
+        for pk in picks:
             pk.update({"race_id": rid, "venue_name": race.get("venue_name", ""),
                        "race_number": race.get("race_number"), "logged_at": ts,
                        "stake": STAKE})
             doc["picks"].append(pk)
             added += 1
-        if select_ana_tansho(race, **params):
+        if picks:
             already.add(rid)
     path.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
     return {"date": date_str, "added": added, "total": len(doc["picks"]), "path": str(path)}
@@ -164,14 +190,20 @@ def report() -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date")
+    ap.add_argument("--today", action="store_true", help="--date を今日に")
     ap.add_argument("--log", action="store_true")
     ap.add_argument("--settle", action="store_true")
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--window", type=float, default=None,
+                    help="投票窓(分): 締切 window 分前以内のレースのみ記録 = bet時オッズ。"
+                         "standalone bat を数分おきに回す用 (例 --window 8)")
     args = ap.parse_args()
+    if args.today and not args.date:
+        args.date = datetime.now().strftime("%Y-%m-%d")
     if args.report:
         r = report()
         print(f"\n=== 妙味穴・単勝 shadow 累積 ({r['settled_days']}開催) ===")
-        print(f"  投票 {r['n_bet']}本 / ROI {r['roi']:.1f}% / PnL {r['pnl']:+,.0f}円(¥100/点) "
+        print(f"  投票 {r['n_bet']}本 / ROI {r['roi']:.1f}% / PnL {r['pnl']:+,.0f}円(100円/点) "
               f"/ 的中 {r['hit']:.1f}% / ≥1000% {r['big_1000pct']}回 / maxDD {r['max_dd']:,.0f}円")
         for d, n, roi, pnl, big in r["days"]:
             print(f"    {d}: {n}本 ROI {roi:.0f}% PnL {pnl:+,.0f} 天井{big}")
@@ -179,7 +211,7 @@ def main():
     if not args.date:
         ap.error("--date 必須 (--log / --settle)")
     if args.log:
-        print("log:", log_picks(args.date))
+        print("log:", log_picks(args.date, window_min=args.window))
     if args.settle:
         print("settle:", settle(args.date))
 
