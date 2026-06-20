@@ -39,7 +39,7 @@ from ml.experiment import (
     PACE_FEATURES, TRAINING_FEATURES,
     SPEED_FEATURES, COMMENT_FEATURES,
     PEDIGREE_FEATURES, BABA_FEATURES,
-    JRDB_FEATURES, TRACK_BIAS_FEATURES,
+    JRDB_FEATURES, TRACK_BIAS_FEATURES, KAIKO_FEATURES,
     FEATURE_COLS_VALUE, MARKET_FEATURES,
     load_data, build_dataset, build_pit_personnel_timeline,
     load_race_json, parse_period_range,
@@ -61,6 +61,7 @@ FEATURE_GROUPS = {
     'baba':          BABA_FEATURES,
     'jrdb':          JRDB_FEATURES,
     'track_bias':    TRACK_BIAS_FEATURES,
+    'kaiko':         KAIKO_FEATURES,
 }
 
 # 必須特徴量（MARKET除外済み）

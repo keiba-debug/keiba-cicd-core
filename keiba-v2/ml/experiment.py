@@ -193,6 +193,10 @@ BABA_FEATURES = [
 from ml.features.jrdb_features import JRDB_FEATURE_COLS
 JRDB_FEATURES = JRDB_FEATURE_COLS
 
+# 回顧特徴量 (Session 169): 前走不利・巻き返し軸（SED通過順サージ + SRBラップ形状）
+from ml.features.kaiko_features import KAIKO_FEATURE_COLS
+KAIKO_FEATURES = KAIKO_FEATURE_COLS
+
 # トラックバイアス特徴量 (v7.2): KAA馬場状態 + SED前崩れ経験
 from ml.features.track_bias_features import TRACK_BIAS_FEATURE_COLS
 from ml.utils.filters import is_obstacle
@@ -231,7 +235,7 @@ FEATURE_COLS_ALL = (
     RUNNING_STYLE_FEATURES + ROTATION_FEATURES + ['popularity_trend'] +
     PACE_FEATURES + TRAINING_FEATURES + KB_MARK_FEATURES + SPEED_FEATURES +
     COMMENT_FEATURES + SLOW_START_FEATURES + PEDIGREE_FEATURES +
-    BABA_FEATURES + JRDB_FEATURES + TRACK_BIAS_FEATURES
+    BABA_FEATURES + JRDB_FEATURES + TRACK_BIAS_FEATURES + KAIKO_FEATURES
 )
 
 # v7.9: P専用特徴量（好走予測に有効だが勝利予測にノイズになるもの）
@@ -1092,6 +1096,7 @@ def compute_features_for_race(
     jrdb_cha_index: dict = None,
     jrdb_kka_index: dict = None,
     jrdb_joa_index: dict = None,
+    jrdb_srb_index: dict = None,
 ) -> List[dict]:
     """1レースの全出走馬の特徴量を計算
 
@@ -1301,6 +1306,18 @@ def compute_features_for_race(
             )
             feat.update(jrdb_feat)
 
+        # 回顧特徴量 (Session 169): 前走不利・巻き返し（SED通過順サージ + SRBラップ形状）
+        if jrdb_sed_index is not None:
+            from ml.features.kaiko_features import compute_kaiko_features
+            kaiko_feat = compute_kaiko_features(
+                ketto_num=ketto_num,
+                race_date=race_date,
+                history_cache=history_cache,
+                jrdb_sed_index=jrdb_sed_index or {},
+                jrdb_srb_index=jrdb_srb_index,
+            )
+            feat.update(kaiko_feat)
+
         # トラックバイアス特徴量 (v7.2)
         if jrdb_kaa_index:
             # 当日バイアス (レース共通、全馬同じ値)
@@ -1378,6 +1395,7 @@ def build_dataset(
     jrdb_cha_index: dict = None,
     jrdb_kka_index: dict = None,
     jrdb_joa_index: dict = None,
+    jrdb_srb_index: dict = None,
     save_features: bool = False,
 ) -> pd.DataFrame:
     """全レースの特徴量を構築してDataFrameで返す
@@ -1463,6 +1481,7 @@ def build_dataset(
                 jrdb_cha_index=jrdb_cha_index,
                 jrdb_kka_index=jrdb_kka_index,
                 jrdb_joa_index=jrdb_joa_index,
+                jrdb_srb_index=jrdb_srb_index,
             )
             if save_features and rows:
                 from ml.feature_snapshot import save_feature_snapshot
@@ -2564,6 +2583,10 @@ def main():
                         help='時間重みの半減期（年）。0=重みなし（従来動作）。例: 2.0=2年で重み半減')
     parser.add_argument('--no-set-active', action='store_true',
                         help='model_registry の active_version を更新しない（レース中の live 切替防止）')
+    parser.add_argument('--no-save', action='store_true',
+                        help='モデル/registry を一切保存しない eval-only（live モデル不変）。'
+                             '結果JSONは ml/experiments/result_{version}.json に書く。'
+                             'ライブ開催日の安全なA/B実験用（Session 169）')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -2662,6 +2685,17 @@ def main():
      jrdb_cyb_index, jrdb_cha_index, jrdb_kka_index, jrdb_joa_index) = load_data(
         sire_cutoff=args.sire_cutoff, allow_sire_leak=args.allow_sire_leak)
 
+    # SRB index (Session 169: 回顧軸 — load_data の返り値タプルを変えると
+    # batch_predict / evaluate_period を壊すため、ここで個別ロードして build_dataset に渡す)
+    jrdb_srb_index = {}
+    srb_path = config.indexes_dir() / "jrdb_srb_index.json"
+    if srb_path.exists():
+        with open(srb_path, encoding='utf-8') as f:
+            jrdb_srb_index = json.load(f)
+        print(f"  JRDB SRB index: {len(jrdb_srb_index):,} races")
+    else:
+        print("  JRDB SRB index: NOT FOUND (kaiko Phase B skipped)")
+
     # Point-in-time: 調教師・騎手の累積タイムライン構築
     pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline()
 
@@ -2695,6 +2729,7 @@ def main():
         jrdb_cha_index=jrdb_cha_index,
         jrdb_kka_index=jrdb_kka_index,
         jrdb_joa_index=jrdb_joa_index,
+        jrdb_srb_index=jrdb_srb_index,
     )
     df_val = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2714,6 +2749,7 @@ def main():
         jrdb_cha_index=jrdb_cha_index,
         jrdb_kka_index=jrdb_kka_index,
         jrdb_joa_index=jrdb_joa_index,
+        jrdb_srb_index=jrdb_srb_index,
     )
     df_test = build_dataset(
         date_index, history_cache, trainer_index, jockey_index, pace_index,
@@ -2733,6 +2769,7 @@ def main():
         jrdb_cha_index=jrdb_cha_index,
         jrdb_kka_index=jrdb_kka_index,
         jrdb_joa_index=jrdb_joa_index,
+        jrdb_srb_index=jrdb_srb_index,
     )
 
     print(f"\n[Dataset] Train: {len(df_train):,} entries from "
@@ -3393,118 +3430,122 @@ def main():
     model_dir = config.ml_dir()
     config.ensure_dir(model_dir)
 
-    # 旧バージョンアーカイブ（旧構造: versions/v{old_ver}/）
-    current_meta_path = model_dir / "model_meta.json"
-    if current_meta_path.exists():
-        from core.versioning import archive_before_save
-        old_meta = json.loads(current_meta_path.read_text(encoding='utf-8'))
-        old_ver = old_meta.get('version', 'unknown')
-        archive_before_save(
-            base_dir=model_dir,
-            version=old_ver,
-            files=["model_p.txt", "model_w.txt", "model_ar.txt",
-                   "model_meta.json", "ml_experiment_v3_result.json",
-                   "calibrators.pkl"],
-            metadata={"created_at": old_meta.get("created_at", "")},
-        )
+    if args.no_save:
+        # eval-only: live モデル/registry を一切触らない（ライブ開催日の安全なA/B用 Session 169）
+        print("\n  [--no-save] モデル/registry を保存しません（live モデル不変・eval-only）")
+    else:
+        # 旧バージョンアーカイブ（旧構造: versions/v{old_ver}/）
+        current_meta_path = model_dir / "model_meta.json"
+        if current_meta_path.exists():
+            from core.versioning import archive_before_save
+            old_meta = json.loads(current_meta_path.read_text(encoding='utf-8'))
+            old_ver = old_meta.get('version', 'unknown')
+            archive_before_save(
+                base_dir=model_dir,
+                version=old_ver,
+                files=["model_p.txt", "model_w.txt", "model_ar.txt",
+                       "model_meta.json", "ml_experiment_v3_result.json",
+                       "calibrators.pkl"],
+                metadata={"created_at": old_meta.get("created_at", "")},
+            )
 
-    # モデルファイル保存（旧構造: ml_dir直下）
-    model_p.save_model(str(model_dir / "model_p.txt"))
-    model_w.save_model(str(model_dir / "model_w.txt"))
-    model_ar.save_model(str(model_dir / "model_ar.txt"))
+        # モデルファイル保存（旧構造: ml_dir直下）
+        model_p.save_model(str(model_dir / "model_p.txt"))
+        model_w.save_model(str(model_dir / "model_w.txt"))
+        model_ar.save_model(str(model_dir / "model_ar.txt"))
 
-    # IsotonicRegressionキャリブレーター保存
-    import pickle
-    calibrators = {'cal_p': cal_p, 'cal_w': cal_w}
-    with open(model_dir / "calibrators.pkl", 'wb') as f:
-        pickle.dump(calibrators, f)
-    print(f"  Calibrators saved: {list(calibrators.keys())}")
+        # IsotonicRegressionキャリブレーター保存
+        import pickle
+        calibrators = {'cal_p': cal_p, 'cal_w': cal_w}
+        with open(model_dir / "calibrators.pkl", 'wb') as f:
+            pickle.dump(calibrators, f)
+        print(f"  Calibrators saved: {list(calibrators.keys())}")
 
-    import sklearn
-    # features_value = 全モデルの特徴量union（predict.pyが使う）
-    all_features_union = list(dict.fromkeys(features_p + features_w + features_ar))
-    meta = {
-        'version': experiment_version,
-        'features_value': all_features_union,
-        'market_features': list(MARKET_FEATURES),
-        'targets': {'place': 'is_top3', 'win': 'is_win', 'margin': 'target_margin'},
-        'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
-        'has_calibrators': True,
-        'has_regression_model': True,
-        'has_pedigree_features': True,
-        'pedigree_features': PEDIGREE_FEATURES,
-        'sklearn_version': sklearn.__version__,
-        'created_at': datetime.now().isoformat(timespec='seconds'),
-        'split': {'train': train_label, 'val': val_label, 'test': test_label},
-        'optuna_optimized': optuna_optimized,
-        'sire_cutoff': args.sire_cutoff,
-        'time_decay_half_life': args.time_decay if args.time_decay > 0 else None,
-        'ar_stack': bool(args.ar_stack),
-        'margin_mode': args.margin_mode,
-        'furi_scale': args.furi_scale if args.margin_mode in ('adjusted', 'adj_zscore') else None,
-    }
-    # モデル別特徴量が異なる場合、個別リストを保存（Optuna or P_ONLY_FEATURES）
-    if features_p != features_w or features_p != features_ar:
-        meta['features_per_model'] = {
-            'p': features_p,
-            'w': features_w,
-            'ar': features_ar,
+        import sklearn
+        # features_value = 全モデルの特徴量union（predict.pyが使う）
+        all_features_union = list(dict.fromkeys(features_p + features_w + features_ar))
+        meta = {
+            'version': experiment_version,
+            'features_value': all_features_union,
+            'market_features': list(MARKET_FEATURES),
+            'targets': {'place': 'is_top3', 'win': 'is_win', 'margin': 'target_margin'},
+            'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
+            'has_calibrators': True,
+            'has_regression_model': True,
+            'has_pedigree_features': True,
+            'pedigree_features': PEDIGREE_FEATURES,
+            'sklearn_version': sklearn.__version__,
+            'created_at': datetime.now().isoformat(timespec='seconds'),
+            'split': {'train': train_label, 'val': val_label, 'test': test_label},
+            'optuna_optimized': optuna_optimized,
+            'sire_cutoff': args.sire_cutoff,
+            'time_decay_half_life': args.time_decay if args.time_decay > 0 else None,
+            'ar_stack': bool(args.ar_stack),
+            'margin_mode': args.margin_mode,
+            'furi_scale': args.furi_scale if args.margin_mode in ('adjusted', 'adj_zscore') else None,
         }
-    (model_dir / "model_meta.json").write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
-    )
-
-    # === 新構造: models/polaris/live/ にも保存 ===
-    new_live_dir = model_dir / "models" / "polaris" / "live"
-    archive_root = model_dir / "models" / "polaris" / "archive"
-    import shutil
-
-    # Session 119: 上書き前に既存 live を archive/v{prev_version}/ に退避
-    # （ロールバック保証 — 旧モデルの重みを失わない）
-    existing_meta_path = new_live_dir / "meta.json"
-    if existing_meta_path.exists():
-        try:
-            prev_meta = json.loads(existing_meta_path.read_text(encoding='utf-8'))
-            prev_version = prev_meta.get('version', 'unknown')
-            if prev_version and prev_version != experiment_version:
-                archive_dir = archive_root / f"v{prev_version}"
-                if not archive_dir.exists():
-                    archive_dir.mkdir(parents=True, exist_ok=True)
-                    for fname in ["model_p.txt", "model_w.txt", "model_ar.txt",
-                                  "calibrators.pkl", "meta.json"]:
-                        src = new_live_dir / fname
-                        if src.exists():
-                            shutil.copy2(str(src), str(archive_dir / fname))
-                    print(f"  [Archive] live(v{prev_version}) → {archive_dir}")
-                else:
-                    print(f"  [Archive] v{prev_version} already exists, skipping backup")
-        except Exception as ex:
-            print(f"  [WARN] live archive backup failed: {ex}")
-
-    new_live_dir.mkdir(parents=True, exist_ok=True)
-    for fname in ["model_p.txt", "model_w.txt", "model_ar.txt", "calibrators.pkl"]:
-        src = model_dir / fname
-        if src.exists():
-            shutil.copy2(str(src), str(new_live_dir / fname))
-    # meta.json は新構造用の統一名
-    (new_live_dir / "meta.json").write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
-    )
-
-    # model_registry.json にバージョン登録
-    try:
-        from ml.model_loader import register_version
-        register_version(
-            "polaris",
-            experiment_version,
-            description=meta.get('description', ''),
-            p_auc=auc_p if 'auc_p' in dir() else None,
-            w_auc=auc_w if 'auc_w' in dir() else None,
-            features=len(all_features_union),
-            set_active=not args.no_set_active,
+        # モデル別特徴量が異なる場合、個別リストを保存（Optuna or P_ONLY_FEATURES）
+        if features_p != features_w or features_p != features_ar:
+            meta['features_per_model'] = {
+                'p': features_p,
+                'w': features_w,
+                'ar': features_ar,
+            }
+        (model_dir / "model_meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
         )
-    except Exception as e:
-        print(f"  [WARN] model_registry update failed: {e}")
+
+        # === 新構造: models/polaris/live/ にも保存 ===
+        new_live_dir = model_dir / "models" / "polaris" / "live"
+        archive_root = model_dir / "models" / "polaris" / "archive"
+        import shutil
+
+        # Session 119: 上書き前に既存 live を archive/v{prev_version}/ に退避
+        # （ロールバック保証 — 旧モデルの重みを失わない）
+        existing_meta_path = new_live_dir / "meta.json"
+        if existing_meta_path.exists():
+            try:
+                prev_meta = json.loads(existing_meta_path.read_text(encoding='utf-8'))
+                prev_version = prev_meta.get('version', 'unknown')
+                if prev_version and prev_version != experiment_version:
+                    archive_dir = archive_root / f"v{prev_version}"
+                    if not archive_dir.exists():
+                        archive_dir.mkdir(parents=True, exist_ok=True)
+                        for fname in ["model_p.txt", "model_w.txt", "model_ar.txt",
+                                      "calibrators.pkl", "meta.json"]:
+                            src = new_live_dir / fname
+                            if src.exists():
+                                shutil.copy2(str(src), str(archive_dir / fname))
+                        print(f"  [Archive] live(v{prev_version}) → {archive_dir}")
+                    else:
+                        print(f"  [Archive] v{prev_version} already exists, skipping backup")
+            except Exception as ex:
+                print(f"  [WARN] live archive backup failed: {ex}")
+
+        new_live_dir.mkdir(parents=True, exist_ok=True)
+        for fname in ["model_p.txt", "model_w.txt", "model_ar.txt", "calibrators.pkl"]:
+            src = model_dir / fname
+            if src.exists():
+                shutil.copy2(str(src), str(new_live_dir / fname))
+        # meta.json は新構造用の統一名
+        (new_live_dir / "meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
+        )
+
+        # model_registry.json にバージョン登録
+        try:
+            from ml.model_loader import register_version
+            register_version(
+                "polaris",
+                experiment_version,
+                description=meta.get('description', ''),
+                p_auc=auc_p if 'auc_p' in dir() else None,
+                w_auc=auc_w if 'auc_w' in dir() else None,
+                features=len(all_features_union),
+                set_active=not args.no_set_active,
+            )
+        except Exception as e:
+            print(f"  [WARN] model_registry update failed: {e}")
 
     # 結果JSON保存
     result = {
@@ -3585,14 +3626,23 @@ def main():
     if track_split_results:
         result['track_split_experiment'] = track_split_results
 
-    result_path = model_dir / "ml_experiment_v3_result.json"
+    if args.no_save:
+        # eval-only: live の結果JSONを上書きせずサンドボックスへ（A/B比較用 Session 169）
+        exp_dir = model_dir / "experiments"
+        config.ensure_dir(exp_dir)
+        result_path = exp_dir / f"result_{experiment_version}.json"
+    else:
+        result_path = model_dir / "ml_experiment_v3_result.json"
     result_path.write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
     )
 
     elapsed = time.time() - t0
     print(f"\n  Elapsed: {elapsed:.1f}s")
-    print(f"  Models saved to: {model_dir}")
+    if args.no_save:
+        print(f"  [--no-save] live モデル不変")
+    else:
+        print(f"  Models saved to: {model_dir}")
     print(f"  Results saved to: {result_path}")
     print(f"{'='*60}\n")
 
