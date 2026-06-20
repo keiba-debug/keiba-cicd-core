@@ -141,6 +141,74 @@ def test_all_amounts_unit_and_min():
         assert l.amount % 100 == 0 and l.amount >= 100
 
 
+def test_alloc_mode_inverse_flat_odds():
+    # Session 168: plan 内配分の天井変種。 legs odds 5 vs 20、 budget 1000。
+    legs = [[3, 7], [3, 11]]
+    odds = [5.0, 20.0]
+    inv = dict((o, a) for (_l, o, a) in sz._alloc_inverse_odds(legs, odds, 1000, mode="inverse"))
+    flat = dict((o, a) for (_l, o, a) in sz._alloc_inverse_odds(legs, odds, 1000, mode="flat"))
+    od = dict((o, a) for (_l, o, a) in sz._alloc_inverse_odds(legs, odds, 1000, mode="odds"))
+    # inverse: 低オッズに厚く (天井低い)
+    assert inv[5.0] > inv[20.0]
+    # flat: 均等
+    assert flat[5.0] == flat[20.0]
+    # odds: 高オッズ=高配当点に厚く (天井高い)
+    assert od[20.0] > od[5.0]
+    # 全モードとも budget を超えない
+    for d in (inv, flat, od):
+        assert sum(d.values()) <= 1000
+
+
+def test_alloc_mode_default_is_inverse():
+    # 既定 (mode 省略) = inverse (本番不変)。
+    legs = [[3, 7], [3, 11]]
+    odds = [5.0, 20.0]
+    default = sz._alloc_inverse_odds(legs, odds, 1000)
+    explicit = sz._alloc_inverse_odds(legs, odds, 1000, mode="inverse")
+    assert [a for (_l, _o, a) in default] == [a for (_l, _o, a) in explicit]
+
+
+def test_combo_allowed_types_restricts():
+    # Session 168: allowed_types で券種を絞る (三連系のみ等)。
+    axis = 3
+    strengths = [_strength(3, 0.3, 5.0)]
+    plans = [
+        _plan("tansho", [[3]], hit_prob=0.3, ev=None, g=None, odds_legs=[5.0]),
+        _plan("umaren", [[3, 7], [3, 11]], hit_prob=0.3, ev=1.2, g=6.0, odds_legs=[6.0, 12.0]),
+        _plan("sanrentan", [[3, 7, 11]], hit_prob=0.05, ev=1.8, g=40.0, odds_legs=[40.0]),
+    ]
+    eff = _race_eff(axis, 5.0, strengths, plans)
+    sel = _selection(axis, 5.0, [
+        _sel_plan("umaren", [[3, 7], [3, 11]], ev=1.2, g=6.0),
+        _sel_plan("sanrentan", [[3, 7, 11]], ev=1.8, g=40.0),
+    ])
+    eff_by_key = {(p.bet_type, sz._legs_key(p.legs)): p for p in plans}
+    legs = sz._size_combo_legs(eff.race_id, eff, sel, eff_by_key, 3000,
+                               allowed_types=frozenset({"sanrentan"}))
+    bts = {l.bet_type for l in legs}
+    assert bts == {"sanrentan"}   # 馬連は除外される
+
+
+def test_shobu_rate_combo_alloc_mode_threads_through():
+    # Session 168: size_race_shobu_rate に combo_alloc_mode を渡すと plan 内配分が変わる。
+    axis = 3
+    strengths = [_strength(3, 0.3, 5.0)]
+    plans = [
+        _plan("tansho", [[3]], hit_prob=0.3, ev=None, g=None, odds_legs=[5.0]),
+        _plan("umaren", [[3, 7], [3, 11]], hit_prob=0.3, ev=1.2, g=6.0, odds_legs=[6.0, 30.0]),
+    ]
+    eff = _race_eff(axis, 5.0, strengths, plans)
+    sel = _selection(axis, 5.0, [_sel_plan("umaren", [[3, 7], [3, 11]], ev=1.2, g=6.0)])
+    # 非勝負R (tansho_H 不成立) → combo のみ。 odds 配分なら高オッズ(30)点が厚い。
+    rs_inv = sz.size_race_shobu_rate(eff, sel, bankroll=100000, per_race_cap=5200,
+                                     combo_alloc_mode="inverse")
+    rs_odds = sz.size_race_shobu_rate(eff, sel, bankroll=100000, per_race_cap=5200,
+                                      combo_alloc_mode="odds")
+    hi_inv = sum(l.amount for l in rs_inv.legs if l.leg_odds == 30.0)
+    hi_odds = sum(l.amount for l in rs_odds.legs if l.leg_odds == 30.0)
+    assert hi_odds > hi_inv   # odds モードは高配当点に厚い
+
+
 def test_combo_dedup_nested_widths_same_bettype():
     # 回帰: bettype_efficiency は同一券種で入れ子の幅 (馬単◎-相手2 と ◎-相手3) を別 plan で出す。
     # selection が両方含んでも、 サイジングは券種ごとに 1 つ (最良EV) に dedup し重複買いしない。
@@ -836,3 +904,176 @@ def test_size_race_combo_block_unchanged_after_refactor():
     combo = [l for l in rs.legs if l.bet_type in ("umaren", "sanrenpuku")]
     assert combo                          # combo が出ている
     assert rs.combo_yen <= 3000 - rs.anchor_yen + 100   # 残予算内 (丸め余地)
+
+
+# ===========================================================================
+# shobu_rate: 勝負条件 (tansho_H 4条件・rank_w◎) で単勝を厚く (Session 166)
+# ===========================================================================
+
+def _shobu_strength(umaban, pred_w, odds, *, rank_w, gap, ev, margin):
+    """勝負条件フィールド付き HorseStrength。 rank_w/gap/ev/margin を明示。"""
+    s = be.HorseStrength(
+        umaban=umaban, horse_name=f"H{umaban}", win_prob=pred_w, odds=odds,
+        place_odds_min=None, pred_w=pred_w, pred_p=None, ar_deviation=None,
+        z_w=None, z_p=None, z_adr=None, composite=0.0)
+    s.rank_w = rank_w
+    s.win_vb_gap = gap
+    s.win_ev = ev
+    s.predicted_margin = margin
+    return s
+
+
+def _shobu_eff(axis, axis_odds, strengths, plans):
+    """rank_composite を強さ順に振った race_eff (shobu は rank_w◎ を見るので axis は別でよい)。"""
+    return _race_eff(axis, axis_odds, strengths, plans)
+
+
+# --- is_shobu_race の境界 ---
+
+def test_is_shobu_race_all_conditions_met():
+    # rank_w=1, gap=3, ev=1.3, margin=60 (全境界ちょうど) → True
+    s = _shobu_strength(5, 0.2, 8.0, rank_w=1, gap=3, ev=1.3, margin=60)
+    eff = _shobu_eff(5, 8.0, [s], [])
+    assert sz.is_shobu_race(eff) is True
+
+
+def test_is_shobu_race_fails_each_condition():
+    # 各条件を 1 つだけ外すと False
+    base = dict(rank_w=1, gap=3, ev=1.3, margin=60)
+    for key, bad in [("rank_w", 2), ("gap", 2), ("ev", 1.29), ("margin", 61)]:
+        kw = dict(base); kw[key] = bad
+        s = _shobu_strength(5, 0.2, 8.0, **kw)
+        eff = _shobu_eff(5, 8.0, [s], [])
+        assert sz.is_shobu_race(eff) is False, f"{key}={bad} は勝負条件を外すべき"
+
+
+def test_is_shobu_race_missing_feature_is_false():
+    # 素性欠損 (win_ev=None) は判定不能 → False
+    s = _shobu_strength(5, 0.2, 8.0, rank_w=1, gap=3, ev=1.3, margin=60)
+    s.win_ev = None
+    eff = _shobu_eff(5, 8.0, [s], [])
+    assert sz.is_shobu_race(eff) is False
+
+
+def test_is_shobu_race_no_rank_w_axis_is_false():
+    # rank_w=1 の馬が居ない → False
+    s = _shobu_strength(5, 0.2, 8.0, rank_w=2, gap=3, ev=1.3, margin=60)
+    eff = _shobu_eff(5, 8.0, [s], [])
+    assert sz.is_shobu_race(eff) is False
+
+
+# --- 勝負R: rank_w◎ の単勝が厚い・複勝なし ---
+
+def test_shobu_race_thick_tansho_on_rank_w_axis():
+    # composite◎=3 だが rank_w◎=5。 勝負R では rank_w◎=5 の単勝を厚く買う。
+    rankw = _shobu_strength(5, 0.2, 8.0, rank_w=1, gap=3, ev=1.5, margin=40)
+    other = _shobu_strength(3, 0.25, 4.0, rank_w=2, gap=0, ev=1.0, margin=30)
+    eff = _shobu_eff(3, 4.0, [other, rankw],  # axis(composite)=3
+                     [_plan("tansho", [[5]], hit_prob=0.2, ev=None, g=None, odds_legs=[8.0])])
+    sel = _selection(3, 4.0, [_sel_plan("tansho", [[5]])])
+    rs = sz.size_race_shobu_rate(eff, sel, bankroll=10000, per_race_cap=4500)
+    tansho = [l for l in rs.legs if l.bet_type == "tansho"]
+    assert len(tansho) == 1
+    assert tansho[0].horses == [5]                    # ★rank_w◎=5 (composite◎=3 ではない)
+    assert tansho[0].amount >= int(4500 * sz.SHOBU_TANSHO_SHARE)  # 厚い (70%以上)
+    assert not [l for l in rs.legs if l.bet_type == "fukusho"]    # ★複勝なし
+
+
+def test_shobu_race_no_combo_all_to_tansho():
+    # combo plan が無いレース → 使い切りで単勝に全額。 単勝シェア=100%。
+    rankw = _shobu_strength(5, 0.2, 8.0, rank_w=1, gap=4, ev=2.0, margin=35)
+    eff = _shobu_eff(5, 8.0, [rankw],
+                     [_plan("tansho", [[5]], hit_prob=0.2, ev=None, g=None, odds_legs=[8.0])])
+    sel = _selection(5, 8.0, [_sel_plan("tansho", [[5]])])
+    rs = sz.size_race_shobu_rate(eff, sel, bankroll=10000, per_race_cap=4500)
+    assert rs.total_yen == 4500
+    tansho = [l for l in rs.legs if l.bet_type == "tansho"]
+    assert tansho[0].amount == 4500                   # cap を使い切り単勝へ
+
+
+# --- 通常R (非勝負): 単勝は買わない・combo は v2 のまま (設計書§3.3) ---
+
+def _normal_race_eff_sel():
+    """非勝負R (gap=0) + 残予算を吸う combo plan を持つ race_eff / selection。"""
+    s = _shobu_strength(5, 0.2, 8.0, rank_w=1, gap=0, ev=1.0, margin=30)  # gap=0 で非勝負
+    plans = [_plan("tansho", [[5]], hit_prob=0.2, ev=None, g=None, odds_legs=[8.0]),
+             _absorbing_combo_plan()]
+    eff = _shobu_eff(5, 8.0, [s], plans)
+    sel = _selection(5, 8.0, [_sel_plan("tansho", [[5]]),
+                              _sel_plan("sanrenpuku", [[3, 7, 11], [3, 7, 12], [3, 11, 12]],
+                                        ev=1.5, g=20.0)])
+    return eff, sel
+
+
+def test_normal_race_shrinks_cap_to_normal_rate():
+    # 勝負条件を満たさない → v2 委譲・cap は 4500×(5/15)=1500 に縮む。
+    eff, sel = _normal_race_eff_sel()
+    rs = sz.size_race_shobu_rate(eff, sel, bankroll=10000, per_race_cap=4500,
+                                 normal_rate_pct=5.0, shobu_rate_pct=15.0)
+    # 通常R は cap1500 内に収まる (4500ではなく縮んだ上限)
+    assert rs.total_yen <= 1500
+
+
+def test_normal_race_no_tansho_combo_uses_full_cap():
+    # ★設計書§3.3 (Session 167): 通常レートは単勝を買わず combo に cap をフルに回す★。
+    #   抜いた単勝(-EV)分を浮かせず +EV の combo へ。
+    eff, sel = _normal_race_eff_sel()
+    rs = sz.size_race_shobu_rate(eff, sel, bankroll=10000, per_race_cap=4500,
+                                 normal_rate_pct=5.0, shobu_rate_pct=15.0)
+    normal_cap = 1500  # 4500 × 5/15
+    # 単勝・複勝は無い (combo のみ)。
+    assert [l for l in rs.legs if l.bet_type in ("tansho", "fukusho")] == []
+    assert rs.legs, "combo plan があるので買い目は空でない"
+    # cap 内に収まる。
+    assert 0 < rs.total_yen <= normal_cap
+    # 番人: 素の v2 は (縮小cap でも) 単勝を出す = 通常レートが単勝を抜いていることの対照。
+    rs_v2 = sz.size_race_fixed_grade_v2(eff, sel, bankroll=10000, per_race_cap=normal_cap)
+    assert [l for l in rs_v2.legs if l.bet_type == "tansho"] != []
+    # combo は cap をフルに使う = 素の v2 の combo (単勝に予算を取られた後) より厚い (同等以上)。
+    v2_combo = sum(l.amount for l in rs_v2.legs if l.bet_type not in ("tansho", "fukusho"))
+    assert rs.total_yen >= v2_combo
+
+
+def test_shobu_rate_in_registry():
+    assert sz.SHOBU_RATE_SIZER in sz.SIZERS
+    assert sz.get_sizer(sz.SHOBU_RATE_SIZER) is sz.size_race_shobu_rate
+
+
+def test_shobu_rate_default_combo_alloc_policy():
+    # Session 168 (ふくだ判断A): 本番既定 = 通常R combo フラット / 勝負R combo オッズ比例。
+    assert sz.SHOBU_NORMAL_COMBO_ALLOC == "flat"
+    assert sz.SHOBU_SHOBU_COMBO_ALLOC == "odds"
+
+    # オッズ差の大きい 2 点 combo (6 vs 60) で配分方式を判別できる fixture。
+    def _plans():
+        combo = _plan("sanrenpuku", [[3, 7, 11], [3, 7, 12]], hit_prob=0.1, ev=1.5,
+                      g=20.0, odds_legs=[6.0, 60.0])
+        return [_plan("tansho", [[5]], hit_prob=0.2, ev=None, g=None, odds_legs=[8.0]), combo]
+
+    def _sel():
+        return _selection(5, 8.0, [
+            _sel_plan("tansho", [[5]]),
+            _sel_plan("sanrenpuku", [[3, 7, 11], [3, 7, 12]], ev=1.5, g=20.0)])
+
+    def amt(rs, odds):
+        return sum(l.amount for l in rs.legs if l.leg_odds == odds)
+
+    # --- 通常R (gap=0 → 非勝負): 既定 combo = フラット ---
+    eff_n = _shobu_eff(5, 8.0, [_shobu_strength(5, 0.2, 8.0, rank_w=1, gap=0, ev=1.0,
+                                                margin=30)], _plans())
+    rs_def = sz.size_race_shobu_rate(eff_n, _sel(), bankroll=10000, per_race_cap=4500)
+    rs_flat = sz.size_race_shobu_rate(eff_n, _sel(), bankroll=10000, per_race_cap=4500,
+                                      combo_alloc_mode="flat")
+    rs_inv = sz.size_race_shobu_rate(eff_n, _sel(), bankroll=10000, per_race_cap=4500,
+                                     combo_alloc_mode="inverse")
+    assert amt(rs_def, 6.0) == amt(rs_flat, 6.0)       # 既定 == flat
+    assert amt(rs_def, 60.0) == amt(rs_flat, 60.0)
+    assert abs(amt(rs_flat, 6.0) - amt(rs_flat, 60.0)) <= 100   # flat ≒ 均等
+    assert amt(rs_inv, 6.0) > amt(rs_inv, 60.0)        # inverse は低オッズ点に厚い (天井低)
+
+    # --- 勝負R (4条件成立): 既定 combo = オッズ比例 (高オッズ点に厚い = 天井高) ---
+    eff_sh = _shobu_eff(5, 8.0, [_shobu_strength(5, 0.2, 8.0, rank_w=1, gap=4, ev=1.5,
+                                                 margin=40)], _plans())
+    assert sz.is_shobu_race(eff_sh)
+    rs_sh = sz.size_race_shobu_rate(eff_sh, _sel(), bankroll=10000, per_race_cap=4500)
+    assert amt(rs_sh, 60.0) >= amt(rs_sh, 6.0)         # 勝負R 既定は高配当点に厚い

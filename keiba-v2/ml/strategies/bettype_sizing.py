@@ -218,8 +218,14 @@ def fit_legs_to_cap(legs: List[SizedLeg], cap: int, *,
 
 def _alloc_inverse_odds(legs: List[List[int]], odds_legs: List[Optional[float]],
                         budget: int, *, unit: int = BET_UNIT_YEN,
-                        min_bet: int = MIN_BET_YEN) -> List[Tuple[List[int], Optional[float], int]]:
-    """budget を plan 内の各 leg に逆オッズ (wᵢ=1/oᵢ) で配分 (100円単位、 min 未満は 0)。
+                        min_bet: int = MIN_BET_YEN,
+                        mode: str = "inverse") -> List[Tuple[List[int], Optional[float], int]]:
+    """budget を plan 内の各 leg に重み配分 (100円単位、 min 未満は 0)。
+
+    ★mode (Session 168 / 天井変種・既定 inverse = 本番不変)★:
+      - "inverse": wᵢ=1/oᵢ (低オッズ=的中寄りに厚く・★天井を抑える★・本番既定)。
+      - "flat"   : wᵢ=1    (各点均等・高オッズ点にも同額 → 天井が上がる)。
+      - "odds"   : wᵢ=oᵢ   (高オッズ=高配当点に厚く → ★天井を最大化★)。
 
     オッズ欠損の leg は present の平均重みを割り当て (均等寄り)。 全欠損なら均等配分。
     端数は最大重み leg に寄せて budget を超えない範囲で。 戻り: [(leg, odds, amount), ...]。
@@ -229,7 +235,12 @@ def _alloc_inverse_odds(legs: List[List[int]], odds_legs: List[Optional[float]],
         return [(leg, (odds_legs[i] if i < len(odds_legs) else None), 0)
                 for i, leg in enumerate(legs)]
     present = [(odds_legs[i] if i < len(odds_legs) else None) for i in range(n)]
-    inv = [(1.0 / o) if (o and o > 0) else None for o in present]
+    if mode == "flat":
+        inv = [1.0 for _ in present]
+    elif mode == "odds":
+        inv = [float(o) if (o and o > 0) else None for o in present]
+    else:  # "inverse" (本番既定)
+        inv = [(1.0 / o) if (o and o > 0) else None for o in present]
     known = [w for w in inv if w is not None]
     fill = (sum(known) / len(known)) if known else 1.0
     weights = [w if w is not None else fill for w in inv]
@@ -255,18 +266,27 @@ def _alloc_inverse_odds(legs: List[List[int]], odds_legs: List[Optional[float]],
 
 def _size_combo_legs(rid: str, race_eff, selection, eff_by_key: dict, combo_budget: int, *,
                      weight_key: str = "ev",
-                     exclude_keys: frozenset = frozenset()) -> List[SizedLeg]:
-    """選定 plan の複合券種を combo_budget に EV 比例で配分 → plan 内逆オッズ。
+                     exclude_keys: frozenset = frozenset(),
+                     alloc_mode: str = "inverse",
+                     allowed_types: Optional[frozenset] = None) -> List[SizedLeg]:
+    """選定 plan の複合券種を combo_budget に EV 比例で配分 → plan 内 alloc_mode で配分。
 
     ★券種ごとに 1 plan へ dedup★ (最良 EV、 同点なら広い=点数多い方)。 入れ子幅の重複買い回避。
     exclude_keys: (bet_type, _legs_key(legs)) の集合。 アンカーで既に買った plan (例 swapped
     wide) を combo から除外して二重買いを防ぐ。
+
+    ★alloc_mode (Session 168・既定 inverse = 本番不変)★: plan 内 leg の配分方式
+      ("inverse"/"flat"/"odds"。 _alloc_inverse_odds に委譲)。 天井変種の検証用。
+    ★allowed_types (Session 168・既定 None = 全券種)★: 指定すると ★その券種だけ★ に集中
+      (例 frozenset({"sanrenpuku","sanrentan"}) で三連系のみ)。 None なら従来どおり全 combo。
     """
     if combo_budget < MIN_BET_YEN:
         return []
     best_by_type: Dict[str, object] = {}
     for sp in selection.selected_plans:
         if sp.bet_type in ANCHOR_BET_TYPES:
+            continue
+        if allowed_types is not None and sp.bet_type not in allowed_types:
             continue
         key = (sp.bet_type, _legs_key(sp.legs))
         if key in exclude_keys:
@@ -292,7 +312,8 @@ def _size_combo_legs(rid: str, race_eff, selection, eff_by_key: dict, combo_budg
         plan_budget = int(combo_budget * (w / wsum))
         if plan_budget < MIN_BET_YEN:
             continue
-        for leg, o, amt in _alloc_inverse_odds(plan.legs, plan.odds_legs, plan_budget):
+        for leg, o, amt in _alloc_inverse_odds(plan.legs, plan.odds_legs, plan_budget,
+                                               mode=alloc_mode):
             if amt >= MIN_BET_YEN:
                 out.append(SizedLeg(rid, plan.bet_type, list(leg), amt, plan.label,
                                     o, plan.expected_return, plan.hit_prob,
@@ -662,6 +683,197 @@ def size_race_fixed_grade_v2(race_eff, selection, *, bankroll: int, per_race_cap
         _shares_table=FIXED_SHARES_V2, _skip_max_odds_floor=SKIP_MAX_ODDS_FLOOR)
 
 
+# ===========================================================================
+# shobu_rate: 「勝負条件 = 単勝一本」のレースだけ単勝を厚くする (Session 166)
+# ===========================================================================
+# ふくだ確定方針 (2026-06-20) + 検証 (docs/shobu_rate_sizing_design.md):
+#   「◎の単勝がおいしい」と AI が判断した勝負レースだけ ★単勝を厚く★ 買う。
+#   他のレースは普段どおり (v2 配分) ・★見送りはしない★ (S162-165 で見送りゲートは害確定)。
+#
+# 勝負条件 = tansho_H の 4 条件 (rank_w◎ で判定。 ★composite◎ ではない★)。
+#   検証は rank_w=1 の単勝で +9,780円/ROI108.3% を出した。 一方 selection/combo の軸は
+#   composite◎ で、 両者は cache 上 35.9% しか一致しない。 ★単勝の対象馬は rank_w◎ で固定★
+#   しないと検証が再現しない (combo は composite◎軸のまま = それで良い)。
+#
+# 検証で確定した中身 (docs §3):
+#   - 単勝は ★勝負R だけ★ 買う (他R で薄く張ると全体を食う。 勝負R だけがプラス)。
+#   - 複勝は ★足さない★ (保険にならず薄利で黒字を食う)。
+#   - 勝負R 以外は ★単勝なしで combo に cap をフルに回す★ (Session 167・抜いた単勝(-EV)分を
+#     +EV の combo へ。 端数は浮く。 旧版は v2 委譲→単勝除外で単勝share分を浮かせていた)。
+#
+# 金額 = 基準金額 × レート は ★scheduler 側の per_race_cap 算出★ で配線する (このサイザーは
+#   受け取った per_race_cap を「勝負R なら単勝に厚く充てる」だけ)。 勝負R は cap が勝負レート
+#   (15%) で来る前提なので、 その cap の大半を rank_w◎ の単勝へ。
+# ---------------------------------------------------------------------------
+SHOBU_RATE_SIZER = "shobu_rate"
+
+# 勝負条件 (tansho_H) の 4 条件。 ★ここが SSoT★ (simulate_strategy_redesign.tansho_H と同値)。
+SHOBU_MAX_RANK_W = 1       # ◎が Win モデルで 1 位
+SHOBU_MIN_VB_GAP = 3       # 市場人気とのズレ >= 3 (AI評価が人気より高い = 妙味)
+SHOBU_MIN_WIN_EV = 1.3     # 単勝 EV >= 1.3
+SHOBU_MAX_MARGIN = 60      # 予測着差 <= 60 (接戦すぎない = 勝ち切れる)
+
+# 勝負R で rank_w◎ の単勝に充てる cap 割合。 残りは combo (普段どおり)。
+#   検証は「勝負R は単勝のみが最良」だが、 ふくだ「combo は普段どおり」も尊重し単勝を主役に
+#   厚く・combo は残予算で出す山型にする。 0.70 = cap の 7 割を単勝、 3 割を combo。
+SHOBU_TANSHO_SHARE = 0.70
+# レート既定 (ふくだ確定 Session 166): 通常5% / 勝負15%。 per_race_cap は ★勝負レート上限★
+#   (基準金額×勝負レート) で来る前提なので、 通常R は cap を (通常/勝負) 倍に縮める。
+SHOBU_NORMAL_RATE_PCT = 5.0
+SHOBU_SHOBU_RATE_PCT = 15.0
+
+# ★combo 内配分の方式 (Session 168 / 天井変種を実データ検証 → ふくだ判断 A で本番採用)★。
+#   検証 (ml/analyze/bench_ceiling_variants.py・健全2期間・実払戻):
+#     - 逆オッズ(旧既定 inverse): combo 内で低オッズ=的中寄りの点に厚く張る → ★ROIもDDも一番悪い★。
+#       的中してるようで控除率込みでチャラにならない本命 combo に金を集め、 谷が深くなる。
+#     - フラット(flat): 各点均等。 ★ROI +2〜3pt・maxDD -30%・的中率は同じ★ (両期間で逆オッズに優越)。
+#       = ノーコストの地力UP。 ★通常R (98%) はこれを採用★。
+#     - オッズ比例(odds): 高オッズ=高配当点に厚く → ★1000%超的中がほぼ倍増★ (天井中央480→1149%)。
+#       代償=的中率↓(28→23%)・ROIは数pt減・DD振れ大。 黒字化はしない (上振れをROIとDDで買う取引)。
+#       = [[payout-ceiling-strategy]] の「天井を取る」。 ★高確信の勝負R (2%) だけ採用★ (ROI 損失を限定)。
+#   ★三連系だけに絞る (allowed_types=三連) はやりすぎ★ で ROI/的中崩壊・DD膨張 → 不採用 (検証で確認)。
+SHOBU_NORMAL_COMBO_ALLOC = "flat"    # 通常R combo = フラット (B1採用・地力UP)
+SHOBU_SHOBU_COMBO_ALLOC = "odds"     # 勝負R combo = オッズ比例 (B2・高確信で天井狙い)
+
+
+def _shobu_axis(race_eff):
+    """勝負条件の軸 = rank_w=1 の HorseStrength を返す (無ければ None)。
+
+    ★composite◎ (race_eff.axis_umaban) ではなく rank_w◎★ を使うのが核心 (上のコメント参照)。
+    """
+    cands = [s for s in race_eff.strengths if s.rank_w == 1]
+    return cands[0] if cands else None
+
+
+def is_shobu_race(race_eff) -> bool:
+    """このレースが「勝負条件 = 単勝一本」を満たすか (tansho_H の 4 条件 / rank_w◎)。
+
+    1 つでも素性が欠損していれば False (条件を満たすと判定できない → 勝負にしない)。
+    """
+    ax = _shobu_axis(race_eff)
+    if ax is None:
+        return False
+    if ax.win_vb_gap is None or ax.win_ev is None or ax.predicted_margin is None:
+        return False
+    if (ax.odds or 0) <= 1.0:
+        return False
+    return (
+        (ax.rank_w or 99) <= SHOBU_MAX_RANK_W
+        and ax.win_vb_gap >= SHOBU_MIN_VB_GAP
+        and ax.win_ev >= SHOBU_MIN_WIN_EV
+        and ax.predicted_margin <= SHOBU_MAX_MARGIN
+    )
+
+
+def size_race_shobu_rate(race_eff, selection, *, bankroll: int, per_race_cap: int,
+                         kelly_fraction: float = 0.25, per_bet_cap_pct: float = 0.10,
+                         combo_share_of_residual: float = 1.0,
+                         weight_key: str = "ev",
+                         normal_rate_pct: float = SHOBU_NORMAL_RATE_PCT,
+                         shobu_rate_pct: float = SHOBU_SHOBU_RATE_PCT,
+                         combo_alloc_mode: str = SHOBU_NORMAL_COMBO_ALLOC,
+                         shobu_combo_alloc_mode: str = SHOBU_SHOBU_COMBO_ALLOC,
+                         combo_allowed_types: Optional[frozenset] = None) -> RaceSizing:
+    """勝負条件レースだけ rank_w◎ の単勝を厚くするサイザー (Session 166)。
+
+    ★per_race_cap は「勝負レート上限」(基準金額×勝負レート) で来る前提★ (runner の番人を
+      勝負R が通れるように。 freebudget_scheduler.read_per_race_cap 参照)。
+    - 勝負R (is_shobu_race=True): cap (=勝負レート) × SHOBU_TANSHO_SHARE を ★rank_w◎ の単勝★
+      に充て、 残りを combo に EV 比例 (複勝は足さない)。
+    - 非勝負R: cap を ★通常レートに縮めて★ (cap × normal/shobu)、 ★単勝なしで combo に cap を
+      フルに回す★ (EV比例・複勝なし。 抜いた単勝(-EV)分を +EV の combo へ。 端数は浮く)。
+
+    ★単勝は勝負R だけ・複勝は足さない・見送りはしない★ (docs/shobu_rate_sizing_design.md §3.3)。
+
+    ★combo 内配分 (Session 168・実データ検証で本番採用)★:
+      - 通常R combo = combo_alloc_mode (既定 flat = SHOBU_NORMAL_COMBO_ALLOC)。
+      - 勝負R combo = shobu_combo_alloc_mode (既定 odds = SHOBU_SHOBU_COMBO_ALLOC)。
+      根拠は SHOBU_*_COMBO_ALLOC 定数のコメント / bench_ceiling_variants.py 参照。
+    """
+    if not is_shobu_race(race_eff):
+        # ★通常レート = 単勝を買わず combo に cap をフルに回す (設計書§3.3)★。
+        #   cap は勝負レート上限で来るので通常レートに縮める。
+        normal_cap = per_race_cap
+        if per_race_cap > 0 and shobu_rate_pct > 0 and normal_rate_pct > 0:
+            normal_cap = _round_unit(per_race_cap * normal_rate_pct / shobu_rate_pct)
+            normal_cap = max(MIN_BET_YEN, normal_cap)
+        # 単勝は買わない (◎単勝は -EV のことが多い= docs §3.1 で毎レース薄い単は -65,800円)。
+        #   ★抜いた予算を浮かせず +EV の combo に cap フルで回す★ (ふくだ Session 167)。
+        #   「通常R は combo しか買わないのだから cap で combo を買うのが自然」。 浮かせる(0 EV)
+        #   より、 抜いた単勝(-EV)分を combo(EV比例で買う+EVの点のみ)に回す方が良い。
+        #   複勝も足さない。 combo は EV 比例+100円単位なので cap ぴったりにならず端数(〜100円)は浮く
+        #   (EV 比例の比率を崩してまで埋めない)。 -EV の点(wide/三連複/三連単が floor 未満)には回らない。
+        rid = race_eff.race_id
+        eff_by_key = {(p.bet_type, _legs_key(p.legs)): p for p in race_eff.plans}
+        combo_budget = int(normal_cap * combo_share_of_residual)
+        legs = _size_combo_legs(rid, race_eff, selection, eff_by_key, combo_budget,
+                                weight_key=weight_key, exclude_keys=frozenset(),
+                                alloc_mode=combo_alloc_mode,
+                                allowed_types=combo_allowed_types)
+        total = sum(l.amount for l in legs)
+        n_dropped = 0
+        if normal_cap > 0 and total > normal_cap:
+            legs, n_dropped = fit_legs_to_cap(legs, normal_cap)
+            total = sum(l.amount for l in legs)
+        return RaceSizing(
+            race_id=rid, legs=legs, total_yen=total, anchor_yen=0, combo_yen=total,
+            per_race_cap=normal_cap, n_dropped=n_dropped,
+            warnings=["通常レート: 単勝なし・comboにcapフル (設計書§3.3)"])
+
+    rid = race_eff.race_id
+    warnings: List[str] = ["勝負レート: tansho_H 4条件 → rank_w◎の単勝を厚く"]
+    legs: List[SizedLeg] = []
+    cap = per_race_cap if per_race_cap > 0 else bankroll
+    ax = _shobu_axis(race_eff)
+    eff_by_key = {(p.bet_type, _legs_key(p.legs)): p for p in race_eff.plans}
+
+    # (A) 単勝 = rank_w◎ に cap × SHOBU_TANSHO_SHARE。 ★composite◎ ではなく rank_w◎★。
+    sel_tansho = next((sp for sp in selection.selected_plans if sp.bet_type == "tansho"), None)
+    tansho_amt = _round_unit(cap * SHOBU_TANSHO_SHARE)
+    axis_odds = ax.odds
+    if tansho_amt >= MIN_BET_YEN and axis_odds is not None and axis_odds > 1.0:
+        tp = eff_by_key.get(("tansho", _legs_key(sel_tansho.legs))) if sel_tansho else None
+        legs.append(SizedLeg(rid, "tansho", [ax.umaban], tansho_amt,
+                             "単勝 ◎(勝負・rank_w)", axis_odds,
+                             None, (tp.hit_prob if tp else None),
+                             f"勝負レート: rank_w◎単勝 ({SHOBU_TANSHO_SHARE:.0%})"))
+
+    anchor_yen = sum(l.amount for l in legs)
+
+    # (B) combo = 残予算を EV 比例 (普段どおり)。 複勝は足さない (検証で害)。
+    residual = max(0, cap - anchor_yen)
+    combo_budget = int(residual * combo_share_of_residual)
+    combo_legs = _size_combo_legs(rid, race_eff, selection, eff_by_key, combo_budget,
+                                  weight_key=weight_key, exclude_keys=frozenset(),
+                                  alloc_mode=shobu_combo_alloc_mode,
+                                  allowed_types=combo_allowed_types)
+    legs.extend(combo_legs)
+
+    # (B') 使い切り保証: combo が薄く cap が余れば単勝◎に上乗せ (v1 と同じ思想)。
+    combo_used = sum(l.amount for l in combo_legs)
+    leftover = cap - anchor_yen - combo_used
+    if leftover >= BET_UNIT_YEN and axis_odds is not None and axis_odds > 1.0:
+        topup = (leftover // BET_UNIT_YEN) * BET_UNIT_YEN
+        tansho_leg = next((l for l in legs if l.bet_type == "tansho"), None)
+        if tansho_leg is not None:
+            tansho_leg.amount += topup
+            tansho_leg.note += f" +使い切り{topup}"
+            warnings.append(f"使い切り: 残余{topup}を勝負単勝に上乗せ")
+
+    # (C) per_race cap で最終 truncate (アンカー=単勝 保護)
+    pre_total = sum(l.amount for l in legs)
+    n_dropped = 0
+    if per_race_cap > 0 and pre_total > per_race_cap:
+        legs, n_dropped = fit_legs_to_cap(legs, per_race_cap)
+        warnings.append(f"per_race按分 {pre_total}->{sum(l.amount for l in legs)} drop={n_dropped}")
+
+    total = sum(l.amount for l in legs)
+    anchor_yen = sum(l.amount for l in legs if l.bet_type in ANCHOR_BET_TYPES)
+    return RaceSizing(race_id=rid, legs=legs, total_yen=total, anchor_yen=anchor_yen,
+                      combo_yen=total - anchor_yen, per_race_cap=per_race_cap,
+                      n_dropped=n_dropped, warnings=warnings)
+
+
 # ---------------------------------------------------------------------------
 # template_flat: 買い方ラボのテンプレを ★そのまま★ 実戦化するサイザー (Session 162)
 # ---------------------------------------------------------------------------
@@ -877,6 +1089,8 @@ SIZERS: Dict[str, SizerFn] = {
     FIXED_GRADE_SIZER: size_race_fixed_grade,  # = DEFAULT_SIZER (本番既定)
     # fixed_grade_v2 = v1 + 見送り + 堅いR(◎断然)で combo厚く (Session162・ふくだ「単で儲からない→三連単」)
     FIXED_GRADE_V2_SIZER: size_race_fixed_grade_v2,
+    # shobu_rate = 勝負条件(tansho_H 4条件・rank_w◎)のレースだけ単勝を厚く・他はv2 (Session166)
+    SHOBU_RATE_SIZER: size_race_shobu_rate,
     # template_flat = ラボのテンプレ (既定 DEFAULT_TEMPLATE) を全点 flat で実戦化。
     #   scheduler が --template でテンプレ名を渡すと make_template_sizer で差し替える。
     TEMPLATE_FLAT_SIZER: size_race_template_flat,
