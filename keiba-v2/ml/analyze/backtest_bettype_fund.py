@@ -330,8 +330,10 @@ def main() -> int:
     print(f"backtest_cache: {len(races_raw)} races")
     print(f"walk-forward split={args.split_date}  train={len(train)} valid={len(valid)}")
 
+    # baseline は ★Kelly を明示★ (DEFAULT_SIZER は Session161 で fixed_grade_v1 に変わったため、
+    #   ここで sz.DEFAULT_SIZER を使うと「既定 vs 既定」になりベースライン比較が壊れる)。
     baseline = run_backtest(
-        valid, strategy="concentrate", sizing=sz.DEFAULT_SIZER,
+        valid, strategy="concentrate", sizing=sz.KELLY_SIZER,
         bootstrap_n=args.bootstrap)
     adaptive = run_backtest(
         valid, strategy="adaptive", sizing=sz.ADAPTIVE_SIZER,
