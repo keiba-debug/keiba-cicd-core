@@ -1,5 +1,14 @@
 # 03. Change Log（更新履歴）
 
+## 2026-06-20 (Session 続き — Phase 2 danger-model P0)
+
+- **E-011 P0 ベンチ確定**
+  - `python -m ml.analyze.backtest_danger_alert` 実行（298,566頭）。現行「危」は複勝率18.5%と「飛ぶ馬」は拾えているが、過剰人気フィルタ止まり。危∩穴注目217件は単ROI99.8%で一律消しは危険。
+  - **新規** `ml/analyze/analyze_favorite_betrayal.py` — 1番人気21,423Rの裏切り率35.5%ベースライン + 要因別集計。
+  - P1候補: ARd45-52(70.8%)、ARd53-59(57.5%)、odds_move上昇(48.3%)、大頭数(38.7%)。脚質単独は弱い。
+  - **新規** `05_danger_model_kickoff.md`、Phase 2 バックログ E-011〜E-016 を `02_enhancement_backlog.md` に追加。
+- **次**: E-012 P1ルール試作 → E-013 `--option opt_danger_v1` で E-009 harness 採否判定。
+
 ## 2026-06-14 (Session 155 — E-009 follow-up 完了：複勝ROI / walk-forward / option差込口)
 
 - danger-model 着手前に**測定器（E-009 harness）を先に正す**判断（[[feedback_proactive_debt_paydown]]）。danger-model は買い目層介入＝価値は gap-ROI/CI でしか測れず（E-003/E-004 の教訓）、現 harness は①単勝ROIのみ②月別なし＝place側で荒れに強い danger を測れない。3点を実装し E-009 を閉じた。

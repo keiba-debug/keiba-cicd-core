@@ -27,10 +27,17 @@
    - 再集計ボタン追加
    - 品質メタ（CI, n, stability）標準化
 
-## 現在の推奨着手順（短期）
+## Phase 1 完了サマリー（E-001〜E-010）
 
-- Step 1: 低信頼データ減点（全分析共通）
-- Step 2: 騎手接戦タイブレーク導入
-- Step 3: 出遅れ注意の最終フィルタ化
-- Step 4: レース表に理由タグを追加
+- 品質メタ（ci95/effective_n/stability）+ 鮮度ヘッダ + 理由タags + E-009 検証 harness
+- E-003 接戦タイブレーク: 実装済・**本番ON見送り**（影響ノイズ範囲）
+- E-004 出遅れフィルタ: **却下**（分析先行で逆効果確認）
+- 詳細: `02_enhancement_backlog.md` / `03_change_log.md`
+
+## 現在の推奨着手順（Phase 2）
+
+- Step 1: **danger-model P0** — `05_danger_model_kickoff.md` + `analyze_favorite_betrayal.py`
+- Step 2: P1 ルール試作 → E-009 `--option` で採否判定
+- Step 3: UI「危」ラベル再定義（過剰人気 vs 凡走）
+- Step 4: stability 年別レイヤ（RPCI/IDM/調教師）
 

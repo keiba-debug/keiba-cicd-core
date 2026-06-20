@@ -19,3 +19,14 @@
 | E-009 | 検証 | 補助オプション採否を `gap>=k` ROI/CIで判定するテンプレ作成 | **done** | High | Session152骨格+Session155でfollow-up3点完了: ①複勝ROI(確定配当精算+ブートCI・単勝はT-5実行価格と非対称)②walk-forward月別(`--monthly`/`--monthly-gap`で各月持続性=後知恵防止)③apply_option差込口(`OPTION_REGISTRY`+`--option`でbaseline前後比較・danger等は1行登録)。test12green |
 | E-010 | 共通品質 | `quality_meta.py` ヘルパ実装 + Phase 1 適用（builder生カウント改修込み） | **done** | High | Session153: 率系5分析(調教師/調教/出遅れ/接戦/血統)。Session155: 連続量3分析(RPCI/IDM/レイティング)に`mean_se`本適用拡張+check_coverage配線(lag_days許容)。pytest35green |
 
+## Phase 2 — danger-model / 運用深化
+
+| ID | Theme | Task | Status | Priority | Done Condition |
+|---|---|---|---|---|---|
+| E-011 | danger P0 | 現行「危」backtest + 1番人気裏切り要因集計 | **done** | High | `05_danger_model_kickoff.md` + `analyze_favorite_betrayal.py` 実行済（2026-06-20） |
+| E-012 | danger P1 | ルールベース `betrayal_score` 試作（1〜2セグメント） | todo | High | P0で n≥80 & 裏切り率+10pt のセグメントからルール化 |
+| E-013 | danger 検証 | E-009 `--option opt_danger_v1` 登録・前後比較 | todo | High | 複勝ROI×walk-forward で baseline 上回り |
+| E-014 | UI | 現行「危」を過剰人気 vs 凡走リスクにラベル分離 | todo | Mid | HorseEntryTable + reason_tags 系列分離 |
+| E-015 | 共通品質 | stability 年別レイヤ（RPCI/IDM/調教師） | todo | Mid | E001 Phase 2 仕様準拠 |
+| E-016 | データ | KYI 入厭・降級フラグ調査（danger 特徴量源） | todo | Low | 調査メモ1枚 |
+

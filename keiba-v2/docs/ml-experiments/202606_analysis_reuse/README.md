@@ -18,6 +18,9 @@
 ## ドキュメント構成
 
 - `01_master_index.md` : 元レビューと再利用テーマの索引
-- `02_enhancement_backlog.md` : 実装バックログ（優先度・完了条件）
+- `02_enhancement_backlog.md` : 実装バックログ（Phase 1 done / Phase 2 進行中）
 - `03_change_log.md` : 更新履歴（いつ/何を/なぜ変えたか）
+- `04_third_party_review_prompt.md` : 第三者レビュー依頼テンプレ
+- `05_danger_model_kickoff.md` : Phase 2 danger-model キックオフ
+- `E001_quality_meta_spec.md` : 品質メタ共通仕様 v1.2
 

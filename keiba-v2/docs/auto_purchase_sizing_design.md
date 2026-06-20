@@ -3,7 +3,8 @@
 > **対象**: 全レース multi-bettype 自動投票（`bettype_scheduler`）の「どの券種を買うか（selection）」
 > →「いくら賭けるか（sizing）」のパイプライン。VB判定の旧設計（`betting_system_design.md`）とは
 > 別系統。
-> **正本ステータス**: この doc が selection/sizing の設計正本。最終更新 = Session 163（2026-06-14）。
+> **正本ステータス**: この doc が selection/sizing の設計正本。最終更新 = Session 165（2026-06-20）。
+> 本番サイザー = `fixed_grade_v2`（全レース買う）。三層/二層(見送りゲート)路線は §3.7 で正式棄却。
 > **関連メモリ**: `[[auto-purchase-project]]` `[[bet-adjustment-items]]` `[[feedback_betting_philosophy]]`
 > `[[payout-ceiling-strategy]]` `[[bet-template-lab]]`
 
@@ -123,6 +124,26 @@ v2 には当初「最大合成オッズ（配当の天井）< 5.0倍なら降り
 低オッズ複勝をワイドに置換するロジックも実払戻で一律マイナス（低オッズ複勝は当たりやすく実回収率
 が高い）→ 無効化。コードは券種別再検証の足場として残置。
 
+### 3.7 三層/二層サイザー = ★棄却★（Session 164-165・本番不採用）
+ふくだ哲学「天井1000%超の価値」「堅いだけのレースは見送る」を直訳した
+`three_tier_sizing.py`（勝負15%/様子見3%/見送り）/ `two_tier_sizing.py`（勝負/見送り）を
+設計・実装・実払戻 bench したが、**ceiling 見送りゲートは 1000%→400% に緩めても害**と確定。
+本番は `fixed_grade_v2`（全レース買う）を維持。コードは registry 残置（参照用）。
+
+**棄却の決定的根拠（`bench_two_tier_v0.py` の着順検証・P1/P2 実払戻）**:
+- two_tier が「◎堅い & ceiling<400%」で見送ったレースの着順を調べると、**P1=35件中32件(91%)・
+  P2=105件中88件(84%)が「◎が3着内に来て AI印4頭(◎○▲△)で組める券面が400%超」**＝
+  axis=◎ で実際に取れたはずの妙味だった（◎飛びの hindsight は P1=3件/P2=17件のみ）。
+- 対照群 `shobu_only_no_ceiling`（ceilingゲートを抜く）の方が ROI が高い（P2: 60.7% > 54.3%）
+  ＝ゲートの純害。
+- 二層化自体が全買い `v2_cap3000` に大きく劣後（P1 ROI 79.0% vs 62.3%・winR 40% vs 28%・
+  P1 では bankroll=100万でも破綻）。勝負層を絞ると的中率と件数が落ち、配当の偏りで bankroll が溶ける。
+
+**学び**: 162→163→164→165 と「見送りゲート」「天井ゲート」「ceiling 400%」と名前を変えて
+3回試したが、**確定オッズで「堅いレースを切る」発想は実払戻で一貫して害**（[[feedback_odds_gate_hindsight]]）。
+「天井低い=堅い=妙味なし」は嘘で、堅い◎ほど高的中で回収していた。判定変数の名前を変えても
+本質構造（◎断然=堅い高的中Rを切る＝後知恵）は変わらない。
+
 ---
 
 ## 4. 検証ハーネス（`ml/analyze/`）
@@ -134,6 +155,8 @@ v2 には当初「最大合成オッズ（配当の天井）< 5.0倍なら降り
 | `axis_winplace_by_odds.py` | 軸◎の単/複ROIを軸オッズ帯別に | 複は断然(1-2倍)で最良(95%)・中穴は不安定 |
 | `sweep_combo_ev_floor.py` | combo EV floor の単のみ率/ROI/DD sweep | 0.85最適・0.70は束効果でDD膨張 |
 | `backtest_template_ceiling.py` | ラボ12テンプレを天井視点(≥1000%率/P90P99) | 複勝堅実党は天井無し・combo系が天井を取る |
+| `bench_three_tier_v0.py` | 三層(勝負/様子見/見送り)の実払戻4戦略並列 | 様子見不発火・bench欠陥4件(S164) |
+| `bench_two_tier_v0.py` | 二層+ceiling400% の実払戻 + same-case着順検証 | ceilingゲートは害(8-9割◎絡みで取れた)→棄却(S165) |
 
 **検証規律**:
 - 精算は **haraimodoshi 実払戻**（cache の combo payout 近似は使わない）= [[feedback_combo_backtest_settlement]]。
@@ -166,3 +189,5 @@ v2 には当初「最大合成オッズ（配当の天井）< 5.0倍なら降り
 | 163 | 複勝をメインから外す（複share=0）+ 検証ハーネス | 2c43563 |
 | 163 | combo EVゲート 1.0→0.85（「単のみ」bug修正） | a86e31a |
 | 163 | 使い切り保証（残余→単上乗せ）+ combo floor 0.85確定 | 265e7e3 |
+| 164 | three_tier_v0 実装（勝負15%/様子見3%/見送り）/ bench欠陥4件で昇格凍結 | — |
+| 165 | two_tier_v0 実装 + ceiling 1000→400% 再走 / **着順検証でゲートは害と確定 → 三層/二層路線を正式棄却・v2維持** | — |
