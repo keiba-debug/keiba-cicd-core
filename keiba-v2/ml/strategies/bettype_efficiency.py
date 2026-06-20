@@ -88,6 +88,11 @@ class HorseStrength:
     rank_p: Optional[int] = None
     rank_adr: Optional[int] = None
     rank_composite: Optional[int] = None
+    # 「勝負条件」(単勝一本 tansho_H) 判定用の予測素性。 entries からそのまま持つ。
+    #   shobu_rate サイザーが is_shobu_race で参照する (rank_w◎ の単勝がおいしいかの4条件)。
+    win_vb_gap: Optional[int] = None       # 市場人気との乖離 (AI評価がどれだけ人気より上か)
+    win_ev: Optional[float] = None         # 単勝期待値 = pred_proba_w_cal × 単勝オッズ
+    predicted_margin: Optional[float] = None  # 予測着差 (小さいほど接戦)
 
 
 @dataclass
@@ -189,6 +194,10 @@ def compute_strengths(
             "pred_p": _f(p),
             "ar_deviation": _f(adr),
             "p_source": p_source,
+            # 勝負条件 (tansho_H) 判定用の素性 (entries 由来)。 欠損は None のまま。
+            "win_vb_gap": e.get("win_vb_gap"),
+            "win_ev": _f(e.get("win_ev")),
+            "predicted_margin": _f(e.get("predicted_margin")),
         })
 
     if not rows:
@@ -226,6 +235,9 @@ def compute_strengths(
             z_w=_round(zw[i]), z_p=_round(zp[i]), z_adr=_round(za[i]),
             composite=round(composite, 4),
             p_source=r["p_source"],
+            win_vb_gap=r["win_vb_gap"],
+            win_ev=r["win_ev"],
+            predicted_margin=r["predicted_margin"],
         ))
 
     # 各シグナル別ランク (1=最強) + composite ランク
