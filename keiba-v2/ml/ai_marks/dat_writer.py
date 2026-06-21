@@ -47,6 +47,9 @@ _SYMBOL_TO_MARK_BYTES: Dict[str, bytes] = {
     "穴": b"\x8c\x8a",
     "★": b"\x81\x9a",  # 購入軸 (axis) — 中立記号
     "☆": b"\x81\x99",  # 購入相手 (partner) — 中立記号
+    "Ａ": b"\x82\x60",  # AIコメント印 高確信 (全角A, target-mark-reader.ts と対称)
+    "Ｂ": b"\x82\x61",  # AIコメント印 中確信 (全角B)
+    "Ｃ": b"\x82\x62",  # AIコメント印 低確信 (全角C)
     "": b"\x20\x20",   # 無印 (クリア)
 }
 
@@ -62,10 +65,15 @@ VALID_AI_MARKS = ("◎", "○", "▲", "△", "Ⅲ", "穴")
 # AI購入軸印で書込みを許可する印 (★=軸 / ☆=相手 のみ)。
 VALID_BUY_MARKS = ("★", "☆")
 
+# AIコメント印で書込みを許可する印 (Ａ=高 / Ｂ=中 / Ｃ=低 確信。全角)。
+# comment_llm の人気薄ピックアップ report (確信 高/中/低) を TARGET に転記する用途。
+VALID_COMMENT_MARKS = ("Ａ", "Ｂ", "Ｃ")
+
 _RECORD_BYTES = 44
 _MARK_AREA_OFFSET = 6  # レコード先頭からの馬印領域開始
 _MARK_SLOT_AI = 2      # AI評価スロット (印スロット再編 2026-06-06: 旧 6 → 2)
 _MARK_SLOT_BUY = 3     # AI購入軸スロット (印スロット再編 2026-06-06: 旧 8 → 3)
+_MARK_SLOT_COMMENT = 4  # AIコメント印スロット (comment_llm 人気薄ピックアップ Ａ/Ｂ/Ｃ)
 
 
 def _required_records(day: int) -> int:
@@ -206,6 +214,38 @@ def write_buy_marks_to_dat(
     return _write_marks_core(
         race_id, marks, mark_set=mark_set,
         valid_marks=VALID_BUY_MARKS, clear_race_first=clear_race_first,
+    )
+
+
+def write_comment_marks_to_dat(
+    race_id: str,
+    marks: Dict[int, str],
+    mark_set: int = _MARK_SLOT_COMMENT,
+    clear_race_first: bool = True,
+) -> int:
+    """1 レース分の AIコメント印 (Ａ=高 / Ｂ=中 / Ｃ=低) を markSet=4 に書く。
+
+    comment_llm の人気薄・複勝妙味ピックアップ report の確信度 (高/中/低) を
+    TARGET の馬印スロット4 に転記する用途。評価 (markSet=2) や 購入軸 (markSet=3)
+    とは独立した別スロットなので、それらを侵さない (施錠ガード)。
+
+    Args:
+        race_id: 16桁 race_id。
+        marks: {umaban: 'Ａ'|'Ｂ'|'Ｃ'}。空 dict なら何もしない (0 を返す)。
+        mark_set: 既定 4 (AIコメント)。1/2/3 を渡すと例外 (施錠ガード)。
+        clear_race_first: True なら当該レコードの18頭分を 0x2020 でクリアしてから書く。
+
+    Raises:
+        ValueError: mark_set∈{1,2,3} / Ａ/Ｂ/Ｃ 以外の印 / 不正 umaban。
+    """
+    if mark_set in (1, _MARK_SLOT_AI, _MARK_SLOT_BUY):
+        raise ValueError(
+            "mark_set=1/2/3 は手動印/AI評価/AI購入軸専用。"
+            "AIコメント印は mark_set=4 を使うこと (施錠ガード)"
+        )
+    return _write_marks_core(
+        race_id, marks, mark_set=mark_set,
+        valid_marks=VALID_COMMENT_MARKS, clear_race_first=clear_race_first,
     )
 
 
