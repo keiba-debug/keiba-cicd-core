@@ -828,6 +828,7 @@ export default function OddsRacePage() {
   const [predictions, setPredictions] = useState<PredictionRace | null>(null);
   const [myMarks1, setMyMarks1] = useState<Record<number, string>>({});
   const [myMarks2, setMyMarks2] = useState<Record<number, string>>({});
+  const [myMarks4, setMyMarks4] = useState<Record<number, string>>({});
   const [surgeMap, setSurgeMap] = useState<
     Map<
       string,
@@ -879,9 +880,10 @@ export default function OddsRacePage() {
   // My印（馬印1+2 + v2 明示消）
   const fetchMyMarks = useCallback(async () => {
     if (!raceInfoForMarks) return;
-    const { marks1, marks2 } = await fetchMyMarksBoth(raceInfoForMarks, raceId);
+    const { marks1, marks2, marks4 } = await fetchMyMarksBoth(raceInfoForMarks, raceId);
     setMyMarks1(marks1);
     setMyMarks2(marks2);
+    setMyMarks4(marks4);
   }, [raceInfoForMarks, raceId]);
 
   // 直前変動（ji-timeseries APIから lastMinute 抽出）
@@ -926,8 +928,8 @@ export default function OddsRacePage() {
   // EnrichedHorse[] の計算
   const enrichedHorses = useMemo(() => {
     if (!odds) return [];
-    return enrichHorses(odds.horses, predictions, myMarks1, myMarks2);
-  }, [odds, predictions, myMarks1, myMarks2]);
+    return enrichHorses(odds.horses, predictions, myMarks1, myMarks2, myMarks4);
+  }, [odds, predictions, myMarks1, myMarks2, myMarks4]);
 
   const hasMl = predictions != null && predictions.entries.length > 0;
 

@@ -114,6 +114,20 @@ export function getMyMarkColor(mark: string | null | undefined): string {
   }
 }
 
+/** AIコメント印（Ａ=高/Ｂ=中/Ｃ=低 確信）の文字色。 */
+export function getCommentMarkColor(mark: string | null | undefined): string {
+  switch (mark) {
+    case 'Ａ':
+      return 'text-orange-600 dark:text-orange-400 font-bold';
+    case 'Ｂ':
+      return 'text-amber-600 dark:text-amber-500 font-semibold';
+    case 'Ｃ':
+      return 'text-yellow-600 dark:text-yellow-500';
+    default:
+      return 'text-gray-300';
+  }
+}
+
 /** market_signal の表示情報 */
 export function getMarketSignalDisplay(signal: string | null | undefined): {
   label: string;
@@ -163,6 +177,7 @@ export interface EnrichedHorse extends HorseOdds {
   // My印
   myMark1?: string | null;
   myMark2?: string | null;
+  myMark4?: string | null;  // AIコメント印 (markSet=4 Ａ/Ｂ/Ｃ)
 }
 
 /**
@@ -172,7 +187,8 @@ export function enrichHorses(
   horses: HorseOdds[],
   predictions: PredictionRace | null | undefined,
   myMarks1: Record<number | string, string>,
-  myMarks2: Record<number | string, string>
+  myMarks2: Record<number | string, string>,
+  myMarks4: Record<number | string, string> = {}
 ): EnrichedHorse[] {
   const mlMap = new Map<string, PredictionEntry>();
   if (predictions) {
@@ -191,6 +207,7 @@ export function enrichHorses(
 
     const myMark1 = myMarks1[umaNum] ?? myMarks1[umaStr] ?? null;
     const myMark2 = myMarks2[umaNum] ?? myMarks2[umaStr] ?? null;
+    const myMark4 = myMarks4[umaNum] ?? myMarks4[umaStr] ?? null;
 
     return {
       ...h,
@@ -209,6 +226,7 @@ export function enrichHorses(
       placeZone: judgeBuyZone(placeEv),
       myMark1: myMark1 || null,
       myMark2: myMark2 || null,
+      myMark4: myMark4 || null,
     };
   });
 }

@@ -52,6 +52,7 @@ export interface TargetMarksMap {
   horseMarks: Record<number, string>;  // 馬番 → 印（◎, ○, ▲, △, Ⅲ, 穴）
   horseMarks2?: Record<number, string>;  // 馬印2 (AI評価 markSet=2)
   horseMarks3?: Record<number, string>;  // 馬印3 (AI購入軸 markSet=3)
+  horseMarks4?: Record<number, string>;  // 馬印4 (AIコメント Ａ/Ｂ/Ｃ markSet=4)
 }
 
 /** ML予測データ（馬単位） */
@@ -238,6 +239,17 @@ function getMyMark2BgColor(mark?: string): string {
     case '△': return 'bg-cyan-50 dark:bg-cyan-700/20 text-cyan-700 dark:text-cyan-400';
     case 'Ⅲ': return 'bg-emerald-100 dark:bg-emerald-800/30 text-emerald-800 dark:text-emerald-300';
     case '穴': return 'bg-green-100 dark:bg-green-800/30 text-green-800 dark:text-green-300';
+    default: return '';
+  }
+}
+
+// AIコメント印（Ａ=高/Ｂ=中/Ｃ=低 確信）の背景色（橙系で確信度を表現）
+function getCommentMarkBgColor(mark?: string): string {
+  if (!mark) return '';
+  switch (mark) {
+    case 'Ａ': return 'bg-orange-200 dark:bg-orange-900/40 text-orange-900 dark:text-orange-200';
+    case 'Ｂ': return 'bg-amber-100 dark:bg-amber-800/30 text-amber-800 dark:text-amber-300';
+    case 'Ｃ': return 'bg-yellow-50 dark:bg-yellow-700/20 text-yellow-700 dark:text-yellow-400';
     default: return '';
   }
 }
@@ -503,6 +515,7 @@ interface HorseEntryRowProps {
   myMark?: string;
   myMark2?: string;
   myMark3?: string;
+  myMark4?: string;
   recentForm?: RecentFormData[];
   mlPrediction?: MlPredictionEntry;
   dbOdds?: DbHorseOdds;
@@ -537,6 +550,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   myMark,
   myMark2,
   myMark3,
+  myMark4,
   recentForm,
   mlPrediction,
   dbOdds,
@@ -678,6 +692,11 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
       {/* AI直前（TARGET馬印3 = AI購入軸印。horseMarks3 経由で供給） */}
       <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getMyMark2BgColor(myMark3)}`}>
         {myMark3 || '-'}
+      </td>
+
+      {/* AIコメ（TARGET馬印4 = AIコメント印 Ａ/Ｂ/Ｃ。horseMarks4 経由で供給） */}
+      <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getCommentMarkBgColor(myMark4)}`}>
+        {myMark4 || '-'}
       </td>
 
       {/* ARd (AR偏差値) */}
@@ -1208,7 +1227,7 @@ export default function HorseEntryTable({
   }, [courseInfo, entries, mlPredictions]);
 
   // --- ソート機能 ---
-  type SortKey = 'horse_number' | 'odds' | 'ai_index' | 'rating' | 'ard' | 'ml_w' | 'ml_p' | 'finish' | 'jrdb_idm' | 'jrdb_sogo' | 'jrdb_gekisou' | 'my_mark' | 'ai_eval' | 'ai_buy';
+  type SortKey = 'horse_number' | 'odds' | 'ai_index' | 'rating' | 'ard' | 'ml_w' | 'ml_p' | 'finish' | 'jrdb_idm' | 'jrdb_sogo' | 'jrdb_gekisou' | 'my_mark' | 'ai_eval' | 'ai_buy' | 'ai_comment';
   const [sortKey, setSortKey] = useState<SortKey>('horse_number');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -1225,9 +1244,10 @@ export default function HorseEntryTable({
   const sortIndicator = (key: SortKey) =>
     sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
-  // 印の優先度（ソート用、大きい=強い）。★☆=AI購入軸 (軸>相手)。無印=0、消は最下。
+  // 印の優先度（ソート用、大きい=強い）。★☆=AI購入軸 (軸>相手)。Ａ/Ｂ/Ｃ=AIコメント確信度。無印=0、消は最下。
   const MARK_ORDER: Record<string, number> = {
     '◎': 6, '○': 5, '▲': 4, '△': 3, 'Ⅲ': 2, '穴': 1, '消': -1, '★': 6, '☆': 5,
+    'Ａ': 3, 'Ｂ': 2, 'Ｃ': 1,
   };
   const markRank = (m?: string): number => (m ? (MARK_ORDER[m] ?? 0) : 0);
 
@@ -1308,6 +1328,9 @@ export default function HorseEntryTable({
         case 'ai_buy':
           cmp = markRank(targetMarks?.horseMarks3?.[a.horse_number]) - markRank(targetMarks?.horseMarks3?.[b.horse_number]);
           break;
+        case 'ai_comment':
+          cmp = markRank(targetMarks?.horseMarks4?.[a.horse_number]) - markRank(targetMarks?.horseMarks4?.[b.horse_number]);
+          break;
       }
       if (cmp !== 0) return cmp * mul;
       // tiebreaker: 馬番昇順
@@ -1379,6 +1402,7 @@ export default function HorseEntryTable({
             <th className="px-1 py-2 text-center border w-8 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('my_mark')} title="あなたの手動印（My印） — クリックでソート">印{sortIndicator('my_mark')}</th>
             <th className="px-1 py-2 text-center border w-8 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_eval')} title="AI総合評価印（markSet2） — クリックでソート">AI総合{sortIndicator('ai_eval')}</th>
             <th className="px-1 py-2 text-center border w-8 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_buy')} title="AI直前評価印（markSet3 = AI購入軸） — クリックでソート">AI直前{sortIndicator('ai_buy')}</th>
+            <th className="px-1 py-2 text-center border w-8 text-xs cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ai_comment')} title="AIコメント印（markSet4 = comment_llm 人気薄ピックアップ Ａ高/Ｂ中/Ｃ低） — クリックでソート">AIコメ{sortIndicator('ai_comment')}</th>
             {hasMlPredictions && (
               <>
                 <th className="px-1 py-2 text-center border w-10 cursor-pointer select-none hover:bg-gray-200" onClick={() => handleSort('ard')} title="AR偏差値 — レース内相対能力 (50=平均)">ARd{sortIndicator('ard')}</th>
@@ -1436,6 +1460,7 @@ export default function HorseEntryTable({
               myMark={targetMarks?.horseMarks[entry.horse_number]}
               myMark2={targetMarks?.horseMarks2?.[entry.horse_number]}
               myMark3={targetMarks?.horseMarks3?.[entry.horse_number]}
+              myMark4={targetMarks?.horseMarks4?.[entry.horse_number]}
               recentForm={recentFormMap?.[entry.horse_number]}
               mlPrediction={hasMlPredictions ? mlPredictions[entry.horse_number] : undefined}
               dbOdds={dbOddsMap.get(entry.horse_number)}

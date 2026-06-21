@@ -89,7 +89,7 @@ export function mergeEraseIntoMarks(
 }
 
 /**
- * 馬印1と馬印2を同時取得。
+ * 馬印1・2・4 を同時取得（markSet=2=AI総合 / markSet=4=AIコメント Ａ/Ｂ/Ｃ）。
  * raceId が渡されたら v2 (明示消) も並列 fetch して markSet=1 に合成する。
  */
 export async function fetchMyMarksBoth(
@@ -98,20 +98,27 @@ export async function fetchMyMarksBoth(
 ): Promise<{
   marks1: Record<number, string>;
   marks2: Record<number, string>;
+  marks4: Record<number, string>;
   v2: MyMarksV2Slim;
 }> {
   if (raceId) {
-    const [marks1, marks2, v2] = await Promise.all([
+    const [marks1, marks2, marks4, v2] = await Promise.all([
       fetchMyMarks(info, 1),
       fetchMyMarks(info, 2),
+      fetchMyMarks(info, 4),
       fetchMyMarksV2(raceId),
     ]);
     return {
       marks1: mergeEraseIntoMarks(marks1, v2),
       marks2,
+      marks4,
       v2,
     };
   }
-  const [marks1, marks2] = await Promise.all([fetchMyMarks(info, 1), fetchMyMarks(info, 2)]);
-  return { marks1, marks2, v2: { explicit_erase: [], explicit_no_mark: [] } };
+  const [marks1, marks2, marks4] = await Promise.all([
+    fetchMyMarks(info, 1),
+    fetchMyMarks(info, 2),
+    fetchMyMarks(info, 4),
+  ]);
+  return { marks1, marks2, marks4, v2: { explicit_erase: [], explicit_no_mark: [] } };
 }

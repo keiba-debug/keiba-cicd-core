@@ -16,6 +16,7 @@ import { getWakuColor } from '@/types/race-data';
 import {
   getBuyZoneDisplay,
   getMyMarkColor,
+  getCommentMarkColor,
   getMarketSignalDisplay,
   markPriority,
   type EnrichedHorse,
@@ -86,6 +87,11 @@ function applyQuickFilter(
 function MyMarkCell({ mark }: { mark: string | null | undefined }) {
   if (!mark) return <span className="text-gray-300">-</span>;
   return <span className={getMyMarkColor(mark)}>{mark}</span>;
+}
+
+function CommentMarkCell({ mark }: { mark: string | null | undefined }) {
+  if (!mark) return <span className="text-gray-300">-</span>;
+  return <span className={getCommentMarkColor(mark)}>{mark}</span>;
 }
 
 function ZoneBadge({ zone }: { zone: EnrichedHorse['winZone'] }) {
@@ -240,6 +246,7 @@ export function SignalTab({ horses, surgeMap, hasMl }: SignalTabProps) {
                   <th className="px-1 py-1.5 text-center font-bold w-8">番</th>
                   <th className="px-1 py-1.5 text-center font-bold w-8" title="あなたの手動印（My印）">印</th>
                   <th className="px-1 py-1.5 text-center font-bold w-12 text-xs" title="AI総合評価印（markSet2）">AI総合</th>
+                  <th className="px-1 py-1.5 text-center font-bold w-12 text-xs" title="AIコメント印（markSet4 = comment_llm 人気薄ピックアップ Ａ高/Ｂ中/Ｃ低）">AIコメ</th>
                   <th className="px-1 py-1.5 text-left font-bold min-w-[5rem]">馬名</th>
                   <th className="px-1 py-1.5 text-right font-bold w-12">単勝</th>
                   <th className="px-1 py-1.5 text-center font-bold w-8">人気</th>
@@ -261,7 +268,7 @@ export function SignalTab({ horses, surgeMap, hasMl }: SignalTabProps) {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={hasMl ? 15 : 9} className="py-6 text-center text-muted-foreground">
+                    <td colSpan={hasMl ? 16 : 10} className="py-6 text-center text-muted-foreground">
                       該当馬なし
                     </td>
                   </tr>
@@ -284,6 +291,9 @@ export function SignalTab({ horses, surgeMap, hasMl }: SignalTabProps) {
                         </td>
                         <td className="px-1 py-1 text-center text-base">
                           <MyMarkCell mark={h.myMark2} />
+                        </td>
+                        <td className="px-1 py-1 text-center text-base">
+                          <CommentMarkCell mark={h.myMark4} />
                         </td>
                         <td className="px-1 py-1 truncate max-w-[7rem]" title={h.horseName}>
                           {h.horseName || '-'}

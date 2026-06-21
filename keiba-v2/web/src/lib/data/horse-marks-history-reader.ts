@@ -22,6 +22,8 @@ const JV_CODE_TO_VENUE: Record<string, string> = {
 const POSITIVE_MARKS = new Set(['◎', '○', '▲', '△', 'Ⅲ', '穴']);
 // AI購入軸 (markSet=3): 買い軸★ / 相手☆
 const POSITIVE_BUY_MARKS = new Set(['★', '☆']);
+// AIコメント (markSet=4): 確信 Ａ(高)/Ｂ(中)/Ｃ(低)
+const POSITIVE_COMMENT_MARKS = new Set(['Ａ', 'Ｂ', 'Ｃ']);
 // パドック評価 (S/A/B ほか)
 const POSITIVE_PADDOCK_MARKS = new Set(['S', 'A', 'B', '◎', '○', '▲', '△', '穴']);
 
@@ -64,6 +66,7 @@ export interface HorseMarkHistoryEntry {
   myMark: string;        // markSet=1 (+ 明示消合成)。 無印は ''
   aiMark: string;        // markSet=2。 無印は ''
   aiBuyMark: string;     // markSet=3 (AI購入軸 ★☆)。 無印は ''
+  aiCommentMark: string; // markSet=4 (AIコメント Ａ/Ｂ/Ｃ)。 無印は ''
   honshiMark: string;    // 競馬ブック本紙印。 無印は ''
   paddockMark: string;   // パドック評価。 無印は ''
   shortComment: string;  // 競馬ブック短評。 無しは ''
@@ -80,6 +83,7 @@ export interface HorseMarksHistory {
   my: HorseMarksReliability;        // My印 (推奨印) の信頼性
   ai: HorseMarksReliability;        // AI印 (推奨印) の信頼性
   aiBuy: HorseMarksReliability;     // AI購入軸 (★☆) の信頼性
+  aiComment: HorseMarksReliability; // AIコメント (Ａ/Ｂ/Ｃ) の信頼性
   honshi: HorseMarksReliability;    // 本紙印 (推奨印) の信頼性
   paddock: HorseMarksReliability;   // パドック印 の信頼性
 }
@@ -152,6 +156,7 @@ const EMPTY: HorseMarksHistory = {
   my: { races: 0, top3: 0, win: 0 },
   ai: { races: 0, top3: 0, win: 0 },
   aiBuy: { races: 0, top3: 0, win: 0 },
+  aiComment: { races: 0, top3: 0, win: 0 },
   honshi: { races: 0, top3: 0, win: 0 },
   paddock: { races: 0, top3: 0, win: 0 },
 };
@@ -174,6 +179,7 @@ export function getHorseMarksHistory(
   const my: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
   const ai: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
   const aiBuy: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
+  const aiComment: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
   const honshi: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
   const paddock: HorseMarksReliability = { races: 0, top3: 0, win: 0 };
 
@@ -198,6 +204,10 @@ export function getHorseMarksHistory(
     const aiBuyRaw = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, MARK_SLOT.AI_BUY);
     const aiBuyMark = aiBuyRaw?.horseMarks[race.horseNumber] ?? '';
 
+    // AIコメント印 (markSet=4) — comment_llm 人気薄ピックアップ Ａ/Ｂ/Ｃ
+    const aiCommentRaw = getRaceMarks(p.year, p.kai, p.nichi, p.raceNumber, p.venue, MARK_SLOT.AI_COMMENT);
+    const aiCommentMark = aiCommentRaw?.horseMarks[race.horseNumber] ?? '';
+
     // 競馬ブック本紙印 (過去レース成績と同ソース)
     const honshiMark = (race.honshiMark || '').trim();
 
@@ -208,7 +218,7 @@ export function getHorseMarksHistory(
     const shortComment = (race.shortComment || '').trim();
 
     // いずれの印も無ければスキップ ('消' は意味があるので残す)
-    if (!myMark && !aiMark && !aiBuyMark && !honshiMark && !paddockMark) continue;
+    if (!myMark && !aiMark && !aiBuyMark && !aiCommentMark && !honshiMark && !paddockMark) continue;
 
     const finishNum = parseInt(race.finishPosition, 10);
     const finish = Number.isNaN(finishNum) ? 0 : finishNum;
@@ -226,6 +236,7 @@ export function getHorseMarksHistory(
       myMark,
       aiMark,
       aiBuyMark,
+      aiCommentMark,
       honshiMark,
       paddockMark,
       shortComment,
@@ -247,6 +258,11 @@ export function getHorseMarksHistory(
       if (finish >= 1 && finish <= 3) aiBuy.top3 += 1;
       if (finish === 1) aiBuy.win += 1;
     }
+    if (POSITIVE_COMMENT_MARKS.has(aiCommentMark)) {
+      aiComment.races += 1;
+      if (finish >= 1 && finish <= 3) aiComment.top3 += 1;
+      if (finish === 1) aiComment.win += 1;
+    }
     if (POSITIVE_MARKS.has(honshiMark)) {
       honshi.races += 1;
       if (finish >= 1 && finish <= 3) honshi.top3 += 1;
@@ -262,7 +278,7 @@ export function getHorseMarksHistory(
   // 新しい順 (date 降順)。 pastRaces は降順想定だが念のため整列。
   entries.sort((a, b) => b.date.localeCompare(a.date));
 
-  const data: HorseMarksHistory = { entries, my, ai, aiBuy, honshi, paddock };
+  const data: HorseMarksHistory = { entries, my, ai, aiBuy, aiComment, honshi, paddock };
   cache.set(kettoNum, { data, ts: Date.now() });
   return data;
 }

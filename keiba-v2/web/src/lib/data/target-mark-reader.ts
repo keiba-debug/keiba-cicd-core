@@ -22,6 +22,10 @@ const MARK_BYTES_TO_SYMBOL: Record<string, string> = {
   '8c8a': '穴',  // 穴馬
   '819a': '★',  // AI購入軸 (markSet3 — 実際に買った軸。dat_writer.py と対称)
   '8199': '☆',  // AI購入相手 (markSet3 — 軸の相手)
+  '8260': 'Ａ',  // AIコメント印 高確信 (markSet4 — 全角A。SYMBOL_TO_MARK_BYTES と対称)
+  '8261': 'Ｂ',  // AIコメント印 中確信 (markSet4 — 全角B)
+  '8262': 'Ｃ',  // AIコメント印 低確信 (markSet4 — 全角C)
+  '8272': 'Ｓ',  // 全角S (将来用・エンコード表と対称)
   '2020': '',    // 無印
 };
 

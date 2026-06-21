@@ -229,6 +229,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
   let targetMarks: RaceMarks | null = null;
   let targetMarksAi: RaceMarks | null = null;
   let targetMarksBuy: RaceMarks | null = null;
+  let targetMarksComment: RaceMarks | null = null;
   
   // kaisaiInfo（コメント編集用に外に出す）
   let kaisaiInfoForEdit: { kai: number; nichi: number } | undefined;
@@ -312,11 +313,20 @@ export default async function RaceDetailPage({ params }: PageParams) {
         track,
         MARK_SLOT.AI_BUY  // 馬印3（AI購入軸）[旧8]
       );
+      const marksComment = getRaceMarks(
+        yearNum,
+        kaisaiInfo.kai,
+        kaisaiInfo.nichi,
+        currentRaceNumber,
+        track,
+        MARK_SLOT.AI_COMMENT  // 馬印4（AIコメント Ａ/Ｂ/Ｃ）
+      );
 
       // それぞれ保存
       targetMarks = marks1;
       targetMarksAi = marksAi;
       targetMarksBuy = marksBuy;
+      targetMarksComment = marksComment;
       
       // コメント編集用にkaisaiInfoを保持
       kaisaiInfoForEdit = { kai: kaisaiInfo.kai, nichi: kaisaiInfo.nichi };
@@ -622,11 +632,12 @@ export default async function RaceDetailPage({ params }: PageParams) {
           }}
           kaisaiInfo={kaisaiInfoForEdit}
           targetMarks={
-            (targetMarks || targetMarksAi || targetMarksBuy)
+            (targetMarks || targetMarksAi || targetMarksBuy || targetMarksComment)
               ? {
                   horseMarks: targetMarks?.horseMarks || {},
                   horseMarks2: targetMarksAi?.horseMarks || {},  // AI評価印(markSet2) [旧6]
-                  horseMarks3: targetMarksBuy?.horseMarks || {}  // AI購入軸(markSet3) [旧8]
+                  horseMarks3: targetMarksBuy?.horseMarks || {},  // AI購入軸(markSet3) [旧8]
+                  horseMarks4: targetMarksComment?.horseMarks || {}  // AIコメント印(markSet4 Ａ/Ｂ/Ｃ)
                 }
               : undefined
           }

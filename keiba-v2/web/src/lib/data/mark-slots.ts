@@ -21,6 +21,8 @@ export const MARK_SLOT = {
   AI_EVAL: 2,
   /** AI購入軸 — 買い軸★ / 相手☆。purchase_ledger・選定起点。[旧8] */
   AI_BUY: 3,
+  /** AIコメント — comment_llm 人気薄ピックアップの確信度 Ａ(高)/Ｂ(中)/Ｃ(低)。 */
+  AI_COMMENT: 4,
 } as const;
 
 export type MarkSlot = (typeof MARK_SLOT)[keyof typeof MARK_SLOT];
@@ -30,6 +32,7 @@ export const MARK_SLOT_LABEL: Record<number, string> = {
   [MARK_SLOT.MY]: 'My印',
   [MARK_SLOT.AI_EVAL]: 'AI評価',
   [MARK_SLOT.AI_BUY]: 'AI購入',
+  [MARK_SLOT.AI_COMMENT]: 'AIコメ',
 };
 
 /**
