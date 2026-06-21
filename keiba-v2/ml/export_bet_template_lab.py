@@ -47,18 +47,26 @@ from ml.analyze.backtest_bettype_fund import cache_race_to_pred  # noqa: E402
 from ml.analyze.backtest_bet_templates import (  # noqa: E402
     load_haraimodoshi, ticket_payout,
 )
-from ml.analyze.backtest_selector import CONDITIONS  # noqa: E402
+from ml.analyze.backtest_selector import CONDITIONS, cliff_n_marks  # noqa: E402
 from ml.strategies import bet_templates as bt  # noqa: E402
 from ml.strategies import bettype_efficiency as be  # noqa: E402
 from ml.strategies.role_split import detect_no_head  # noqa: E402
 from ml.utils.backtest_cache import load_backtest_cache  # noqa: E402
+from ml.analyze.analyze_paddock_signal import load_paddock_marks  # noqa: E402
 
 # ラボ版 (印ロジック/語彙/テンプレの版。 モデルversionとは別軸)。
 #   改訂履歴は docs/composite_theory_log.md に記録。
 #   1.0: 語彙統一(◎○▲△Ⅲ)+2モード / 1.1: 本命フォーメーション+配分(sizing)層
 #   1.2: S148 買い方チューニング — 単勝二刀流+1人気弱ゲート条件 / weight変種 /
 #        役割分化 (honmei_formation_rs = ○P型の頭捨て)
-LAB_VERSION = "1.2"
+#   1.3: S170 パドック (競馬ブック) を「直前購入オプション層」として検証台に追加。
+#        モデル特徴量化でなく、出来た買い目への直前ゲート (◎パドックSA で買い/C↓で見送り)。
+#        母集団=パドック提供レース(≒午後8R以降)に固定し母集団バイアスを排除。SとAは別物
+#        (S148) のため mark 生値で判定。 履歴は 2026-01 以降のみ提供 = 貯めて確証フェーズ。
+#   1.4: S170 本線② — 印①分布判断 (1強/混戦/大混戦 = composite崖頭数 cliff_n_marks) と
+#        単勝gap (S169 で +EV を確認した ◎の win_vb_gap エッジ) を条件層に追加。 単勝中心の
+#        race-adaptive 選定 (レース分布で買い方を変える) の検証台。 gap 系は後知恵警告付き。
+LAB_VERSION = "1.4"
 
 # 役割分化 (S148 捨て馬券): honmei_formation に no_head (P型の頭捨て) を適用した
 # 仮想テンプレ。 テンプレ定義は同じで、レース毎の W/P 乖離判定で三連単1列目が変わる。
@@ -76,6 +84,22 @@ LAB_CONDITIONS: Dict[str, Callable[[dict], bool]] = {
     **{k: CONDITIONS[k] for k in LAB_CONDITION_KEYS},
     "1人気弱 (AI△以下)": lambda r: r["fav_rank"] >= 4,
     "1人気弱 & 単勝G>=2.5": lambda r: r["fav_rank"] >= 4 and (r["g_top2"] or 0) >= 2.5,
+    # --- パドック直前オプション層 (S170)。 母集団=パドック提供レース(≒午後8R以降)に固定
+    #     して母集団バイアスを排除。「パドック有」を基準線に ◎SA(気配良) と ◎C↓(気配悪)
+    #     の ROI 差が出れば、買い目への直前ゲートとして効く。 S と A は別物(S148)・生値判定。
+    "パドック有 (午後R)": lambda r: r.get("has_paddock", False),
+    "パドック有 & 1人気弱": lambda r: bool(r.get("has_paddock")) and r["fav_rank"] >= 4,
+    "◎パドックSA": lambda r: r.get("axis_pad") in ("S", "A"),
+    "◎パドックC↓": lambda r: bool(r.get("has_paddock") and r.get("axis_pad")
+                                 and r["axis_pad"] not in ("S", "A")),
+    # --- 印①分布判断 (1強/混戦/大混戦) + 単勝gap (S170 本線②: 単勝中心 race-adaptive) ---
+    "1強 (崖1.5=1)": lambda r: r.get("cliff15") == 1,
+    "混戦 (崖1.5 2-4)": lambda r: 2 <= (r.get("cliff15") or 0) <= 4,
+    "大混戦 (団子>=5)": lambda r: (r.get("cliff15") or 0) >= 5,
+    "単勝gap>=3": lambda r: (r.get("axis_gap") or 0) >= 3,
+    "単勝gap>=5": lambda r: (r.get("axis_gap") or 0) >= 5,
+    "1強 & 軸強EV>=1.1": lambda r: r.get("cliff15") == 1 and r["axis_ev"] >= 1.1,
+    "混戦 & 単勝gap>=3": lambda r: 2 <= (r.get("cliff15") or 0) <= 4 and (r.get("axis_gap") or 0) >= 3,
 }
 
 # 印モード (C案 / Session 147)
@@ -119,6 +143,20 @@ CONDITION_DESC: Dict[str, str] = {
                             "⚠cache では ROI125% に見えたが、確定オッズでのゲート判定が後知恵 — "
                             "predictions (直前オッズ判定・リークなし) では ROI68% に消滅し本番組込みは棄却 "
                             "(S148)。後知恵ゲートの教材として残置",
+    "パドック有 (午後R)": "競馬ブックのパドック評価があるレース (≒午後8R以降)。パドック"
+                          "オプションの母集団基準線。⚠2026-01以降のみ提供=履歴浅・OOS弱 (貯めて確証)",
+    "パドック有 & 1人気弱": "パドック提供レース かつ 1番人気の composite 順位が4位以下",
+    "◎パドックSA": "◎(composite1位)のパドック評価が S または A = 気配良し → 買い候補。"
+                   "「パドック有」基準線との ROI 差がオプションの効き",
+    "◎パドックC↓": "◎のパドック評価が B/C 以下 = 気配悪し → 見送り候補。◎SA と ROI 差が出るかが鍵",
+    "1強 (崖1.5=1)": "composite崖(P比1.5)で勝負圏が◎1頭=1強レース (出現≈19%)。単勝が活きるか",
+    "混戦 (崖1.5 2-4)": "勝負圏2-4頭=混戦。軸+相手の組立が効く帯",
+    "大混戦 (団子>=5)": "崖なし(団子)=大混戦。多くは見送り候補だが穴の素地",
+    "単勝gap>=3": "◎の単勝gap(odds_rank-rank_w)>=3 = AIが人気より上に評価。"
+                  "⚠確定オッズ依存=後知恵 (本番=直前オッズで要再検証 / S148)",
+    "単勝gap>=5": "◎の単勝gap>=5 = S169 で +EV を確認した単勝エッジ帯。⚠同上 (後知恵警告)",
+    "1強 & 軸強EV>=1.1": "1強 かつ ◎単勝EV>=1.1 = 堅くて割安な軸",
+    "混戦 & 単勝gap>=3": "混戦 かつ ◎に単勝妙味 = 荒れ目で軸が割安",
 }
 
 
@@ -152,14 +190,17 @@ def _settle_template(name: str, marks: Dict[str, List[int]], rpay: dict,
     return {"cost": cost, "payout": payout, "hits": hits}
 
 
-def build_lab_records(races, *, template_names, haraimodoshi) -> List[dict]:
+def build_lab_records(races, *, template_names, haraimodoshi, paddock=None) -> List[dict]:
     """各レース1レコード。 tpl[mode][name] = {cost, payout, hits[]}。
 
     2つの印モードを並走させる (C案 / Session 147):
       - composite : composite 序列から top5 へ機械割当 (理論上限・既存ラボと一致)。
       - ai        : assign_ai_marks(step2) の実 AI印 (複勝率の崖でカット)。
     条件用の特性 (fav_odds/axis_ev/top2/n) は印モード非依存なので strengths から1回。
+    paddock: {rid: {umaban: mark生値}} (S170 直前オプション層)。 has_paddock=母集団フラグ、
+             axis_pad=◎(composite1位)のパドック mark。 None なら全レース空 (後方互換)。
     """
+    paddock = paddock or {}
     recs: List[dict] = []
     for raw in races:
         pred = cache_race_to_pred(raw)
@@ -192,6 +233,18 @@ def build_lab_records(races, *, template_names, haraimodoshi) -> List[dict]:
         if n >= 2 and s[0].odds and s[1].odds:
             g_top2 = 1.0 / (1.0 / s[0].odds + 1.0 / s[1].odds)
 
+        # パドック直前オプション層 (S170): 母集団=提供レース、軸=◎(composite1位)の mark。
+        pad_marks = paddock.get(rid, {})
+        has_paddock = bool(pad_marks)
+        axis_pad = pad_marks.get(s[0].umaban, "")
+
+        # 印①分布判断 + 単勝gap (S170 本線②)。 cliff = composite順 pred_p比の崖頭数
+        # (1=1強 / 2-4=混戦 / 5+=大混戦)。 axis_gap = ◎の単勝gap (S169 エッジ)。
+        cliff15 = cliff_n_marks(s, 1.5)
+        cliff18 = cliff_n_marks(s, 1.8)
+        axis_gap = s[0].win_vb_gap
+        axis_ard = s[0].ar_deviation
+
         # 2モードの markset
         markset_by_mode: Dict[str, Dict[str, List[int]]] = {
             "composite": bt.marks_from_ranking([x.umaban for x in s]),
@@ -214,6 +267,9 @@ def build_lab_records(races, *, template_names, haraimodoshi) -> List[dict]:
         recs.append({
             "rid": rid, "date": rid[:8], "n": n, "fav_odds": fav_odds,
             "axis_ev": axis_ev, "top2": top2, "fav_rank": fav_rank, "g_top2": g_top2,
+            "has_paddock": has_paddock, "axis_pad": axis_pad,
+            "cliff15": cliff15, "cliff18": cliff18,
+            "axis_gap": axis_gap, "axis_ard": axis_ard,
             "tpl": tpl_data,
         })
     return recs
@@ -377,8 +433,11 @@ def main() -> int:
     print(f"  backtest_cache: {len(races)} races  split={args.split_date}  vocab=◎○▲△Ⅲ")
     print("  loading haraimodoshi...")
     haraimodoshi = load_haraimodoshi(codes)
-    print(f"  haraimodoshi: {len(haraimodoshi)}  building records (process_race)...")
-    recs = build_lab_records(races, template_names=names, haraimodoshi=haraimodoshi)
+    pad = load_paddock_marks(codes)
+    print(f"  haraimodoshi: {len(haraimodoshi)}  paddock(mark有)={len(pad)} races"
+          f"  building records (process_race)...")
+    recs = build_lab_records(races, template_names=names, haraimodoshi=haraimodoshi,
+                             paddock=pad)
     if not recs:
         print("  [ERROR] no records built")
         return 1

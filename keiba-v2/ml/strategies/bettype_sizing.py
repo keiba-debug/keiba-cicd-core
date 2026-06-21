@@ -23,7 +23,7 @@ DB/IO/subprocess なし。 bettype_scheduler から呼ばれる。
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from ml.strategies.kelly import BET_UNIT_YEN, MIN_BET_YEN, kelly_amount
 from ml.strategies import bettype_fund as bf  # noqa: E402
@@ -1083,6 +1083,275 @@ def size_race_template_select(race_eff, selection, *, bankroll: int, per_race_ca
 # ---------------------------------------------------------------------------
 
 SizerFn = Callable[..., RaceSizing]
+WIDE_ANABA_SIZER = "wide_anaba"
+
+
+def size_race_wide_anaba(race_eff, selection, *, bankroll: int, per_race_cap: int,
+                         kelly_fraction: float = 0.25, per_bet_cap_pct: float = 0.10,
+                         combo_share_of_residual: float = 1.0, weight_key: str = "ev",
+                         anaba_umabans=(), flat_stake: int = FLAT_STAKE_YEN,
+                         normal_rate_pct: float = SHOBU_NORMAL_RATE_PCT,
+                         shobu_rate_pct: float = SHOBU_SHOBU_RATE_PCT) -> RaceSizing:
+    """S170 ふくだ確定の買い方 (全レース通常レート扱い)。
+
+      - 通常R          : ワイド堅実党 (wide_anchor = ワイド◎流し + 三連複) + ◎→印4ワイド
+      - 勝負R (tansho_H): 単勝 rank_w◎ (優先) + ◎→印4ワイド
+
+    anaba_umabans = 印4馬 (最大2頭・呼び出し側が picks/flags から注入。 ml.strategies.anaba_picks)。
+    軸 = composite◎ (race_eff.axis_umaban)。 単勝のみ rank_w◎ (勝負条件の SSoT)。
+    per_race_cap は勝負レート上限で来る前提 → 通常レートに縮める (検証=実戦の規模を合わせる)。
+    """
+    from ml.strategies import bet_templates as bt
+    rid = race_eff.race_id
+    if not race_eff.strengths:
+        return RaceSizing(race_id=rid, legs=[], total_yen=0, anchor_yen=0, combo_yen=0,
+                          per_race_cap=per_race_cap, warnings=["strengths不在 → 買い目なし"])
+    cap = per_race_cap
+    if per_race_cap > 0 and shobu_rate_pct > 0 and normal_rate_pct > 0:
+        cap = max(MIN_BET_YEN, _round_unit(per_race_cap * normal_rate_pct / shobu_rate_pct))
+    stake = max(MIN_BET_YEN, (int(flat_stake) // BET_UNIT_YEN) * BET_UNIT_YEN)
+    eff_by_key = {(p.bet_type, _legs_key(p.legs)): p for p in race_eff.plans}
+    legs: List[SizedLeg] = []
+    axis = race_eff.axis_umaban
+
+    is_sh = is_shobu_race(race_eff)
+    if is_sh:
+        ax = _shobu_axis(race_eff)
+        if ax is not None and ax.odds and ax.odds > 1.0:
+            legs.append(SizedLeg(rid, "tansho", [ax.umaban], stake,
+                                 "単勝 ◎(勝負・rank_w)", ax.odds, None, None,
+                                 "勝負R: 単勝優先 (通常レート)"))
+        warn = "勝負R: 単勝rank_w◎ + 印4ワイド"
+    else:
+        ranking = _ranking_from_strengths(race_eff)
+        marks = bt.marks_from_ranking(ranking)
+        for tk in bt.apply_template(bt.get_template("wide_anchor"), marks):
+            horses = list(tk.horses)
+            odds = _odds_for_ticket(tk.bet_type, horses, eff_by_key)
+            legs.append(SizedLeg(rid, tk.bet_type, horses, stake,
+                                 f"ワイド堅実党 [{tk.role}]", odds, None, None, "通常R"))
+        warn = "通常R: ワイド堅実党 + 印4ワイド"
+
+    # 印4馬: 引数優先 (検証=flags_bt 注入)。 空なら本番=live picks を race_id から自己読込
+    #   → scheduler 配線不要 (--sizing wide_anaba 切替だけで印4ワイドが効く)。
+    if not anaba_umabans:
+        try:
+            from ml.strategies.anaba_picks import load_anaba_live
+            _d = f"{rid[:4]}-{rid[4:6]}-{rid[6:8]}"
+            anaba_umabans = load_anaba_live(_d).get(rid, [])
+        except Exception:
+            anaba_umabans = []
+    # 共通: ◎→印4ワイド (最大2頭・◎自身/既存ワイドと重複は除外)
+    if axis is not None:
+        existing = {frozenset(l.horses) for l in legs if l.bet_type == "wide"}
+        for u in list(anaba_umabans or [])[:2]:
+            try:
+                iu = int(u)
+            except (TypeError, ValueError):
+                continue
+            if iu == axis or frozenset([axis, iu]) in existing:
+                continue
+            odds = _odds_for_ticket("wide", [axis, iu], eff_by_key)
+            legs.append(SizedLeg(rid, "wide", sorted([axis, iu]), stake,
+                                 "印4ワイド ◎→印4(LLM穴馬)", odds, None, None, "印4流し"))
+            existing.add(frozenset([axis, iu]))
+
+    # 投資額連動配分 (S170 修正: flat100円固定をやめ per_race予算 cap を使い切る)。
+    #   通常R = 均等割り (ワイド堅実党 flat の精神・予算を点数で按分・余りは上位点へ)。
+    #   勝負R = 単勝を優先(厚く)・印4ワイドは最低単位 (ふくだ②「単を優先」)。
+    n = len(legs)
+    if n > 0 and cap >= MIN_BET_YEN:
+        if is_sh and any(l.bet_type == "tansho" for l in legs):
+            wide_legs = [l for l in legs if l.bet_type == "wide"]
+            tansho_legs = [l for l in legs if l.bet_type == "tansho"]
+            for l in wide_legs:
+                l.amount = MIN_BET_YEN
+            used = sum(l.amount for l in wide_legs)
+            tansho_legs[0].amount = max(MIN_BET_YEN,
+                                        ((cap - used) // BET_UNIT_YEN) * BET_UNIT_YEN)
+        else:
+            base = max(MIN_BET_YEN, (cap // n // BET_UNIT_YEN) * BET_UNIT_YEN)
+            for l in legs:
+                l.amount = base
+            remain = cap - base * n
+            i = 0
+            while remain >= BET_UNIT_YEN and i < n:
+                legs[i].amount += BET_UNIT_YEN
+                remain -= BET_UNIT_YEN
+                i += 1
+    total = sum(l.amount for l in legs)
+    n_dropped = 0
+    if cap > 0 and total > cap:
+        legs, n_dropped = fit_legs_to_cap(legs, cap)
+        total = sum(l.amount for l in legs)
+    anchor_yen = sum(l.amount for l in legs if l.bet_type in ANCHOR_BET_TYPES)
+    return RaceSizing(race_id=rid, legs=legs, total_yen=total, anchor_yen=anchor_yen,
+                      combo_yen=total - anchor_yen, per_race_cap=cap,
+                      n_dropped=n_dropped, warnings=[warn])
+
+
+# ---------------------------------------------------------------------------
+# sanrentan_formation: 三連単フォーメーション (天井狙い・Session 171 の土台)
+# ---------------------------------------------------------------------------
+# ふくだ [[maru-second-place-formation]]: 抜けた1番人気の ◎ を ★1着でなく2-3着★ に流し、
+#   頭は「W勝率はあるが市場が軽視する妙味馬 (伏兵)」に取らせて配当を跳ねさせる。
+#   買い目1: 頭 → ◎(2着) → 3着候補   /   買い目2: 頭 → 連軸 → ◎(3着)。
+#   3着候補は ★多角ピック★ (composite ○▲△Ⅲ ∪ 印4 LLM穴馬 ∪ パドック印 S/A)。
+#   買い目生成・候補抽出・trim の本体は ml.strategies.sanrentan_formation (純関数の土台)。
+#
+# このサイザーの責務 = ①ライブ依存 (三連単オッズ/印4/パドック印) の解決 ②投資額連動の配分。
+#   - 三連単オッズ : 引数注入 (backtest) or core.odds_db.get_all_combo_odds (live・S171 で
+#     発走前に odds6_sanrentan がフル取得できることを実機確認済 = ハーヴィルEV trim が live で動く)。
+#   - 印4/パドック : 引数注入 or live 自己読込 (--sizing 切替だけで効く・scheduler 配線不要)。
+#   - 配分 = ★per_race_cap を点数で均等割り・余りは hv_ev 上位点へ★ (S170 教訓「flat100 固定は
+#     投資額と乖離→却下」を踏襲)。 「5点に絞って厚く / 36点を薄く」を点数と予算で自然表現。
+#   - レート枠 = wide_anaba/shobu_rate と同じ (通常R は通常レートに縮める・勝負R は勝負レート)。
+#     買い方 (フォーメーション) とは独立した予算層。 ふくだの 通常5%/勝負15% に一致させ予算安全。
+#
+# ★今日は土台★: 配分は flat (均等)。 「強弱のつけ方 (hv_ev 比例配分等)」は次段で sanrentan_formation
+#   側の重み + ここの配分に積む。 まずは validate (predictions直前オッズ+実払戻) で天井/的中率を測る。
+SANRENTAN_FORMATION_SIZER = "sanrentan_formation"
+
+
+def _allocate_formation(legs, cap: int, *, flat_stake: int = 0) -> List[Tuple[object, int]]:
+    """FormationLeg 群 (hv_ev 降順) に cap を配分 → [(leg, amount), ...]。
+
+    flat_stake>0: 各点 flat_stake 固定 (cap 超過分は末尾=低EVから落ちる)。
+    flat_stake=0 (既定・投資額連動): cap を ★均等割り★、 余りを hv_ev 上位点へ unit 単位で寄せる。
+      点数が cap//MIN_BET を超える場合は hv_ev 上位 (cap//MIN_BET) 点だけ残す (予算で自然 trim)。
+    """
+    if not legs or cap < MIN_BET_YEN:
+        return []
+    if flat_stake and flat_stake > 0:
+        stake = max(MIN_BET_YEN, (int(flat_stake) // BET_UNIT_YEN) * BET_UNIT_YEN)
+        out = [(l, stake) for l in legs]
+        # cap 超過は末尾 (低 hv_ev) から落とす
+        while out and sum(a for _, a in out) > cap:
+            out.pop()
+        return out
+    affordable = cap // MIN_BET_YEN
+    if affordable < 1:
+        return []
+    keep = list(legs[:affordable])
+    n = len(keep)
+    base = max(MIN_BET_YEN, (cap // n // BET_UNIT_YEN) * BET_UNIT_YEN)
+    amounts = [base] * n
+    remain = cap - base * n
+    i = 0
+    while remain >= BET_UNIT_YEN and i < n:
+        amounts[i] += BET_UNIT_YEN
+        remain -= BET_UNIT_YEN
+        i += 1
+    return list(zip(keep, amounts))
+
+
+def size_race_sanrentan_formation(
+        race_eff, selection, *, bankroll: int, per_race_cap: int,
+        kelly_fraction: float = 0.25, per_bet_cap_pct: float = 0.10,
+        combo_share_of_residual: float = 1.0, weight_key: str = "ev",
+        sanrentan_odds: Optional[dict] = None,
+        anaba_umabans: Optional[Sequence] = None,
+        paddock_marks: Optional[dict] = None,
+        win_prob_floor: Optional[float] = None,
+        head_ev_floor: Optional[float] = None,
+        n_head_max: Optional[int] = None,
+        n_renjiku: Optional[int] = None,
+        n_third_composite: Optional[int] = None,
+        max_points: Optional[int] = None,
+        min_axis_gap: Optional[float] = None,
+        min_axis_win_ev: Optional[float] = None,
+        flat_stake: int = 0,
+        normal_rate_pct: float = SHOBU_NORMAL_RATE_PCT,
+        shobu_rate_pct: float = SHOBU_SHOBU_RATE_PCT) -> RaceSizing:
+    """三連単フォーメーション・サイザー (Session 171・天井狙いの土台)。
+
+    sanrentan_odds / anaba_umabans / paddock_marks は None なら live 自己読込
+    (backtest/検証は明示注入してリークと DB アクセスを避ける)。 選定パラメータ (win_prob_floor 等)
+    は None なら sanrentan_formation の既定 (S170 仕様) を使う。
+    """
+    from ml.strategies import sanrentan_formation as sf
+    rid = race_eff.race_id
+    if not race_eff.strengths:
+        return RaceSizing(race_id=rid, legs=[], total_yen=0, anchor_yen=0, combo_yen=0,
+                          per_race_cap=per_race_cap, warnings=["strengths不在 → 買い目なし"])
+
+    # レート枠: 通常R は通常レートに縮める (勝負R は勝負レート=cap のまま)。 wide_anaba と同型。
+    is_sh = is_shobu_race(race_eff)
+    cap = per_race_cap
+    if not is_sh and per_race_cap > 0 and shobu_rate_pct > 0 and normal_rate_pct > 0:
+        cap = max(MIN_BET_YEN, _round_unit(per_race_cap * normal_rate_pct / shobu_rate_pct))
+
+    # ライブ依存の解決 (引数優先・None なら live)
+    if sanrentan_odds is None:
+        try:
+            from ml.strategies import bettype_efficiency as _be
+            sanrentan_odds = (_be._load_combo_odds(rid) or {}).get("sanrentan") or {}
+        except Exception:
+            sanrentan_odds = {}
+    if anaba_umabans is None:
+        try:
+            from ml.strategies.anaba_picks import load_anaba_live
+            _d = f"{rid[:4]}-{rid[4:6]}-{rid[6:8]}"
+            anaba_umabans = load_anaba_live(_d).get(rid, [])
+        except Exception:
+            anaba_umabans = []
+    if paddock_marks is None:
+        try:
+            from ml.analyze.analyze_paddock_signal import load_paddock_marks
+            paddock_marks = load_paddock_marks([rid]).get(rid, {})
+        except Exception:
+            paddock_marks = {}
+
+    # 既定 (None) は sanrentan_formation のモジュール既定にフォールバック
+    kw = {}
+    if win_prob_floor is not None:
+        kw["win_prob_floor"] = win_prob_floor
+    if head_ev_floor is not None:
+        kw["head_ev_floor"] = head_ev_floor
+    if n_head_max is not None:
+        kw["n_head_max"] = n_head_max
+    if n_renjiku is not None:
+        kw["n_renjiku"] = n_renjiku
+    if n_third_composite is not None:
+        kw["n_third_composite"] = n_third_composite
+    if max_points is not None:
+        kw["max_points"] = max_points
+    if min_axis_gap is not None:
+        kw["min_axis_gap"] = min_axis_gap
+    if min_axis_win_ev is not None:
+        kw["min_axis_win_ev"] = min_axis_win_ev
+
+    res = sf.build_formation(race_eff, sanrentan_odds, anaba_umabans=anaba_umabans,
+                             paddock_marks=paddock_marks, **kw)
+    if not res.legs:
+        return RaceSizing(race_id=rid, legs=[], total_yen=0, anchor_yen=0, combo_yen=0,
+                          per_race_cap=cap, warnings=res.warnings or ["フォーメーション買い目なし"])
+
+    sized = _allocate_formation(res.legs, cap, flat_stake=flat_stake)
+    legs: List[SizedLeg] = []
+    for fl, amt in sized:
+        if amt < MIN_BET_YEN:
+            continue
+        role_jp = "◎2着流し" if fl.role == sf.ROLE_MARU_2ND else "◎3着流し"
+        legs.append(SizedLeg(rid, "sanrentan", list(fl.horses), amt,
+                             f"三連単F [{role_jp}]", fl.odds, fl.hv_ev, fl.hv_prob,
+                             f"formation {fl.role} hvEV={fl.hv_ev if fl.hv_ev is not None else '--'}"))
+
+    # cap 安全弁 (均等割りは cap 内だが flat_stake 指定時の保険)
+    n_dropped = 0
+    total = sum(l.amount for l in legs)
+    if cap > 0 and total > cap:
+        legs, n_dropped = fit_legs_to_cap(legs, cap)
+        total = sum(l.amount for l in legs)
+
+    warn = list(res.warnings)
+    warn.insert(0, f"三連単F: 頭{res.head_set} ◎{res.axis} 連軸{res.renjiku_set} "
+                   f"3着{res.third_set} → {len(legs)}点 "
+                   f"({'勝負' if is_sh else '通常'}レート cap={cap})")
+    return RaceSizing(race_id=rid, legs=legs, total_yen=total, anchor_yen=0,
+                      combo_yen=total, per_race_cap=cap, n_dropped=n_dropped, warnings=warn)
+
+
 SIZERS: Dict[str, SizerFn] = {
     KELLY_SIZER: size_race,                 # 旧既定 (anchor_kelly_combo_ev)。 名前は固定
     ADAPTIVE_SIZER: size_race_adaptive,
@@ -1091,6 +1360,10 @@ SIZERS: Dict[str, SizerFn] = {
     FIXED_GRADE_V2_SIZER: size_race_fixed_grade_v2,
     # shobu_rate = 勝負条件(tansho_H 4条件・rank_w◎)のレースだけ単勝を厚く・他はv2 (Session166)
     SHOBU_RATE_SIZER: size_race_shobu_rate,
+    # wide_anaba = 通常R:ワイド堅実党 / 勝負R:単勝 + 共通◎→印4ワイド (S170 ふくだ確定)
+    WIDE_ANABA_SIZER: size_race_wide_anaba,
+    # sanrentan_formation = 三連単フォーメーション 頭→◎(2-3着)→3着候補 天井狙い (S171 土台)
+    SANRENTAN_FORMATION_SIZER: size_race_sanrentan_formation,
     # template_flat = ラボのテンプレ (既定 DEFAULT_TEMPLATE) を全点 flat で実戦化。
     #   scheduler が --template でテンプレ名を渡すと make_template_sizer で差し替える。
     TEMPLATE_FLAT_SIZER: size_race_template_flat,

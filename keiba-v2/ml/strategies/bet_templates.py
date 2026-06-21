@@ -279,6 +279,14 @@ TEMPLATES: Dict[str, Template] = {
         note="AI上位2頭の単勝2点。「1人気弱(AI△以下)×合成G>=2.5」ゲート併用が"
              "S148検証の最有望 (ROI124.8%/月中央値129.6%/9勝11ヶ月・train≒valid)。"),
 
+    "tansho_axis": Template(
+        name="tansho_axis", label="◎単勝1点", system="当てる",
+        components=[
+            _c("tansho", [["◎"]], ROLE_MAIN, 1.0),
+        ],
+        note="◎(composite1位)の単勝1点。S169 単勝中心方針 + 単勝gap エッジ (gap>=5 で +EV) の"
+             "検証用。 race-adaptive 選定で「1強/gap高 → ◎単勝」の素片 (S170)。"),
+
     "honmei_formation_stable": Template(
         name="honmei_formation_stable",
         label="本命フォーメーション安定版 (三連単weight 0.1)",
