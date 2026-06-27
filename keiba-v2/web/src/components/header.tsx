@@ -300,6 +300,19 @@ export function Header() {
                   </span>
                 </Link>
                 <Link
+                  href="/analysis/edge-validation"
+                  onClick={() => { if (bakenMenuRef.current) bakenMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors border-t"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🎯</span>
+                    <span>
+                      <span className="font-medium">エッジ検証</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">gap5単勝エッジの地図・配分シミュ</span>
+                    </span>
+                  </span>
+                </Link>
+                <Link
                   href="/analysis/character-sim"
                   onClick={() => { if (bakenMenuRef.current) bakenMenuRef.current.open = false; }}
                   className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors border-t"

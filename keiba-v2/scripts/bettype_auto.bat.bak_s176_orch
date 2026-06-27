@@ -1,0 +1,41 @@
+@echo off
+REM ============================================
+REM multi-bettype auto-vote scheduler launcher (Session 140)
+REM Task Scheduler ?E??E??E??E? 1-2 ?E??E??E??E??E???????E?P?E??E??E?p?E?X?E?B
+REM   bettype_auto.bat dry   = dry-run (?E??E??E????E??E??E????E?E?E?v?E??E???)
+REM   bettype_auto.bat live  = LIVE ?E??E??E??E??E?[ (TARGET ?E?N?E??E?+IPAT?E??E??E?O?E?C?E??E?+?E??E??E??E? ?E?K?E?{)
+REM scheduler ?E??E??E?g?E??E??E?p?E??E? + ?E?e?E??E??E?[?E?X [?E??E??E??E?-6?E??E?, ?E??E??E??E?-2?E??E?] ?E?????E?[?E?B
+REM strategy=concentrate (AI mark = composite top axis. S171: sizing=sanrentan_formation)
+REM   / sizing=sanrentan_formation (S171: trifecta formation. axis=composite-top -> 2nd/3rd, head=value horse[pred_w>=0.15 & win_ev>=1.5], axis-gap>=0.4 buy/skip gate. trim by harville-EV, invest-linked alloc. normal/shobu rate=5%/15%) / per_day=30000 / per_race=5200(config).
+REM ?E??E??E??E?=VOICEVOX ?E??E??E??E?q ?E??E??E??E??E??E?(ID93) ?E??E? bat ?E??E??E????E??E??E??? (User env ?E??E????E??m?E??E??E????E??E??E??E?)?E?B
+REM ?E??E?freebudget_auto ?E????E??E??E??E? live ?E?N?E??E??E??E??E??? (IPAT ?E?r?E??E?)?E?B
+REM ============================================
+setlocal
+set KEIBA_V2=C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2
+set VENV=C:\KEIBA-CICD\_keiba\keiba-cicd-core\keiba-v2\.venv\Scripts\activate.bat
+set LOG_DIR=C:\KEIBA-CICD\data3\logs\bettype
+set KEIBA_TTS_ENGINE=voicevox
+set KEIBA_VOICEVOX_SPEAKER=93
+set MODE=%1
+if "%MODE%"=="" set MODE=dry
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+set TODAY=%date:~0,4%-%date:~5,2%-%date:~8,2%
+set LOG_FILE=%LOG_DIR%\%TODAY%.log
+cd /d "%KEIBA_V2%"
+call "%VENV%"
+REM === Session 176: switched combo (sanrentan_formation) -> gap-tansho LIVE sleeve ===
+REM   gap_tansho_scheduler reads bankroll/config.json: gap_enabled / gap_initial_bankroll_yen / gap_bet_pct / gap_day_pct.
+REM   NO-OP until gap_enabled=true is set on the web bankroll settings screen (master switch).
+REM   ROLLBACK to combo: restore scripts/bettype_auto.bat.bak_s176 (or swap module back to bettype_scheduler
+REM     --strategy concentrate --sizing sanrentan_formation --per-day-max-yen 30000).
+if /i "%MODE%"=="live" (
+    python -m ml.strategies.gap_tansho_scheduler --date today --confirm --i-understand-live >> "%LOG_FILE%" 2>&1
+) else (
+    python -m ml.strategies.gap_tansho_scheduler --date today >> "%LOG_FILE%" 2>&1
+)
+set EXIT_CODE=%ERRORLEVEL%
+echo [%date% %time%] bettype_auto mode=%MODE% sleeve=gap_tansho exit=%EXIT_CODE% >> "%LOG_FILE%"
+REM --- “Š•[Œã: AI’¼‘Oˆó(markSet=3)‚ðw“ü‘ä’ ‚©‚ç‘¦Žž”½‰f (live ‚Ì‚ÝEsettle‘Ò‚½‚¸ intraday) ---
+if /i "%MODE%"=="live" python -m ml.ai_marks.write_buy_marks --today --apply >> "%LOG_FILE%" 2>&1
+endlocal
+exit /b %EXIT_CODE%

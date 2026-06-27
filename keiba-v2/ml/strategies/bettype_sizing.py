@@ -149,6 +149,9 @@ class SizedLeg:
     ev: Optional[float]          # 所属 plan の期待リターン (アンカーは None)
     hit_prob: Optional[float]
     note: str = ""
+    # ★スリーブ・オーケストレーション (Session 176)★: この脚がどのスリーブ由来か (B別建ての帰属)。
+    #   既定 None = 単一方式 (従来の combo/gap 単体) ・挙動非依存。 orchestrator が merge 時に設定。
+    sleeve: Optional[str] = None
 
 
 @dataclass

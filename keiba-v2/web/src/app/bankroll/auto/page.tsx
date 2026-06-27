@@ -1,3 +1,4 @@
+import { ActiveMethodCard } from '@/components/bankroll/ActiveMethodCard';
 import { AutoPurchaseHistory } from '@/components/bankroll/AutoPurchaseHistory';
 import { AutoPurchaseMonthly } from '@/components/bankroll/AutoPurchaseMonthly';
 import { AutoVoteControl } from '@/components/bankroll/AutoVoteControl';
@@ -17,6 +18,11 @@ export default function AutoPurchasePage() {
         <h1 className="text-3xl font-bold flex items-center gap-2">
           🤖 自動投票
         </h1>
+      </div>
+
+      {/* 現在狙っている買い目（方式＝bat+config の実体から） */}
+      <div className="mb-6">
+        <ActiveMethodCard />
       </div>
 
       {/* 当日コントロールパネル（開始/dry-run/停止 + 投票状況の監視） */}

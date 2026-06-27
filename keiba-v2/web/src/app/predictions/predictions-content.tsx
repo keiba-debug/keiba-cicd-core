@@ -23,6 +23,7 @@ import { FilterBar } from './components/filter-bar';
 import { SectionNav, type PageTab } from './components/section-nav';
 import { RoiSummary } from './components/roi-summary';
 import { BetRecommendations } from './components/bet-recommendations';
+import { GyakubariRecommendations } from './components/gyakubari-recommendations';
 import { VBTable, type FeaturedEntry } from './components/vb-table';
 import { RaceCard } from './components/race-card';
 import { DangerResults } from './components/danger-results';
@@ -1077,6 +1078,14 @@ export function PredictionsContent({ data, availableDates = [], currentDate = ''
             isLiveCalc={hasLiveOdds}
             isArchive={isArchive}
             oddsTime={oddsTime}
+          />
+
+          {/* 逆張り単（自動投票2スリーブ目）— 本命EV単と1:1で並べる (Session 178) */}
+          <GyakubariRecommendations
+            races={races}
+            oddsMap={oddsMap}
+            dbResults={dbResults}
+            results={results}
           />
 
           {/* 注目馬リスト */}

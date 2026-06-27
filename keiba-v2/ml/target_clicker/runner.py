@@ -86,6 +86,9 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--bet", action="append", default=[],
                    help="買い目仕様 race_id:bet_type:horses:amount (複数指定可)")
+    p.add_argument("--leg-strategy", action="append", default=[],
+                   help="--bet と ★同順★ の戦略名 (purchase_ledger の strategy_name に使う・"
+                        "スリーブ並行運用で本命EV単/逆張り単を税SoTに帰属させる用。 省略=manual_cli)")
     p.add_argument("--from-json", type=Path, default=None,
                    help="selective_bets.json のような JSON から一括読み込み")
     p.add_argument("--from-date", default=None,
@@ -172,8 +175,13 @@ def load_bets_from_args(args: argparse.Namespace
     warnings: list[str] = []
     selective_map: dict = {}  # (race_id, umaban) -> SelectiveBetEntry
 
-    for spec in args.bet:
-        bets.append(parse_bet_spec(spec))
+    # --leg-strategy は --bet と同順 (i番目の --bet の戦略名)。 余分/不足は無視 (安全側)。
+    leg_strats: list[str] = list(getattr(args, "leg_strategy", []) or [])
+    for i, spec in enumerate(args.bet):
+        fb = parse_bet_spec(spec)
+        if i < len(leg_strats) and leg_strats[i]:
+            fb.strategy = leg_strats[i]   # スリーブ並行運用の帰属タグ (本命EV単/逆張り単)
+        bets.append(fb)
 
     json_paths: list[Path] = []
     if args.from_json:
@@ -791,7 +799,8 @@ def main() -> int:
                           f"→ ledger 記録スキップ (投票は成立済、 手動確認要)", file=sys.stderr)
                     continue
                 entry = selective_map.get((b.race_id, b.umaban))
-                strategy = (f"selective_v3_{entry.source}" if entry else "manual_cli")
+                strategy = (b.strategy
+                            or (f"selective_v3_{entry.source}" if entry else "manual_cli"))
                 horses = [b.umaban] + [x for x in (b.umaban2, b.umaban3) if x]
                 groups[(b.race_id, strategy)].append({
                     "bet_type": bt_name,
@@ -830,7 +839,8 @@ def main() -> int:
                     continue
                 seen_races.add(b.race_id)
                 entry = selective_map.get((b.race_id, b.umaban))
-                strategy = (f"selective_v3_{entry.source}" if entry else "manual_cli")
+                strategy = (b.strategy
+                            or (f"selective_v3_{entry.source}" if entry else "manual_cli"))
                 record_vote_failure(
                     race_id=b.race_id,
                     failure_action=result.action,

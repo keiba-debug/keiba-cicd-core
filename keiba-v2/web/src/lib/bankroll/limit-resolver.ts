@@ -46,6 +46,44 @@ export interface BankrollConfig {
     per_day_max_yen?: number;
     limit_mode?: LimitMode;
     limit_priority?: 'absolute_first' | 'percent_first' | 'min';
+    /**
+     * gap単勝 本投票 (Session 176) — 市場較正監査で確定したエッジ「gap≥5単勝×(未勝利/条件/重賞)」
+     * を最初の収益源にする隔離口座。combo とは別 (gap_tansho_scheduler が読む)。
+     *  gap_enabled: master switch (false=投票しない)。
+     *  gap_initial_bankroll_yen: 初期残高 (既定30万)。 残高 = 初期 + 実現PnL (比例サイジングの素)。
+     *  gap_bet_pct: 1点 = 残高 × この% (既定1.0)。
+     *  gap_day_pct: 日次cap = 残高 × この% (既定5.0・暴走ガード)。
+     */
+    gap_enabled?: boolean;
+    gap_initial_bankroll_yen?: number;
+    gap_bet_pct?: number;
+    gap_day_pct?: number;
+    /**
+     * 本命EV単 本投票 (Session 177) — 推奨馬券画面の主力プリセット tansho_ippon
+     * (rank_w=1×gap≥3×EV≥1.3×接戦) を自動投票の2本目スリーブにする隔離口座。gap とは別建て。
+     *  tansho_ev_enabled: master switch (false=投票しない)。
+     *  tansho_ev_initial_bankroll_yen: 初期残高 (既定30万)。
+     *  tansho_ev_bet_pct: 1点 = 残高 × この% (既定2.0)。
+     *  tansho_ev_day_pct: 日次cap = 残高 × この% (既定10.0)。
+     */
+    tansho_ev_enabled?: boolean;
+    tansho_ev_initial_bankroll_yen?: number;
+    tansho_ev_bet_pct?: number;
+    tansho_ev_day_pct?: number;
+    /**
+     * スリーブ全体の日次純投資ハード上限 (Session 177・§5/§11-1a)。 複数スリーブの
+     * Σ純投資 ≤ この額 を sleeve_orchestrator が runner 直前にアサート (誤って増えない専用キー)。
+     * 未設定なら Σ sleeve day_cap にフォールバック (単一スリーブ時 = そのスリーブの cap)。
+     */
+    sleeve_total_day_cap_yen?: number;
+    /**
+     * スリーブの ★レース合算 per_race 上限★ (Session 178・案A 二段化の合算上限・§11-7-7/§11-8)。
+     * 同一レースで複数スリーブが乗ったときの ★合計★ をこの額以内に収める (超過は固定順=低優先から
+     * レース単位で丸ごと見送り)。 ★runner の番人 per_race_max_yen と一致必須★ (食い違うと merge
+     * 溢れ→runner exit5→day-halt)。 web は per_race_max_yen と同値で保存し、 orchestrator は起動時に
+     * 一致を検証して不一致なら投票しない (fail-safe)。 未設定なら per_race_max_yen にフォールバック。
+     */
+    sleeve_per_race_cap_yen?: number;
   };
   rules?: {
     no_increase_after_loss?: boolean;

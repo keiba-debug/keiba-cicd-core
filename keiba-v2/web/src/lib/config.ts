@@ -13,6 +13,12 @@ export const DATA3_ROOT = KEIBA_DATA_ROOT;
 /** AIデータ（bankroll/purchases/predictions）（data3/userdata/） */
 export const AI_DATA_PATH = path.join(DATA3_ROOT, 'userdata');
 
+/** keiba-v2 リポジトリルート（bat 等を読む用。 bat 自身も同じパスを `set KEIBA_V2=` で持つ） */
+export const KEIBA_V2_ROOT =
+  process.env.KEIBA_V2_ROOT || 'C:/KEIBA-CICD/_keiba/keiba-cicd-core/keiba-v2';
+/** スケジューラ bat 群（scripts/） */
+export const SCRIPTS_PATH = path.join(KEIBA_V2_ROOT, 'scripts');
+
 /** BABAデータ（クッション値・含水率） */
 export const BABA_DATA_PATH = path.join(DATA3_ROOT, 'analysis', 'baba');
 

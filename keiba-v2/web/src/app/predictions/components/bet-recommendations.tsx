@@ -55,7 +55,7 @@ export function BetRecommendations({
       <Card className="mb-8 border-gray-200 dark:border-gray-700">
         <CardContent className="py-6 text-center text-muted-foreground">
           <div className="text-lg font-bold mb-1">本日は見送り推奨</div>
-          <div className="text-xs">単勝一本の条件(rw1 × Gap≥3 × EV≥1.3 × margin≤60)を満たす馬が見つかりません</div>
+          <div className="text-xs">本命EV単の条件(rw1 × Gap≥3 × EV≥1.3 × margin≤60)を満たす馬が見つかりません</div>
         </CardContent>
       </Card>
     );
@@ -66,7 +66,12 @@ export function BetRecommendations({
       <CardHeader className="pb-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-lg flex items-center gap-2">
-            システム投資 ({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)
+            <span className="px-2 py-0.5 rounded bg-sky-500 text-white text-sm font-bold">本命EV単</span>
+            <span className="text-sm font-normal text-muted-foreground hidden sm:inline"
+                  title="AIの本命(勝率1位)を、市場が過小評価(gap≥3)・期待値が高く(EV≥1.3)・接戦(margin≤60)のときだけ単勝1点。自動投票の本命EV単スリーブと同条件 (旧称: システム投資/単勝一本/tansho_ippon)。">
+              AI本命×過小評価×高EVの単勝
+            </span>
+            <span className="text-sm">({sortedBetRecommendations.length !== betRecommendations.length ? `${sortedBetRecommendations.length}/` : ''}{betSummary.totalBets}件)</span>
             {isLiveCalc ? (
               <Badge variant="outline" className={`ml-2 text-[10px] ${isArchive
                 ? 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700'
@@ -144,7 +149,7 @@ export function BetRecommendations({
               onClick={syncBetMarks}
               disabled={betSyncing}
               className="px-3 py-1 text-xs font-medium rounded border bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-indigo-300 dark:border-indigo-700 disabled:opacity-50"
-              title="システム投資をFF CSV出力（TARGETの買い目取り込みメニューで読込）"
+              title="本命EV単をFF CSV出力（TARGETの買い目取り込みメニューで読込）"
             >
               {betSyncing ? '出力中...' : 'FF CSV出力'}
             </button>
@@ -152,7 +157,7 @@ export function BetRecommendations({
         </div>
         {/* 戦略表示 */}
         <div className="flex items-center gap-2 mt-2">
-          <Badge variant="outline" className="text-[10px]">単勝一本</Badge>
+          <Badge variant="outline" className="text-[10px]">本命EV単</Badge>
           <span className="text-[10px] text-muted-foreground">
             rw1 × Gap≥3 × EV≥1.3 × margin≤60 — Kelly傾斜
           </span>

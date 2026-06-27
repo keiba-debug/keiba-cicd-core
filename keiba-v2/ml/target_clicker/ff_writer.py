@@ -66,6 +66,9 @@ class FfBet:
     amount: int            # 円
     umaban2: Optional[int] = None
     umaban3: Optional[int] = None
+    # purchase_ledger の strategy_name に使う帰属タグ (スリーブ並行運用・None=manual_cli 扱い)。
+    # FF CSV / 投票クリックには無影響 (税SoT 記録のためだけ・runner が record 時に参照)。
+    strategy: Optional[str] = None
 
     def validate(self) -> None:
         if not self.race_id or len(self.race_id) != 16 or not self.race_id.isdigit():

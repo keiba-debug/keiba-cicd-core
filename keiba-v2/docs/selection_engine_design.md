@@ -147,7 +147,66 @@ S163 以降ずっと「`shobu_rate` → `wide_anaba` → `sanrentan_formation`�
 
 ---
 
-## 6. 変更履歴
+## 7. S175 決定: gap単勝エッジを「最初の収益源」として本投票化 (★次セッションで実装)
+
+S173-175 の市場較正監査で「エッジは gap≥5単勝×(未勝利/条件/重賞) にだけ実在 (a-priori p=0.026)・comboは控除率の壁で勝ち筋なし」と確定 (詳細 `market_calibration_edge_map.md §8`)。
+本番自動投票の実払戻実績 (purchase_ledger v2・8開催) も **ROI 72.9% / PnL -70,433 / 838点** = combo は控除率ぶん丸負けと裏付け。
+→ ふくだ決定: **器 (TARGET/IPAT実行インフラ) は残し、サイザーを gap単勝に差し替える**。
+
+### 7.1 確定パラメータ (次セッション実装の前提)
+- **買い方**: gap単勝 broad = `pred_rank_w≤3 ∧ gap≥5 ∧ cls∈{未勝利,条件,重賞} ∧ win_ev≥1` (全オッズ・odds帯フィルタは過学習で棄却済)。`select_gap_tansho` が canonical。
+- **サイジング**: 1点 = **bankroll 実残高 × 1% (比例・100円単位・最低100円)**。固定額でなく残高連動 (Themis原則=入力に残高/破産ガード)。
+  - 監査MC (実払戻13ヶ月・5000回): 比例1%は **破産確率0% / 中央 30万→86万 / 上振れ5%500万 / 最悪5%最終18万**。固定額3000円は破産2.7%。比例が全面的に優位。
+  - 「1点を厚く」は勝つにつれ自動で叶う (残高増→1点増)。エッジ下振れ時もジワ減りで破産しない。
+- **初期bankroll**: **30万 (隔離口座・本番bettype_autoの per_day 檻と分離)**。
+- **combo (sanrentan_formation)**: 止める。
+- **追加の買い方** (高ARD妙味穴の天井供給 等): 別途検討 (本件スコープ外)。
+
+### 7.2 実装チェックリスト (次セッション)
+1. **bankroll 実残高の追跡層** — 初期30万 + 累計実PnL。`settle_ledger` (portfolio_pnl) / `day_recovery` から現残高を取り「1点=残高×1%」を算出。更新は日次 (当日開始時残高) で可。
+2. **gap単勝サイザーの配線** — `bettype_scheduler` は bankroll を引数で受ける設計。`select_gap_tansho`(broad) → 比例残高で1点額 → 投票。`size_race_*` 相当を新設 or gap専用 sizer。
+3. **`bettype_auto.bat --sizing` を combo→gap単勝へ切替** (SJIS+CRLFバイト編集)。
+4. **口座/檻の分離** — 30万専用。`manual-auto-bet-coexistence` の檻リスク回避。
+5. テスト (sizer・残高連動・100円単位丸め) + dry → 次開催ライブ。
+- **留意**: フォワード実績ゼロ・CI下限81%。比例1%が破産ガードを内包するので様子見0.5%は不要だが、エッジが下振れする可能性は残る。shadow (gap_tansho_shadow) と並走で乖離監視。
+
+### 7.3 S176 実装 (本投票化を実装・★稼働は web の master switch 待ち★)
+**方針決定 (ふくだ S176)**: 「実弾化する。比率は 1% でよいが ★画面で設定できるように★ しよう」。
+→ `market_calibration_edge_map.md §8.4` の慎重論 (「今は実弾化せず shadow を溜める / deep フラクショナル
+≤0.5%」) に対し、ふくだは **30万隔離口座での実弾化を選択・比率1%・web 設定可** とした。隔離口座 + 比例
+(破産ガード内包) + master switch + shadow 並走監視で、リスクを限定しつつリアルな試行データを取る判断。
+docs (SSoT) はこの実装内容を正本として記録する。
+
+**実装 (S176・全て新規追加。combo の bettype_scheduler/sizing は無改変=即ロールバック可)**:
+1. **`ml/strategies/gap_tansho_live.py`** (新) — config 読取 (`read_gap_config`: gap_enabled / gap_initial_bankroll_yen /
+   gap_bet_pct / gap_day_pct を `bankroll/config.json settings` から)、bankroll 残高 (`account_balance` = 初期 +
+   実現PnL)、サイズ (`stake_for` = 残高×比率・100円丸め・最低100)、`size_gap_race` (select_gap_tansho broad →
+   RaceSizing)、`settle_gap_day` (実払戻で台帳に実現PnL を蓄積)。残高 = 初期30万 + 過去実現PnL の専用台帳
+   `userdata/gap_tansho_live/ledger.json` (combo の purchase_ledger とは別の口座簿)。
+2. **`ml/strategies/gap_tansho_scheduler.py`** (新・専用スケジューラ) — freebudget の安全機構 (timing/lock/state/
+   halt/鮮度/連続失敗) + bettype の投票経路 (runner --bet) を ★import 流用★。state/lock/cage/bankroll は ★完全隔離★
+   (`gap_tansho_scheduler_state.json` 等)。当日開始時に bankroll/日次cap を凍結。日次cap = 残高×day_pct% を
+   純損失(回収差引)ベースで。per_race 上限は `read_per_race_cap` (=runner番人と同値) で複数点を fit。
+   `--settle`/`--report`/`--halt`/`--resume`/`--confirm --i-understand-live`。
+   **★master switch★**: `gap_enabled=False` (既定) なら静かに no-op = bat 切替後も web で有効化するまで1円も賭けない。
+3. **web 資金管理画面** — `BudgetForm.tsx` に「gap単勝 自動投票（隔離口座）」セクション (有効/無効トグル・初期残高・
+   1点比率%・日次cap%・1点額プレビュー)。`api/bankroll/config/route.ts` の `ConfigPatchBody`+`applyPatch` と
+   `lib/bankroll/limit-resolver.ts` の型に gap_* を追加 (whitelist 方式なので両方必須)。
+4. **`scripts/bettype_auto.bat`** — combo (`bettype_scheduler --sizing sanrentan_formation`) → `gap_tansho_scheduler`
+   に切替 (SJIS+CRLF バイト保存・ロールバック用 REM + `.bak_s176`)。`scripts/settle_auto.bat` に夜間 gap settle 配線。
+5. **テスト** `ml/tests/test_gap_tansho_live.py` (23 green: config/サイズ/残高/台帳/scheduler master switch・凍結・
+   日次cap・冪等)。dry-run 実機で 6/21 を再現 (東京11R uma11 を 30万×1%=3000円で WOULD VOTE = shadow と一致)。
+
+**運用 (次の手順)**: ① web 資金管理で gap を「有効」+ 初期残高30万 + 1点1% を保存 → ② 次開催 (6/28) から
+Task Scheduler の bettype_auto.bat (gap live) が稼働 → ③ 夜 settle_auto が gap 台帳を更新し残高に反映。
+**未配線/留意**: ①gap settle の late-payout catch-up は当日のみ (tansho は同日確定が基本)。②runner の purchase_ledger
+記録は gap 専用 strategy タグ無し (税SoT には残るが gap 集計は別台帳)。③combo は停止 (bat 切替で no-op 化)。
+
+---
+
+## 8. 変更履歴
 | Session | 変更 |
 |---|---|
 | 172 | 初版。ふくだ「型を捨てて全組み合わせから選定」ビジョンを設計化。東京9R(6万取り逃し)で型の限界を実証。①動的点数(頭数)は死蔵と確定。副産物=◎過剰人気 win_ev 見送りゲート(ev_gate=0.6 が現行超え)。較正バイアス(EV順=幽霊点/確率順=過剰人気◎)が本丸と再確認。 |
+| 175 | gap単勝エッジを最初の収益源として本投票化を決定 (§7)。combo実払戻実績ROI72.9%/-70,433 で勝ち筋なしを裏付け。器は残しサイザーをgap単勝(broad)に差し替え・1点=残高×1%比例(破産0%)・初期30万隔離。次セッションで実装。 |
+| 176 | 本投票化を実装 (§7.3)。ふくだ判断=実弾化する/比率1%/★画面で設定可★ (§8.4 慎重論に対し30万隔離+比例+master switchでリスク限定の上で実弾化を選択)。新規=gap_tansho_live.py (config/残高/サイズ/台帳)・gap_tansho_scheduler.py (専用・安全機構import流用・隔離state/cage)・web資金管理にgap項目・bettype_auto.bat切替 (combo停止・ロールバック可)・夜settle配線・テスト23green。★稼働は web で gap_enabled=true にするまで no-op★ (master switch)。次開催6/28から。 |

@@ -59,6 +59,28 @@ const getRoiColor = (roi: number) => {
   return 'text-muted-foreground';
 };
 
+/**
+ * 戦略名 → 表示。スリーブ並行運用 (Session 178) の本命EV単/逆張り単は色付きバッジで
+ * 「どのエンジンの買い目か」を一目で分かるようにする。 それ以外 (manual_cli/selective_v3_*) は素表示。
+ * キーは purchase_ledger の strategy_name (runner --leg-strategy 由来)。
+ */
+const SLEEVE_LABELS: Record<string, { label: string; cls: string }> = {
+  honmei_ev: { label: '本命EV単', cls: 'bg-sky-500 text-white' },
+  gap_tansho: { label: '逆張り単', cls: 'bg-amber-500 text-white' },
+};
+
+const StrategyCell = ({ name }: { name: string }) => {
+  const sleeve = SLEEVE_LABELS[name];
+  if (sleeve) {
+    return (
+      <Badge className={`text-xs font-bold ${sleeve.cls}`} title={`自動投票エンジン: ${sleeve.label}（${name}）`}>
+        {sleeve.label}
+      </Badge>
+    );
+  }
+  return <span>{name}</span>;
+};
+
 export function AutoPurchaseHistory({ dateStr, refreshKey }: AutoPurchaseHistoryProps) {
   const today = new Date();
 
@@ -372,7 +394,7 @@ export function AutoPurchaseHistory({ dateStr, refreshKey }: AutoPurchaseHistory
                 <TableBody>
                   {byStrategy.map((s) => (
                     <TableRow key={s.strategy_name} className="hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20">
-                      <TableCell className="font-medium">{s.strategy_name}</TableCell>
+                      <TableCell className="font-medium"><StrategyCell name={s.strategy_name} /></TableCell>
                       <TableCell className="text-right font-mono">
                         {s.settled_count}
                         {s.pending_count > 0 && (
@@ -532,7 +554,7 @@ export function AutoPurchaseHistory({ dateStr, refreshKey }: AutoPurchaseHistory
 
                               return (
                                 <TableRow key={betIndex} className={rowClass}>
-                                  <TableCell className="font-medium">{bet.strategy_name}</TableCell>
+                                  <TableCell className="font-medium"><StrategyCell name={bet.strategy_name} /></TableCell>
                                   <TableCell>{bet.bet_type}</TableCell>
                                   <TableCell>{bet.selection}</TableCell>
                                   <TableCell className="text-right">{formatCurrency(bet.amount)}</TableCell>

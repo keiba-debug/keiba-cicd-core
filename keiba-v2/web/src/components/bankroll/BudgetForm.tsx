@@ -14,6 +14,19 @@ interface Config {
     daily_limit_percent: number;
     race_limit_percent: number;
     use_current_balance?: boolean; // 現在資金ベースか投資枠ベースか
+    per_race_max_yen?: number; // 1レース上限 (per_race_cap・スリーブ1点額もこれで縮小される)
+    // gap単勝 本投票 (Session 176) — 隔離口座。combo とは別の自動投票枠。
+    gap_enabled?: boolean;
+    gap_initial_bankroll_yen?: number;
+    gap_bet_pct?: number;
+    gap_day_pct?: number;
+    // 本命EV単 本投票 (Session 177) — 2本目スリーブ (隔離口座・gap と別建て)。
+    tansho_ev_enabled?: boolean;
+    tansho_ev_initial_bankroll_yen?: number;
+    tansho_ev_bet_pct?: number;
+    tansho_ev_day_pct?: number;
+    sleeve_total_day_cap_yen?: number; // スリーブ全体の日次純投資ハード上限 (0=自動=Σ)
+    sleeve_per_race_cap_yen?: number; // スリーブのレース合算per_race上限 (案A・per_race_max_yenと連動)
   };
   calculated: {
     dailyLimit: number;
@@ -37,6 +50,20 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
     daily_limit_percent: 5.0,
     race_limit_percent: 2.0,
     use_current_balance: true, // デフォルトは現在資金ベース
+    // gap単勝 本投票 (Session 176)。 既定 = 無効・30万・1点1%・日次5%。
+    gap_enabled: false,
+    gap_initial_bankroll_yen: 300000,
+    gap_bet_pct: 1.0,
+    gap_day_pct: 5.0,
+    // 本命EV単 本投票 (Session 177)。 既定 = 無効・30万・1点2%・日次10%。
+    tansho_ev_enabled: false,
+    tansho_ev_initial_bankroll_yen: 300000,
+    tansho_ev_bet_pct: 2.0,
+    tansho_ev_day_pct: 10.0,
+    sleeve_total_day_cap_yen: 0, // 0=自動(各スリーブ日次capの合計)
+    // レース合算per_race上限 (案A・Session 178)。保存時 per_race_max_yen にも連動して書く
+    //   (= runner番人と一致必須)。初期は現 per_race_max_yen を引き継ぐ。
+    sleeve_per_race_cap_yen: 5200,
   });
 
   useEffect(() => {
@@ -53,6 +80,17 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
             daily_limit_percent: data.settings?.daily_limit_percent || 5.0,
             race_limit_percent: data.settings?.race_limit_percent || 2.0,
             use_current_balance: data.settings?.use_current_balance ?? true,
+            gap_enabled: data.settings?.gap_enabled ?? false,
+            gap_initial_bankroll_yen: data.settings?.gap_initial_bankroll_yen ?? 300000,
+            gap_bet_pct: data.settings?.gap_bet_pct ?? 1.0,
+            gap_day_pct: data.settings?.gap_day_pct ?? 5.0,
+            tansho_ev_enabled: data.settings?.tansho_ev_enabled ?? false,
+            tansho_ev_initial_bankroll_yen: data.settings?.tansho_ev_initial_bankroll_yen ?? 300000,
+            tansho_ev_bet_pct: data.settings?.tansho_ev_bet_pct ?? 2.0,
+            tansho_ev_day_pct: data.settings?.tansho_ev_day_pct ?? 10.0,
+            sleeve_total_day_cap_yen: data.settings?.sleeve_total_day_cap_yen ?? 0,
+            sleeve_per_race_cap_yen:
+              data.settings?.sleeve_per_race_cap_yen ?? data.settings?.per_race_max_yen ?? 5200,
           });
         }
         
@@ -76,10 +114,16 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // ★案A 連動 (Session 178)★: レース合算上限は runner の番人 per_race_max_yen と一致必須なので、
+      //   保存時に per_race_max_yen も同値で書く (orchestrator は不一致なら投票しない fail-safe)。
+      const payload = {
+        ...formData,
+        per_race_max_yen: formData.sleeve_per_race_cap_yen,
+      };
       const res = await fetch('/api/bankroll/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
@@ -105,6 +149,17 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
         daily_limit_percent: config.settings.daily_limit_percent,
         race_limit_percent: config.settings.race_limit_percent,
         use_current_balance: config.settings.use_current_balance ?? true,
+        gap_enabled: config.settings.gap_enabled ?? false,
+        gap_initial_bankroll_yen: config.settings.gap_initial_bankroll_yen ?? 300000,
+        gap_bet_pct: config.settings.gap_bet_pct ?? 1.0,
+        gap_day_pct: config.settings.gap_day_pct ?? 5.0,
+        tansho_ev_enabled: config.settings.tansho_ev_enabled ?? false,
+        tansho_ev_initial_bankroll_yen: config.settings.tansho_ev_initial_bankroll_yen ?? 300000,
+        tansho_ev_bet_pct: config.settings.tansho_ev_bet_pct ?? 2.0,
+        tansho_ev_day_pct: config.settings.tansho_ev_day_pct ?? 10.0,
+        sleeve_total_day_cap_yen: config.settings.sleeve_total_day_cap_yen ?? 0,
+        sleeve_per_race_cap_yen:
+          config.settings.sleeve_per_race_cap_yen ?? config.settings.per_race_max_yen ?? 5200,
       });
     }
   };
@@ -299,6 +354,272 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
         </div>
       </div>
 
+      {/* ★gap単勝 本投票 (Session 176) = 隔離口座。combo とは別の自動投票枠★ */}
+      <div className="p-4 rounded-lg border-2 border-amber-500/40 bg-amber-500/5">
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm font-semibold flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-amber-600" />
+            逆張り単（gap単勝）自動投票・隔離口座
+          </label>
+          {/* 現在の状態バッジ（紛らわしさ回避：ラベルは状態を断言） */}
+          <span
+            className={`text-xs font-bold px-2 py-1 rounded ${
+              formData.gap_enabled
+                ? 'bg-amber-500 text-white'
+                : 'bg-muted text-muted-foreground'
+            }`}
+          >
+            {formData.gap_enabled ? '● 稼働する' : '○ 停止中'}
+          </span>
+        </div>
+        {/* 2ボタン選択式（選ばれている方がハイライト＝現状態。押した方に切り替わる） */}
+        <div className="flex gap-2 mb-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={formData.gap_enabled ? 'default' : 'outline'}
+            onClick={() => setFormData({ ...formData, gap_enabled: true })}
+            className="flex-1"
+          >
+            有効にする
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={!formData.gap_enabled ? 'default' : 'outline'}
+            onClick={() => setFormData({ ...formData, gap_enabled: false })}
+            className="flex-1"
+          >
+            無効にする
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          市場較正監査で確定したエッジ「gap≥5単勝×(未勝利/条件/重賞)」を単勝で買う収益源枠。
+          <strong>combo（三連単フォメ）とは別口座</strong>で、上の日次上限とも分離されています。
+          「有効にする」を選んで<strong>下の「保存」を押すと</strong>、次の開催から稼働します。
+        </p>
+        <div className={formData.gap_enabled ? 'space-y-3' : 'space-y-3 opacity-50'}>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">初期残高（隔離口座）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="10000"
+                value={formData.gap_initial_bankroll_yen}
+                disabled={!formData.gap_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, gap_initial_bankroll_yen: parseInt(e.target.value) || 0 })
+                }
+                className="flex-1 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground w-8">円</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              残高 = 初期 + 実現損益。比例サイジングの素になります。
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">1点の比率（残高×%）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="0.1"
+                value={formData.gap_bet_pct}
+                disabled={!formData.gap_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, gap_bet_pct: parseFloat(e.target.value) || 0 })
+                }
+                className="w-24 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground">%</span>
+              <span className="text-lg font-bold text-amber-600 ml-auto">
+                → 1点 ¥{(Math.floor((formData.gap_initial_bankroll_yen * formData.gap_bet_pct) / 100 / 100) * 100).toLocaleString()}
+              </span>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">日次上限（残高×%・暴走ガード）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="0.5"
+                value={formData.gap_day_pct}
+                disabled={!formData.gap_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, gap_day_pct: parseFloat(e.target.value) || 0 })
+                }
+                className="w-24 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground">%</span>
+              <span className="text-lg font-bold text-amber-600 ml-auto">
+                → 日次 ¥{(Math.floor((formData.gap_initial_bankroll_yen * formData.gap_day_pct) / 100 / 100) * 100).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ★本命EV単 本投票 (Session 177) = 2本目スリーブ・隔離口座★ */}
+      <div className="p-4 rounded-lg border-2 border-sky-500/40 bg-sky-500/5">
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm font-semibold flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-sky-600" />
+            本命EV単 自動投票・隔離口座
+          </label>
+          <span
+            className={`text-xs font-bold px-2 py-1 rounded ${
+              formData.tansho_ev_enabled
+                ? 'bg-sky-500 text-white'
+                : 'bg-muted text-muted-foreground'
+            }`}
+          >
+            {formData.tansho_ev_enabled ? '● 稼働する' : '○ 停止中'}
+          </span>
+        </div>
+        <div className="flex gap-2 mb-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={formData.tansho_ev_enabled ? 'default' : 'outline'}
+            onClick={() => setFormData({ ...formData, tansho_ev_enabled: true })}
+            className="flex-1"
+          >
+            有効にする
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={!formData.tansho_ev_enabled ? 'default' : 'outline'}
+            onClick={() => setFormData({ ...formData, tansho_ev_enabled: false })}
+            className="flex-1"
+          >
+            無効にする
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          AIの本命(勝率1位)を、市場が過小評価していて(gap≥3)・期待値が高く(EV≥1.3)・接戦のときだけ
+          単勝1点で買う本命妙味の収益源枠（推奨馬券画面の「本命EV単」と同条件）。
+          <strong>逆張り単とは別口座</strong>です。「有効にする」を選んで<strong>保存</strong>すると次の開催から稼働します。
+        </p>
+        <div className={formData.tansho_ev_enabled ? 'space-y-3' : 'space-y-3 opacity-50'}>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">初期残高（隔離口座）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="10000"
+                value={formData.tansho_ev_initial_bankroll_yen}
+                disabled={!formData.tansho_ev_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, tansho_ev_initial_bankroll_yen: parseInt(e.target.value) || 0 })
+                }
+                className="flex-1 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground w-8">円</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              残高 = 初期 + 実現損益。比例サイジングの素になります。
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">1点の比率（残高×%）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="0.1"
+                value={formData.tansho_ev_bet_pct}
+                disabled={!formData.tansho_ev_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, tansho_ev_bet_pct: parseFloat(e.target.value) || 0 })
+                }
+                className="w-24 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground">%</span>
+              <span className="text-lg font-bold text-sky-600 ml-auto">
+                → 1点 ¥{(Math.floor((formData.tansho_ev_initial_bankroll_yen * formData.tansho_ev_bet_pct) / 100 / 100) * 100).toLocaleString()}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              ※ 案A（二段化）では各スリーブは自分の比率で満額買います。同一レースで両スリーブが重なって
+              合算が下の<strong>「レース合算上限」¥{formData.sleeve_per_race_cap_yen.toLocaleString()}</strong>を
+              超えるときだけ、低優先（逆張り単）からレース単位で見送ります。
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">日次上限（残高×%・暴走ガード）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="0.5"
+                value={formData.tansho_ev_day_pct}
+                disabled={!formData.tansho_ev_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, tansho_ev_day_pct: parseFloat(e.target.value) || 0 })
+                }
+                className="w-24 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground">%</span>
+              <span className="text-lg font-bold text-sky-600 ml-auto">
+                → 日次 ¥{(Math.floor((formData.tansho_ev_initial_bankroll_yen * formData.tansho_ev_day_pct) / 100 / 100) * 100).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ★レース合算上限 (案A・Session 178) = 1レースに自動投票する最大額(両スリーブ合算)★ */}
+      <div className="p-4 rounded-lg border border-border bg-muted/20">
+        <label className="text-xs text-muted-foreground block mb-1">
+          レース合算上限（1レースの自動投票 最大額・両スリーブ合算 / runner番人と共通）
+        </label>
+        <div className="flex items-center gap-3">
+          <Input
+            type="number"
+            step="1000"
+            value={formData.sleeve_per_race_cap_yen}
+            onChange={(e) =>
+              setFormData({ ...formData, sleeve_per_race_cap_yen: parseInt(e.target.value) || 0 })
+            }
+            className="flex-1 text-right text-lg font-bold h-12"
+          />
+          <span className="text-base text-muted-foreground w-8">円</span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          各スリーブは自分の比率で満額を買い、同一レースで重なって合算がこの額を超えるときだけ
+          <strong>優先度の低い逆張り単からレース単位で見送り</strong>ます。両方を満額で通すには
+          本命EV単 ¥{(Math.floor((formData.tansho_ev_initial_bankroll_yen * formData.tansho_ev_bet_pct) / 100 / 100) * 100).toLocaleString()}
+          ＋逆張り単 ¥{(Math.floor((formData.gap_initial_bankroll_yen * formData.gap_bet_pct) / 100 / 100) * 100).toLocaleString()}
+          ＝¥{(
+            Math.floor((formData.tansho_ev_initial_bankroll_yen * formData.tansho_ev_bet_pct) / 100 / 100) * 100 +
+            Math.floor((formData.gap_initial_bankroll_yen * formData.gap_bet_pct) / 100 / 100) * 100
+          ).toLocaleString()} 以上が必要です。
+          <strong>保存すると runner の per_race_max_yen にも同じ額が入ります（一致必須）。</strong>
+        </p>
+      </div>
+
+      {/* ★スリーブ全体の日次純投資ハード上限 (Session 177・複数スリーブ運用時の合算cap)★ */}
+      <div className="p-4 rounded-lg border border-border bg-muted/20">
+        <label className="text-xs text-muted-foreground block mb-1">
+          スリーブ全体の日次上限（逆張り単＋本命EV単の合算ハード上限）
+        </label>
+        <div className="flex items-center gap-3">
+          <Input
+            type="number"
+            step="10000"
+            value={formData.sleeve_total_day_cap_yen}
+            onChange={(e) =>
+              setFormData({ ...formData, sleeve_total_day_cap_yen: parseInt(e.target.value) || 0 })
+            }
+            className="flex-1 text-right text-lg font-bold h-12"
+          />
+          <span className="text-base text-muted-foreground w-8">円</span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          <strong>0 = 自動</strong>（各スリーブの日次上限の合計）。複数スリーブの1日の純投資がこの額を超えないよう、
+          優先度の低いスリーブ（逆張り単）から脚を落とします。
+        </p>
+      </div>
+
       <div className="flex gap-3 pt-4">
         <Button onClick={handleSave} disabled={saving} className="flex-1 h-11">
           <Save className="h-4 w-4 mr-2" />
@@ -335,7 +656,11 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
 
   // モーダル表示の場合はカードなし
   if (isModal) {
-    return formContent;
+    return (
+      <div className="max-h-[70vh] overflow-y-auto pr-1">
+        {formContent}
+      </div>
+    );
   }
 
   // 通常表示の場合はカードでラップ

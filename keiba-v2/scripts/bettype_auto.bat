@@ -23,13 +23,18 @@ set TODAY=%date:~0,4%-%date:~5,2%-%date:~8,2%
 set LOG_FILE=%LOG_DIR%\%TODAY%.log
 cd /d "%KEIBA_V2%"
 call "%VENV%"
+REM === Session 176: switched combo (sanrentan_formation) -> gap-tansho LIVE sleeve ===
+REM   sleeve_orchestrator runs enabled sleeves (registry); gap_tansho sleeve = behavior-identical to old gap_tansho_scheduler (parity diff-0 verified).
+REM   NO-OP until gap_enabled=true is set on the web bankroll settings screen (master switch).
+REM   ROLLBACK to combo: restore scripts/bettype_auto.bat.bak_s176 (or swap module back to bettype_scheduler
+REM     --strategy concentrate --sizing sanrentan_formation --per-day-max-yen 30000).
 if /i "%MODE%"=="live" (
-    python -m ml.strategies.bettype_scheduler --date today --confirm --i-understand-live --strategy concentrate --sizing sanrentan_formation --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
+    python -m ml.strategies.sleeve_orchestrator --date today --confirm --i-understand-live >> "%LOG_FILE%" 2>&1
 ) else (
-    python -m ml.strategies.bettype_scheduler --date today --strategy concentrate --sizing sanrentan_formation --per-day-max-yen 30000 >> "%LOG_FILE%" 2>&1
+    python -m ml.strategies.sleeve_orchestrator --date today >> "%LOG_FILE%" 2>&1
 )
 set EXIT_CODE=%ERRORLEVEL%
-echo [%date% %time%] bettype_auto mode=%MODE% strategy=concentrate exit=%EXIT_CODE% >> "%LOG_FILE%"
+echo [%date% %time%] bettype_auto mode=%MODE% sleeve=gap_tansho exit=%EXIT_CODE% >> "%LOG_FILE%"
 REM --- “Š•[Œã: AI’¼‘Oˆó(markSet=3)‚ðw“ü‘ä’ ‚©‚ç‘¦Žž”½‰f (live ‚Ì‚ÝEsettle‘Ò‚½‚¸ intraday) ---
 if /i "%MODE%"=="live" python -m ml.ai_marks.write_buy_marks --today --apply >> "%LOG_FILE%" 2>&1
 endlocal

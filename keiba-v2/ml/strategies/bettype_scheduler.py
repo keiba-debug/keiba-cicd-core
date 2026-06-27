@@ -212,7 +212,8 @@ def vote_one_race_multi(day_dir: Path, race_id: str, race_sizing, *,
     amount = race_sizing.total_yen
     bet_specs = build_bet_specs(race_id, race_sizing)
     leg_summary = [{"bet_type": l.bet_type, "horses": l.horses, "amount": l.amount,
-                    "leg_odds": l.leg_odds, "ev": l.ev, "plan_label": l.plan_label}
+                    "leg_odds": l.leg_odds, "ev": l.ev, "plan_label": l.plan_label,
+                    "sleeve": l.sleeve}
                    for l in legs]
     base = {"amount": amount, "bet_count": len(legs), "bet_specs": bet_specs,
             "legs": leg_summary, "anchor_yen": race_sizing.anchor_yen,
@@ -234,6 +235,12 @@ def vote_one_race_multi(day_dir: Path, race_id: str, race_sizing, *,
     cmd = [sys.executable, "-m", "ml.target_clicker.runner"]
     for spec in bet_specs:
         cmd += ["--bet", spec]
+    # ★スリーブ並行運用 (Session 178)★: 脚にスリーブタグがあれば --bet と同順で渡し、
+    #   purchase_ledger の strategy_name に帰属させる (本命EV単/逆張り単を税SoTで区別)。
+    #   bet_specs 文字列は無改変 (= 挙動/parity 不変)・ledger 記録の戦略名だけが変わる。
+    if any(getattr(l, "sleeve", None) for l in legs):
+        for l in legs:
+            cmd += ["--leg-strategy", l.sleeve or ""]
     cmd += ["--max-yen", str(max_yen), "--max-bets", str(len(legs)),
             "--login-timeout", str(login_timeout), "--confirm"]
     proc = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parents[2]))

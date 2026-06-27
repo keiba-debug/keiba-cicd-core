@@ -41,7 +41,7 @@ export default function BankrollPage() {
                 予算設定
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[560px] max-h-[90vh] overflow-hidden">
               <DialogHeader>
                 <DialogTitle>予算設定</DialogTitle>
               </DialogHeader>

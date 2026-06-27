@@ -47,8 +47,11 @@ cd /d "%KEIBA_V2%"
 call "%VENV%"
 if "%~1"=="" (
     python -m ml.settle_ledger --today --catchup-days 2 >> "%LOG_FILE%" 2>&1
+    REM Session 176: gap-tansho live sleeve settle (own ledger = isolated bankroll)
+    python -m ml.strategies.sleeve_orchestrator --date today --settle >> "%LOG_FILE%" 2>&1
 ) else (
     python -m ml.settle_ledger --date %~1 >> "%LOG_FILE%" 2>&1
+    python -m ml.strategies.sleeve_orchestrator --date %~1 --settle >> "%LOG_FILE%" 2>&1
 )
 set EXIT_CODE=%ERRORLEVEL%
 

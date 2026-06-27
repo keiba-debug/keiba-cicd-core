@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { MultiLegRecommendation, PredictionRace } from '@/lib/data/predictions-reader';
 import { MultiLegRecommendations } from '@/app/predictions/components/multi-leg-recommendations';
+import { selectGapTansho, type GapRaceLike } from '@/app/predictions/lib/gap-tansho';
 import { OddsFreshnessBadge } from '@/components/odds/OddsFreshnessBadge';
 import type { OddsFreshness } from '@/lib/data/rt-data-types';
 
@@ -99,11 +100,14 @@ interface PredictionsData {
     venue_name: string;
     race_number: number;
     track_type?: string;
+    grade?: string;        // 逆張り単 クラス判定 (実行時は predictions.json 全文に存在)
+    race_name?: string;    // grade 空時のフォールバック源
     entries: Array<{
       umaban: number;
       horse_name: string;
       odds: number;
       rank_w?: number;
+      odds_rank?: number;  // 逆張り単 gap=odds_rank-rank_w 用
       win_vb_gap?: number;
       win_ev?: number;
       predicted_margin?: number;
@@ -147,31 +151,41 @@ interface OtherPresetData {
 }
 
 // プリセットのラベル定義
+// ★命名統一 (Session 178)★: 主力単勝は自動投票スリーブと同じ「本命EV単」に統一
+//   (旧称 単勝一本/システム投資/tansho_ippon)。内部キー tansho_ippon は据え置き (pipeline 安定)。
 const PRESET_LABELS: Record<string, string> = {
-  tansho_ippon: '単勝一本',
+  tansho_ippon: '本命EV単',
   honmei_umaren: '本命馬連',
   umaren_hirome: '馬連広め',
+  gap_tansho: '逆張り単',   // 自動投票2スリーブ目 (client-side で selectGapTansho 算出・下記注入)
 };
 
-// polaris 2.1b シミュレーション結果に基づく戦略説明
+// 現行シミュ (bankroll_simulation.json / v2.3-s164) に基づく戦略説明
 const PRESET_DESCRIPTIONS: Record<string, React.ReactNode> = {
   tansho_ippon: (
     <>
-      <p><strong>単勝一本</strong> — Wモデル1位 × Gap≥3 × EV≥1.3 × 接戦</p>
-      <p>Flat ROI 156.1% / 的中率 12.8% / 164件</p>
-      <p>flat500: +46.0% / Calmar 3.77 — 最もシンプルで最高ROI</p>
+      <p><strong>本命EV単</strong> — Wモデル1位 × Gap≥3 × EV≥1.3 × 接戦（旧称: 単勝一本）</p>
+      <p>Flat ROI 108.3% / 的中率 11.7% / 197件（現行シミュ v2.3-s164）</p>
+      <p>flat500: +8.1% / Calmar 0.41 — 自動投票の本命EV単スリーブと同条件。<a href="/analysis/honmei-ev-validation" className="text-sky-600 hover:underline">検証→</a></p>
+    </>
+  ),
+  gap_tansho: (
+    <>
+      <p><strong>逆張り単</strong> — AI評価＞人気の過小評価馬の単勝（gap≥5・未勝利/条件/重賞）</p>
+      <p>市場較正監査で確定したエッジ（in-sample ROI 130% / P(null≥130%)=0.026）</p>
+      <p>自動投票の逆張り単スリーブと同条件。中〜高配狙い・該当は月数回</p>
     </>
   ),
   honmei_umaren: (
     <>
-      <p><strong>本命馬連</strong> — 単勝一本の軸 + Pモデル上位2頭への馬連</p>
+      <p><strong>本命馬連</strong> — 本命EV単の軸 + Pモデル上位2頭への馬連</p>
       <p>Flat ROI 131.2% / 492件 (単勝+馬連)</p>
       <p>flat500: +76.8% / Calmar 2.17 — 馬連で利益拡大</p>
     </>
   ),
   umaren_hirome: (
     <>
-      <p><strong>馬連広め</strong> — 単勝一本の軸 + ARd上位3頭への馬連</p>
+      <p><strong>馬連広め</strong> — 本命EV単の軸 + ARd上位3頭への馬連</p>
       <p>Flat ROI 98.4% / 656件 (単勝+馬連)</p>
       <p>点数多め。馬連3点で広く拾うが分散リスクあり</p>
     </>
@@ -496,6 +510,43 @@ export function ExecuteTab() {
         }
         others.sort((a, b) => b.betCount - a.betCount);
       }
+
+      // ★逆張り単 (gap_tansho) を client-side で算出して preset に注入 (Session 178)★
+      //   data.races は実行時 predictions.json 全文 (grade/race_name/odds_rank あり)。選定は
+      //   selectGapTansho (Python select_gap_tansho の TS 移植・自動投票の逆張り単スリーブと同条件)。
+      //   金額は他プリセットと同じ getRecAmount (バンクロール×ベット率) で手動投票用に算出される。
+      const gapEntries: RecommendationEntry[] = [];
+      for (const race of (data.races || [])) {
+        for (const pick of selectGapTansho(race as GapRaceLike)) {
+          const ent = race.entries.find(e => e.umaban === pick.umaban);
+          gapEntries.push({
+            race_id: race.race_id,
+            venue: race.venue_name,
+            race_number: race.race_number,
+            umaban: pick.umaban,
+            horse_name: pick.horseName,
+            odds: pick.odds,
+            rank_w: pick.rankW,
+            win_vb_gap: pick.gap,
+            win_ev: pick.winEv,
+            predicted_margin: ent?.predicted_margin ?? null,
+            ar_deviation: ent?.ar_deviation ?? null,
+            pred_proba_w_cal: ent?.pred_proba_w_cal ?? null,
+            win_amount: 0,
+            place_amount: 0,
+            strength: pick.gap >= 7 ? 'strong' : 'normal',
+            bet_type: '単勝',
+            track_type: race.track_type,
+          });
+        }
+      }
+      gapEntries.sort((a, b) => {
+        if (a.race_number !== b.race_number) return a.race_number - b.race_number;
+        if (a.venue !== b.venue) return a.venue.localeCompare(b.venue);
+        return a.umaban - b.umaban;
+      });
+      if (gapEntries.length > 0) presetsMap['gap_tansho'] = gapEntries;
+
       setAllPresetsMap(presetsMap);
       setOtherPresets(others);
     } catch {
@@ -842,11 +893,10 @@ export function ExecuteTab() {
     return { winCount, placeCount, obstacleCount, wideCount, umarenCount, umatanCount, gekisenWideCount };
   }, [displayRecs]);
 
-  // プリセット選択肢: polaris 2.1b シミュレーション結果
-  // tansho_ippon: Flat ROI 156.1% (rw1+gap3+EV1.3+m60, 単勝最強)
-  // honmei_umaren: Flat ROI 131.2% (単勝一本軸 + Pモデル馬連2点)
-  // umaren_hirome: Flat ROI 98.4% (単勝一本軸 + ARd馬連3点)
-  const PRESET_CHOICES = ['tansho_ippon', 'honmei_umaren', 'umaren_hirome'] as const;
+  // プリセット選択肢 (現行シミュ v2.3-s164 / bankroll_simulation.json)
+  // tansho_ippon(本命EV単): Flat ROI 108.3% (rw1+gap3+EV1.3+m60, 単勝)
+  // honmei_umaren: 本命EV単軸 + Pモデル馬連2点 / umaren_hirome: 本命EV単軸 + ARd馬連3点
+  const PRESET_CHOICES = ['tansho_ippon', 'gap_tansho', 'honmei_umaren', 'umaren_hirome'] as const;
 
   return (
     <div className="space-y-6">

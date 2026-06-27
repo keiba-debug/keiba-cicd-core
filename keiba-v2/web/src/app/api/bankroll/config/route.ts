@@ -56,6 +56,21 @@ interface ConfigPatchBody {
   per_day_max_yen?: number | null;
   limit_mode?: LimitMode;
   limit_priority?: 'absolute_first' | 'percent_first' | 'min';
+  // gap単勝 本投票 (Session 176): web から有効化・初期残高・1点比率を設定 (隔離口座)
+  gap_enabled?: boolean;
+  gap_initial_bankroll_yen?: number | null;
+  gap_bet_pct?: number | null;
+  gap_day_pct?: number | null;
+  // 本命EV単 本投票 (Session 177): 2本目スリーブ (隔離口座・gap と同型)
+  tansho_ev_enabled?: boolean;
+  tansho_ev_initial_bankroll_yen?: number | null;
+  tansho_ev_bet_pct?: number | null;
+  tansho_ev_day_pct?: number | null;
+  // スリーブ全体の日次純投資ハード上限 (Session 177)。null=削除(Σにフォールバック)
+  sleeve_total_day_cap_yen?: number | null;
+  // スリーブのレース合算 per_race 上限 (Session 178・案A)。null=削除(per_race_max_yenにフォールバック)
+  // ★per_race_max_yen と一致必須★。web は両者を同値で保存する (BudgetForm が連動送信)。
+  sleeve_per_race_cap_yen?: number | null;
 }
 
 function applyPatch(config: BankrollConfig, patch: ConfigPatchBody): BankrollConfig {
@@ -95,6 +110,42 @@ function applyPatch(config: BankrollConfig, patch: ConfigPatchBody): BankrollCon
   }
   if (patch.limit_mode !== undefined) next.settings.limit_mode = patch.limit_mode;
   if (patch.limit_priority !== undefined) next.settings.limit_priority = patch.limit_priority;
+  // gap単勝 本投票 (Session 176)。 null は削除 (= 既定にフォールバック)。
+  if (patch.gap_enabled !== undefined) next.settings.gap_enabled = patch.gap_enabled;
+  if (patch.gap_initial_bankroll_yen !== undefined) {
+    if (patch.gap_initial_bankroll_yen === null) delete next.settings.gap_initial_bankroll_yen;
+    else next.settings.gap_initial_bankroll_yen = patch.gap_initial_bankroll_yen;
+  }
+  if (patch.gap_bet_pct !== undefined) {
+    if (patch.gap_bet_pct === null) delete next.settings.gap_bet_pct;
+    else next.settings.gap_bet_pct = patch.gap_bet_pct;
+  }
+  if (patch.gap_day_pct !== undefined) {
+    if (patch.gap_day_pct === null) delete next.settings.gap_day_pct;
+    else next.settings.gap_day_pct = patch.gap_day_pct;
+  }
+  // 本命EV単 本投票 (Session 177)。 null は削除 (= 既定にフォールバック)。
+  if (patch.tansho_ev_enabled !== undefined) next.settings.tansho_ev_enabled = patch.tansho_ev_enabled;
+  if (patch.tansho_ev_initial_bankroll_yen !== undefined) {
+    if (patch.tansho_ev_initial_bankroll_yen === null) delete next.settings.tansho_ev_initial_bankroll_yen;
+    else next.settings.tansho_ev_initial_bankroll_yen = patch.tansho_ev_initial_bankroll_yen;
+  }
+  if (patch.tansho_ev_bet_pct !== undefined) {
+    if (patch.tansho_ev_bet_pct === null) delete next.settings.tansho_ev_bet_pct;
+    else next.settings.tansho_ev_bet_pct = patch.tansho_ev_bet_pct;
+  }
+  if (patch.tansho_ev_day_pct !== undefined) {
+    if (patch.tansho_ev_day_pct === null) delete next.settings.tansho_ev_day_pct;
+    else next.settings.tansho_ev_day_pct = patch.tansho_ev_day_pct;
+  }
+  if (patch.sleeve_total_day_cap_yen !== undefined) {
+    if (patch.sleeve_total_day_cap_yen === null) delete next.settings.sleeve_total_day_cap_yen;
+    else next.settings.sleeve_total_day_cap_yen = patch.sleeve_total_day_cap_yen;
+  }
+  if (patch.sleeve_per_race_cap_yen !== undefined) {
+    if (patch.sleeve_per_race_cap_yen === null) delete next.settings.sleeve_per_race_cap_yen;
+    else next.settings.sleeve_per_race_cap_yen = patch.sleeve_per_race_cap_yen;
+  }
   next.updated_at = new Date().toISOString().split('T')[0];
   return next;
 }

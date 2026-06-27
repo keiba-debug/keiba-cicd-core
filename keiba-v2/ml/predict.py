@@ -372,6 +372,7 @@ def predict_obstacle_race(
             'venue_name': venue_name, 'race_number': race.get('race_number', 0),
             'distance': distance, 'track_type': 'obstacle',
             'num_runners': 0, 'grade': current_grade,
+            'race_name': race.get('race_name', ''),
             'age_class': '', 'is_handicap': current_is_handicap,
             'is_female_only': current_is_female_only, 'entries': [],
         }
@@ -523,6 +524,7 @@ def predict_obstacle_race(
         'track_type': 'obstacle',
         'num_runners': entry_count,
         'grade': current_grade,
+        'race_name': race.get('race_name', ''),
         'age_class': '',
         'is_handicap': current_is_handicap,
         'is_female_only': current_is_female_only,
@@ -1547,6 +1549,7 @@ def predict_race(
         'track_type': track_type,
         'num_runners': entry_count,
         'grade': current_grade,
+        'race_name': race.get('race_name', ''),
         'age_class': current_age_class,
         'is_handicap': current_is_handicap,
         'is_female_only': current_is_female_only,

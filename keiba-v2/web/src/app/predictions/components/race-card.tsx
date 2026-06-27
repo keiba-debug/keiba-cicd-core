@@ -12,6 +12,7 @@ import {
   getTrackBadgeClass, getTrackLabel, getFinishColor, getPlaceLimit,
   getRaceLink, getCommentColor, getCommentTooltip, getArColor, getArdColor, getGradeBadgeClass, SortTh,
 } from '../lib/helpers';
+import { selectGapTansho, gapClassLabel } from '../lib/gap-tansho';
 
 interface RaceCardProps {
   race: PredictionRace;
@@ -36,6 +37,15 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
   const jsonRaceResult = results?.[race.race_id];
   const hasResults = (dbRaceResult ? Object.keys(dbRaceResult).length > 0 : false) || (jsonRaceResult ? Object.keys(jsonRaceResult).length > 0 : false);
   const vbEntries = race.entries.filter(e => e.is_value_bet);
+
+  // ★逆張り単（gap単勝）候補 (Session 178・表示専用)★: 自動投票の逆張り単スリーブが拾う馬を可視化。
+  //   select_gap_tansho の TS 移植 (display-only)。投票には影響しない。
+  const gapPicks = useMemo(() => selectGapTansho(race), [race]);
+  const gapPickMap = useMemo(() => {
+    const m = new Map<number, (typeof gapPicks)[number]>();
+    gapPicks.forEach(p => m.set(p.umaban, p));
+    return m;
+  }, [gapPicks]);
 
   const [sort, setSort] = useState<SortState>({ key: 'margin', dir: 'desc' });
 
@@ -188,6 +198,19 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                 VB {vbEntries.length}頭
               </Badge>
             )}
+            {gapPicks.length > 0 && (
+              <Link
+                href="/analysis/edge-validation"
+                target="_blank"
+                title={`逆張り単（自動投票）候補: ${gapPicks
+                  .map(p => `${p.umaban}番 ${p.horseName}(${gapClassLabel(p.cls)}/gap${p.gap}/${p.odds.toFixed(1)}倍/EV${p.winEv})`)
+                  .join('、')}`}
+              >
+                <Badge className="text-[10px] bg-amber-500 text-white hover:bg-amber-600">
+                  🔵 逆張り単 {gapPicks.length}頭
+                </Badge>
+              </Link>
+            )}
             <Link
               href={getRaceLink(race)}
               target="_blank"
@@ -248,6 +271,18 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                       <div className="flex items-center gap-1 flex-wrap">
                         <span>{entry.horse_name}</span>
                         {isVB && <span className="text-amber-500 text-[10px]">VB</span>}
+                        {(() => {
+                          const gp = gapPickMap.get(entry.umaban);
+                          if (!gp) return null;
+                          return (
+                            <span
+                              className="text-[9px] font-bold px-1 rounded bg-amber-500 text-white"
+                              title={`逆張り単（自動投票）候補 — ${gapClassLabel(gp.cls)} / gap${gp.gap}（人気${gp.oddsRank}位・W${gp.rankW}位）/ ${gp.odds.toFixed(1)}倍 / EV${gp.winEv}`}
+                            >
+                              逆張り単
+                            </span>
+                          );
+                        })()}
                         <NoveltyBadges entry={entry} variant="compact" />
                       </div>
                     </td>

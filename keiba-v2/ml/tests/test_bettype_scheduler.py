@@ -75,6 +75,63 @@ def test_vote_live_builds_bet_args(monkeypatch, tmp_path):
     assert res["exit_code"] == 0
 
 
+def test_vote_live_passes_leg_strategy_when_sleeve_tagged(monkeypatch, tmp_path):
+    # ★スリーブ並行運用 (S178)★: 脚に sleeve タグがあれば --leg-strategy を --bet と同順で渡す。
+    #   bet_specs 文字列は ★無改変★ (sleeve は spec に入れない=parity/挙動不変)。
+    captured = {}
+
+    class _Proc:
+        returncode = 0
+
+    legs = [
+        SizedLeg(RID, "tansho", [1], 6000, "本命EV単", 3.0, 1.5, None, "", sleeve="honmei_ev"),
+        SizedLeg(RID, "tansho", [11], 4500, "逆張り単", 15.0, 1.1, None, "", sleeve="gap_tansho"),
+    ]
+    monkeypatch.setattr(sch.subprocess, "run",
+                        lambda cmd, **k: (captured.__setitem__("cmd", cmd), _Proc())[1])
+    sch.vote_one_race_multi(tmp_path, RID, _rs(total=10500, legs=legs), live=True,
+                            per_race_cap=12000)
+    cmd = captured["cmd"]
+    # --leg-strategy が --bet と同順・同数
+    ls_idx = [i for i, x in enumerate(cmd) if x == "--leg-strategy"]
+    assert len(ls_idx) == 2
+    assert [cmd[i + 1] for i in ls_idx] == ["honmei_ev", "gap_tansho"]
+    # bet_specs に sleeve は混ざらない (4フィールドのまま)
+    assert f"{RID}:tansho:1:6000" in cmd and f"{RID}:tansho:11:4500" in cmd
+
+
+def test_vote_live_no_leg_strategy_without_sleeve(monkeypatch, tmp_path):
+    # sleeve タグなし (従来の combo/gap単体) → --leg-strategy は付けない (後方互換)。
+    captured = {}
+
+    class _Proc:
+        returncode = 0
+
+    monkeypatch.setattr(sch.subprocess, "run",
+                        lambda cmd, **k: (captured.__setitem__("cmd", cmd), _Proc())[1])
+    sch.vote_one_race_multi(tmp_path, RID, _rs(), live=True, per_race_cap=3000)
+    assert "--leg-strategy" not in captured["cmd"]
+
+
+def test_runner_load_bets_maps_leg_strategy():
+    # runner: --leg-strategy が --bet と同順で FfBet.strategy に入る (税SoT 帰属)。
+    import argparse
+    from ml.target_clicker.runner import load_bets_from_args
+    args = argparse.Namespace(
+        bet=[f"{RID}:tansho:1:6000", f"{RID}:tansho:11:4500"],
+        leg_strategy=["honmei_ev", "gap_tansho"],
+        from_json=None, from_date=None, amount=100, allow_unfunded=False)
+    bets, _w, _sel = load_bets_from_args(args)
+    assert [b.strategy for b in bets] == ["honmei_ev", "gap_tansho"]
+    # 空文字/不足は None (manual_cli フォールバック)
+    args2 = argparse.Namespace(
+        bet=[f"{RID}:tansho:1:6000", f"{RID}:tansho:11:4500"],
+        leg_strategy=["honmei_ev"],  # 2本目欠落
+        from_json=None, from_date=None, amount=100, allow_unfunded=False)
+    bets2, _w2, _s2 = load_bets_from_args(args2)
+    assert bets2[0].strategy == "honmei_ev" and bets2[1].strategy is None
+
+
 def test_vote_live_max_yen_capped_at_per_race(monkeypatch, tmp_path):
     captured = {}
 

@@ -487,8 +487,8 @@ PRESETS: Dict[str, BetStrategyParams] = {
     # 馬連系はgenerate_bets.py側でtansho_ippon VB通過レースに追加生成
     # ===================================================================
     'tansho_ippon': BetStrategyParams(
-        # 単勝一本: シミュレーション最強の単勝戦略
-        # polaris 2.1b: 164件, ROI 156.1%, flat500 +46.0%
+        # 本命EV単 (旧称 単勝一本): 主力の単勝戦略 (rank_w=1×gap≥3×EV≥1.3×接戦)
+        # 現行シミュ(v2.3-s164): 197件, Flat ROI 108.3%, flat500 +8.1% (旧 polaris2.1b は164件/156.1%)
         win_max_rank_w=1,               # rank_w=1のみ
         win_min_win_gap=3,              # win_vb_gap>=3
         win_min_ev=1.3,                 # EV>=1.3

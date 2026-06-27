@@ -2562,6 +2562,9 @@ def main():
                         help='Optuna最適化済みパラメータを使用 (ml/optuna/optuna_best_params.json)')
     parser.add_argument('--save-features', action='store_true',
                         help='特徴量スナップショットをdata3/features/に保存')
+    parser.add_argument('--dump-test', type=str, default=None,
+                        help='df_test 全体(特徴量+pred_w/p+結果+odds+popularity)をpickle保存 '
+                             '(分析用・S173 danger-model incremental検証など)')
     parser.add_argument('--sire-cutoff', type=str, default=None,
                         help='血統統計カットオフ日 (YYYY-MM-DD)。cutoff付きインデックスを使用')
     parser.add_argument('--allow-sire-leak', action='store_true',
@@ -3359,6 +3362,14 @@ def main():
     except Exception as e:
         print(f"  bet_engine backtest failed (non-fatal): {e}")
         bet_engine_presets = {}
+
+    # df_test ダンプ (分析用・live非破壊) — S173 danger-model incremental検証
+    if args.dump_test:
+        try:
+            df_test.to_pickle(args.dump_test)
+            print(f"  [dump-test] df_test saved: {args.dump_test} shape={df_test.shape}")
+        except Exception as ex:
+            print(f"  [dump-test] failed (non-fatal): {ex}")
 
     # 結果表示
     print(f"\n{'='*60}")

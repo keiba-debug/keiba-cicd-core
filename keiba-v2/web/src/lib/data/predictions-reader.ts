@@ -117,6 +117,7 @@ export interface PredictionRace {
   track_type: string;
   num_runners: number;
   grade?: string;
+  race_name?: string;   // レース名 (grade 空のときのクラス判定フォールバック源・逆張り単表示で使用)
   age_class?: string;
   is_handicap?: boolean;
   is_female_only?: boolean;
