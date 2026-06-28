@@ -79,6 +79,22 @@ export interface PredictionEntry {
   reason_tags?: ReasonTag[];
   // vega-niigata1000 overlay (Phase 3d)
   niigata1000?: NiigataOverlay;
+  // Regulus 脚質・能力プロファイル (Session 178・表示専用オーバーレイ)
+  legProfile?: LegProfile;
+}
+
+/** Regulus 脚質・能力プロファイル (ml/nova/leg_profile.py が leg_profiles.json に出力)。
+ *  上がり3軸=JRDB指数ベース(テン/上がり/持続 偏差値・平均50)。印/解説用・買い目には影響しない。 */
+export interface LegProfile {
+  kyakushitsu: string;          // 逃げ/先行/差し/追込
+  ten: number | null;           // テン力 偏差値 (前半スピード/先行力)
+  agari: number | null;         // 上がり力 偏差値 (瞬発/末脚)
+  sustain: number | null;       // 持続力 偏差値 (後半垂れない=スタミナ)
+  ten_grade: string;            // S/A/B/C/D
+  agari_grade: string;
+  sustain_grade: string;
+  tags: string[];               // 言語化タグ (末脚一閃型/先行押し切り型/バテない持続型/上昇気配 等)
+  n: number;                    // 集計に使った過去走数
 }
 
 /** E-005 理由タグ（表示専用）。Python ml/strategies/reason_tags.py が生成。 */
@@ -245,6 +261,36 @@ export function getPredictionsByDate(date: string, version?: string | null): Pre
   } catch {
     return null;
   }
+}
+
+/**
+ * 脚質・能力プロファイル (races/YYYY/MM/DD/leg_profiles.json) を読み、
+ * predictions の各 entry に legProfile をマージ (race_id + umaban 突合)。
+ * ファイルが無ければ無変更 (graceful)。表示専用・買い目には影響しない。
+ */
+export function enrichPredictionsWithLegProfiles(data: PredictionsLive): PredictionsLive {
+  try {
+    const [y, m, d] = data.date.split('-');
+    if (!y || !m || !d) return data;
+    const filePath = path.join(DATA3_ROOT, 'races', y, m, d, 'leg_profiles.json');
+    if (!fs.existsSync(filePath)) return data;
+    const byRace = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, Record<string, LegProfile>>;
+    let enriched = 0;
+    for (const race of data.races) {
+      const per = byRace[race.race_id];
+      if (!per) continue;
+      for (const entry of race.entries) {
+        const lp = per[String(entry.umaban)];
+        if (lp) { entry.legProfile = lp; enriched++; }
+      }
+    }
+    if (enriched > 0) {
+      console.log(`[predictions-reader] leg-profile enrichment: ${enriched} entries`);
+    }
+  } catch (error) {
+    console.error('[predictions-reader] leg-profile enrichment failed (non-fatal):', error);
+  }
+  return data;
 }
 
 /**

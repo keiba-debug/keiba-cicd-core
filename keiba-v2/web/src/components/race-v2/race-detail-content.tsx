@@ -49,6 +49,7 @@ import { POSITIVE_BG } from '@/lib/positive-colors';
 import { MARK_SLOT } from '@/lib/data/mark-slots';
 import { RacePurchaseBadgeModal } from '@/components/race-v2/RacePurchaseBadgeModal';
 import type { RacePurchasesCombined } from '@/lib/data/race-purchase-types';
+import type { LegProfile } from '@/lib/data/leg-profile-reader';
 
 interface PreviousTrainingEntry {
   date: string;
@@ -101,11 +102,13 @@ interface RaceDetailContentProps {
   kettoNumMap?: Record<number, string>;
   /** 購入買い目 (自動 + TARGET手動) */
   purchases?: RacePurchasesCombined | null;
+  /** Regulus 脚質・能力プロファイル（馬番→profile・展開予想タブ等で使用） */
+  legProfiles?: Record<number, LegProfile>;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap, kettoNumMap, purchases }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap, kettoNumMap, purchases, legProfiles }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -273,6 +276,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 checkUmaMap={checkUmaMap}
                 kettoNumMap={kettoNumMap}
                 courseInfo={courseInfoForBias}
+                legProfiles={legProfiles}
               />
             </div>
           </TabsContent>
@@ -331,9 +335,10 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
 
           {/* 展開予想タブ */}
           <TabsContent value="tenkai" className="mt-4">
-            <TenkaiSection 
+            <TenkaiSection
               tenkaiData={raceData.tenkai_data}
               entries={raceData.entries}
+              legProfiles={legProfiles}
             />
           </TabsContent>
 
@@ -397,6 +402,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               checkUmaMap={checkUmaMap}
               kettoNumMap={kettoNumMap}
               courseInfo={courseInfoForBias}
+              legProfiles={legProfiles}
             />
           </div>
 
@@ -440,10 +446,11 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
           */}
 
           {/* 展開予想 */}
-          {raceData.tenkai_data && (
-            <TenkaiSection 
+          {(raceData.tenkai_data || legProfiles) && (
+            <TenkaiSection
               tenkaiData={raceData.tenkai_data}
               entries={raceData.entries}
+              legProfiles={legProfiles}
             />
           )}
 

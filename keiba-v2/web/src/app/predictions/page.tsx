@@ -1,4 +1,4 @@
-import { getPredictionsByDate, getAvailablePredictionDates, getAvailablePredictionVersions, getResultsByDate, enrichPredictionsFromDb } from '@/lib/data/predictions-reader';
+import { getPredictionsByDate, getAvailablePredictionDates, getAvailablePredictionVersions, getResultsByDate, enrichPredictionsFromDb, enrichPredictionsWithLegProfiles } from '@/lib/data/predictions-reader';
 import { PredictionsContent } from './predictions-content';
 import Link from 'next/link';
 
@@ -50,6 +50,8 @@ export default async function PredictionsPage({
 
   // Enrich missing track_type/distance from DB (RACE_SHOSAI)
   data = await enrichPredictionsFromDb(data);
+  // Regulus 脚質・能力プロファイル (表示専用オーバーレイ・買い目には影響しない)
+  data = enrichPredictionsWithLegProfiles(data);
 
   // 障害レースは障害モデルで予測済み → フィルタ不要（紫バッジで表示）
 

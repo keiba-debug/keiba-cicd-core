@@ -33,6 +33,21 @@ import { cn } from '@/lib/utils';
 import { MessageSquareText } from 'lucide-react';
 import { getCourseBiasAlert, type CourseBiasAlert } from '@/lib/course-bias';
 import { NoveltyBadges } from './NoveltyBadges';
+import type { LegProfile } from '@/lib/data/leg-profile-reader';
+
+/** 脚質3軸 偏差値(平均50)の色分け — 高い=良い */
+const legHens = (v?: number | null): string =>
+  v == null ? 'text-gray-400' :
+  v >= 60 ? 'text-red-600 dark:text-red-400 font-bold' :
+  v >= 55 ? 'text-orange-600 dark:text-orange-400' :
+  v <= 42 ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300';
+
+/** 脚質バッジ色 */
+const legKsColor = (k: string): string =>
+  k === '逃げ' ? 'text-red-600 dark:text-red-400' :
+  k === '先行' ? 'text-orange-600 dark:text-orange-400' :
+  k === '差し' ? 'text-blue-600 dark:text-blue-400' :
+  k === '追込' ? 'text-gray-600 dark:text-gray-300' : 'text-gray-500';
 import { ReasonTagBadges } from '@/components/analysis/ReasonTagBadges';
 import type { ReasonTag } from '@/lib/data/predictions-reader';
 import { TrendIndicator, StreakBadge, calculateStreak, calculateStreakWithCurrent, toRaceResult, type RecentFormEntry } from '@/components/ui/visualization';
@@ -160,6 +175,8 @@ interface HorseEntryTableProps {
   kettoNumMap?: Record<number, string>;
   /** コースバイアスアラート用レース情報 (Session 113) */
   courseInfo?: CourseInfoForBias;
+  /** Regulus 脚質・能力プロファイル（馬番→profile・表示専用） */
+  legProfiles?: Record<number, LegProfile>;
 }
 
 // =============================================================================
@@ -531,6 +548,8 @@ interface HorseEntryRowProps {
   kettoNum?: string;
   /** コースバイアスアラート (Session 113) */
   courseBiasAlert?: CourseBiasAlert | null;
+  /** Regulus 脚質・能力プロファイル (表示専用) */
+  legProfile?: LegProfile;
 }
 
 const HorseEntryRow = React.memo(function HorseEntryRow({
@@ -564,6 +583,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   checkUma,
   kettoNum,
   courseBiasAlert,
+  legProfile,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
@@ -813,6 +833,27 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
           </div>
         </td>
       )}
+
+      {/* ⭐脚質・能力プロファイル (Regulus・上がり3軸=JRDB指数偏差値・表示専用) */}
+      <td className="px-1 py-1.5 border text-center text-[10px] bg-violet-50/15 dark:bg-violet-900/10">
+        {legProfile ? (
+          <div
+            className="leading-tight"
+            title={`${legProfile.kyakushitsu} / テン${legProfile.ten ?? '–'}(${legProfile.ten_grade}) 上がり${legProfile.agari ?? '–'}(${legProfile.agari_grade}) 持続${legProfile.sustain ?? '–'}(${legProfile.sustain_grade})${legProfile.tags.length ? '  ◀ ' + legProfile.tags.join('・') : ''}  (近${legProfile.n}走・偏差値50基準)`}
+          >
+            <div className={`font-bold ${legKsColor(legProfile.kyakushitsu)}`}>{legProfile.kyakushitsu}</div>
+            <div className="font-mono">
+              <span className={legHens(legProfile.ten)}>{legProfile.ten ?? '–'}</span>
+              <span className="text-gray-300">/</span>
+              <span className={legHens(legProfile.agari)}>{legProfile.agari ?? '–'}</span>
+              <span className="text-gray-300">/</span>
+              <span className={legHens(legProfile.sustain)}>{legProfile.sustain ?? '–'}</span>
+            </div>
+          </div>
+        ) : (
+          <span className="text-gray-300">-</span>
+        )}
+      </td>
 
       {/* 馬名 + TARGETコメント + 直近戦績ドット（連勝/連敗バッジは着順セルに表示） */}
       <td className="px-2 py-1.5 border min-w-[10rem]">
@@ -1144,6 +1185,7 @@ export default function HorseEntryTable({
   checkUmaMap,
   kettoNumMap,
   courseInfo,
+  legProfiles,
 }: HorseEntryTableProps) {
   const hasMlPredictions = mlPredictions && Object.keys(mlPredictions).length > 0;
 
@@ -1411,6 +1453,7 @@ export default function HorseEntryTable({
                 <th className="px-1 py-2 text-center border w-24" title="Value Bet — EV値 + 市場シグナル + 過剰人気アラート">Value Bet</th>
               </>
             )}
+            <th className="px-1 py-2 text-center border w-[68px] text-xs" title="⭐Regulus 脚質・上がり3軸（偏差値50基準・JRDB指数）— テン(先行力)/上がり(末脚)/持続(スタミナ)">脚質/3軸</th>
             <th className="px-2 py-2 text-left border min-w-32">馬名</th>
             <th className="px-2 py-2 text-center border w-16">性齢</th>
             <th className="px-2 py-2 text-left border min-w-20">騎手</th>
@@ -1474,6 +1517,7 @@ export default function HorseEntryTable({
               checkUma={checkUmaMap?.[entry.horse_number]}
               kettoNum={kettoNumMap?.[entry.horse_number]}
               courseBiasAlert={courseBiasAlertMap.get(entry.horse_number)}
+              legProfile={legProfiles?.[entry.horse_number]}
             />
           ))}
         </tbody>

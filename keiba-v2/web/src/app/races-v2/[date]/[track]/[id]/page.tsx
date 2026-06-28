@@ -33,6 +33,7 @@ import { getMlPredictions, getClosingRaceProba, getRaceConfidence } from '@/lib/
 import { getCheckUmaMap, type CheckUmaEntry } from '@/lib/data/target-checkuma-reader';
 import { getTrackBias } from '@/lib/data/jrdb-kaa-reader';
 import { getRacePurchasesCombined } from '@/lib/data/race-purchase-reader';
+import { getLegProfilesForRace } from '@/lib/data/leg-profile-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -172,6 +173,9 @@ export default async function RaceDetailPage({ params }: PageParams) {
   if (!raceData) {
     notFound();
   }
+
+  // Regulus 脚質・能力プロファイル (展開予想タブ等で使用・表示専用)
+  const legProfiles = getLegProfilesForRace(date, raceId16);
 
   const raceNameForPurchase =
     raceData.race_info.race_name || raceData.race_info.race_condition || '';
@@ -648,6 +652,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
           checkUmaMap={Object.keys(checkUmaByHorseNum).length > 0 ? checkUmaByHorseNum : undefined}
           kettoNumMap={entryKettoMap}
           purchases={racePurchases}
+          legProfiles={legProfiles ?? undefined}
         />
 
         {/* データ情報（フッター） */}

@@ -470,6 +470,19 @@ export function Header() {
                     </span>
                   </span>
                 </Link>
+                <Link
+                  href="/analysis/race-context-engine"
+                  onClick={() => { if (analysisMenuRef.current) analysisMenuRef.current.open = false; }}
+                  className="block px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📚</span>
+                    <span>
+                      <span className="font-medium">レース文脈エンジン</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">競馬5冊 ML知見・実装状況まとめ</span>
+                    </span>
+                  </span>
+                </Link>
 
                 {/* スペシャリスト系（コース・距離特化モデル） */}
                 <div className="border-t my-1.5" />

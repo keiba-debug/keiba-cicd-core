@@ -47,6 +47,13 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
     return m;
   }, [gapPicks]);
 
+  // 脚質3軸 偏差値の色分け (高い=良い)
+  const legColor = (v?: number | null) =>
+    v == null ? 'text-gray-400' :
+    v >= 60 ? 'text-red-600 font-bold' :
+    v >= 55 ? 'text-orange-600' :
+    v <= 42 ? 'text-gray-400' : '';
+
   const [sort, setSort] = useState<SortState>({ key: 'margin', dir: 'desc' });
 
   // リアルタイムオッズから人気順を再計算
@@ -239,6 +246,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                 <SortTh sortKey="margin" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/50 dark:bg-teal-900/20" title="AR (Aura Rating) — グレード補正済みの絶対能力指数（IDMスケール）">AR</SortTh>
                 <SortTh sortKey="idm" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/30 dark:bg-teal-900/10" title="JRDB 事前IDM — 今回レースのJRDB予測値">IDM</SortTh>
                 <SortTh sortKey="ar_dev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-teal-50/30 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
+                <th className="px-1 py-1.5 text-center border-b w-[78px] bg-violet-50/40 dark:bg-violet-900/15 text-[10px]" title="⭐Regulus 脚質・上がり3軸（偏差値・平均50・JRDB指数ベース）— テン(前半/先行力)・上がり(瞬発/末脚)・持続(後半垂れない=スタミナ)。印/解説用">脚質/3軸</th>
                 <SortTh sortKey="prob_p" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走モデル(P)の3着内確率（%）">P%</SortTh>
                 <SortTh sortKey="prob_w" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利モデル(W)の勝率予測（%）">W%</SortTh>
                 <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="BR (Book Rating) — 競馬ブックレイティング">BR</SortTh>
@@ -341,6 +349,30 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-teal-50/20 dark:bg-teal-900/5 ${getArdColor(entry.ar_deviation)}`} title="AR偏差値">
                       {entry.ar_deviation != null ? entry.ar_deviation.toFixed(0) : '-'}
                     </td>
+                    {(() => {
+                      const lp = entry.legProfile;
+                      if (!lp) return <td className="px-1 py-1 text-center bg-violet-50/15 dark:bg-violet-900/5 text-gray-300 text-[10px]">-</td>;
+                      return (
+                        <td
+                          className="px-1 py-1 text-center bg-violet-50/15 dark:bg-violet-900/5 text-[10px] leading-tight"
+                          title={`${lp.kyakushitsu} / テン${lp.ten ?? '–'}(${lp.ten_grade}) 上がり${lp.agari ?? '–'}(${lp.agari_grade}) 持続${lp.sustain ?? '–'}(${lp.sustain_grade})${lp.tags.length ? '  ◀ ' + lp.tags.join('・') : ''}  (近${lp.n}走・偏差値平均50)`}
+                        >
+                          <div className="font-bold">{lp.kyakushitsu}</div>
+                          <div className="font-mono text-[9px]">
+                            <span className={legColor(lp.ten)}>{lp.ten ?? '–'}</span>
+                            <span className="text-gray-300">/</span>
+                            <span className={legColor(lp.agari)}>{lp.agari ?? '–'}</span>
+                            <span className="text-gray-300">/</span>
+                            <span className={legColor(lp.sustain)}>{lp.sustain ?? '–'}</span>
+                          </div>
+                          {lp.tags.length > 0 && (
+                            <div className="text-[8px] text-violet-600 dark:text-violet-300 truncate max-w-[74px]">
+                              {lp.tags[0].split('(')[0]}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })()}
                     <td className="px-2 py-1 text-center font-mono text-xs">{(entry.pred_proba_p * 100).toFixed(1)}</td>
                     <td className={`px-2 py-1 text-center font-mono text-xs bg-emerald-50/30 dark:bg-emerald-900/10 ${entry.rank_w != null && entry.rank_w <= 3 ? 'font-bold text-emerald-600' : ''}`}>
                       {entry.pred_proba_w != null ? (entry.pred_proba_w * 100).toFixed(1) : '-'}

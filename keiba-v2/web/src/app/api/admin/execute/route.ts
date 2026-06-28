@@ -252,11 +252,15 @@ export async function POST(request: NextRequest) {
             for (const d of expandRaceDateRange(startDate, endDate)) {
               commands.push(['-m', 'ml.predict', '--date', d]);
               commands.push(['-m', 'ml.predict_closing', '--date', d]);
+              // Regulus 脚質プロファイル(予想カード表示用オーバーレイ・買い目に影響しない)
+              commands.push(['-m', 'ml.nova.leg_profile', '--emit-date', d]);
             }
           } else {
             const dateArg = date || '';
             commands = [dateArg ? ['-m', 'ml.predict', '--date', dateArg] : ['-m', 'ml.predict']];
             commands.push(dateArg ? ['-m', 'ml.predict_closing', '--date', dateArg] : ['-m', 'ml.predict_closing']);
+            // Regulus 脚質プロファイル(日付指定時のみ・予想カード表示用オーバーレイ)
+            if (dateArg) commands.push(['-m', 'ml.nova.leg_profile', '--emit-date', dateArg]);
           }
         } else if (action === 'v4_pipeline') {
           if (isRangeAction && startDate && endDate) {
