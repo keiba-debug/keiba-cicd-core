@@ -635,7 +635,8 @@ def main() -> int:
                 rid = str(b.race_id)
                 rno = int(rid[-2:]) if rid[-2:].isdigit() else None
                 summary.append({"bet_type": _code2name.get(b.bet_type, str(b.bet_type)),
-                                "umaban": uma, "amount": b.amount, "race_number": rno})
+                                "umaban": uma, "amount": b.amount, "race_number": rno,
+                                "strategy": getattr(b, "strategy", None)})
             out = notify_vote_starting(summary, total_yen)
             vprint(f"[notify] vote_starting spoken={out.spoken}: {out.text}")
         except Exception as e:

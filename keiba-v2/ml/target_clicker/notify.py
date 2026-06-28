@@ -95,6 +95,23 @@ SAPI_PITCH = os.getenv("KEIBA_TTS_PITCH", "-20%")
 VOICEVOX_URL = os.getenv("KEIBA_VOICEVOX_URL", "http://127.0.0.1:50021").rstrip("/")
 VOICEVOX_SPEAKER = int(os.getenv("KEIBA_VOICEVOX_SPEAKER", "3"))
 
+# ============================================================
+# スリーブ別 投票開始予告の声分け (Session 182 / ふくだ要望)
+#   本命EV単 と 逆張り単 を別キャラ声で読み上げ、 耳でエンジンを判別できるようにする。
+#   声分けは ★投票開始予告のみ★ (結果=受付番号は 1 レース 1 受付でエンジン横断のため既定声)。
+#   VOICEVOX 有効時のみ可聴 (SAPI フォールバックは speaker 無視で従来挙動)。
+#   env で話者上書き可。 既定 = 本命EV単:81(青山龍星/熱血)・逆張り単:3(ずんだもん/ノーマル)。
+# ============================================================
+SLEEVE_VOICEVOX_SPEAKER = {
+    "honmei_ev": int(os.getenv("KEIBA_VOICEVOX_SPEAKER_HONMEI_EV", "81")),
+    "gap_tansho": int(os.getenv("KEIBA_VOICEVOX_SPEAKER_GAP_TANSHO", "3")),
+}
+# スリーブキー → 読み上げ用 短ラベル (混在レースで「今どのエンジンか」を明示)
+_SLEEVE_LABEL_JA = {
+    "honmei_ev": "本命EV単",
+    "gap_tansho": "逆張り単",
+}
+
 
 def _try_pyttsx3(text: str, rate: int = 0) -> bool:
     """試行 1: pyttsx3 が import できるなら使う"""
@@ -237,13 +254,16 @@ def _try_voicevox(text: str, *, speaker: Optional[int] = None,
         return False
 
 
-def speak(text: str, *, rate: int = 0, async_: bool = False) -> bool:
+def speak(text: str, *, rate: int = 0, async_: bool = False,
+          speaker: Optional[int] = None) -> bool:
     """TTS で 1 メッセージ読み上げる。 成功 True / 失敗 False。
 
     Args:
         text: 読み上げる日本語テキスト
         rate: -10 (遅) .. +10 (速)。 0 で既定
         async_: True で別スレッド (daemon) 起動して即 return True
+        speaker: VOICEVOX 話者 ID 上書き (None で既定 VOICEVOX_SPEAKER)。
+                 SAPI フォールバック経路では無視される (声分けは VOICEVOX 時のみ可聴)。
 
     試行順: pyttsx3 → PowerShell SAPI → 失敗。
     どの段で例外が出ても本体は止めない (best-effort)。
@@ -253,7 +273,7 @@ def speak(text: str, *, rate: int = 0, async_: bool = False) -> bool:
 
     def _run() -> bool:
         # Session 135: VOICEVOX opt-in (KEIBA_TTS_ENGINE=voicevox)。 失敗時は SAPI に落ちる。
-        if TTS_ENGINE == "voicevox" and _try_voicevox(text):
+        if TTS_ENGINE == "voicevox" and _try_voicevox(text, speaker=speaker):
             return True
         if _try_pyttsx3(text, rate=rate):
             return True
@@ -307,12 +327,74 @@ def build_vote_starting_text(bets_summary: list, total_yen: int) -> str:
     return " ".join(parts)
 
 
+def _sleeve_key_of(b: dict) -> str:
+    """bet 概要 dict からスリーブキーを取り出す (strategy 優先・無ければ sleeve・既定 "")。"""
+    return str(b.get("strategy") or b.get("sleeve") or "")
+
+
+def _group_by_sleeve(bets_summary: list) -> tuple:
+    """bets_summary をスリーブキーで分組。 (groups: {key: [items]}, order: [key...]) を返す。
+
+    order は ★出現順を保持しつつ、 既知スリーブを優先順 (本命EV単 > 逆張り単) に前出し★。
+    sleeve_orchestrator の固定順 (registry) と一致させ、 混在レースの読み上げ順を安定させる。
+    """
+    groups: dict = {}
+    for b in bets_summary:
+        groups.setdefault(_sleeve_key_of(b), []).append(b)
+    priority = ["honmei_ev", "gap_tansho"]
+    known = [k for k in priority if k in groups]
+    rest = [k for k in groups if k not in priority]
+    return groups, known + rest
+
+
+def build_sleeve_body_text(items: list, sleeve_label: str = "") -> str:
+    """スリーブ 1 群分の読み上げ本文 (フレーム無し・pure)。 混在レースの 2 発話目以降に使う。"""
+    parts: list[str] = []
+    if sleeve_label:
+        parts.append(f"{sleeve_label}。")
+    if len(items) == 1:
+        b = items[0]
+        bt = _BET_TYPE_JA.get(b.get("bet_type", ""), b.get("bet_type", ""))
+        rno = b.get("race_number")
+        rstr = f"{rno}レース " if rno else ""
+        parts.append(f"{rstr}{bt} {b.get('umaban', '')} {format_yen(b.get('amount', 0))}。")
+    else:
+        tot = sum(int(b.get("amount") or 0) for b in items)
+        parts.append(f"{len(items)} 件、 合計 {format_yen(tot)}。")
+    return " ".join(parts)
+
+
 def notify_vote_starting(bets_summary: list, total_yen: int, *,
                          enabled: bool = True, async_: bool = False) -> NotifyOutcome:
-    """投票開始を音声予告する。 既定は同期発話 (発話の数秒がウィンドウ整理の猶予)。"""
+    """投票開始を音声予告する。 既定は同期発話 (発話の数秒がウィンドウ整理の猶予)。
+
+    Session 182: スリーブ別に声を分ける (本命EV単 / 逆張り単)。
+      - 単一スリーブのレース → そのスリーブの声で従来通り 1 発話。
+      - 混在レース (両スリーブの脚が 1 runner にマージ) → 開始フレームを既定声で 1 回、
+        各スリーブ本文をそれぞれの声で続けて発話、 締めフレームを既定声で 1 回。
+      声分けは VOICEVOX 有効時のみ可聴 (SAPI フォールバックは speaker 無視で従来挙動)。
+    """
     text = build_vote_starting_text(bets_summary, total_yen)
-    spoken = speak(text, async_=async_) if enabled else False
-    return NotifyOutcome(text=text, spoken=spoken)
+    if not enabled:
+        return NotifyOutcome(text=text, spoken=False)
+
+    groups, order = _group_by_sleeve(bets_summary)
+
+    # 単一スリーブ (または無タグ) → そのスリーブの声で 1 発話 (text 全体)。
+    if len(order) <= 1:
+        spk = SLEEVE_VOICEVOX_SPEAKER.get(order[0]) if order else None
+        spoken = speak(text, async_=async_, speaker=spk)
+        return NotifyOutcome(text=text, spoken=spoken)
+
+    # 混在レース → 開始フレーム(既定声) + スリーブ別本文(各声) + 締めフレーム(既定声)。
+    # ★同期発話★: 順番に鳴らす (async_ は混在時は無視。 数秒の予告が TARGET 操作前の猶予)。
+    spoken_any = speak("自動投票を開始します。")
+    for key in order:
+        body = build_sleeve_body_text(groups[key], _SLEEVE_LABEL_JA.get(key, ""))
+        if speak(body, speaker=SLEEVE_VOICEVOX_SPEAKER.get(key)):
+            spoken_any = True
+    speak("ターゲットを操作します。")
+    return NotifyOutcome(text=text, spoken=spoken_any)
 
 
 def _compose_text(result: "ClickResult") -> str:
