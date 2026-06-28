@@ -34,6 +34,7 @@ import { MessageSquareText } from 'lucide-react';
 import { getCourseBiasAlert, type CourseBiasAlert } from '@/lib/course-bias';
 import { NoveltyBadges } from './NoveltyBadges';
 import type { LegProfile } from '@/lib/data/leg-profile-reader';
+import type { TrainerTrustEntry } from '@/lib/data/trainer-trust-reader';
 
 /** 脚質3軸 偏差値(平均50)の色分け — 高い=良い */
 const legHens = (v?: number | null): string =>
@@ -177,6 +178,8 @@ interface HorseEntryTableProps {
   courseInfo?: CourseInfoForBias;
   /** Regulus 脚質・能力プロファイル（馬番→profile・表示専用） */
   legProfiles?: Record<number, LegProfile>;
+  /** 発信者(調教師)信頼度マップ（調教師名→指標・AIコメント印の併記バッジ・表示専用） */
+  trainerTrustMap?: Record<string, TrainerTrustEntry>;
 }
 
 // =============================================================================
@@ -269,6 +272,19 @@ function getCommentMarkBgColor(mark?: string): string {
     case 'Ｃ': return 'bg-yellow-50 dark:bg-yellow-700/20 text-yellow-700 dark:text-yellow-400';
     default: return '';
   }
+}
+
+// 発信者(調教師)信頼度バッジ: gap_pt = 強気時の人気補正後の上振れ(pt)。
+//   大 = 強気が結果に連動＝信頼 / 0付近・負 = "オオカミ少年"。|z|≥2 で確からしさ強調。
+//   in-sample 約6ヶ月の参考値（個別順位は過信しない）。
+function trustBadge(t: TrainerTrustEntry): { label: string; cls: string } | null {
+  const { gap_pt: g, z } = t;
+  const sig = Math.abs(z) >= 2; // 統計的に確からしい両端
+  if (g >= 10 && sig) return { label: '信◎', cls: 'text-green-700 dark:text-green-400 font-bold' };
+  if (g >= 5) return { label: '信○', cls: 'text-emerald-600 dark:text-emerald-400' };
+  if (g <= -5 && sig) return { label: '甘✕', cls: 'text-red-600 dark:text-red-400 font-bold' };
+  if (g <= -2) return { label: '甘', cls: 'text-red-500 dark:text-red-400' };
+  return { label: '—', cls: 'text-gray-400' }; // 中立: 控えめ表示
 }
 
 // パドック評価マークの正規化（全角→半角・前後空白除去）
@@ -550,6 +566,8 @@ interface HorseEntryRowProps {
   courseBiasAlert?: CourseBiasAlert | null;
   /** Regulus 脚質・能力プロファイル (表示専用) */
   legProfile?: LegProfile;
+  /** 発信者(調教師)信頼度 (AIコメント印の併記・表示専用) */
+  trainerTrust?: TrainerTrustEntry;
 }
 
 const HorseEntryRow = React.memo(function HorseEntryRow({
@@ -584,6 +602,7 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
   kettoNum,
   courseBiasAlert,
   legProfile,
+  trainerTrust,
 }: HorseEntryRowProps) {
   const { entry_data, training_data, result } = entry;
   const wakuColorClass = getWakuColor(entry_data.waku);
@@ -714,9 +733,26 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         {myMark3 || '-'}
       </td>
 
-      {/* AIコメ（TARGET馬印4 = AIコメント印 Ａ/Ｂ/Ｃ。horseMarks4 経由で供給） */}
+      {/* AIコメ（TARGET馬印4 = AIコメント印 Ａ/Ｂ/Ｃ。horseMarks4 経由で供給）
+          印がある時のみ、その馬の調教師の発信者信頼度(gap_pt)を併記（表示専用・買い目無影響） */}
       <td className={`px-1 py-1.5 text-center border text-sm font-bold ${getCommentMarkBgColor(myMark4)}`}>
-        {myMark4 || '-'}
+        <div className="leading-none">{myMark4 || '-'}</div>
+        {myMark4 && trainerTrust && (() => {
+          const b = trustBadge(trainerTrust);
+          if (!b) return null;
+          return (
+            <div
+              className={`text-[9px] font-bold leading-none mt-0.5 ${b.cls}`}
+              title={`調教師 ${trainerTrust.name}: 強気時の人気補正後の上振れ gap ${trainerTrust.gap_pt > 0 ? '+' : ''}${trainerTrust.gap_pt.toFixed(1)}pt (z=${trainerTrust.z.toFixed(2)}, 強気${trainerTrust.n_strong}件・強気率${trainerTrust.strong_rate_of_all.toFixed(0)}%)\n大きいほど強気が結果に連動＝信頼。0付近/負はオオカミ少年。in-sample約6ヶ月の参考値`}
+            >
+              {b.label}
+              <span className="font-mono ml-0.5">
+                {trainerTrust.gap_pt > 0 ? '+' : ''}
+                {trainerTrust.gap_pt.toFixed(0)}
+              </span>
+            </div>
+          );
+        })()}
       </td>
 
       {/* ARd (AR偏差値) */}
@@ -1186,6 +1222,7 @@ export default function HorseEntryTable({
   kettoNumMap,
   courseInfo,
   legProfiles,
+  trainerTrustMap,
 }: HorseEntryTableProps) {
   const hasMlPredictions = mlPredictions && Object.keys(mlPredictions).length > 0;
 
@@ -1518,6 +1555,7 @@ export default function HorseEntryTable({
               kettoNum={kettoNumMap?.[entry.horse_number]}
               courseBiasAlert={courseBiasAlertMap.get(entry.horse_number)}
               legProfile={legProfiles?.[entry.horse_number]}
+              trainerTrust={entry.entry_data?.trainer_id ? trainerTrustMap?.[entry.entry_data.trainer_id] : undefined}
             />
           ))}
         </tbody>

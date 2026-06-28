@@ -50,6 +50,7 @@ import { MARK_SLOT } from '@/lib/data/mark-slots';
 import { RacePurchaseBadgeModal } from '@/components/race-v2/RacePurchaseBadgeModal';
 import type { RacePurchasesCombined } from '@/lib/data/race-purchase-types';
 import type { LegProfile } from '@/lib/data/leg-profile-reader';
+import type { TrainerTrustEntry } from '@/lib/data/trainer-trust-reader';
 
 interface PreviousTrainingEntry {
   date: string;
@@ -104,11 +105,13 @@ interface RaceDetailContentProps {
   purchases?: RacePurchasesCombined | null;
   /** Regulus 脚質・能力プロファイル（馬番→profile・展開予想タブ等で使用） */
   legProfiles?: Record<number, LegProfile>;
+  /** 発信者(調教師)信頼度マップ（調教師名→指標・AIコメント印の併記バッジで使用） */
+  trainerTrustMap?: Record<string, TrainerTrustEntry>;
 }
 
 type DisplayMode = 'tabs' | 'all';
 
-export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap, kettoNumMap, purchases, legProfiles }: RaceDetailContentProps) {
+export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, trainingSummaryMap = {}, previousTrainingMap = {}, rpciInfo, ratingStandards, babaInfo, targetComments: initialTargetComments, kaisaiInfo, targetMarks: initialTargetMarks, recentFormMap, trainerPatternMatchMap, mlPredictions, raceConfidence, checkUmaMap, kettoNumMap, purchases, legProfiles, trainerTrustMap }: RaceDetailContentProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('all');
   
   // TARGET馬印をローカルstateで管理（モーダル保存時に即時反映するため）
@@ -277,6 +280,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 kettoNumMap={kettoNumMap}
                 courseInfo={courseInfoForBias}
                 legProfiles={legProfiles}
+                trainerTrustMap={trainerTrustMap}
               />
             </div>
           </TabsContent>
@@ -403,6 +407,7 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               kettoNumMap={kettoNumMap}
               courseInfo={courseInfoForBias}
               legProfiles={legProfiles}
+              trainerTrustMap={trainerTrustMap}
             />
           </div>
 

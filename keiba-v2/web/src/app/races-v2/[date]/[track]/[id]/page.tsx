@@ -34,6 +34,7 @@ import { getCheckUmaMap, type CheckUmaEntry } from '@/lib/data/target-checkuma-r
 import { getTrackBias } from '@/lib/data/jrdb-kaa-reader';
 import { getRacePurchasesCombined } from '@/lib/data/race-purchase-reader';
 import { getLegProfilesForRace } from '@/lib/data/leg-profile-reader';
+import { getTrainerTrustMap } from '@/lib/data/trainer-trust-reader';
 import {
   RaceHeader,
   RaceDetailContent,
@@ -176,6 +177,9 @@ export default async function RaceDetailPage({ params }: PageParams) {
 
   // Regulus 脚質・能力プロファイル (展開予想タブ等で使用・表示専用)
   const legProfiles = getLegProfilesForRace(date, raceId16);
+
+  // 発信者(調教師)信頼度マップ (AIコメント印の併記バッジで使用・表示専用)
+  const trainerTrustMap = getTrainerTrustMap();
 
   const raceNameForPurchase =
     raceData.race_info.race_name || raceData.race_info.race_condition || '';
@@ -653,6 +657,7 @@ export default async function RaceDetailPage({ params }: PageParams) {
           kettoNumMap={entryKettoMap}
           purchases={racePurchases}
           legProfiles={legProfiles ?? undefined}
+          trainerTrustMap={trainerTrustMap ?? undefined}
         />
 
         {/* データ情報（フッター） */}
