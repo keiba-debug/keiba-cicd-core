@@ -117,8 +117,6 @@ interface PredictionsData {
   }>;
   finish_positions?: Record<string, Record<number, number>>; // race_id -> {umaban: finish_position}
   multi_leg_recommendations?: MultiLegRecommendation[];
-  sanrentan_formation?: MultiLegRecommendation[];
-  sanrentan_distortion?: MultiLegRecommendation[];
 }
 
 interface OtherPresetData {
@@ -1912,14 +1910,10 @@ export function ExecuteTab() {
         </Card>
       )}
 
-      {/* 雷切（三連単VB頭） + Distortion + スポット馬券 */}
-      {((predictions?.sanrentan_formation && predictions.sanrentan_formation.length > 0) ||
-        (predictions?.sanrentan_distortion && predictions.sanrentan_distortion.length > 0) ||
-        (predictions?.multi_leg_recommendations && predictions.multi_leg_recommendations.length > 0)) && (
+      {/* スポット馬券（馬単/馬連/ワイド/三連複）。★三連単系(雷切/Distortion)は撤去済★ */}
+      {(predictions?.multi_leg_recommendations && predictions.multi_leg_recommendations.length > 0) && (
         <MultiLegRecommendations
           recommendations={predictions.multi_leg_recommendations ?? []}
-          sanrentanFormation={predictions.sanrentan_formation}
-          sanrentanDistortion={predictions.sanrentan_distortion}
           results={predictions.finish_positions
             ? Object.fromEntries(
                 Object.entries(predictions.finish_positions).map(([raceId, fps]) => [

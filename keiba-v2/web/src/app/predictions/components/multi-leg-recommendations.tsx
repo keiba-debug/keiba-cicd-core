@@ -9,8 +9,6 @@ import { isTurf, isDirt, matchRaceNum } from '../lib/helpers';
 
 interface MultiLegRecommendationsProps {
   recommendations: MultiLegRecommendation[];
-  sanrentanFormation?: MultiLegRecommendation[];
-  sanrentanDistortion?: MultiLegRecommendation[];
   results?: RaceResultsMap;
   races: PredictionRace[];
   venueFilter: string;
@@ -33,14 +31,6 @@ const TICKET_TYPE_CODE: Record<string, number> = {
   umatan: 5,
   sanrenpuku: 6,
   sanrentan: 7,
-};
-
-const STRATEGY_META: Record<string, { label: string; roi: string; desc: string; color: string }> = {
-  'I.VB馬単1点': { label: 'VB馬単1点', roi: '189%', desc: '単勝VBの補完', color: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' },
-  'G.VB馬単流': { label: 'VB馬単流', roi: '130%', desc: 'VB馬→ARd上位流し', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' },
-  'K.危険裏ワイド': { label: '危険裏ワイド', roi: '117%', desc: '危険馬除外ワイドBOX', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' },
-  '三連単VB頭': { label: '三連単VB頭', roi: '215%', desc: 'VB馬1着フォーメーション', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' },
-  '三連単Distortion': { label: '三連単Distortion', roi: '193%', desc: 'Harville歪み率2-3帯', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200' },
 };
 
 interface RaceGroup {
@@ -241,280 +231,28 @@ function BetTable({ raceGroups, results }: { raceGroups: RaceGroup[]; results?: 
 
 export function MultiLegRecommendations({
   recommendations,
-  sanrentanFormation,
-  sanrentanDistortion,
   results,
   races,
   venueFilter,
   trackFilter,
   raceNumFilter,
 }: MultiLegRecommendationsProps) {
-  const hasSanrentan = sanrentanFormation && sanrentanFormation.length > 0;
-  const hasDistortion = sanrentanDistortion && sanrentanDistortion.length > 0;
+  // ★三連単系（雷切=三連単VB頭 / 三連単Distortion）は撤去 (Session 178 後)★:
+  //   実質未使用 + 表示BT-ROI(215%/193%)は過学習で棄却済 ([[calibration-edge-map]] S175)。
+  //   自動投票は単勝中心 (本命EV単+逆張り単) に確定 ([[tansho-central-strategy]] S169)。
+  //   残すのはスポット馬券 (馬単/馬連/ワイド/三連複) のみ。
   const hasMultiLeg = recommendations && recommendations.length > 0;
-
-  if (!hasSanrentan && !hasDistortion && !hasMultiLeg) return null;
-
-  return (
-    <>
-      {hasSanrentan && (
-        <SanrentanSection
-          bets={sanrentanFormation!}
-          results={results}
-          races={races}
-          venueFilter={venueFilter}
-          trackFilter={trackFilter}
-          raceNumFilter={raceNumFilter}
-        />
-      )}
-      {hasDistortion && (
-        <SanrentanSection
-          bets={sanrentanDistortion!}
-          results={results}
-          races={races}
-          venueFilter={venueFilter}
-          trackFilter={trackFilter}
-          raceNumFilter={raceNumFilter}
-          title="三連単 Distortion"
-          subtitle="Harville歪み率2-3帯 × 本命レース(FO<3.0)"
-        />
-      )}
-      {hasMultiLeg && (
-        <SpotSection
-          bets={recommendations}
-          results={results}
-          races={races}
-          venueFilter={venueFilter}
-          trackFilter={trackFilter}
-          raceNumFilter={raceNumFilter}
-        />
-      )}
-    </>
-  );
-}
-
-
-// ====================================================================
-// 雷切 — 三連単VB頭セクション
-// ====================================================================
-
-function SanrentanSection({
-  bets,
-  results,
-  races,
-  venueFilter,
-  trackFilter,
-  raceNumFilter,
-  title,
-  subtitle,
-}: {
-  bets: MultiLegRecommendation[];
-  results?: RaceResultsMap;
-  races: PredictionRace[];
-  venueFilter: string;
-  trackFilter: string;
-  raceNumFilter: number | string;
-  title?: string;
-  subtitle?: string;
-}) {
-  const sectionTitle = title || '雷切 — 三連単VB頭';
-  const sectionSubtitle = subtitle;
-  const isDistortion = !!title;  // custom title = Distortion section
-  const borderColor = isDistortion ? 'border-emerald-200 dark:border-emerald-800' : 'border-purple-200 dark:border-purple-800';
-  const textColor = isDistortion ? 'text-emerald-700 dark:text-emerald-300' : 'text-purple-700 dark:text-purple-300';
-  const badgeBorder = isDistortion ? 'border-emerald-300 text-emerald-700 dark:text-emerald-300' : 'border-purple-300 text-purple-700 dark:text-purple-300';
-  const btnBg = isDistortion ? 'bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 dark:hover:bg-emerald-900 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' : 'bg-purple-50 dark:bg-purple-950 hover:bg-purple-100 dark:hover:bg-purple-900 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300';
-  const { filtered, raceGroups, totalCost } = useFilteredGroups(bets, races, venueFilter, trackFilter, raceNumFilter);
-  const { csvExporting, csvResult, exportFfCsv } = useExportCsv();
-
-  // VB馬ごとの集計
-  const vbSummary = useMemo(() => {
-    const byRace = new Map<string, { venue: string; raceNum: number; raceId: string; vbHorses: Set<string>; tickets: number; cost: number; hits: number }>();
-    for (const rec of filtered) {
-      if (!byRace.has(rec.race_id)) {
-        byRace.set(rec.race_id, { venue: rec.venue, raceNum: rec.race_number, raceId: rec.race_id, vbHorses: new Set(), tickets: 0, cost: 0, hits: 0 });
-      }
-      const r = byRace.get(rec.race_id)!;
-      // ★ horse is first in horses array
-      const starName = rec.horse_names[0] || `#${rec.horses[0]}`;
-      r.vbHorses.add(`${rec.horses[0]}${starName}`);
-      r.tickets += 1;
-      r.cost += rec.cost;
-      if (checkHitFn(rec, results) === 'hit') r.hits += 1;
-    }
-    return Array.from(byRace.values()).sort((a, b) => a.raceNum - b.raceNum);
-  }, [filtered, results]);
-
-  // 結果サマリー
-  const hasResults = results != null && Object.keys(results).length > 0;
-  const resultsSummary = useMemo(() => {
-    if (!hasResults) return null;
-    let totalHits = 0;
-    let totalTickets = 0;
-    for (const race of vbSummary) {
-      totalHits += race.hits;
-      totalTickets += race.tickets;
-    }
-    return { totalHits, totalTickets };
-  }, [hasResults, vbSummary]);
-
-  const [expanded, setExpanded] = useState(false);
-  const [selectedRaces, setSelectedRaces] = useState<Set<string>>(new Set());
-
-  // 選択レースのベットのみ
-  const selectedBets = useMemo(() => {
-    if (selectedRaces.size === 0) return filtered;  // 未選択時は全件
-    return filtered.filter(r => selectedRaces.has(r.race_id));
-  }, [filtered, selectedRaces]);
-
-  const selectedCost = useMemo(() => selectedBets.reduce((s, r) => s + r.cost, 0), [selectedBets]);
-
-  const toggleRace = (raceId: string) => {
-    setSelectedRaces(prev => {
-      const next = new Set(prev);
-      if (next.has(raceId)) next.delete(raceId);
-      else next.add(raceId);
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    if (selectedRaces.size === raceGroups.length) {
-      setSelectedRaces(new Set());
-    } else {
-      setSelectedRaces(new Set(raceGroups.map(g => g.raceId)));
-    }
-  };
+  if (!hasMultiLeg) return null;
 
   return (
-    <Card id={isDistortion ? "section-distortion" : "section-sanrentan"} className={`mb-8 ${borderColor}`}>
-      <CardContent className="pt-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2">
-            <span className={textColor}>{sectionTitle}</span>
-            {sectionSubtitle && <span className="text-xs text-muted-foreground">{sectionSubtitle}</span>}
-            <Badge variant="outline" className={`text-xs ${badgeBorder}`}>
-              {filtered.length}点 / {raceGroups.length}R
-            </Badge>
-            <Badge variant="secondary" className="text-xs">
-              {totalCost.toLocaleString()}円
-            </Badge>
-            {resultsSummary && (
-              <Badge variant={resultsSummary.totalHits > 0 ? 'default' : 'outline'}
-                className={`text-xs ${resultsSummary.totalHits > 0 ? 'bg-green-600' : ''}`}>
-                的中 {resultsSummary.totalHits}/{resultsSummary.totalTickets}
-              </Badge>
-            )}
-          </h3>
-          <div className="flex items-center gap-2">
-            {csvResult && (
-              <span className={`text-xs ${csvResult.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600'}`}>
-                {csvResult.msg}
-              </span>
-            )}
-            {selectedRaces.size > 0 && (
-              <span className="text-xs text-muted-foreground">
-                {selectedRaces.size}R選択 / {selectedCost.toLocaleString()}円
-              </span>
-            )}
-            <button
-              onClick={() => exportFfCsv(selectedBets)}
-              disabled={csvExporting || selectedBets.length === 0}
-              className={`px-3 py-1 text-xs font-medium rounded border ${btnBg} disabled:opacity-50`}
-              title="選択レースの三連単をTARGET FF CSV形式で出力（未選択時は全件）"
-            >
-              {csvExporting ? '出力中...' : `FF CSV出力${selectedRaces.size > 0 ? ` (${selectedRaces.size}R)` : ''}`}
-            </button>
-          </div>
-        </div>
-
-        {/* 戦略説明 */}
-        <div className="rounded-lg bg-purple-50 dark:bg-purple-950/50 p-3 mb-4 text-xs">
-          <div className="font-semibold text-purple-800 dark:text-purple-200 mb-1">VB頭フォーメーション (BT ROI 215%)</div>
-          <div className="text-purple-700 dark:text-purple-300 space-y-0.5">
-            <div>条件: P%Top3シェア&lt;0.45 / 1番人気3.0-4.0倍 / ConfGap&lt;0.10 / VB候補≧3頭</div>
-            <div>★(1着)=VB穴馬 → ▲(2着)=P%上位4頭 → △(3着)=次3頭 = 最大28点/VB馬</div>
-          </div>
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="text-center text-muted-foreground py-6 text-sm">
-            該当レースなし（条件: Share&lt;0.45 / FO 3-4 / CG&lt;0.10 / VB≧3）
-          </div>
-        ) : (
-          <>
-            {/* レース別サマリー（チェックボックス付き） */}
-            <div className="space-y-2 mb-4">
-              <div className="flex items-center gap-2 mb-1">
-                <button
-                  onClick={toggleAll}
-                  className="text-[10px] text-muted-foreground hover:text-foreground underline"
-                >
-                  {selectedRaces.size === raceGroups.length ? '全解除' : '全選択'}
-                </button>
-                {selectedRaces.size > 0 && (
-                  <span className="text-[10px] text-muted-foreground">
-                    CSV出力対象: {selectedRaces.size}R / {selectedBets.length}点
-                  </span>
-                )}
-              </div>
-              {vbSummary.map((race, i) => {
-                const raceId = race.raceId;
-                const isSelected = selectedRaces.has(raceId);
-                // 結果判定: hit=1件以上的中, miss=全不的中, pending=未確定
-                const raceHitStatus = !hasResults ? 'pending' :
-                  race.hits > 0 ? 'hit' :
-                  filtered.filter(r => r.race_id === raceId).some(r => checkHitFn(r, results) === 'pending') ? 'pending' : 'miss';
-                return (
-                  <div
-                    key={i}
-                    className={`flex items-center gap-3 text-sm border-b border-dashed pb-1 cursor-pointer rounded px-1 transition-colors ${
-                      isSelected ? 'bg-purple-50 dark:bg-purple-950/50' : 'hover:bg-muted/50'
-                    }`}
-                    onClick={() => raceId && toggleRace(raceId)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}}
-                      className="accent-purple-600 w-3.5 h-3.5"
-                    />
-                    <span className="font-semibold w-16">{race.venue}{race.raceNum}R</span>
-                    <span className={isDistortion ? 'text-emerald-700 dark:text-emerald-300' : 'text-purple-700 dark:text-purple-300'}>
-                      ★ {Array.from(race.vbHorses).join(' / ')}
-                    </span>
-                    <span className="text-muted-foreground ml-auto flex items-center gap-2">
-                      {race.tickets}点 / {race.cost.toLocaleString()}円
-                      {raceHitStatus === 'hit' && (
-                        <span className="text-green-600 font-bold text-xs">的中{race.hits > 1 ? ` ×${race.hits}` : ''}</span>
-                      )}
-                      {raceHitStatus === 'miss' && (
-                        <span className="text-gray-400 text-xs">不的中</span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* 全チケット展開 */}
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="text-xs text-purple-600 dark:text-purple-400 hover:underline mb-2"
-            >
-              {expanded ? '▲ 全チケットを閉じる' : `▼ 全${filtered.length}チケットを展開`}
-            </button>
-            {expanded && (
-              <BetTable raceGroups={raceGroups} results={results} />
-            )}
-          </>
-        )}
-
-        <div className="mt-3 text-[11px] text-muted-foreground">
-          BT検証: ROI 215% (FO&lt;4+CG&lt;0.10, 195R/12hit, 2025-03〜2026-03)
-        </div>
-      </CardContent>
-    </Card>
+    <SpotSection
+      bets={recommendations}
+      results={results}
+      races={races}
+      venueFilter={venueFilter}
+      trackFilter={trackFilter}
+      raceNumFilter={raceNumFilter}
+    />
   );
 }
 

@@ -59,7 +59,8 @@ function MethodCardBody({ method, active, params }: {
             <span className="text-base font-bold">{method.label}</span>
           </div>
           {active ? (
-            <Badge className="bg-amber-500 hover:bg-amber-500 text-white gap-1">
+            // ★稼働中バッジは「状態の色」=緑で統一 (BudgetForm と一致)。card の amber はスリーブ枠の色。
+            <Badge className="bg-green-600 hover:bg-green-600 text-white gap-1">
               <CheckCircle2 className="h-3 w-3" /> 稼働中
             </Badge>
           ) : (

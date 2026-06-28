@@ -180,6 +180,13 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
     return Math.floor(getBaseAmount() * (formData.race_limit_percent / 100));
   };
 
+  // ★状態バッジは「保存済みの実状態」(config) を断言する（formData=編集中の未保存状態ではない）。
+  //   formData が config と食い違うときだけ「未保存」を別バッジで出す＝今動いてるか／これから変える予定かを分離。
+  const savedGapEnabled = config?.settings.gap_enabled ?? false;
+  const savedTanshoEvEnabled = config?.settings.tansho_ev_enabled ?? false;
+  const gapDirty = formData.gap_enabled !== savedGapEnabled;
+  const tanshoEvDirty = formData.tansho_ev_enabled !== savedTanshoEvEnabled;
+
   // フォームコンテンツ
   const formContent = (
     <div className="space-y-5">
@@ -361,15 +368,23 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
             <TrendingUp className="h-4 w-4 text-amber-600" />
             逆張り単（gap単勝）自動投票・隔離口座
           </label>
-          {/* 現在の状態バッジ（紛らわしさ回避：ラベルは状態を断言） */}
-          <span
-            className={`text-xs font-bold px-2 py-1 rounded ${
-              formData.gap_enabled
-                ? 'bg-amber-500 text-white'
-                : 'bg-muted text-muted-foreground'
-            }`}
-          >
-            {formData.gap_enabled ? '● 稼働する' : '○ 停止中'}
+          {/* 現在の状態バッジ＝保存済みの実状態を断言。未保存の変更は別バッジで明示。 */}
+          <span className="flex items-center gap-1">
+            <span
+              className={`text-xs font-bold px-2 py-1 rounded ${
+                savedGapEnabled
+                  ? 'bg-green-600 text-white'
+                  : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {savedGapEnabled ? '● 稼働中' : '○ 停止中'}
+            </span>
+            {gapDirty && (
+              <span className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded bg-orange-100 text-orange-700 border border-orange-300">
+                <AlertTriangle className="h-3 w-3" />
+                未保存（保存で{formData.gap_enabled ? '稼働' : '停止'}）
+              </span>
+            )}
           </span>
         </div>
         {/* 2ボタン選択式（選ばれている方がハイライト＝現状態。押した方に切り替わる） */}
@@ -466,14 +481,22 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
             <TrendingUp className="h-4 w-4 text-sky-600" />
             本命EV単 自動投票・隔離口座
           </label>
-          <span
-            className={`text-xs font-bold px-2 py-1 rounded ${
-              formData.tansho_ev_enabled
-                ? 'bg-sky-500 text-white'
-                : 'bg-muted text-muted-foreground'
-            }`}
-          >
-            {formData.tansho_ev_enabled ? '● 稼働する' : '○ 停止中'}
+          <span className="flex items-center gap-1">
+            <span
+              className={`text-xs font-bold px-2 py-1 rounded ${
+                savedTanshoEvEnabled
+                  ? 'bg-green-600 text-white'
+                  : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {savedTanshoEvEnabled ? '● 稼働中' : '○ 停止中'}
+            </span>
+            {tanshoEvDirty && (
+              <span className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded bg-orange-100 text-orange-700 border border-orange-300">
+                <AlertTriangle className="h-3 w-3" />
+                未保存（保存で{formData.tansho_ev_enabled ? '稼働' : '停止'}）
+              </span>
+            )}
           </span>
         </div>
         <div className="flex gap-2 mb-2">
