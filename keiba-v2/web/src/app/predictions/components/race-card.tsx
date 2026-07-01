@@ -37,6 +37,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
   const jsonRaceResult = results?.[race.race_id];
   const hasResults = (dbRaceResult ? Object.keys(dbRaceResult).length > 0 : false) || (jsonRaceResult ? Object.keys(jsonRaceResult).length > 0 : false);
   const vbEntries = race.entries.filter(e => e.is_value_bet);
+  const regulusEligible = race.entries.some(e => e.regulus != null);
 
   // ★逆張り単（gap単勝）候補 (Session 178・表示専用)★: 自動投票の逆張り単スリーブが拾う馬を可視化。
   //   select_gap_tansho の TS 移植 (display-only)。投票には影響しない。
@@ -53,6 +54,14 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
     v >= 60 ? 'text-red-600 font-bold' :
     v >= 55 ? 'text-orange-600' :
     v <= 42 ? 'text-gray-400' : '';
+
+  // Regulus 順位差の色分け (正=Regulusがpolarisより強気, 負=弱気)
+  const regulusDeltaColor = (d?: number) =>
+    d == null ? 'text-gray-400' :
+    d >= 3 ? 'text-red-600 font-bold' :
+    d >= 1 ? 'text-orange-600' :
+    d <= -3 ? 'text-blue-600 font-bold' :
+    d <= -1 ? 'text-blue-500' : 'text-gray-500';
 
   const [sort, setSort] = useState<SortState>({ key: 'margin', dir: 'desc' });
 
@@ -162,6 +171,15 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                 {race.grade}{race.age_class ? ` ${race.age_class}` : ''}
               </Badge>
             )}
+            {regulusEligible && (
+              <Badge
+                variant="outline"
+                className="text-[10px] border-violet-400 text-violet-700 hover:bg-violet-50 dark:text-violet-300"
+                title="⭐Regulus 専用モデル（3歳上芝OP以上）の第二意見あり — 表示専用・payoutエッジは狙わない"
+              >
+                ⭐Regulus
+              </Badge>
+            )}
             {selectiveBet && (
               <Link
                 href={`/analysis/selective-bets?date=${race.race_id.slice(0, 4)}-${race.race_id.slice(4, 6)}-${race.race_id.slice(6, 8)}`}
@@ -247,6 +265,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                 <SortTh sortKey="idm" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/30 dark:bg-teal-900/10" title="JRDB 事前IDM — 今回レースのJRDB予測値">IDM</SortTh>
                 <SortTh sortKey="ar_dev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-teal-50/30 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
                 <th className="px-1 py-1.5 text-center border-b w-[78px] bg-violet-50/40 dark:bg-violet-900/15 text-[10px]" title="⭐Regulus 脚質・上がり3軸（偏差値・平均50・JRDB指数ベース）— テン(前半/先行力)・上がり(瞬発/末脚)・持続(後半垂れない=スタミナ)。印/解説用">脚質/3軸</th>
+                <th className="px-1 py-1.5 text-center border-b w-14 bg-violet-50/40 dark:bg-violet-900/15 text-[10px]" title="⭐Regulus 専用モデル（3歳上芝OP以上のみ）の第二意見 — 軌跡/CID中核で読む経験豊富な王者級馬対決の判定。P順位とpolaris(汎用)との順位差。payoutエッジは狙わず表示専用・買い目には影響しない">Reg</th>
                 <SortTh sortKey="prob_p" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走モデル(P)の3着内確率（%）">P%</SortTh>
                 <SortTh sortKey="prob_w" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利モデル(W)の勝率予測（%）">W%</SortTh>
                 <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="BR (Book Rating) — 競馬ブックレイティング">BR</SortTh>
@@ -370,6 +389,22 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                               {lp.tags[0].split('(')[0]}
                             </div>
                           )}
+                        </td>
+                      );
+                    })()}
+                    {(() => {
+                      const rg = entry.regulus;
+                      if (!rg) return <td className="px-1 py-1 text-center bg-violet-50/15 dark:bg-violet-900/5 text-gray-300 text-[10px]">-</td>;
+                      const delta = rg.delta_rank_p;
+                      return (
+                        <td
+                          className="px-1 py-1 text-center bg-violet-50/15 dark:bg-violet-900/5 text-[10px] leading-tight"
+                          title={`Regulus P${rg.rank_p}位 (${(rg.proba_p * 100).toFixed(1)}%)${rg.rank_w != null ? ` / W${rg.rank_w}位` : ''} — polaris P${rg.polaris_rank_p ?? '?'}位比 ${delta != null ? (delta > 0 ? `+${delta}` : delta) : '?'}（正=Regulusがより強気）`}
+                        >
+                          <div className="font-bold font-mono">P{rg.rank_p}</div>
+                          <div className={`font-mono ${regulusDeltaColor(delta)}`}>
+                            {delta != null ? (delta > 0 ? `+${delta}` : delta) : '–'}
+                          </div>
                         </td>
                       );
                     })()}

@@ -81,6 +81,21 @@ export interface PredictionEntry {
   niigata1000?: NiigataOverlay;
   // Regulus 脚質・能力プロファイル (Session 178・表示専用オーバーレイ)
   legProfile?: LegProfile;
+  // Regulus 専用モデル 第二意見 (Session 182・3歳上芝OP+のみ・表示専用)
+  regulus?: RegulusScore;
+}
+
+/** Regulus 専用モデル (ml/nova/predict_regulus.py が regulus_scores.json に出力) の第二意見。
+ *  3歳上×芝×OP以上のみ対象。payoutエッジは狙わない — polaris(汎用)との見解差を示す表示専用シグナル。 */
+export interface RegulusScore {
+  proba_p: number;             // 3着内確率 (calibrated, Regulus lean_plus モデル)
+  proba_w?: number;            // 勝率 (calibrated)
+  rank_p: number;              // Regulus内での順位 (対象レース内)
+  rank_w?: number;
+  polaris_rank_p?: number;     // polaris(汎用)のP順位 — 比較用
+  polaris_rank_w?: number;
+  delta_rank_p?: number;       // polaris順位 - Regulus順位 (正=Regulusがより強気)
+  delta_rank_w?: number;
 }
 
 /** Regulus 脚質・能力プロファイル (ml/nova/leg_profile.py が leg_profiles.json に出力)。
@@ -289,6 +304,38 @@ export function enrichPredictionsWithLegProfiles(data: PredictionsLive): Predict
     }
   } catch (error) {
     console.error('[predictions-reader] leg-profile enrichment failed (non-fatal):', error);
+  }
+  return data;
+}
+
+/**
+ * Regulus 専用モデル(3歳上芝OP+)の第二意見 (races/YYYY/MM/DD/regulus_scores.json) を読み、
+ * predictions の各 entry に regulus をマージ (race_id + umaban 突合)。
+ * ファイルが無い/対象レースが無ければ無変更 (graceful)。表示専用・買い目には影響しない。
+ */
+export function enrichPredictionsWithRegulus(data: PredictionsLive): PredictionsLive {
+  try {
+    const [y, m, d] = data.date.split('-');
+    if (!y || !m || !d) return data;
+    const filePath = path.join(DATA3_ROOT, 'races', y, m, d, 'regulus_scores.json');
+    if (!fs.existsSync(filePath)) return data;
+    const snap = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as {
+      races: Record<string, { entries: Record<string, RegulusScore> }>;
+    };
+    let enriched = 0;
+    for (const race of data.races) {
+      const per = snap.races[race.race_id];
+      if (!per) continue;
+      for (const entry of race.entries) {
+        const rs = per.entries[String(entry.umaban)];
+        if (rs) { entry.regulus = rs; enriched++; }
+      }
+    }
+    if (enriched > 0) {
+      console.log(`[predictions-reader] regulus enrichment: ${enriched} entries`);
+    }
+  } catch (error) {
+    console.error('[predictions-reader] regulus enrichment failed (non-fatal):', error);
   }
   return data;
 }
