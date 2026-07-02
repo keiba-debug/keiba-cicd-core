@@ -39,6 +39,7 @@ export interface CourseFrameDef {
   accent?: 'ml' | 'pred';      // ボタン配色 (ml=紫 / pred=teal / 無指定=青)
   buttonTitle?: string;
   gate?: boolean;               // ゲート整列コマ (order=ゲート番号。テロップは順位変動でなく隊列形成を出す)
+  hidden?: boolean;             // コマ選択ボタンを出さない (▶再生シーケンス専用の中間コマ。出遅れ演出等)
 }
 
 /** 1頭分の描画データ */
@@ -133,6 +134,9 @@ export const COURSE_ANCHORS = {
 /** 半馬身→path単位 (視認性優先でややデフォルメ) */
 export const HALF_LEN = 6;
 
+/** 馬マーカーの表示倍率 (ゲート一列でも重なりにくい小サイズで全コマ統一) */
+const MARKER_SCALE = 0.55;
+
 // ============================================================
 // コンポーネント
 // ============================================================
@@ -197,6 +201,14 @@ export default function CourseReplay({
   const telopFor = useCallback((ia: number, ib: number): string | null => {
     const a = frameDefs[ia], b = frameDefs[ib];
     const seg = `${a.label}→${b.label}`;
+    if (b.gate) {
+      // ゲート→発走直後: 出遅れた馬 (直後コマで先頭差がついた馬) を告知
+      const slow = horses
+        .map(h => ({ num: h.num, f: h.frames[ib] }))
+        .filter((x): x is { num: number; f: CourseFramePos } => !!x.f && (x.f.diff ?? 0) >= 2)
+        .map(x => toCircleNumber(x.num));
+      return slow.length > 0 ? `${a.label}: ${slow.join('')}が出遅れ` : null;
+    }
     if (a.gate) {
       const leaders = horses
         .map(h => ({ num: h.num, f: h.frames[ib] }))
@@ -306,8 +318,7 @@ export default function CourseReplay({
   // 伸び流線はレース進行(inPlay同士)の区間のみ (予想⇄MLの意見割れ切替では出さない)
   const racingSegment = !!frameDefs[i0].inPlay && !!frameDefs[i0 + 1].inPlay;
   const showRing = !!ringFrameKeys?.includes(frameDefs[frameIdx].key);
-  // ゲート度 (0〜1): ゲートコマではマーカーを縮小し前後ずらしを無効化して「横一列」を保つ。
-  // 発走後は補間で通常サイズ・通常挙動へ滑らかに戻る
+  // ゲート度 (0〜1): ゲートコマでは前後ずらしを無効化して「横一列」を保つ (発走後は補間で通常挙動へ)
   const gateW = lerp(frameDefs[i0].gate ? 1 : 0, frameDefs[i0 + 1].gate ? 1 : 0);
 
   const dups = new Map<string, number>();
@@ -325,8 +336,7 @@ export default function CourseReplay({
       const dup = dups.get(key) ?? 0;
       dups.set(key, dup + 1);
       const { x, y, ang } = posAt(anchor + diff * HALF_LEN + dup * 13 * (1 - gateW), inout);
-      const scale = 1 - 0.45 * gateW;
-      return { h, x, y, ang, cur, closing, scale, ghost: !h.frames[frameIdx] };
+      return { h, x, y, ang, cur, closing, ghost: !h.frames[frameIdx] };
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
 
@@ -346,7 +356,7 @@ export default function CourseReplay({
           {headerExtra}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
-          {frameDefs.map((f, i) => (
+          {frameDefs.map((f, i) => f.hidden ? null : (
             <button
               key={f.key}
               onClick={() => { stopAnim(); setFrameIdx(i); animateTo(i); }}
@@ -431,11 +441,11 @@ export default function CourseReplay({
         )}
 
         {/* 馬マーカー (rAF がコース経路に沿って駆動) */}
-        {rendered.map(({ h, x, y, ang, cur, closing, scale, ghost }) => {
+        {rendered.map(({ h, x, y, ang, cur, closing, ghost }) => {
           const cap = WAKU_HEX[parseInt(h.waku ?? '', 10)] ?? WAKU_HEX_FALLBACK;
           const lineLen = Math.min(20, 7 + closing * 1.3);
           return (
-            <g key={h.num} transform={`translate(${x.toFixed(1)},${y.toFixed(1)}) scale(${scale.toFixed(2)})`} opacity={ghost ? 0.45 : 1}>
+            <g key={h.num} transform={`translate(${x.toFixed(1)},${y.toFixed(1)}) scale(${MARKER_SCALE})`} opacity={ghost ? 0.45 : 1}>
               <title>{`${toCircleNumber(h.num)} ${h.name}${h.bucket ? ` / 競馬ブック: ${h.bucket}` : ''} / ${frameDefs[frameIdx].label}: ${cur.posLabel ?? `${cur.order}番手${cur.diff != null && cur.diff > 0 ? ` (先頭差${cur.diff}半馬身)` : ''}`}`}</title>
               {/* 伸び流線 (差を詰めている馬・再生中のみ・進行方向の逆に流す) */}
               {moving && racingSegment && closing >= 3 && (

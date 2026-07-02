@@ -120,11 +120,20 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
   // --- コマ定義: スタート(枠順ゲート) → [コーナー...] → ゴール(結果) → 予想ゴール → MLゴール ---
   const cornerLabels = ['1角', '2角', '3角', '4角'].slice(4 - nCorners);
   const cornerAnchors = [COURSE_ANCHORS.c1, COURSE_ANCHORS.c2, COURSE_ANCHORS.c3, COURSE_ANCHORS.c4].slice(4 - nCorners);
+  // 出遅れ馬 (実測SED出遅補正) がいるレースは「発走直後」の中間コマを挟んで出遅れを動きで表現する
+  const hasSlow = finishers.some(f => (f.e.jrdb_deokure ?? 0) > 0);
+
   const frameDefs: CourseFrameDef[] = [
     {
       key: 'start', label: 'スタート', anchor: COURSE_ANCHORS.startStraight, inPlay: true, gate: true,
-      buttonTitle: '枠順のゲート横一列 (確定情報) — 出遅れ馬は後方から。1角への動きで誰がダッシュしたかが見える',
+      buttonTitle: '枠順のゲート横一列 (確定情報) — 出遅れ馬は発走直後に下がる。1角への動きで誰がダッシュしたかが見える',
     },
+    ...(hasSlow
+      ? [{
+          key: 'dash', label: '直後', anchor: COURSE_ANCHORS.startStraight - 80,
+          inPlay: true, gate: true, hidden: true,
+        } satisfies CourseFrameDef]
+      : []),
     ...cornerLabels.map((label, i) => ({
       key: `c${i}`, label, anchor: cornerAnchors[i], inPlay: true,
     })),
@@ -197,18 +206,26 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
       ? e.jrdb_course_tori
       : null;
     // スタート: 枠順ゲート横一列 (全馬 diff=0・内外=馬番で内→外に均等配置=ゲート番号そのまま)。
-    // ゲートコマはエンジン側でマーカー縮小+前後ずらし無効なので、全馬が同じ線上に並ぶ。
-    // 出遅れ演出は「このレースで実際に出遅れた」実測のSED出遅補正のみ。
-    // is_slow_start(keibabook)は事前の「出遅れ癖」フラグなので結果側では使わない
+    // ゲートコマはエンジン側で前後ずらし無効なので、全馬が同じ線上に並ぶ
     const waku = parseInt(e.entry_data?.waku ?? '', 10);
     const gateLane = maxNum > 1 ? 1 + ((e.horse_number - 1) * 4) / (maxNum - 1) : 3;
-    const slowStart = (e.jrdb_deokure ?? 0) > 0;
     const startFrame: CourseFramePos = {
       order: e.horse_number,
-      diff: slowStart ? 3 : 0,
+      diff: 0,
       inout: gateLane,
-      posLabel: `ゲート${waku >= 1 ? ` (枠${waku})` : ''}${slowStart ? '・出遅れ' : ''}`,
+      posLabel: `ゲート${waku >= 1 ? ` (枠${waku})` : ''}`,
     };
+    // 発走直後: 出遅れ馬 (実測SED出遅補正のみ。is_slow_start=事前の癖フラグは結果側では使わない)
+    // だけ1.75馬身下がる → ゲート一列からガクッと遅れる動きで出遅れを表現
+    const slowStart = (e.jrdb_deokure ?? 0) > 0;
+    const dashFrame: CourseFramePos | undefined = hasSlow
+      ? {
+          order: e.horse_number,
+          diff: slowStart ? 3.5 : 0,
+          inout: gateLane,
+          posLabel: `スタート直後${slowStart ? '・出遅れ' : ''}`,
+        }
+      : undefined;
     // コーナー通過 (馬側のコーナー数が少ない場合は末尾=4角側に揃える)
     const cframes: (CourseFramePos | undefined)[] = new Array(nCorners).fill(undefined);
     const offset = nCorners - Math.min(corners.length, nCorners);
@@ -236,6 +253,7 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
       ring,
       frames: [
         startFrame,
+        ...(hasSlow ? [dashFrame] : []),
         ...cframes,
         goalFrame,
         ...(hasPred ? [jrGoal ?? undefined] : []),
@@ -286,7 +304,7 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
       headerExtra={headerExtra}
       playLabel="リプレイ"
       ringFrameKeys={['rgoal', 'pgoal']}
-      legendNote={`コース模式図(${mirrored ? '左' : '右'}回り) / スタート=枠順ゲート(出遅れ馬は後方から) / 通過順位=JRA-VAN / ゴール=着差(クビ/ハナ等)の累積換算 / 内外=${useTori ? 'JRDB実測コース取り(1最内〜5大外・欠損馬は確率的推定)' : '確率的推定(近い位置は内枠が内・3角以降の追い上げ馬は外)'}`}
+      legendNote={`コース模式図(${mirrored ? '左' : '右'}回り) / スタート=枠順ゲート(出遅れは発走直後の動きで表現) / 通過順位=JRA-VAN / ゴール=着差(クビ/ハナ等)の累積換算 / 内外=${useTori ? 'JRDB実測コース取り(1最内〜5大外・欠損馬は確率的推定)' : '確率的推定(近い位置は内枠が内・3角以降の追い上げ馬は外)'}`}
     />
   );
 }
