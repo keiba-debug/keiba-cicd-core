@@ -100,10 +100,31 @@ export interface RegulusScore {
   delta_rank_w?: number;
 }
 
+/** JRDB展開予想の1コマ (KYI 第6版・当日朝公表=リークフリー)。
+ *  diff=先頭からの累積差(半馬身単位)・inout=1(最内)〜5(大外)。
+ *  道中→残り3F→ゴールの3コマ = 隊列アニメーションのキーフレーム。 */
+export interface JrdbTenkaiFrame {
+  order: number;                // 予想順位 (1=先頭)
+  diff: number | null;          // 先頭からの差 (半馬身単位・先頭=0)
+  inout: number | null;         // 内外 1(最内)〜5(大外)
+}
+
+/** JRDB展開予想オーバーレイ (leg_profiles.json の jrdb キー・Session 186)。
+ *  ⚠ pred系指数は負値中心(mean≈-13・range -50〜+37)。>0 を有効値扱いすると94%消える。 */
+export interface JrdbTenkaiPred {
+  pace?: string | null;         // JRDB予想ペース H/M/S
+  ten_idx?: number | null;      // テン指数 (前半スピード)
+  agari_idx?: number | null;    // 上がり指数
+  position_idx?: number | null; // 位置指数
+  dochu?: JrdbTenkaiFrame;      // 道中
+  f3?: JrdbTenkaiFrame;         // 残り3F
+  goal?: JrdbTenkaiFrame;       // ゴール
+}
+
 /** Regulus 脚質・能力プロファイル (ml/nova/leg_profile.py が leg_profiles.json に出力)。
  *  上がり3軸=JRDB指数ベース(テン/上がり/持続 偏差値・平均50)。印/解説用・買い目には影響しない。 */
 export interface LegProfile {
-  kyakushitsu: string;          // 逃げ/先行/差し/追込
+  kyakushitsu: string;          // 逃げ/先行/差し/追込 (n=0 のとき "—")
   ten: number | null;           // テン力 偏差値 (前半スピード/先行力)
   agari: number | null;         // 上がり力 偏差値 (瞬発/末脚)
   sustain: number | null;       // 持続力 偏差値 (後半垂れない=スタミナ)
@@ -111,7 +132,8 @@ export interface LegProfile {
   agari_grade: string;
   sustain_grade: string;
   tags: string[];               // 言語化タグ (末脚一閃型/先行押し切り型/バテない持続型/上昇気配 等)
-  n: number;                    // 集計に使った過去走数
+  n: number;                    // 集計に使った過去走数 (0=過去走なし・JRDB展開のみの馬)
+  jrdb?: JrdbTenkaiPred;        // JRDB展開予想 (統合隊列図用・Session 186)
 }
 
 /** E-005 理由タグ（表示専用）。Python ml/strategies/reason_tags.py が生成。 */

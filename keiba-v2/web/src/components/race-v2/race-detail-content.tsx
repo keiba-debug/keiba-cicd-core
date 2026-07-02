@@ -16,6 +16,7 @@ import {
   type TargetMarksSavedData,
   type TargetCommentSavedData,
 } from '@/components/race-v2';
+import ResultTenkaiReplay from './ResultTenkaiReplay';
 
 import { RaceMemoSection } from '@/components/race-v2/RaceMemoSection';
 import StakeholderCommentsSection from './StakeholderCommentsSection';
@@ -343,12 +344,21 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               tenkaiData={raceData.tenkai_data}
               entries={raceData.entries}
               legProfiles={legProfiles}
+              track={urlTrack}
+              mlPredictions={mlPredictions}
             />
           </TabsContent>
 
           {/* 結果タブ */}
           {showResults && (
             <TabsContent value="results" className="mt-4">
+              {/* 🎬 結果リプレイ・答え合わせ (コーナー通過→実ゴール vs 予想ゴール/MLゴール) */}
+              <ResultTenkaiReplay
+                entries={raceData.entries}
+                legProfiles={legProfiles}
+                mlPredictions={mlPredictions}
+                track={urlTrack}
+              />
               <RaceResultSection
                 entries={raceData.entries}
                 payouts={raceData.payouts}
@@ -456,6 +466,8 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
               tenkaiData={raceData.tenkai_data}
               entries={raceData.entries}
               legProfiles={legProfiles}
+              track={urlTrack}
+              mlPredictions={mlPredictions}
             />
           )}
 
@@ -474,18 +486,27 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
 
           {/* レース結果 */}
           {showResults && (
-            <RaceResultSection
-              entries={raceData.entries}
-              payouts={raceData.payouts}
-              tenkaiData={raceData.tenkai_data}
-              distance={raceData.race_info.distance}
-              rpciInfo={rpciInfo}
-              babaInfo={babaInfo}
-              laps={raceData.laps}
-              raceId={raceData.meta?.race_id}
-              raceDate={raceData.race_info.date}
-              raceName={raceData.race_info.race_name}
-            />
+            <>
+              {/* 🎬 結果リプレイ・答え合わせ (コーナー通過→実ゴール vs 予想ゴール/MLゴール) */}
+              <ResultTenkaiReplay
+                entries={raceData.entries}
+                legProfiles={legProfiles}
+                mlPredictions={mlPredictions}
+                track={urlTrack}
+              />
+              <RaceResultSection
+                entries={raceData.entries}
+                payouts={raceData.payouts}
+                tenkaiData={raceData.tenkai_data}
+                distance={raceData.race_info.distance}
+                rpciInfo={rpciInfo}
+                babaInfo={babaInfo}
+                laps={raceData.laps}
+                raceId={raceData.meta?.race_id}
+                raceDate={raceData.race_info.date}
+                raceName={raceData.race_info.race_name}
+              />
+            </>
           )}
         </div>
       )}

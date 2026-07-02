@@ -9,15 +9,22 @@ import { TenkaiData, HorseEntry, toCircleNumber } from '@/types/race-data';
 import { Badge } from '@/components/ui/badge';
 import { Flame, Timer, Turtle } from 'lucide-react';
 import type { LegProfile } from '@/lib/data/leg-profile-reader';
+import type { MlPredictionEntry } from './HorseEntryTable';
+import CourseReplay, { COURSE_ANCHORS, LEFT_HANDED_TRACKS, BUCKET_DOT_HEX } from './CourseReplay';
+import type { CourseFrameDef, CourseHorse, CourseFramePos } from './CourseReplay';
 
 interface TenkaiSectionProps {
   tenkaiData: TenkaiData | null;
   entries: HorseEntry[];
   /** Regulus 脚質・能力プロファイル（馬番→profile） */
   legProfiles?: Record<number, LegProfile>;
+  /** 場名（右/左回り判定に使用・未指定は右回り扱い） */
+  track?: string;
+  /** ML予測（MLゴールコマ=AR着差偏差値による予想着順・表示専用） */
+  mlPredictions?: Record<number, MlPredictionEntry>;
 }
 
-export default function TenkaiSection({ tenkaiData, entries, legProfiles }: TenkaiSectionProps) {
+export default function TenkaiSection({ tenkaiData, entries, legProfiles, track, mlPredictions }: TenkaiSectionProps) {
   if (!tenkaiData && !legProfiles) return null;
 
   const pace = tenkaiData?.pace || 'M';
@@ -30,6 +37,10 @@ export default function TenkaiSection({ tenkaiData, entries, legProfiles }: Tenk
   entries.forEach(e => {
     horseNameMap.set(String(e.horse_number), e.horse_name);
   });
+
+  // JRDB展開予想(道中コマ)を持つ馬が2頭以上いれば統合隊列図を使う
+  const hasJrdbTenkai = !!legProfiles &&
+    entries.filter(e => legProfiles[e.horse_number]?.jrdb?.dochu).length >= 2;
 
   return (
     <div className="border rounded-lg p-4">
@@ -65,9 +76,20 @@ export default function TenkaiSection({ tenkaiData, entries, legProfiles }: Tenk
             </div>
           )}
 
-          {/* ビジュアル展開図 */}
-          <TenkaiVisual positions={positions} horseNameMap={horseNameMap} />
+          {/* ビジュアル展開図（競馬ブック4分類・JRDB座標が無いレースのフォールバック） */}
+          {!hasJrdbTenkai && <TenkaiVisual positions={positions} horseNameMap={horseNameMap} />}
         </>
+      )}
+
+      {/* 🎬 統合隊列図: 骨格=JRDB展開予想(2D座標×3コマ) × 色=競馬ブック展開分類 (Session 186) */}
+      {hasJrdbTenkai && (
+        <UnifiedTenkaiVisual
+          entries={entries}
+          legProfiles={legProfiles!}
+          positions={tenkaiData?.positions ?? null}
+          track={track}
+          mlPredictions={mlPredictions}
+        />
       )}
 
       {/* ⭐ Regulus 脚質・能力プロファイル（データ駆動・上がり3軸=JRDB指数ベース） */}
@@ -253,6 +275,101 @@ function HorseMarker({ num, name }: { num: string; name?: string }) {
 }
 
 // ============================================================
+// 🎬 統合隊列図 (Session 186) — CourseReplay エンジンに予想コマを流し込む builder
+// 位置 = JRDB KYI 展開予想 (先頭差×内外) / 帽色 = 枠番 / ● = 競馬ブック展開分類
+// MLゴール = AR(着差回帰)偏差値から合成する第4コマ (JRDBゴールとの意見割れ可視化)
+// エンジン本体(コースジオメトリ/rAFアニメ)は CourseReplay.tsx — 結果リプレイと共用
+// ============================================================
+
+/** AR偏差値1pt→半馬身の換算 (MLゴールの隊形スケール・視認性優先) */
+const ARD_TO_HALF = 0.7;
+
+/** AR偏差値 → MLゴールコマ (予想隊列図と結果リプレイで共用) */
+export function buildMlGoalFrame(
+  dev: number | null | undefined,
+  devs: number[],
+  inout: number | null | undefined,
+): CourseFramePos | undefined {
+  if (dev == null || devs.length < 2) return undefined;
+  const maxDev = Math.max(...devs);
+  return {
+    order: devs.filter(d => d > dev).length + 1,
+    diff: Math.min(40, Math.round((maxDev - dev) * ARD_TO_HALF * 10) / 10),
+    inout: inout ?? 3,          // 内外はML予測に無いのでJRDBゴール等を流用
+  };
+}
+
+interface UnifiedTenkaiVisualProps {
+  entries: HorseEntry[];
+  legProfiles: Record<number, LegProfile>;
+  positions: TenkaiData['positions'] | null;
+  /** 場名 (右/左回り判定。未指定は右回り扱い) */
+  track?: string;
+  /** ML予測 (MLゴールコマの合成に使用) */
+  mlPredictions?: Record<number, MlPredictionEntry>;
+}
+
+function UnifiedTenkaiVisual({ entries, legProfiles, positions, track, mlPredictions }: UnifiedTenkaiVisualProps) {
+  // 競馬ブック分類マップ (馬番文字列 → バケット名)
+  const bucketMap = new Map<string, string>();
+  if (positions) {
+    Object.keys(BUCKET_DOT_HEX).forEach(b => {
+      ((positions as unknown as Record<string, string[]>)[b] || []).forEach(num => bucketMap.set(String(num), b));
+    });
+  }
+
+  // MLゴールコマの合成材料: AR(着差回帰)偏差値
+  const devs = entries
+    .map(e => mlPredictions?.[e.horse_number]?.ar_deviation)
+    .filter((v): v is number => v != null);
+  const hasMl = devs.length >= 2;
+
+  const horses: CourseHorse[] = entries
+    .map(e => {
+      const jr = legProfiles[e.horse_number]?.jrdb;
+      const mlFrame = hasMl
+        ? buildMlGoalFrame(mlPredictions?.[e.horse_number]?.ar_deviation, devs, jr?.goal?.inout)
+        : undefined;
+      return {
+        num: e.horse_number,
+        name: e.horse_name,
+        waku: e.entry_data?.waku,
+        bucket: bucketMap.get(String(e.horse_number)),
+        frames: hasMl ? [jr?.dochu, jr?.f3, jr?.goal, mlFrame] : [jr?.dochu, jr?.f3, jr?.goal],
+      };
+    })
+    .filter(h => h.frames.some(Boolean));
+  if (horses.length < 2) return null;
+
+  const frameDefs: CourseFrameDef[] = [
+    { key: 'dochu', label: '道中', anchor: COURSE_ANCHORS.backMid, inPlay: true },
+    { key: 'f3', label: '残り3F', anchor: COURSE_ANCHORS.f3, inPlay: true },
+    { key: 'goal', label: 'ゴール', anchor: COURSE_ANCHORS.goal, inPlay: true },
+    ...(hasMl
+      ? [{
+          key: 'ml', label: 'MLゴール', anchor: COURSE_ANCHORS.goal, accent: 'ml' as const,
+          buttonTitle: 'ML(AR着差回帰)による予想着順 — JRDBゴールとの違い=展開派vs能力派の意見割れ',
+        }]
+      : []),
+  ];
+
+  const jrdbPace = entries.map(e => legProfiles[e.horse_number]?.jrdb?.pace).find(Boolean);
+  const mirrored = !!track && LEFT_HANDED_TRACKS.has(track);
+
+  return (
+    <CourseReplay
+      frameDefs={frameDefs}
+      horses={horses}
+      mirrored={mirrored}
+      title="予想隊列図"
+      headerNote="位置=JRDB展開予想 / 帽色=枠番 / ●=競馬ブック分類"
+      paceNote={jrdbPace ? `JRDB想定ペース: ${jrdbPace}` : undefined}
+      legendNote={`コース模式図(${mirrored ? '左' : '右'}回り) / 先頭差・内外=JRDB KYI(当日朝公表)${hasMl ? ' / MLゴール=AR着差回帰の偏差値' : ''}`}
+    />
+  );
+}
+
+// ============================================================
 // ⭐ Regulus 脚質・能力プロファイル レイヤー (上がり3軸=JRDB指数ベース・表示専用)
 // ============================================================
 
@@ -276,7 +393,7 @@ interface LegRow { num: number; name: string; lp: LegProfile; }
 function LegProfileLayer({ entries, legProfiles }: { entries: HorseEntry[]; legProfiles: Record<number, LegProfile> }) {
   const rows: LegRow[] = entries
     .map(e => ({ num: e.horse_number, name: e.horse_name, lp: legProfiles[e.horse_number] }))
-    .filter((r): r is LegRow => !!r.lp);
+    .filter((r): r is LegRow => !!r.lp && r.lp.n > 0);  // n=0 は JRDB展開のみの馬(隊列図専用)
   if (rows.length === 0) return null;
 
   // --- データ駆動ペース読み（先行密度 × テン力） ---

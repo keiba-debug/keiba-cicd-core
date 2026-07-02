@@ -870,9 +870,9 @@ const HorseEntryRow = React.memo(function HorseEntryRow({
         </td>
       )}
 
-      {/* ⭐脚質・能力プロファイル (Regulus・上がり3軸=JRDB指数偏差値・表示専用) */}
+      {/* ⭐脚質・能力プロファイル (Regulus・上がり3軸=JRDB指数偏差値・表示専用)。n=0 は JRDB展開のみの馬 */}
       <td className="px-1 py-1.5 border text-center text-[10px] bg-violet-50/15 dark:bg-violet-900/10">
-        {legProfile ? (
+        {legProfile && legProfile.n > 0 ? (
           <div
             className="leading-tight"
             title={`${legProfile.kyakushitsu} / テン${legProfile.ten ?? '–'}(${legProfile.ten_grade}) 上がり${legProfile.agari ?? '–'}(${legProfile.agari_grade}) 持続${legProfile.sustain ?? '–'}(${legProfile.sustain_grade})${legProfile.tags.length ? '  ◀ ' + legProfile.tags.join('・') : ''}  (近${legProfile.n}走・偏差値50基準)`}

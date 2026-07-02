@@ -226,12 +226,38 @@ def _demo(args):
     return 0
 
 
+def _kyi_tenkai(k):
+    """KYI index エントリ → JRDB展開予想オーバーレイ(jrdbキー・Session 186)。
+    道中/残り3F/ゴールの3コマ = アニメーション補間用キーフレーム。
+    diff=先頭からの累積差(半馬身)・inout=1(最内)〜5(大外)。
+    注意: pred系指数は負値中心(mean≈-13)。>0 を有効値扱いすると94%消える。"""
+    def frame(pfx):
+        o = k.get(f"pred_{pfx}_order")
+        if o is None or o <= 0:
+            return None
+        return {"order": o, "diff": k.get(f"pred_{pfx}_diff"),
+                "inout": k.get(f"pred_{pfx}_uchi_soto")}
+    frames = {name: frame(src) for name, src in
+              (("dochu", "dochu"), ("f3", "3f"), ("goal", "goal"))}
+    frames = {name: v for name, v in frames.items() if v}
+    if not frames and k.get("pred_ten_idx") is None:
+        return None
+    out = {"pace": k.get("pred_pace") or None,
+           "ten_idx": k.get("pred_ten_idx"),
+           "agari_idx": k.get("pred_agari_idx"),
+           "position_idx": k.get("pred_position_idx")}
+    out.update(frames)
+    return out
+
+
 def emit_date(date):
-    """その日の全 race_*.json を読み、各馬の脚質プロファイルを
+    """その日の全 race_*.json を読み、各馬の脚質プロファイル+JRDB展開予想を
     races/YYYY/MM/DD/leg_profiles.json に出力(web予想カードのオーバーレイ源)。
     返り値: 書いたレース数。"""
     import glob
     _load()
+    kyi_path = config.indexes_dir() / "jrdb_kyi_index.json"
+    kyi = json.load(open(kyi_path, encoding="utf-8")) if kyi_path.exists() else {}
     y, m, d = date.split("-")
     day_dir = config.races_dir() / y / m / d
     files = sorted(glob.glob(str(day_dir / "race_*.json")))
@@ -252,15 +278,24 @@ def emit_date(date):
             if not ket or not uma:
                 continue
             p = profile(ket, rdate)
-            if not p:
+            jr = _kyi_tenkai(kyi[f"{ket}_{rdate}"]) if f"{ket}_{rdate}" in kyi else None
+            if not p and not jr:
                 continue
-            per[str(int(uma))] = {
-                "kyakushitsu": p["kyakushitsu"],
-                "ten": p["ten_t"], "agari": p["agari_t"], "sustain": p["sustain_t"],
-                "ten_grade": p["ten_grade"], "agari_grade": p["agari_grade"],
-                "sustain_grade": p["sustain_grade"],
-                "tags": tags(p), "n": p["n_runs"],
+            # p 無し(過去走なし=新馬等)でも JRDB 展開予想があれば隊列図用に emit する。
+            # その場合 n=0 — web 側の脚質テーブル/出馬表セルは n>0 でガード。
+            rec = {
+                "kyakushitsu": p["kyakushitsu"] if p else "—",
+                "ten": p["ten_t"] if p else None,
+                "agari": p["agari_t"] if p else None,
+                "sustain": p["sustain_t"] if p else None,
+                "ten_grade": p["ten_grade"] if p else "—",
+                "agari_grade": p["agari_grade"] if p else "—",
+                "sustain_grade": p["sustain_grade"] if p else "—",
+                "tags": tags(p), "n": p["n_runs"] if p else 0,
             }
+            if jr:
+                rec["jrdb"] = jr
+            per[str(int(uma))] = rec
         if per:
             out[rid] = per
     out_path = day_dir / "leg_profiles.json"
