@@ -204,31 +204,31 @@ export default function CourseReplay({
     if (b.gate) {
       // ゲート→発走直後: 出遅れた馬 (直後コマで先頭差がついた馬) を告知
       const slow = horses
-        .map(h => ({ num: h.num, f: h.frames[ib] }))
-        .filter((x): x is { num: number; f: CourseFramePos } => !!x.f && (x.f.diff ?? 0) >= 2)
-        .map(x => toCircleNumber(x.num));
-      return slow.length > 0 ? `${a.label}: ${slow.join('')}が出遅れ` : null;
+        .map(h => ({ num: h.num, name: h.name, f: h.frames[ib] }))
+        .filter((x): x is { num: number; name: string; f: CourseFramePos } => !!x.f && (x.f.diff ?? 0) >= 2)
+        .map(x => `${toCircleNumber(x.num)}${x.name}`);
+      return slow.length > 0 ? `${a.label}: ${slow.join('・')}が出遅れ` : null;
     }
     if (a.gate) {
       const leaders = horses
-        .map(h => ({ num: h.num, f: h.frames[ib] }))
-        .filter((x): x is { num: number; f: CourseFramePos } => !!x.f)
+        .map(h => ({ num: h.num, name: h.name, f: h.frames[ib] }))
+        .filter((x): x is { num: number; name: string; f: CourseFramePos } => !!x.f)
         .sort((p, q) => p.f.order - q.f.order)
         .slice(0, 2);
       if (leaders.length === 0) return null;
-      return `${seg}: ${leaders.map(x => `${toCircleNumber(x.num)}${x.f.order === 1 ? 'が先頭' : ` ${x.f.order}番手`}`).join('・')}`;
+      return `${seg}: ${leaders.map(x => `${toCircleNumber(x.num)}${x.name}${x.f.order === 1 ? 'が先頭' : ` ${x.f.order}番手`}`).join('・')}`;
     }
     const movers = horses
       .map(h => {
         const fa = h.frames[ia], fb = h.frames[ib];
         if (!fa || !fb) return null;
-        return { num: h.num, from: fa.order, to: fb.order, up: fa.order - fb.order };
+        return { num: h.num, name: h.name, from: fa.order, to: fb.order, up: fa.order - fb.order };
       })
       .filter((v): v is NonNullable<typeof v> => v !== null && v.up >= 2)
       .sort((p, q) => q.up - p.up)
       .slice(0, 2);
     if (movers.length === 0) return null;
-    return `${seg}: ${movers.map(m => `${toCircleNumber(m.num)} ${m.from}位→${m.to}位↑`).join(' ・ ')}`;
+    return `${seg}: ${movers.map(m => `${toCircleNumber(m.num)}${m.name} ${m.from}位→${m.to}位↑`).join(' ・ ')}`;
   }, [frameDefs, horses]);
 
   /** ▶再生: inPlay なコマを先頭から順に流す (コマ間ポーズで区間テロップを読ませる) */
@@ -432,9 +432,10 @@ export default function CourseReplay({
         <text x={500} y={245} textAnchor="middle" fontSize={12} className="fill-gray-400">{mirrored ? '左回り' : '右回り'}</text>
         <text x={500} y={472} textAnchor="middle" fontSize={12} className="fill-gray-400">スタンド前 (最終直線)</text>
 
-        {/* 区間テロップ (再生中・インフィールド中央) */}
+        {/* 区間テロップ (再生中・インフィールド中央。馬名入りで長い時は縮小してはみ出しを防ぐ) */}
         {telop && (
-          <text x={500} y={290} textAnchor="middle" fontSize={16} fontWeight={700}
+          <text x={500} y={290} textAnchor="middle"
+            fontSize={Math.min(16, Math.max(11, Math.floor(740 / telop.length)))} fontWeight={700}
             className="fill-amber-600 dark:fill-amber-400" style={{ paintOrder: 'stroke' }}>
             {telop}
           </text>
