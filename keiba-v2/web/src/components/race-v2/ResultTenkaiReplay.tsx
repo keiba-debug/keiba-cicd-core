@@ -17,7 +17,7 @@ import type { MlPredictionEntry } from './HorseEntryTable';
 import CourseReplay, { COURSE_ANCHORS, LEFT_HANDED_TRACKS } from './CourseReplay';
 import type { CourseFrameDef, CourseHorse, CourseFramePos } from './CourseReplay';
 import { buildMlGoalFrame } from './TenkaiSection';
-import { parsePassingOrders, timeToSeconds, SEC_PER_HALF_BASHIN } from '@/lib/data/result-utils';
+import { parsePassingOrders, timeToSeconds, marginToBashin, SEC_PER_HALF_BASHIN } from '@/lib/data/result-utils';
 
 /** タイム差→半馬身換算 (1馬身 ≒ 0.16秒 → 半馬身 0.08秒) */
 const SEC_PER_HALF = SEC_PER_HALF_BASHIN;
@@ -80,13 +80,35 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
       const corners = parsePassingOrders(r.passing_orders, entries.length);
       return { e, finish, corners, timeSec: timeToSeconds(r.time) };
     })
-    .filter((v): v is NonNullable<typeof v> => v !== null);
+    .filter((v): v is NonNullable<typeof v> => v !== null)
+    // 着順ソート: ゴール着差の累積計算と、同位置に重なった馬の前後ずらし(dup shift)を着順準拠にする
+    .sort((a, b) => a.finish - b.finish);
   if (finishers.length < 2) return null;
 
   const nCorners = Math.min(4, Math.max(...finishers.map(f => f.corners.length)));
   if (nCorners < 1) return null;
 
   const winnerSec = Math.min(...finishers.map(f => f.timeSec ?? Infinity));
+
+  // --- ゴール隊列の先頭差 (半馬身): 着差(margin)の累積を優先 ---
+  // 走破タイムは0.1秒粒度で、クビ/ハナ差の2〜4着が同値に潰れて並び順が壊れる (2026-06-28 函館11R で顕在化)。
+  // 着差が取れない馬はタイム差(最低でも半馬身刻みで前の馬より後ろ)へフォールバック
+  const goalDiffByNum = new Map<number, number>();
+  {
+    let acc = 0;
+    finishers.forEach((f, k) => {
+      if (k > 0) {
+        const m = marginToBashin(f.e.result?.margin);
+        if (m != null) {
+          acc += m * 2;                                   // 馬身→半馬身
+        } else {
+          const t = f.timeSec != null && winnerSec !== Infinity ? (f.timeSec - winnerSec) / SEC_PER_HALF : null;
+          acc = Math.max(acc + 0.5, t ?? 0);
+        }
+      }
+      goalDiffByNum.set(f.e.horse_number, Math.min(40, Math.round(acc * 10) / 10));
+    });
+  }
 
   // --- 比較用コマの材料 ---
   const devs = entries
@@ -169,7 +191,7 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
     heuristicLanes.push(lanes);
   }
 
-  const horses: CourseHorse[] = finishers.map(({ e, finish, corners, timeSec }, idx) => {
+  const horses: CourseHorse[] = finishers.map(({ e, finish, corners }, idx) => {
     // 内外: JRDB実測コース取り（レース全体の代表値）→ 無ければ確率的推定レーン
     const tori = useTori && e.jrdb_course_tori != null && e.jrdb_course_tori >= 1 && e.jrdb_course_tori <= 5
       ? e.jrdb_course_tori
@@ -193,10 +215,8 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
     corners.slice(-nCorners).forEach((o, i) => {
       cframes[offset + i] = { order: o, diff: (o - 1) * 2, inout: tori ?? heuristicLanes[offset + i].get(idx) ?? laneOf(o) };
     });
-    // ゴール(結果): タイム差→半馬身。タイム欠損は着順から概算
-    const diffHl = timeSec != null && winnerSec !== Infinity
-      ? Math.min(40, Math.round(((timeSec - winnerSec) / SEC_PER_HALF) * 10) / 10)
-      : (finish - 1) * 2;
+    // ゴール(結果): 着差累積 (goalDiffByNum) ベース。欠損は着順から概算
+    const diffHl = goalDiffByNum.get(e.horse_number) ?? (finish - 1) * 2;
     const goalFrame: CourseFramePos = { order: finish, diff: diffHl, inout: tori ?? heuristicLanes[nCorners].get(idx) ?? laneOf(finish) };
     // 比較用コマ
     const jrGoal = legProfiles?.[e.horse_number]?.jrdb?.goal;
@@ -266,7 +286,7 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
       headerExtra={headerExtra}
       playLabel="リプレイ"
       ringFrameKeys={['rgoal', 'pgoal']}
-      legendNote={`コース模式図(${mirrored ? '左' : '右'}回り) / スタート=枠順ゲート(出遅れ馬は後方から) / 通過順位=JRA-VAN / ゴール着差=タイム差の半馬身換算 / 内外=${useTori ? 'JRDB実測コース取り(1最内〜5大外・欠損馬は確率的推定)' : '確率的推定(近い位置は内枠が内・3角以降の追い上げ馬は外)'}`}
+      legendNote={`コース模式図(${mirrored ? '左' : '右'}回り) / スタート=枠順ゲート(出遅れ馬は後方から) / 通過順位=JRA-VAN / ゴール=着差(クビ/ハナ等)の累積換算 / 内外=${useTori ? 'JRDB実測コース取り(1最内〜5大外・欠損馬は確率的推定)' : '確率的推定(近い位置は内枠が内・3角以降の追い上げ馬は外)'}`}
     />
   );
 }
