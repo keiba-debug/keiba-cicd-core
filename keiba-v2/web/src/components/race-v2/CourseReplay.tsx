@@ -306,6 +306,9 @@ export default function CourseReplay({
   // 伸び流線はレース進行(inPlay同士)の区間のみ (予想⇄MLの意見割れ切替では出さない)
   const racingSegment = !!frameDefs[i0].inPlay && !!frameDefs[i0 + 1].inPlay;
   const showRing = !!ringFrameKeys?.includes(frameDefs[frameIdx].key);
+  // ゲート度 (0〜1): ゲートコマではマーカーを縮小し前後ずらしを無効化して「横一列」を保つ。
+  // 発走後は補間で通常サイズ・通常挙動へ滑らかに戻る
+  const gateW = lerp(frameDefs[i0].gate ? 1 : 0, frameDefs[i0 + 1].gate ? 1 : 0);
 
   const dups = new Map<string, number>();
   const rendered = horses
@@ -317,12 +320,13 @@ export default function CourseReplay({
       const inout = lerp(fa.inout ?? 3, fb.inout ?? 3);
       const cur = frameOf(h, frameIdx)!;
       const closing = dval(fa) - dval(fb);   // 正=この区間で前との差を詰めている(伸び)・半馬身
-      // 同一位置(差×内外)の馬は縦列(前後)にずらす
+      // 同一位置(差×内外)の馬は縦列(前後)にずらす (ゲートでは無効=同じ線上に並べる)
       const key = `${Math.round(diff * 2)}:${Math.round(inout)}`;
       const dup = dups.get(key) ?? 0;
       dups.set(key, dup + 1);
-      const { x, y, ang } = posAt(anchor + diff * HALF_LEN + dup * 13, inout);
-      return { h, x, y, ang, cur, closing, ghost: !h.frames[frameIdx] };
+      const { x, y, ang } = posAt(anchor + diff * HALF_LEN + dup * 13 * (1 - gateW), inout);
+      const scale = 1 - 0.45 * gateW;
+      return { h, x, y, ang, cur, closing, scale, ghost: !h.frames[frameIdx] };
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
 
@@ -427,11 +431,11 @@ export default function CourseReplay({
         )}
 
         {/* 馬マーカー (rAF がコース経路に沿って駆動) */}
-        {rendered.map(({ h, x, y, ang, cur, closing, ghost }) => {
+        {rendered.map(({ h, x, y, ang, cur, closing, scale, ghost }) => {
           const cap = WAKU_HEX[parseInt(h.waku ?? '', 10)] ?? WAKU_HEX_FALLBACK;
           const lineLen = Math.min(20, 7 + closing * 1.3);
           return (
-            <g key={h.num} transform={`translate(${x.toFixed(1)},${y.toFixed(1)})`} opacity={ghost ? 0.45 : 1}>
+            <g key={h.num} transform={`translate(${x.toFixed(1)},${y.toFixed(1)}) scale(${scale.toFixed(2)})`} opacity={ghost ? 0.45 : 1}>
               <title>{`${toCircleNumber(h.num)} ${h.name}${h.bucket ? ` / 競馬ブック: ${h.bucket}` : ''} / ${frameDefs[frameIdx].label}: ${cur.posLabel ?? `${cur.order}番手${cur.diff != null && cur.diff > 0 ? ` (先頭差${cur.diff}半馬身)` : ''}`}`}</title>
               {/* 伸び流線 (差を詰めている馬・再生中のみ・進行方向の逆に流す) */}
               {moving && racingSegment && closing >= 3 && (

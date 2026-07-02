@@ -196,12 +196,11 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
     const tori = useTori && e.jrdb_course_tori != null && e.jrdb_course_tori >= 1 && e.jrdb_course_tori <= 5
       ? e.jrdb_course_tori
       : null;
-    // スタート: 枠順ゲート横一列 (全馬 diff=0・内外=枠番を1〜5レーンに圧縮)。
+    // スタート: 枠順ゲート横一列 (全馬 diff=0・内外=馬番で内→外に均等配置=ゲート番号そのまま)。
+    // ゲートコマはエンジン側でマーカー縮小+前後ずらし無効なので、全馬が同じ線上に並ぶ。
     // 出遅れ馬 (keibabook is_slow_start / SED出遅補正) だけ1.5馬身後方から出る
     const waku = parseInt(e.entry_data?.waku ?? '', 10);
-    const gateLane = waku >= 1 && waku <= 8
-      ? 1 + ((waku - 1) * 4) / 7
-      : 1 + ((e.horse_number - 1) / Math.max(1, maxNum - 1)) * 4;   // 枠番欠損は馬番で散らす
+    const gateLane = maxNum > 1 ? 1 + ((e.horse_number - 1) * 4) / (maxNum - 1) : 3;
     const slowStart = e.is_slow_start || (e.jrdb_deokure ?? 0) > 0;
     const startFrame: CourseFramePos = {
       order: e.horse_number,
