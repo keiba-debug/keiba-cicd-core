@@ -1561,6 +1561,21 @@ def calibrate_isotonic(
     return ir.predict(scores_test), ir
 
 
+def market_offset_logit(df: pd.DataFrame) -> np.ndarray:
+    """A-1 市場オフセット残差学習用: レース内正規化 implied 確率のロジットを返す。
+
+    p_market = (1/odds) / Σ(1/odds)  — edge_map §1.1 と同じ定義（レース内で総和1）。
+    odds 欠損/0 の行は 1/頭数 で埋めてから正規化（レース単位の整合を保つ）。
+    """
+    odds = pd.to_numeric(df['odds'], errors='coerce')
+    inv = 1.0 / odds.where(odds > 0)
+    entry_n = df.groupby('race_id')['race_id'].transform('size')
+    inv = inv.fillna(1.0 / entry_n)
+    denom = inv.groupby(df['race_id']).transform('sum')
+    p_mkt = (inv / denom).clip(1e-4, 1 - 1e-4)
+    return np.log(p_mkt / (1.0 - p_mkt)).to_numpy()
+
+
 def train_model(
     df_train: pd.DataFrame,
     df_val: pd.DataFrame,
@@ -1571,6 +1586,10 @@ def train_model(
     model_name: str = 'model',
     num_boost_round: int = 1500,
     sample_weight: np.ndarray = None,
+    init_score_train: np.ndarray = None,
+    init_score_val: np.ndarray = None,
+    init_score_test: np.ndarray = None,
+    stopping_rounds: int = 50,
 ) -> Tuple:
     """LightGBMモデルを学習
 
@@ -1578,6 +1597,9 @@ def train_model(
     NaN処理はLightGBMネイティブに委ねる（fillna(-1)しない）
     IsotonicRegressionでキャリブレーション（valセットでfit → testセットに適用）
     sample_weight: 学習データの重み（Noneで等重み）
+    init_score_*: A-1 市場オフセット（logit(p_market)）。指定時はブースティングの
+        ベースマージンに市場確率を置き、モデルは市場からの残差のみ学習する。
+        LightGBM の predict は init_score を含まないため、予測側で加算して sigmoid する。
     """
     import lightgbm as lgb
 
@@ -1588,13 +1610,17 @@ def train_model(
     X_test = df_test[feature_cols]
     y_test = df_test[label_col]
 
-    train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weight)
-    valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+    train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weight,
+                             init_score=init_score_train)
+    valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data,
+                             init_score=init_score_val)
 
     weight_info = ""
     if sample_weight is not None:
         weight_info = (f", weight=[{sample_weight.min():.3f}~{sample_weight.max():.3f}], "
                        f"mean={sample_weight.mean():.3f}")
+    if init_score_train is not None:
+        weight_info += ", market-offset=ON"
     print(f"\n[Train] {model_name}: {len(feature_cols)} features, "
           f"train={len(X_train):,}, val={len(X_val):,}, test={len(X_test):,}{weight_info}")
 
@@ -1602,7 +1628,7 @@ def train_model(
         params, train_data, num_boost_round=num_boost_round,
         valid_sets=[valid_data],
         callbacks=[
-            lgb.early_stopping(stopping_rounds=50),
+            lgb.early_stopping(stopping_rounds=stopping_rounds),
             lgb.log_evaluation(period=200),
         ],
     )
@@ -1610,8 +1636,15 @@ def train_model(
     # テストセットで純粋評価（early stoppingに使っていない）
     from sklearn.metrics import roc_auc_score, accuracy_score, log_loss
 
-    y_pred_raw = model.predict(X_test)
-    y_pred_val = model.predict(X_val)
+    if init_score_train is not None:
+        # 残差モード: raw(木の合計) + 市場ロジット → sigmoid
+        raw_test = model.predict(X_test, raw_score=True)
+        raw_val = model.predict(X_val, raw_score=True)
+        y_pred_raw = 1.0 / (1.0 + np.exp(-(raw_test + init_score_test)))
+        y_pred_val = 1.0 / (1.0 + np.exp(-(raw_val + init_score_val)))
+    else:
+        y_pred_raw = model.predict(X_test)
+        y_pred_val = model.predict(X_val)
 
     # IsotonicRegressionキャリブレーション
     y_pred_cal, calibrator = calibrate_isotonic(
@@ -2586,10 +2619,19 @@ def main():
                         help='時間重みの半減期（年）。0=重みなし（従来動作）。例: 2.0=2年で重み半減')
     parser.add_argument('--no-set-active', action='store_true',
                         help='model_registry の active_version を更新しない（レース中の live 切替防止）')
+    parser.add_argument('--market-offset', action='store_true',
+                        help='A-1 市場オフセット残差学習: W の init_score に logit(市場implied) を'
+                             '注入し、モデルは市場からの残差のみ学習する '
+                             '(favorite-longshot bias の構造的解消。docs/ml_profit_roadmap_202607.md A-1)')
     parser.add_argument('--no-save', action='store_true',
                         help='モデル/registry を一切保存しない eval-only（live モデル不変）。'
                              '結果JSONは ml/experiments/result_{version}.json に書く。'
                              'ライブ開催日の安全なA/B実験用（Session 169）')
+    parser.add_argument('--save-archive-only', action='store_true',
+                        help='S184 世代検証フロー: live/legacy を一切触らず '
+                             'models/polaris/archive/v{version}/ に直接保存し registry に非activeで登録。'
+                             'predict.py は live/ を直接読むため通常保存=即本番切替になる — '
+                             'shadow 世代検証を挟んでから昇格するための隔離保存')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -3142,10 +3184,29 @@ def main():
             print(f"  [ARStack] features_w now {len(features_w)} (added ar_ability_score)")
 
     # === Win モデル W (is_win) ===
+    # A-1: --market-offset 時は市場ロジットを init_score に注入（W のみ）
+    init_w_train = init_w_val = init_w_test = None
+    if args.market_offset:
+        init_w_train = market_offset_logit(df_train)
+        init_w_val = market_offset_logit(df_val)
+        init_w_test = market_offset_logit(df_test)
+        # 残差モードでは AUC は市場ベースで最初から高く early stopping が即死する
+        # (スモークで Iter=2)。確率改善に敏感な logloss を early stopping 基準にし、
+        # 微小な残差信号を拾えるよう低学習率に落とす (v0.1 は BestIter=1 で学習せず)。
+        params_w = dict(params_w, metric='binary_logloss',
+                        learning_rate=min(float(params_w.get('learning_rate', 0.05)), 0.02))
+        print(f"\n[MarketOffset] W init_score = logit(race-normalized implied): "
+              f"train mean={init_w_train.mean():.3f}, "
+              f"val mean={init_w_val.mean():.3f}, test mean={init_w_test.mean():.3f}, "
+              f"early-stopping metric=binary_logloss")
     model_w, metrics_w, importance_w, pred_w, cal_w, pred_w_raw = train_model(
         df_train, df_val, df_test, features_w, params_w, 'is_win', 'Win',
         num_boost_round=optuna_num_boost_round.get('w', 1500),
         sample_weight=train_sample_weight,
+        init_score_train=init_w_train,
+        init_score_val=init_w_val,
+        init_score_test=init_w_test,
+        stopping_rounds=100 if args.market_offset else 50,
     )
 
     # 予測結果をDataFrameに追加
@@ -3245,14 +3306,14 @@ def main():
     vb_bootstrap_win = calc_vb_bootstrap_ci(df_test, rank_col='pred_rank_w')
     for bs in vb_bootstrap_place:
         g = bs['min_gap']
-        print(f"  Place gap>={g}: ROI {bs['place_roi']:>6.1f}% "
-              f"[{bs['place_roi_ci_low']:.1f}% - {bs['place_roi_ci_high']:.1f}%] "
-              f"(n={bs['bet_count']}, races={bs['n_races_with_vb']})")
+        print(f"  Place gap>={g}: ROI {bs.get('place_roi', 0):>6.1f}% "
+              f"[{bs.get('place_roi_ci_low', 0):.1f}% - {bs.get('place_roi_ci_high', 0):.1f}%] "
+              f"(n={bs.get('bet_count', 0)}, races={bs.get('n_races_with_vb', 0)})")
     for bs in vb_bootstrap_win:
         g = bs['min_gap']
-        print(f"  Win   gap>={g}: ROI {bs['win_roi']:>6.1f}% "
-              f"[{bs['win_roi_ci_low']:.1f}% - {bs['win_roi_ci_high']:.1f}%] "
-              f"(n={bs['bet_count']}, races={bs['n_races_with_vb']})")
+        print(f"  Win   gap>={g}: ROI {bs.get('win_roi', 0):>6.1f}% "
+              f"[{bs.get('win_roi_ci_low', 0):.1f}% - {bs.get('win_roi_ci_high', 0):.1f}%] "
+              f"(n={bs.get('bet_count', 0)}, races={bs.get('n_races_with_vb', 0)})")
 
     # --- EV vs Gap 比較分析 ---
     ev_gap_results = calc_ev_gap_comparison(df_test)
@@ -3444,6 +3505,54 @@ def main():
     if args.no_save:
         # eval-only: live モデル/registry を一切触らない（ライブ開催日の安全なA/B用 Session 169）
         print("\n  [--no-save] モデル/registry を保存しません（live モデル不変・eval-only）")
+    elif args.save_archive_only:
+        # S184: live/legacy 不変で archive/v{version}/ に隔離保存（shadow 世代検証→手動昇格フロー）
+        import pickle
+        import sklearn
+        archive_dir = model_dir / "models" / "polaris" / "archive" / f"v{experiment_version}"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        model_p.save_model(str(archive_dir / "model_p.txt"))
+        model_w.save_model(str(archive_dir / "model_w.txt"))
+        model_ar.save_model(str(archive_dir / "model_ar.txt"))
+        with open(archive_dir / "calibrators.pkl", 'wb') as f:
+            pickle.dump({'cal_p': cal_p, 'cal_w': cal_w}, f)
+        all_features_union = list(dict.fromkeys(features_p + features_w + features_ar))
+        meta = {
+            'version': experiment_version,
+            'features_value': all_features_union,
+            'market_features': list(MARKET_FEATURES),
+            'targets': {'place': 'is_top3', 'win': 'is_win', 'margin': 'target_margin'},
+            'odds_source': 'mykeibadb' if use_db_odds else 'json_confirmed',
+            'has_calibrators': True,
+            'has_regression_model': True,
+            'has_pedigree_features': True,
+            'pedigree_features': PEDIGREE_FEATURES,
+            'sklearn_version': sklearn.__version__,
+            'created_at': datetime.now().isoformat(timespec='seconds'),
+            'split': {'train': train_label, 'val': val_label, 'test': test_label},
+            'optuna_optimized': optuna_optimized,
+            'sire_cutoff': args.sire_cutoff,
+            'time_decay_half_life': args.time_decay if args.time_decay > 0 else None,
+            'ar_stack': bool(args.ar_stack),
+            'margin_mode': args.margin_mode,
+            'furi_scale': args.furi_scale if args.margin_mode in ('adjusted', 'adj_zscore') else None,
+        }
+        if features_p != features_w or features_p != features_ar:
+            meta['features_per_model'] = {'p': features_p, 'w': features_w, 'ar': features_ar}
+        (archive_dir / "meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8'
+        )
+        print(f"\n  [--save-archive-only] {archive_dir} に隔離保存（live/legacy 不変）")
+        try:
+            from ml.model_loader import register_version
+            register_version(
+                "polaris", experiment_version,
+                description='archive-only 保存 (shadow 世代検証待ち・未昇格)',
+                features=len(all_features_union),
+                set_active=False,
+            )
+        except Exception as e:
+            print(f"  [WARN] model_registry update failed: {e}")
     else:
         # 旧バージョンアーカイブ（旧構造: versions/v{old_ver}/）
         current_meta_path = model_dir / "model_meta.json"

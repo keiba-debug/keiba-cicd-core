@@ -1598,6 +1598,10 @@ def main():
     parser.add_argument('--latest', action='store_true', help='最新開催日')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
     parser.add_argument('--model-version', help='モデルバージョン指定 (例: 5.0, 3.5)')
+    parser.add_argument('--shadow-out', action='store_true',
+                        help='S184 世代shadow検証用: 出力を predictions_v{ver}_shadow.json のみに書き、'
+                             '本番 predictions.json / session別 / feature_snapshot を一切触らない。'
+                             '--model-version 指定の archive モデルでの安全な並走比較用')
     parser.add_argument('--list-versions', action='store_true', help='利用可能なモデルバージョン一覧')
     parser.add_argument('--predict-only', action='store_true',
                         help='(deprecated: デフォルト動作が推論のみになりました)')
@@ -1993,7 +1997,12 @@ def main():
     date_parts = date.split('-')
     archive_dir = config.races_dir() / date_parts[0] / date_parts[1] / date_parts[2]
 
-    if archive_dir.exists():
+    if archive_dir.exists() and args.shadow_out:
+        # S184 世代shadow: 本番 predictions.json/セッション別/snapshot を触らず side ファイルのみ
+        out_path = archive_dir / f"predictions_v{actual_model_version}_shadow.json"
+        out_path.write_text(out_json, encoding='utf-8')
+        print(f"  [shadow-out] {out_path.name} のみ出力（本番 predictions.json 不変）")
+    elif archive_dir.exists():
         out_path = archive_dir / "predictions.json"
 
         # 既存predictions.jsonをバージョン付きアーカイブ（旧形式: タイムスタンプ付き）
