@@ -41,11 +41,13 @@ from ml.utils.filters import is_obstacle
 
 
 def load_closing_model():
-    """差し追込モデルをロード（model_loader経由）"""
+    """差し追込モデルをロード（model_loader経由）。v2.1+ は seedアンサンブルを全メンバー平均。
+
+    Returns: (models[list], calibrator, meta)
+    """
     from ml.model_loader import load_model
 
     bundle = load_model("eclipse")
-    # 後方互換: (model, calibrator, meta) タプルを返す
     calibrator = None
     if bundle.calibrators:
         if isinstance(bundle.calibrators, dict):
@@ -54,12 +56,23 @@ def load_closing_model():
         else:
             # eclipse calibrators.pklはIsotonicRegressionオブジェクト直
             calibrator = bundle.calibrators
-    return bundle.model_p, calibrator, bundle.meta
+
+    # seedアンサンブルメンバーを primary と同じ model_dir から追加ロード → predict時に平均 (S183 v2.1)
+    from ml.model_loader import _resolve_model_dir
+    models = [bundle.model_p]
+    n_seeds = len(bundle.meta.get('ensemble_seeds', [])) or 1
+    model_dir = _resolve_model_dir("eclipse", None)
+    for i in range(1, n_seeds):
+        fp = model_dir / f"model_p_ens{i}.txt"
+        if fp.exists():
+            models.append(lgb.Booster(model_file=str(fp)))
+    print(f"[Closing] ensemble: {len(models)} model(s) (seeds meta={n_seeds})")
+    return models, calibrator, bundle.meta
 
 
 def predict_closing_for_date(
     date: str,
-    model,
+    models,
     calibrator,
     meta: dict,
     history_cache: dict,
@@ -148,7 +161,7 @@ def predict_closing_for_date(
             # 推論
             feat_values = [race_feat.get(f, np.nan) for f in features]
             X = np.array([feat_values])
-            pred_raw = float(model.predict(X)[0])
+            pred_raw = float(np.mean([m.predict(X)[0] for m in models]))
 
             # キャリブレーション
             if calibrator is not None:
@@ -193,7 +206,7 @@ def main():
     t0 = time.time()
 
     # モデルロード
-    model, calibrator, meta = load_closing_model()
+    models, calibrator, meta = load_closing_model()
     print(f"[Model] Closing model loaded: {meta.get('version', '?')}, "
           f"{meta.get('feature_count', '?')} features")
 
@@ -216,7 +229,7 @@ def main():
 
     # 予測実行
     closing_probs = predict_closing_for_date(
-        date, model, calibrator, meta,
+        date, models, calibrator, meta,
         history_cache, trainer_index, jockey_index,
         pace_index, kb_ext_index,
         course_timeline, baba_index,

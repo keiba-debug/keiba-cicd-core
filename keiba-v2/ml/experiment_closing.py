@@ -66,6 +66,56 @@ PARAMS_CLOSING = {
     'feature_fraction_seed': 42,
 }
 
+# Session 183: Regulus v1.2 レシピを Eclipse に移植。
+#  - dataset キャッシュ(重い再構築を1回だけ) → 以後は高速反復
+#  - seedアンサンブル(小データのレース単位モデルの分散低減)
+ENSEMBLE_SEEDS = [42, 1, 7, 13, 21]
+CLOSING_CACHE = config.ml_dir() / "nova" / "closing" / "splits"
+
+
+def _fit_closing_ensemble(df_train, df_val, df_test, feature_cols, params, label_col,
+                          seeds, num_boost_round=1500, stopping_rounds=150):
+    """seedを変えたN本を学習し val/test raw を平均→averaged raw で isotonic較正 (Regulus v1.2と同型)。
+    返り値=(models[list], metrics, importance_avg, pred_cal_test, calibrator, pred_raw_test)。"""
+    import lightgbm as lgb
+    from sklearn.metrics import roc_auc_score, accuracy_score, log_loss
+
+    Xtr, ytr = df_train[feature_cols], df_train[label_col]
+    Xva, yva = df_val[feature_cols], df_val[label_col]
+    Xte, yte = df_test[feature_cols], df_test[label_col]
+    models, val_raws, test_raws, imps = [], [], [], []
+    print(f"\n[Train-Ensemble] ClosingRace: {len(feature_cols)} feat, "
+          f"train={len(Xtr):,} val={len(Xva):,} test={len(Xte):,}, seeds={seeds}")
+    for s in seeds:
+        p = {**params, "seed": s, "bagging_seed": s, "feature_fraction_seed": s}
+        dtr = lgb.Dataset(Xtr, label=ytr)
+        dva = lgb.Dataset(Xva, label=yva, reference=dtr)
+        m = lgb.train(p, dtr, num_boost_round=num_boost_round, valid_sets=[dva],
+                      callbacks=[lgb.early_stopping(stopping_rounds=stopping_rounds),
+                                 lgb.log_evaluation(0)])
+        models.append(m)
+        val_raws.append(m.predict(Xva)); test_raws.append(m.predict(Xte))
+        imps.append(dict(zip(feature_cols, m.feature_importance(importance_type="gain"))))
+        print(f"    seed={s:>2} best_iter={m.best_iteration} test_auc={roc_auc_score(yte, test_raws[-1]):.4f}")
+    val_raw = np.mean(val_raws, axis=0); test_raw = np.mean(test_raws, axis=0)
+    pred_cal, calibrator = calibrate_isotonic(val_raw, yva.values, test_raw)
+    importance = {f: float(np.mean([im[f] for im in imps])) for f in feature_cols}
+    metrics = {
+        'auc': round(float(roc_auc_score(yte, test_raw)), 4),
+        'accuracy': round(float(accuracy_score(yte, (test_raw > 0.5).astype(int))), 4),
+        'log_loss': round(float(log_loss(yte, np.clip(test_raw, 1e-7, 1 - 1e-7))), 4),
+        'brier_score': round(float(calc_brier_score(yte.values, test_raw)), 4),
+        'ece': round(float(calc_ece(yte.values, test_raw)), 4),
+        'ece_calibrated': round(float(calc_ece(yte.values, pred_cal)), 4),
+        'brier_calibrated': round(float(calc_brier_score(yte.values, pred_cal)), 4),
+        'log_loss_calibrated': round(float(log_loss(yte, np.clip(pred_cal, 1e-7, 1 - 1e-7))), 4),
+        'auc_val': round(float(roc_auc_score(yva, val_raw)), 4),
+        'best_iteration': int(np.round(np.mean([m.best_iteration for m in models]))),
+        'n_seeds': len(seeds),
+        'train_size': len(Xtr), 'val_size': len(Xva), 'test_size': len(Xte),
+    }
+    return models, metrics, importance, pred_cal, calibrator, test_raw
+
 
 def train_closing_model(
     df_train: pd.DataFrame,
@@ -356,13 +406,18 @@ def calc_subset_analysis(df: pd.DataFrame, pred_col: str, group_col: str) -> Lis
 
 def main():
     parser = argparse.ArgumentParser(description='Closing Race ML Experiment')
-    parser.add_argument('--train-years', default='2020-2025.03',
-                        help='Training period (例: 2020-2025.03)')
-    parser.add_argument('--val-years', default='2025.04',
-                        help='Validation period (例: 2025.04)')
-    parser.add_argument('--test-years', default='2025.05-2026.03',
-                        help='Test period (例: 2025.05-2026.03)')
+    # S183: fresh + bigval 既定 (旧liveは train~2024-06 で stale, val 1ヶ月問題も回避)
+    parser.add_argument('--train-years', default='2020-2024.12',
+                        help='Training period (例: 2020-2024.12)')
+    parser.add_argument('--val-years', default='2025.01-2025.06',
+                        help='Validation period (6ヶ月 bigval, 例: 2025.01-2025.06)')
+    parser.add_argument('--test-years', default='2025.07-2026.06',
+                        help='Test period (例: 2025.07-2026.06)')
     parser.add_argument('--no-db', action='store_true', help='DBオッズ未使用')
+    parser.add_argument('--rebuild-cache', action='store_true',
+                        help='splitsキャッシュを強制再構築 (既定: 期間一致なら再利用)')
+    parser.add_argument('--no-ensemble', action='store_true',
+                        help='seedアンサンブルを無効化 (単一seed)')
     args = parser.parse_args()
 
     train_min, train_min_m, train_max, train_max_m = parse_period_range(args.train_years)
@@ -390,56 +445,62 @@ def main():
 
     t0 = time.time()
 
-    # データロード
-    (history_cache, trainer_index, jockey_index,
-     date_index, pace_index, kb_ext_index, training_summary_index,
-     race_level_index, pedigree_index, sire_stats_index, *_extra) = load_data()
+    # === splits キャッシュ (重い再構築を1回だけ・期間一致なら再利用) ===
+    periods = {"train": args.train_years, "val": args.val_years, "test": args.test_years}
+    cache_meta = CLOSING_CACHE / "periods.json"
+    cache_ok = (not args.rebuild_cache and cache_meta.exists()
+                and (CLOSING_CACHE / "train.pkl").exists()
+                and (CLOSING_CACHE / "val.pkl").exists()
+                and (CLOSING_CACHE / "test.pkl").exists())
+    if cache_ok:
+        try:
+            cache_ok = json.loads(cache_meta.read_text(encoding="utf-8")) == periods
+        except Exception:
+            cache_ok = False
 
-    # PIT timeline
-    pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline(
-        years=list(range(2020, 2027))
-    )
+    if cache_ok:
+        print(f"[Cache] Loading cached closing splits from {CLOSING_CACHE} (periods match)")
+        df_train = pd.read_pickle(CLOSING_CACHE / "train.pkl")
+        df_val = pd.read_pickle(CLOSING_CACHE / "val.pkl")
+        df_test = pd.read_pickle(CLOSING_CACHE / "test.pkl")
+    else:
+        # データロード (重い)
+        (history_cache, trainer_index, jockey_index,
+         date_index, pace_index, kb_ext_index, training_summary_index,
+         race_level_index, pedigree_index, sire_stats_index, *_extra) = load_data()
 
-    # 馬場データ
-    baba_index = load_baba_index()
-    print(f"[Load] Baba index: {len(baba_index):,} entries")
+        pit_trainer_tl, pit_jockey_tl = build_pit_personnel_timeline(
+            years=list(range(2020, 2027))
+        )
+        baba_index = load_baba_index()
+        print(f"[Load] Baba index: {len(baba_index):,} entries")
+        course_timeline = build_course_timeline(date_index)
 
-    # コース歴史統計タイムライン（PIT safe）
-    course_timeline = build_course_timeline(date_index)
+        common_args = dict(
+            date_index=date_index, history_cache=history_cache,
+            trainer_index=trainer_index, jockey_index=jockey_index,
+            pace_index=pace_index, kb_ext_index=kb_ext_index,
+            course_timeline=course_timeline, baba_index=baba_index,
+            use_db_odds=use_db_odds, race_level_index=race_level_index,
+            pedigree_index=pedigree_index, sire_stats_index=sire_stats_index,
+            pit_trainer_tl=pit_trainer_tl, pit_jockey_tl=pit_jockey_tl,
+        )
+        df_train = build_closing_dataset(
+            min_year=train_min, max_year=train_max,
+            min_month=train_min_m, max_month=train_max_m, **common_args)
+        df_val = build_closing_dataset(
+            min_year=val_min, max_year=val_max,
+            min_month=val_min_m, max_month=val_max_m, **common_args)
+        df_test = build_closing_dataset(
+            min_year=test_min, max_year=test_max,
+            min_month=test_min_m, max_month=test_max_m, **common_args)
 
-    # データセット構築
-    common_args = dict(
-        date_index=date_index,
-        history_cache=history_cache,
-        trainer_index=trainer_index,
-        jockey_index=jockey_index,
-        pace_index=pace_index,
-        kb_ext_index=kb_ext_index,
-        course_timeline=course_timeline,
-        baba_index=baba_index,
-        use_db_odds=use_db_odds,
-        race_level_index=race_level_index,
-        pedigree_index=pedigree_index,
-        sire_stats_index=sire_stats_index,
-        pit_trainer_tl=pit_trainer_tl,
-        pit_jockey_tl=pit_jockey_tl,
-    )
-
-    df_train = build_closing_dataset(
-        min_year=train_min, max_year=train_max,
-        min_month=train_min_m, max_month=train_max_m,
-        **common_args,
-    )
-    df_val = build_closing_dataset(
-        min_year=val_min, max_year=val_max,
-        min_month=val_min_m, max_month=val_max_m,
-        **common_args,
-    )
-    df_test = build_closing_dataset(
-        min_year=test_min, max_year=test_max,
-        min_month=test_min_m, max_month=test_max_m,
-        **common_args,
-    )
+        CLOSING_CACHE.mkdir(parents=True, exist_ok=True)
+        df_train.to_pickle(CLOSING_CACHE / "train.pkl")
+        df_val.to_pickle(CLOSING_CACHE / "val.pkl")
+        df_test.to_pickle(CLOSING_CACHE / "test.pkl")
+        cache_meta.write_text(json.dumps(periods, ensure_ascii=False), encoding="utf-8")
+        print(f"[Cache] Saved closing splits to {CLOSING_CACHE}")
 
     for label, df in [('Train', df_train), ('Val', df_val), ('Test', df_test)]:
         if len(df) > 0:
@@ -467,12 +528,19 @@ def main():
         print(f"\n[Warning] {len(missing)} features not in data: {sorted(missing)}")
     print(f"[Features] Using {len(available_features)} of {len(CLOSING_RACE_FEATURES)} defined features")
 
-    # === モデル学習 ===
-    model, metrics, importance, pred_cal, calibrator, pred_raw = train_closing_model(
-        df_train, df_val, df_test, available_features,
-        PARAMS_CLOSING, 'is_closing_race', 'ClosingRace',
-        stopping_rounds=150,
-    )
+    # === モデル学習 (既定=5seedアンサンブル / --no-ensemble で単一) ===
+    if args.no_ensemble:
+        model, metrics, importance, pred_cal, calibrator, pred_raw = train_closing_model(
+            df_train, df_val, df_test, available_features,
+            PARAMS_CLOSING, 'is_closing_race', 'ClosingRace', stopping_rounds=150)
+        models = [model]
+    else:
+        models, metrics, importance, pred_cal, calibrator, pred_raw = _fit_closing_ensemble(
+            df_train, df_val, df_test, available_features,
+            PARAMS_CLOSING, 'is_closing_race', ENSEMBLE_SEEDS, stopping_rounds=150)
+        model = models[0]
+    print(f"[Model] {'ensemble x'+str(len(models)) if len(models) > 1 else 'single'} | "
+          f"AUC={metrics['auc']} ECE(cal)={metrics['ece_calibrated']} avg_iter={metrics['best_iteration']}")
 
     # 予測結果をDataFrameに追加
     df_test = df_test.copy()
@@ -538,8 +606,14 @@ def main():
     # === モデル保存 ===
     ml_dir = config.ml_dir()
     model_path = ml_dir / "model_closing.txt"
+    # 古いアンサンブルメンバーを掃除してから保存 (seed数変更/単一化時のstale防止)
+    for stale in ml_dir.glob("model_closing_ens*.txt"):
+        stale.unlink()
     model.save_model(str(model_path))
-    print(f"\n[Save] Model saved to {model_path}")
+    for i, m in enumerate(models[1:], start=1):
+        m.save_model(str(ml_dir / f"model_closing_ens{i}.txt"))
+    print(f"\n[Save] Model saved to {model_path}"
+          + (f" + {len(models)-1} ensemble members" if len(models) > 1 else ""))
 
     # キャリブレーター保存
     cal_path = ml_dir / "calibrator_closing.pkl"
@@ -549,9 +623,10 @@ def main():
 
     # メタデータ保存
     meta = {
-        'version': 'closing-v2.0',
+        'version': 'closing-v2.0' if args.no_ensemble else 'closing-v2.1',
         'model_type': 'closing_race',
-        'description': '差し追込好走予測: 3着以内に差し/追込 2頭以上',
+        'description': '差し追込好走予測: 3着以内に差し/追込 2頭以上'
+                       + ('' if args.no_ensemble else '（S183: fresh再学習+5seedアンサンブル+datasetキャッシュ）'),
         'created_at': datetime.now().isoformat(timespec='seconds'),
         'train_period': train_label,
         'val_period': val_label,
@@ -559,6 +634,7 @@ def main():
         'features': available_features,
         'feature_count': len(available_features),
         'params': PARAMS_CLOSING,
+        'ensemble_seeds': ENSEMBLE_SEEDS if not args.no_ensemble else [42],
         'metrics': metrics,
         'pr_auc': round(pr_auc, 4),
         'threshold_analysis': thr_results,
@@ -576,6 +652,23 @@ def main():
     meta_path = ml_dir / "model_closing_meta.json"
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f"[Save] Meta saved to {meta_path}")
+
+    # === 標準スキーム(models/eclipse/live/)に同期 ===
+    # model_loader / predict_closing は legacy root ではなく models/eclipse/live/ を読むため、
+    # ここへ標準名(model_p.txt / model_p_ens*.txt / calibrators.pkl / meta.json)で必ず同期する。
+    # (ML Report は root の model_closing_meta.json を meta_file 経由で読むので root も維持)
+    live_dir = ml_dir / "models" / "eclipse" / "live"
+    live_dir.mkdir(parents=True, exist_ok=True)
+    for stale in live_dir.glob("model_p_ens*.txt"):
+        stale.unlink()
+    model.save_model(str(live_dir / "model_p.txt"))
+    for i, m in enumerate(models[1:], start=1):
+        m.save_model(str(live_dir / f"model_p_ens{i}.txt"))
+    with open(live_dir / "calibrators.pkl", 'wb') as f:
+        pickle.dump(calibrator, f)
+    (live_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
+    print(f"[Save] Synced standard scheme to {live_dir}"
+          + (f" (+{len(models)-1} ens members)" if len(models) > 1 else ""))
 
     elapsed = time.time() - t0
     print(f"\n{'='*60}")
