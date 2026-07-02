@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { Star, Mountain, Sun, ChevronDown } from 'lucide-react';
+import { Star, Mountain, Sun, Crown, ChevronDown } from 'lucide-react';
 
 interface ModelVersion {
   version: string;
@@ -43,6 +43,7 @@ const ICONS: Record<string, typeof Star> = {
   star: Star,
   mountain: Mountain,
   sun: Sun,
+  crown: Crown,
 };
 
 export default function ModelSelector({ selected, onChange }: Props) {

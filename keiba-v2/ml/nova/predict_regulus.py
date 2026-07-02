@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
+import lightgbm as lgb
 
 from core import config
 from ml.model_loader import load_model_safe
@@ -77,6 +78,22 @@ def emit_date(date: str):
     cal_p = (bundle.calibrators or {}).get("cal_p")
     cal_w = (bundle.calibrators or {}).get("cal_w")
 
+    # seedアンサンブル: 学習時に平均raw較正しているので predict も全メンバーを平均する (v1.2)
+    live_dir = config.ml_dir() / "models" / MODEL_NAME / "live"
+    n_seeds = len(bundle.meta.get("ensemble_seeds", [])) or 1
+
+    def _ens_models(target, primary):
+        models = [primary] if primary is not None else []
+        for i in range(1, n_seeds):
+            fp = live_dir / f"model_{target}_ens{i}.txt"
+            if fp.exists():
+                models.append(lgb.Booster(model_file=str(fp)))
+        return models
+
+    models_p = _ens_models("p", bundle.model_p)
+    models_w = _ens_models("w", bundle.model_w) if bundle.has_win else []
+    print(f"[Regulus] ensemble: P×{len(models_p)} W×{len(models_w)} (seeds meta={n_seeds})")
+
     out_races = {}
     n_eligible_races = 0
     n_scored_entries = 0
@@ -86,7 +103,8 @@ def emit_date(date: str):
         race_meta = preds_by_race.get(race_id)
         if race_meta is None:
             continue
-        if race_meta.get("track_type") != "芝":
+        # track_type は predictions.json 世代で "芝"(和/新) と "turf"(英/旧) が混在 → 両対応
+        if race_meta.get("track_type") not in ("芝", "turf"):
             continue
         if race_meta.get("grade") not in OP_GRADES:
             continue
@@ -96,7 +114,7 @@ def emit_date(date: str):
             continue
 
         arr_p = _build_arr(entries, features_p)
-        raw_p = bundle.model_p.predict(arr_p)
+        raw_p = np.mean([m.predict(arr_p) for m in models_p], axis=0)
         cal_p_vals = cal_p.predict(raw_p) if cal_p is not None else raw_p
 
         result_map = {}
@@ -108,7 +126,7 @@ def emit_date(date: str):
 
         if bundle.has_win and features_w:
             arr_w = _build_arr(entries, features_w)
-            raw_w = bundle.model_w.predict(arr_w)
+            raw_w = np.mean([m.predict(arr_w) for m in models_w], axis=0)
             cal_w_vals = cal_w.predict(raw_w) if cal_w is not None else raw_w
             for i, e in enumerate(entries):
                 result_map[e["umaban"]]["proba_w"] = round(float(cal_w_vals[i]), 4)
@@ -121,6 +139,16 @@ def emit_date(date: str):
             order_w = sorted(result_map.keys(), key=lambda u: -result_map[u]["proba_w_raw"])
             for rank, u in enumerate(order_w, 1):
                 result_map[u]["rank_w"] = rank
+
+            # P/W blend 本命 (S183: rankavg が重賞Top1で最良・rank和昇順で総合順位)
+            order_blend = sorted(
+                result_map.keys(),
+                key=lambda u: (result_map[u].get("rank_p", 99) + result_map[u].get("rank_w", 99),
+                               -result_map[u]["proba_w_raw"]))
+            for rank, u in enumerate(order_blend, 1):
+                r = result_map[u]
+                r["rank_blend"] = rank
+                r["blend_score"] = round(0.5 * r["proba_p"] + 0.5 * r.get("proba_w", 0.0), 4)
 
         polaris_by_umaban = {pe["umaban"]: pe for pe in race_meta.get("entries", [])}
         for u, r in result_map.items():

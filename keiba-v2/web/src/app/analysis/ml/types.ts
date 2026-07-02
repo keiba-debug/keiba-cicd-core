@@ -278,6 +278,113 @@ export interface ObstacleModelMetrics {
   test_size: number;
 }
 
+/** Regulus (3歳上 芝OP+ 専用) の top1 単勝 ROI サマリ */
+export interface RegulusRoiSummary {
+  n: number;
+  hits: number;
+  hit_rate: number;
+  place_hits: number;
+  place_rate: number;
+  cost: number;
+  payout: number;
+  pnl: number;
+  roi: number;
+  mean_hit_odds: number;
+}
+
+/** Regulus 券種/ゲート別バリューベット分析 (最適化で meta に追記される任意フィールド) */
+export interface RegulusValueRow {
+  label: string;         // 例 "gap>=3", "EV>=1.1", "G1/G2"
+  n: number;
+  win_hits?: number;
+  win_roi?: number;
+  win_rate?: number;
+  place_hits?: number;
+  place_roi?: number;
+  place_rate?: number;
+  mean_odds?: number;
+  note?: string;
+}
+
+/** Regulus 条件別(グレード帯/月)成績分析 (任意フィールド) */
+export interface RegulusSegmentRow {
+  segment: string;
+  n: number;
+  auc?: number;
+  top1_win_rate?: number;
+  top1_place_rate?: number;
+  top1_win_roi?: number;
+}
+
+export interface RegulusModelMeta {
+  model_type: string;
+  version: string;
+  description?: string;
+  has_win_model: boolean;
+  created_at: string;
+  train_period: string;
+  val_period: string;
+  test_period: string;
+  sire_cutoff?: string;
+  min_age?: number;
+  eligibility?: { track_type: string; grade_in: string[]; min_age: number };
+  feature_groups?: string[];
+  train_races: number;
+  train_entries: number;
+  val_races: number;
+  val_entries: number;
+  test_races: number;
+  test_entries: number;
+  features_p?: string[];
+  features_w?: string[];
+  feature_count_p?: number;
+  feature_count_w?: number;
+  metrics_p: ObstacleModelMetrics;
+  metrics_w?: ObstacleModelMetrics;
+  feature_importance_p: FeatureImportanceEntry[];
+  feature_importance_w?: FeatureImportanceEntry[];
+  roi_analysis_p: RegulusRoiSummary;
+  roi_analysis_w?: RegulusRoiSummary;
+  // 最適化フェーズで追記される任意の分析フィールド
+  value_analysis_p?: RegulusValueRow[];
+  value_analysis_w?: RegulusValueRow[];
+  segment_analysis_p?: RegulusSegmentRow[];
+  segment_analysis_w?: RegulusSegmentRow[];
+  optimization_note?: string;
+}
+
+/** Eclipse (差し追込レース = レース単位) 閾値別 precision/recall */
+export interface EclipseThresholdEntry {
+  threshold: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  n_predicted: number;
+  n_correct: number;
+}
+
+export interface EclipseModelMeta {
+  version: string;
+  model_type: string;
+  description?: string;
+  created_at: string;
+  train_period: string;
+  val_period: string;
+  test_period: string;
+  features: string[];
+  feature_count: number;
+  params?: Record<string, number | string>;
+  metrics: ObstacleModelMetrics;
+  pr_auc?: number;
+  threshold_analysis?: EclipseThresholdEntry[];
+  train_races: number;
+  train_positive_rate?: number;
+  val_races: number;
+  test_races: number;
+  test_positive_rate?: number;
+  feature_importance: FeatureImportanceEntry[];
+}
+
 export interface ObstacleModelMeta {
   version: string;
   model_type: string;

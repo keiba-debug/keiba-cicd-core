@@ -5,9 +5,8 @@ import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { useMlResult } from '@/hooks/useMlResult';
 import { TABS, type TabKey } from './utils';
-import type { ObstacleModelMeta } from './types';
+import type { ObstacleModelMeta, RegulusModelMeta, EclipseModelMeta } from './types';
 import ModelSelector, { type ModelSelection } from './ModelSelector';
-import VersionSelector from './VersionSelector';
 
 const TabSkeleton = () => (
   <div className="flex h-64 items-center justify-center">
@@ -21,15 +20,24 @@ const ValuePicksTab = dynamic(() => import('./tabs/ValuePicksTab'), { loading: T
 const ImportanceTab = dynamic(() => import('./tabs/ImportanceTab'), { loading: TabSkeleton, ssr: false });
 const PredictionsTab = dynamic(() => import('./tabs/PredictionsTab'), { loading: TabSkeleton, ssr: false });
 const ObstacleTab = dynamic(() => import('./tabs/ObstacleTab'), { loading: TabSkeleton, ssr: false });
+const RegulusTab = dynamic(() => import('./tabs/RegulusTab'), { loading: TabSkeleton, ssr: false });
+const EclipseTab = dynamic(() => import('./tabs/EclipseTab'), { loading: TabSkeleton, ssr: false });
+
+// polaris 以外で専用ダッシュボードを持つモデル (single-tab)
+const DEDICATED: Record<string, string> = {
+  enif: '障害',
+  regulus: 'Regulus',
+  eclipse: 'Eclipse',
+};
 
 export default function MlAnalysisPage() {
   const [modelSel, setModelSel] = useState<ModelSelection>({ modelId: 'polaris', version: null });
   // polaris: 既存のuseMlResult (experiment result + obstacle meta)
-  // enif/eclipse: /api/ml/result?model=xxx&version=xxx
+  // enif/eclipse/regulus: /api/ml/result?model=xxx&version=xxx
   const selectedVersion = modelSel.modelId === 'polaris' ? modelSel.version : null;
   const { data, isLoading, error } = useMlResult(selectedVersion);
 
-  // 非polarisモデルのメタデータ（障害・eclipse等）
+  // 非polarisモデルのメタデータ（障害・regulus・eclipse等）
   const [otherMeta, setOtherMeta] = useState<Record<string, unknown> | null>(null);
   const [otherLoading, setOtherLoading] = useState(false);
 
@@ -42,7 +50,11 @@ export default function MlAnalysisPage() {
         ? `/api/ml/result?model=${sel.modelId}&version=${sel.version}`
         : `/api/ml/result?model=${sel.modelId}`;
       fetch(url)
-        .then(r => r.json())
+        .then(async r => {
+          const d = await r.json();
+          if (!r.ok) throw new Error(d?.error ?? `HTTP ${r.status}`);
+          return d;
+        })
         .then(d => { setOtherMeta(d); setOtherLoading(false); })
         .catch(() => { setOtherMeta(null); setOtherLoading(false); });
     } else {
@@ -52,17 +64,17 @@ export default function MlAnalysisPage() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
-  // 表示するタブを選択中モデルに応じてフィルタ
+  // 表示するタブを選択中モデルに応じてフィルタ (polaris のみマルチタブ)
   const visibleTabs = useMemo(() => {
     if (modelSel.modelId === 'polaris') return TABS;
-    if (modelSel.modelId === 'enif') return TABS.filter(t => t.key === 'obstacle');
-    return TABS.filter(t => t.key === 'overview');
+    return [];
   }, [modelSel.modelId]);
 
   // タブがフィルタで消えた場合、先頭タブに切替
   const effectiveTab = visibleTabs.find(t => t.key === activeTab) ? activeTab : visibleTabs[0]?.key ?? 'overview';
 
   const isPolaris = modelSel.modelId === 'polaris';
+  const dedicatedLabel = DEDICATED[modelSel.modelId];
   const loading = isPolaris ? isLoading : otherLoading;
 
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="text-gray-500">読み込み中...</div></div>;
@@ -74,11 +86,6 @@ export default function MlAnalysisPage() {
       <p className="text-sm text-gray-500">ML実験スクリプトを実行してください</p>
     </div>
   );
-
-  // 障害モデル: enif選択時はotherMetaをobstacle_modelとして渡す
-  const obstacleModel: ObstacleModelMeta | null | undefined = isPolaris
-    ? data?.obstacle_model
-    : modelSel.modelId === 'enif' ? (otherMeta as ObstacleModelMeta | null) : null;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -130,19 +137,27 @@ export default function MlAnalysisPage() {
         </details>
       )}
 
-      {/* タブナビゲーション */}
-      <div className="mb-4 flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
-        {visibleTabs.map((tab) => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-            className={cn('flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              effectiveTab === tab.key
-                ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-gray-100'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-            )}>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* タブナビゲーション (polaris = マルチタブ / 専用モデル = 単一ラベル) */}
+      {isPolaris ? (
+        <div className="mb-4 flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
+          {visibleTabs.map((tab) => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              className={cn('flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                effectiveTab === tab.key
+                  ? 'bg-white text-gray-900 shadow dark:bg-gray-700 dark:text-gray-100'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              )}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      ) : dedicatedLabel && otherMeta ? (
+        <div className="mb-4 inline-flex rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
+          <span className="rounded-md bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow dark:bg-gray-700 dark:text-gray-100">
+            {dedicatedLabel} 専用レポート
+          </span>
+        </div>
+      ) : null}
 
       {/* タブコンテンツ（polaris） */}
       {isPolaris && data && (
@@ -164,16 +179,22 @@ export default function MlAnalysisPage() {
         </>
       )}
 
-      {/* タブコンテンツ（enif = 障害） */}
-      {modelSel.modelId === 'enif' && obstacleModel && (
-        <ObstacleTab obstacleModel={obstacleModel} />
+      {/* 専用ダッシュボード（enif=障害 / regulus / eclipse） */}
+      {modelSel.modelId === 'enif' && otherMeta && (
+        <ObstacleTab obstacleModel={otherMeta as unknown as ObstacleModelMeta} />
+      )}
+      {modelSel.modelId === 'regulus' && otherMeta && (
+        <RegulusTab meta={otherMeta as unknown as RegulusModelMeta} />
+      )}
+      {modelSel.modelId === 'eclipse' && otherMeta && (
+        <EclipseTab meta={otherMeta as unknown as EclipseModelMeta} />
       )}
 
-      {/* タブコンテンツ（その他モデル — 将来拡張用） */}
-      {!isPolaris && modelSel.modelId !== 'enif' && otherMeta && (
+      {/* その他モデル（専用ダッシュボード未実装 — 生JSONフォールバック） */}
+      {!isPolaris && !dedicatedLabel && otherMeta && (
         <div className="rounded-lg border p-6">
-          <h2 className="text-lg font-semibold mb-4">{modelSel.modelId} Model Meta</h2>
-          <pre className="text-xs bg-muted/50 rounded p-4 overflow-auto max-h-96">
+          <h2 className="mb-4 text-lg font-semibold">{modelSel.modelId} Model Meta</h2>
+          <pre className="max-h-96 overflow-auto rounded bg-muted/50 p-4 text-xs">
             {JSON.stringify(otherMeta, null, 2)}
           </pre>
         </div>

@@ -265,7 +265,7 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                 <SortTh sortKey="idm" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-teal-50/30 dark:bg-teal-900/10" title="JRDB 事前IDM — 今回レースのJRDB予測値">IDM</SortTh>
                 <SortTh sortKey="ar_dev" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-12 bg-teal-50/30 dark:bg-teal-900/10" title="AR偏差値 — レース内相対評価（mean=50, std=10）">ARd</SortTh>
                 <th className="px-1 py-1.5 text-center border-b w-[78px] bg-violet-50/40 dark:bg-violet-900/15 text-[10px]" title="⭐Regulus 脚質・上がり3軸（偏差値・平均50・JRDB指数ベース）— テン(前半/先行力)・上がり(瞬発/末脚)・持続(後半垂れない=スタミナ)。印/解説用">脚質/3軸</th>
-                <th className="px-1 py-1.5 text-center border-b w-14 bg-violet-50/40 dark:bg-violet-900/15 text-[10px]" title="⭐Regulus 専用モデル（3歳上芝OP以上のみ）の第二意見 — 軌跡/CID中核で読む経験豊富な王者級馬対決の判定。P順位とpolaris(汎用)との順位差。payoutエッジは狙わず表示専用・買い目には影響しない">Reg</th>
+                <th className="px-1 py-1.5 text-center border-b w-14 bg-violet-50/40 dark:bg-violet-900/15 text-[10px]" title="⭐Regulus 専用モデル（3歳上芝OP以上のみ）の第二意見 — 軌跡/CID中核で読む経験豊富な王者級馬対決の判定。上段=P/W合成の本命順位(◎=本命・重賞で本命精度が汎用を上回る)、下段=polaris(汎用)とのP順位差(正=Regulusがより強気)。payoutエッジは狙わず表示専用・買い目には影響しない">Reg</th>
                 <SortTh sortKey="prob_p" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="好走モデル(P)の3着内確率（%）">P%</SortTh>
                 <SortTh sortKey="prob_w" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14 bg-emerald-50/50 dark:bg-emerald-900/20" title="勝利モデル(W)の勝率予測（%）">W%</SortTh>
                 <SortTh sortKey="rating" sort={sort} setSort={setSort} className="px-2 py-1.5 text-center border-b w-14" title="BR (Book Rating) — 競馬ブックレイティング">BR</SortTh>
@@ -396,12 +396,15 @@ export function RaceCard({ race, oddsMap, results, dbResults, targetMarks, selec
                       const rg = entry.regulus;
                       if (!rg) return <td className="px-1 py-1 text-center bg-violet-50/15 dark:bg-violet-900/5 text-gray-300 text-[10px]">-</td>;
                       const delta = rg.delta_rank_p;
+                      const honmei = rg.rank_blend ?? rg.rank_p;  // P/W合成本命 (無ければP順位)
                       return (
                         <td
                           className="px-1 py-1 text-center bg-violet-50/15 dark:bg-violet-900/5 text-[10px] leading-tight"
-                          title={`Regulus P${rg.rank_p}位 (${(rg.proba_p * 100).toFixed(1)}%)${rg.rank_w != null ? ` / W${rg.rank_w}位` : ''} — polaris P${rg.polaris_rank_p ?? '?'}位比 ${delta != null ? (delta > 0 ? `+${delta}` : delta) : '?'}（正=Regulusがより強気）`}
+                          title={`Regulus本命(P/W合成) ${honmei}位 — P${rg.rank_p}位(${(rg.proba_p * 100).toFixed(1)}%)${rg.rank_w != null ? ` / W${rg.rank_w}位` : ''}。polaris(汎用) P${rg.polaris_rank_p ?? '?'}位比 ${delta != null ? (delta > 0 ? `+${delta}` : delta) : '?'}（正=Regulusがより強気）`}
                         >
-                          <div className="font-bold font-mono">P{rg.rank_p}</div>
+                          <div className={`font-bold font-mono ${honmei === 1 ? 'text-violet-700 dark:text-violet-300' : honmei <= 3 ? 'text-purple-600' : ''}`}>
+                            {honmei === 1 ? `◎${honmei}` : honmei}
+                          </div>
                           <div className={`font-mono ${regulusDeltaColor(delta)}`}>
                             {delta != null ? (delta > 0 ? `+${delta}` : delta) : '–'}
                           </div>

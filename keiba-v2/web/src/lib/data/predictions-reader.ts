@@ -92,6 +92,8 @@ export interface RegulusScore {
   proba_w?: number;            // 勝率 (calibrated)
   rank_p: number;              // Regulus内での順位 (対象レース内)
   rank_w?: number;
+  rank_blend?: number;         // P/W合成本命順位 (rankavg・S183検証で重賞Top1最良の本命シグナル)
+  blend_score?: number;        // 0.5*proba_p + 0.5*proba_w
   polaris_rank_p?: number;     // polaris(汎用)のP順位 — 比較用
   polaris_rank_w?: number;
   delta_rank_p?: number;       // polaris順位 - Regulus順位 (正=Regulusがより強気)
