@@ -50,6 +50,21 @@ class RaceEntry:
     jrdb_stable_idx: Optional[float] = None    # KYI 厩舎指数
     jrdb_gekisou_idx: Optional[int] = None     # KYI 激走指数
     jrdb_idm: Optional[float] = None           # SED 確定IDM（レース後）
+    # JRDB SED 事後データ（Session 187: 結果表示強化用）
+    jrdb_ten_idx: Optional[float] = None       # SED テン指数
+    jrdb_agari_idx: Optional[float] = None     # SED 上がり指数
+    jrdb_pace_idx: Optional[float] = None      # SED ペース指数
+    jrdb_course_tori: Optional[int] = None     # SED コース取り（1:最内〜5:大外）
+    jrdb_joushou_code: Optional[int] = None    # SED 上昇度コード
+    jrdb_race_pace: Optional[str] = None       # SED レースペース (H/M/S)
+    jrdb_horse_pace: Optional[str] = None      # SED 馬ペース (H/M/S)
+    jrdb_baba_sa: Optional[int] = None         # SED 馬場差補正
+    jrdb_deokure: Optional[int] = None         # SED 出遅補正
+    jrdb_ichi_tori: Optional[int] = None       # SED 位置取補正
+    jrdb_furi: Optional[int] = None            # SED 不利補正
+    jrdb_mae_furi: Optional[int] = None        # SED 前不利補正
+    jrdb_naka_furi: Optional[int] = None       # SED 中不利補正
+    jrdb_ato_furi: Optional[int] = None        # SED 後不利補正
 
 
 @dataclass

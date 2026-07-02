@@ -224,6 +224,21 @@ export interface HorseEntry {
   jrdb_stable_idx?: number | null;    // KYI 厩舎指数
   jrdb_gekisou_idx?: number | null;   // KYI 激走指数
   jrdb_idm?: number | null;           // SED 確定IDM（レース後）
+  // JRDB SED 事後データ（Session 187: 結果表示強化用）
+  jrdb_ten_idx?: number | null;       // SED テン指数
+  jrdb_agari_idx?: number | null;     // SED 上がり指数
+  jrdb_pace_idx?: number | null;      // SED ペース指数
+  jrdb_course_tori?: number | null;   // SED コース取り（1:最内〜5:大外）
+  jrdb_joushou_code?: number | null;  // SED 上昇度コード
+  jrdb_race_pace?: string | null;     // SED レースペース (H/M/S)
+  jrdb_horse_pace?: string | null;    // SED 馬ペース (H/M/S)
+  jrdb_baba_sa?: number | null;       // SED 馬場差補正
+  jrdb_deokure?: number | null;       // SED 出遅補正
+  jrdb_ichi_tori?: number | null;     // SED 位置取補正
+  jrdb_furi?: number | null;          // SED 不利補正
+  jrdb_mae_furi?: number | null;      // SED 前不利補正
+  jrdb_naka_furi?: number | null;     // SED 中不利補正
+  jrdb_ato_furi?: number | null;      // SED 後不利補正
 }
 
 // ==========================================

@@ -86,6 +86,21 @@ def enrich_entries_with_jrdb(entries: List[RaceEntry], race_date: str) -> int:
 
         if sed:
             entry.jrdb_idm = sed.get('idm')
+            # SED 事後データ（Session 187: 結果表示強化用）
+            entry.jrdb_ten_idx = sed.get('ten_idx')
+            entry.jrdb_agari_idx = sed.get('agari_idx')
+            entry.jrdb_pace_idx = sed.get('pace_idx')
+            entry.jrdb_course_tori = sed.get('course_tori')
+            entry.jrdb_joushou_code = sed.get('joushou_code')
+            entry.jrdb_race_pace = sed.get('race_pace')
+            entry.jrdb_horse_pace = sed.get('horse_pace')
+            entry.jrdb_baba_sa = sed.get('baba_sa')
+            entry.jrdb_deokure = sed.get('deokure_adj')
+            entry.jrdb_ichi_tori = sed.get('ichi_tori_adj')
+            entry.jrdb_furi = sed.get('furi_adj')
+            entry.jrdb_mae_furi = sed.get('mae_furi_adj')
+            entry.jrdb_naka_furi = sed.get('naka_furi_adj')
+            entry.jrdb_ato_furi = sed.get('ato_furi_adj')
 
     return enriched
 

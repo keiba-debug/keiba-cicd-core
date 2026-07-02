@@ -365,5 +365,20 @@ function adaptEntry(v4: V4RaceEntry, kb: KbEntryExt | null, raceFirst3f: string)
     jrdb_stable_idx: v4.jrdb_stable_idx ?? null,
     jrdb_gekisou_idx: v4.jrdb_gekisou_idx ?? null,
     jrdb_idm: v4.jrdb_idm ?? null,
+    // JRDB SED 事後データ（Session 187: 結果表示強化用）
+    jrdb_ten_idx: v4.jrdb_ten_idx ?? null,
+    jrdb_agari_idx: v4.jrdb_agari_idx ?? null,
+    jrdb_pace_idx: v4.jrdb_pace_idx ?? null,
+    jrdb_course_tori: v4.jrdb_course_tori ?? null,
+    jrdb_joushou_code: v4.jrdb_joushou_code ?? null,
+    jrdb_race_pace: v4.jrdb_race_pace ?? null,
+    jrdb_horse_pace: v4.jrdb_horse_pace ?? null,
+    jrdb_baba_sa: v4.jrdb_baba_sa ?? null,
+    jrdb_deokure: v4.jrdb_deokure ?? null,
+    jrdb_ichi_tori: v4.jrdb_ichi_tori ?? null,
+    jrdb_furi: v4.jrdb_furi ?? null,
+    jrdb_mae_furi: v4.jrdb_mae_furi ?? null,
+    jrdb_naka_furi: v4.jrdb_naka_furi ?? null,
+    jrdb_ato_furi: v4.jrdb_ato_furi ?? null,
   };
 }

@@ -14,6 +14,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
+import { parsePassingOrders } from '@/lib/data/result-utils';
 
 interface PositionGainIndicatorProps {
   entries: HorseEntry[];
@@ -28,66 +29,6 @@ interface PositionChangeEntry {
   cornerPosition: number;
   gain: number; // 順位変動（プラス=伸び、マイナス=失速）
   last3f: string;
-}
-
-// 丸数字を数値に変換するマップ
-const circleNumMap: Record<string, number> = {
-  '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5,
-  '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
-  '⑪': 11, '⑫': 12, '⑬': 13, '⑭': 14, '⑮': 15,
-  '⑯': 16, '⑰': 17, '⑱': 18, '⑲': 19, '⑳': 20,
-};
-
-/**
- * 通過順位文字列をパースして数値配列に変換
- */
-function parsePassingOrders(raw: string, totalHorses: number): number[] {
-  if (!raw) return [];
-  
-  if (raw.includes('-')) {
-    return raw.split('-').map(p => parseInt(p.trim())).filter(n => !isNaN(n) && n > 0);
-  }
-  
-  const positions: number[] = [];
-  let remaining = raw;
-  const hasTwoDigitNumbers = totalHorses >= 10;
-  
-  while (remaining.length > 0) {
-    let matched = false;
-    
-    for (const [circle, num] of Object.entries(circleNumMap)) {
-      if (remaining.startsWith(circle)) {
-        positions.push(num);
-        remaining = remaining.slice(circle.length);
-        matched = true;
-        break;
-      }
-    }
-    
-    if (matched) continue;
-    
-    if (hasTwoDigitNumbers && remaining.length >= 2) {
-      const twoDigit = remaining.slice(0, 2);
-      const twoDigitNum = parseInt(twoDigit);
-      if (!isNaN(twoDigitNum) && twoDigitNum >= 10 && twoDigitNum <= Math.max(totalHorses, 18)) {
-        positions.push(twoDigitNum);
-        remaining = remaining.slice(2);
-        continue;
-      }
-    }
-    
-    const oneDigit = remaining.slice(0, 1);
-    const oneDigitNum = parseInt(oneDigit);
-    if (!isNaN(oneDigitNum) && oneDigitNum > 0) {
-      positions.push(oneDigitNum);
-      remaining = remaining.slice(1);
-      continue;
-    }
-    
-    remaining = remaining.slice(1);
-  }
-  
-  return positions;
 }
 
 export default function PositionGainIndicator({ 

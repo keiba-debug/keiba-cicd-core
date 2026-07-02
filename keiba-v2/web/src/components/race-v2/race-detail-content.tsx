@@ -48,7 +48,7 @@ import type { RaceConfidence } from '@/lib/data/ml-prediction-reader';
 import { analyzeRaceRatings } from '@/lib/data/rating-utils';
 import { POSITIVE_BG } from '@/lib/positive-colors';
 import { MARK_SLOT } from '@/lib/data/mark-slots';
-import { RacePurchaseBadgeModal } from '@/components/race-v2/RacePurchaseBadgeModal';
+import { RacePurchaseBadgeModal, RacePnlPanel } from '@/components/race-v2/RacePurchaseBadgeModal';
 import type { RacePurchasesCombined } from '@/lib/data/race-purchase-types';
 import type { LegProfile } from '@/lib/data/leg-profile-reader';
 import type { TrainerTrustEntry } from '@/lib/data/trainer-trust-reader';
@@ -359,6 +359,10 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 mlPredictions={mlPredictions}
                 track={urlTrack}
               />
+              {/* レース収支パネル（投票があるレースのみ） */}
+              <div className="mt-4">
+                <RacePnlPanel purchases={purchases ?? null} />
+              </div>
               <RaceResultSection
                 entries={raceData.entries}
                 payouts={raceData.payouts}
@@ -369,6 +373,8 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 raceId={raceData.meta?.race_id}
                 raceDate={raceData.race_info.date}
                 raceName={raceData.race_info.race_name}
+                mlPredictions={mlPredictions}
+                aiMarks={targetMarks?.horseMarks2}
               />
             </TabsContent>
           )}
@@ -494,6 +500,8 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 mlPredictions={mlPredictions}
                 track={urlTrack}
               />
+              {/* レース収支パネル（投票があるレースのみ） */}
+              <RacePnlPanel purchases={purchases ?? null} />
               <RaceResultSection
                 entries={raceData.entries}
                 payouts={raceData.payouts}
@@ -505,6 +513,8 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 raceId={raceData.meta?.race_id}
                 raceDate={raceData.race_info.date}
                 raceName={raceData.race_info.race_name}
+                mlPredictions={mlPredictions}
+                aiMarks={targetMarks?.horseMarks2}
               />
             </>
           )}

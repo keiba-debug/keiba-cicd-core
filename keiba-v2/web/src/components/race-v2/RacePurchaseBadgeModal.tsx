@@ -204,6 +204,67 @@ function PurchaseModalBody({ purchases }: { purchases: RacePurchasesCombined }) 
   );
 }
 
+/**
+ * レース収支パネル（結果タブ常設・Session 187 Phase 3）
+ * モーダルと同じ purchases データをインライン表示する。投票が無いレースでは描画しない。
+ */
+export function RacePnlPanel({ purchases }: { purchases: RacePurchasesCombined | null }) {
+  if (!purchases?.has_any) return null;
+
+  const { sections, total_bet, settled_bet, total_payout, profit, recovery_rate, confirmed } = purchases;
+
+  return (
+    <div className="border rounded-lg p-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Wallet className="w-5 h-5 text-emerald-600" />
+        <span className="text-lg font-semibold">このレースの収支</span>
+        {confirmed ? (
+          <Badge variant="secondary" className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+            確定
+          </Badge>
+        ) : (
+          <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            未確定
+          </Badge>
+        )}
+      </div>
+
+      <div className="grid grid-cols-4 gap-2 text-center text-sm">
+        <div className="rounded-lg bg-muted/50 py-2">
+          <div className="text-[11px] text-muted-foreground">投資合計</div>
+          <div className="font-bold tabular-nums">{yen(total_bet)}</div>
+        </div>
+        <div className="rounded-lg bg-muted/50 py-2">
+          <div className="text-[11px] text-muted-foreground">払戻{!confirmed && '(確定分)'}</div>
+          <div className="font-bold tabular-nums">{yen(total_payout)}</div>
+        </div>
+        <div className="rounded-lg bg-muted/50 py-2">
+          <div className="text-[11px] text-muted-foreground">収支{!confirmed && '(確定分)'}</div>
+          <div className={`font-bold tabular-nums ${profitColor(profit)}`}>
+            {profit > 0 ? '+' : ''}{yen(profit)}
+          </div>
+        </div>
+        <div className="rounded-lg bg-muted/50 py-2">
+          <div className="text-[11px] text-muted-foreground">回収率</div>
+          <div className="font-bold tabular-nums">
+            {settled_bet > 0 ? `${recovery_rate.toFixed(0)}%` : '—'}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {sections.map((section) => (
+          <SectionSummary key={section.source} section={section} />
+        ))}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground">
+        ※ 自動投票 = purchase_ledger。 TARGET手動 = PDyyyymm.CSV のうち ledger と重複しない分のみ。
+      </p>
+    </div>
+  );
+}
+
 export function RacePurchaseBadgeModal({
   purchases,
   variant = 'compact',

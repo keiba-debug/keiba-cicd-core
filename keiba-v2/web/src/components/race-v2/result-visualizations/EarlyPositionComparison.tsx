@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { parsePassingOrders } from '@/lib/data/result-utils';
 
 // スタートメモのプリセット
 const START_MEMO_PRESETS = [
@@ -71,76 +72,7 @@ interface HorsePositionData {
   isSlowStart: boolean; // 出遅れフラグ
 }
 
-// 丸数字を数値に変換するマップ
-const circleNumMap: Record<string, number> = {
-  '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5,
-  '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
-  '⑪': 11, '⑫': 12, '⑬': 13, '⑭': 14, '⑮': 15,
-  '⑯': 16, '⑰': 17, '⑱': 18, '⑲': 19, '⑳': 20,
-};
-
-/**
- * 通過順位文字列をパースして数値配列に変換
- * @param raw - 通過順位の生文字列 (例: "5555", "⑫1213", "3-2-3-1")
- * @param totalHorses - 出走頭数（2桁判定に使用）
- * @returns 通過順位の数値配列
- */
-function parsePassingOrders(raw: string, totalHorses: number): number[] {
-  if (!raw) return [];
-  
-  // ハイフン区切りの場合
-  if (raw.includes('-')) {
-    return raw.split('-').map(p => parseInt(p.trim())).filter(n => !isNaN(n) && n > 0);
-  }
-  
-  const positions: number[] = [];
-  let remaining = raw;
-  
-  // 頭数が10頭以上の場合、2桁数字を考慮
-  const hasTwoDigitNumbers = totalHorses >= 10;
-  
-  while (remaining.length > 0) {
-    let matched = false;
-    
-    // まず丸数字をチェック
-    for (const [circle, num] of Object.entries(circleNumMap)) {
-      if (remaining.startsWith(circle)) {
-        positions.push(num);
-        remaining = remaining.slice(circle.length);
-        matched = true;
-        break;
-      }
-    }
-    
-    if (matched) continue;
-    
-    // 2桁数字をチェック（10頭以上のレースの場合）
-    if (hasTwoDigitNumbers && remaining.length >= 2) {
-      const twoDigit = remaining.slice(0, 2);
-      const twoDigitNum = parseInt(twoDigit);
-      // 10-18（または頭数まで）の範囲なら2桁として解釈
-      if (!isNaN(twoDigitNum) && twoDigitNum >= 10 && twoDigitNum <= Math.max(totalHorses, 18)) {
-        positions.push(twoDigitNum);
-        remaining = remaining.slice(2);
-        continue;
-      }
-    }
-    
-    // 1桁数字をチェック
-    const oneDigit = remaining.slice(0, 1);
-    const oneDigitNum = parseInt(oneDigit);
-    if (!isNaN(oneDigitNum) && oneDigitNum > 0) {
-      positions.push(oneDigitNum);
-      remaining = remaining.slice(1);
-      continue;
-    }
-    
-    // マッチしない文字はスキップ
-    remaining = remaining.slice(1);
-  }
-  
-  return positions;
-}
+// 通過順位パースは共通ユーティリティを使用（result-utils.ts）
 
 export default function EarlyPositionComparison({ 
   entries, 

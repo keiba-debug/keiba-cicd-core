@@ -11,8 +11,8 @@
  */
 
 import React, { useState } from 'react';
-import { HorseEntry, parseFinishPosition, toCircleNumber, getWakuColor } from '@/types/race-data';
-import { ChevronDown, ChevronUp, Trophy, Zap, AlertTriangle } from 'lucide-react';
+import { HorseEntry, parseFinishPosition, getWakuColor } from '@/types/race-data';
+import { ChevronDown, ChevronUp, Trophy, Zap } from 'lucide-react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -20,6 +20,12 @@ import {
 } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import {
+  marginToSeconds,
+  classifyMargin,
+  timeToSeconds,
+  type MarginType,
+} from '@/lib/data/result-utils';
 
 interface MarginVisualizationProps {
   entries: HorseEntry[];
@@ -36,59 +42,7 @@ interface MarginEntry {
   cumulativeMargin: number; // 累計着差（秒換算）
 }
 
-// 着差を秒数に変換
-function marginToSeconds(margin: string): number {
-  if (!margin || margin === '-' || margin === '') return 0;
-  
-  const normalizedMargin = margin.trim().toLowerCase();
-  
-  // 着差表記の変換マップ
-  const marginMap: Record<string, number> = {
-    'ハナ': 0.05,
-    'はな': 0.05,
-    'アタマ': 0.1,
-    'あたま': 0.1,
-    'クビ': 0.15,
-    'くび': 0.15,
-    '1/2': 0.3,
-    '3/4': 0.45,
-    '1': 0.6,
-    '1.1/4': 0.75,
-    '1・1/4': 0.75,
-    '1.1/2': 0.9,
-    '1・1/2': 0.9,
-    '1.3/4': 1.05,
-    '1・3/4': 1.05,
-    '2': 1.2,
-    '2.1/2': 1.5,
-    '2・1/2': 1.5,
-    '3': 1.8,
-    '4': 2.4,
-    '5': 3.0,
-    '6': 3.6,
-    '7': 4.2,
-    '8': 4.8,
-    '9': 5.4,
-    '10': 6.0,
-    '大差': 6.0,
-    '大': 6.0,
-  };
-
-  // 直接マッチ
-  for (const [key, value] of Object.entries(marginMap)) {
-    if (normalizedMargin === key.toLowerCase() || normalizedMargin.includes(key)) {
-      return value;
-    }
-  }
-
-  // 数値のみの場合（馬身数）
-  const numMatch = normalizedMargin.match(/^(\d+(?:\.\d+)?)/);
-  if (numMatch) {
-    return parseFloat(numMatch[1]) * 0.6; // 1馬身 ≒ 0.6秒
-  }
-
-  return 0;
-}
+// 着差換算・分類は共通ユーティリティを使用（result-utils.ts / 1馬身≒0.16秒）
 
 export default function MarginVisualization({ 
   entries, 
@@ -111,13 +65,18 @@ export default function MarginVisualization({
     .sort((a, b) => a.finishPosition - b.finishPosition);
 
   // 累計着差を計算
-  let cumulativeMargin = 0;
+  // 走破タイムの実測差を優先し、タイム欠損時のみ着差表記の秒換算（1馬身≒0.16秒）で積み上げる
+  const winnerSec = marginData.length > 0 ? timeToSeconds(marginData[0].time) : null;
   marginData.forEach((item, idx) => {
     if (idx === 0) {
       item.cumulativeMargin = 0;
+      return;
+    }
+    const t = timeToSeconds(item.time);
+    if (t != null && winnerSec != null && t >= winnerSec) {
+      item.cumulativeMargin = t - winnerSec;
     } else {
-      cumulativeMargin += marginToSeconds(item.margin);
-      item.cumulativeMargin = cumulativeMargin;
+      item.cumulativeMargin = marginData[idx - 1].cumulativeMargin + marginToSeconds(item.margin);
     }
   });
 
@@ -144,15 +103,6 @@ export default function MarginVisualization({
     return 'bg-gradient-to-r from-gray-300 to-gray-200 dark:from-gray-600 dark:to-gray-500';
   };
 
-  // 着差の種別を判定
-  type MarginType = 'photo' | 'close' | 'normal' | 'big';
-  const getMarginType = (marginSec: number): MarginType => {
-    if (marginSec <= 0.1) return 'photo';  // ハナ差、アタマ
-    if (marginSec <= 0.3) return 'close';  // クビ差、1/2
-    if (marginSec >= 3.0) return 'big';    // 大差
-    return 'normal';
-  };
-
   // 着差タイプに応じたスタイル
   const getMarginBadgeStyle = (type: MarginType): string => {
     switch (type) {
@@ -163,9 +113,9 @@ export default function MarginVisualization({
     }
   };
 
-  // 接戦カウント
-  const photoFinishCount = marginData.filter((d, i) => i > 0 && marginToSeconds(d.margin) <= 0.1).length;
-  const closeFinishCount = marginData.filter((d, i) => i > 0 && marginToSeconds(d.margin) > 0.1 && marginToSeconds(d.margin) <= 0.3).length;
+  // 接戦カウント（着差表記ベース: photo=同着/ハナ/アタマ, close=クビ/1/2）
+  const photoFinishCount = marginData.filter((d, i) => i > 0 && classifyMargin(d.margin) === 'photo').length;
+  const closeFinishCount = marginData.filter((d, i) => i > 0 && classifyMargin(d.margin) === 'close').length;
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -200,8 +150,7 @@ export default function MarginVisualization({
         <CollapsibleContent>
           <div className="p-4 space-y-1.5">
             {marginData.slice(0, 12).map((item, index) => {
-              const marginSec = marginToSeconds(item.margin);
-              const marginType = getMarginType(marginSec);
+              const marginType = classifyMargin(item.margin);
               const isPhotoFinish = index > 0 && marginType === 'photo';
               const isCloseFinish = index > 0 && marginType === 'close';
               
@@ -295,7 +244,7 @@ export default function MarginVisualization({
             {/* サマリー情報 */}
             <div className="mt-4 pt-3 border-t">
               <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-                <span>※ 1馬身≒0.6秒で換算</span>
+                <span>※ 秒差=走破タイムの実測差（タイム欠損時のみ1馬身≒0.16秒で換算）</span>
                 {photoFinishCount > 0 && (
                   <span className="flex items-center gap-1 text-red-600 dark:text-red-400">
                     <Zap className="w-3 h-3" />

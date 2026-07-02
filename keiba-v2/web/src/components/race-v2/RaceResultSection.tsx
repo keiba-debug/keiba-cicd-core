@@ -11,10 +11,8 @@ import {
   TenkaiData,
   LapsData,
   getWakuColor,
-  toCircleNumber,
   parseFinishPosition,
 } from '@/types/race-data';
-import { Badge } from '@/components/ui/badge';
 import { ChevronDown, ChevronUp, Trophy, Timer, TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
 import {
   calculateActualRpci, getRpciTrend,
@@ -22,6 +20,7 @@ import {
   type CourseRpciInfo, type RaceRpciAnalysis, type RaceTrendV2Type,
 } from '@/lib/data/rpci-utils';
 import type { BabaCondition } from '@/lib/data/baba-reader';
+import { formatPassingOrders, parsePassingOrders } from '@/lib/data/result-utils';
 import { POSITIVE_TEXT, getRatingColor } from '@/lib/positive-colors';
 import { cn } from '@/lib/utils';
 import {
@@ -30,6 +29,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
+import type { MlPredictionEntry } from './HorseEntryTable';
 
 // 新しい可視化コンポーネント
 import {
@@ -39,81 +39,6 @@ import {
   EarlyPositionComparison,
   RaceProgressVisualization,
 } from './result-visualizations';
-
-// 丸数字マップ（通過順パース用）
-const circleNumMap: Record<string, number> = {
-  '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5,
-  '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
-  '⑪': 11, '⑫': 12, '⑬': 13, '⑭': 14, '⑮': 15,
-  '⑯': 16, '⑰': 17, '⑱': 18,
-};
-
-/**
- * 通過順位文字列をハイフン区切りでフォーマット
- * @param raw - 通過順位の生文字列 (例: "5555", "⑫1213", "3-2-3-1")
- * @param totalHorses - 出走頭数（2桁判定に使用）
- * @returns ハイフン区切りの通過順位文字列
- */
-function formatPassingOrders(raw: string | undefined, totalHorses: number = 18): string {
-  if (!raw) return '-';
-  
-  // すでにハイフン区切りの場合はそのまま返す
-  if (raw.includes('-')) {
-    return raw;
-  }
-  
-  const positions: number[] = [];
-  let remaining = raw;
-  
-  // 頭数が10頭以上の場合、2桁数字を考慮
-  const hasTwoDigitNumbers = totalHorses >= 10;
-  
-  while (remaining.length > 0) {
-    let matched = false;
-    
-    // まず丸数字をチェック
-    for (const [circle, num] of Object.entries(circleNumMap)) {
-      if (remaining.startsWith(circle)) {
-        positions.push(num);
-        remaining = remaining.slice(circle.length);
-        matched = true;
-        break;
-      }
-    }
-    
-    if (matched) continue;
-    
-    // 2桁数字をチェック（10頭以上のレースの場合）
-    if (hasTwoDigitNumbers && remaining.length >= 2) {
-      const twoDigit = remaining.slice(0, 2);
-      const twoDigitNum = parseInt(twoDigit);
-      // 10-18（または頭数まで）の範囲なら2桁として解釈
-      if (!isNaN(twoDigitNum) && twoDigitNum >= 10 && twoDigitNum <= Math.max(totalHorses, 18)) {
-        positions.push(twoDigitNum);
-        remaining = remaining.slice(2);
-        continue;
-      }
-    }
-    
-    // 1桁数字をチェック
-    const oneDigit = remaining.slice(0, 1);
-    const oneDigitNum = parseInt(oneDigit);
-    if (!isNaN(oneDigitNum) && oneDigitNum > 0) {
-      positions.push(oneDigitNum);
-      remaining = remaining.slice(1);
-      continue;
-    }
-    
-    // マッチしない文字はスキップ
-    remaining = remaining.slice(1);
-  }
-  
-  if (positions.length === 0) {
-    return '-';
-  }
-  
-  return positions.join('-');
-}
 
 interface RaceResultSectionProps {
   entries: HorseEntry[];
@@ -126,9 +51,11 @@ interface RaceResultSectionProps {
   raceId?: string; // レースID（スタートメモ用）
   raceDate?: string; // レース日付（スタートメモ用）
   raceName?: string; // レース名（スタートメモ用）
+  mlPredictions?: Record<number, MlPredictionEntry>; // 事前ML予測（答え合わせ列用）
+  aiMarks?: Record<number, string> | null; // AI評価印（markSet=2 ◎○▲△等）
 }
 
-export default function RaceResultSection({ entries, payouts, tenkaiData, distance, rpciInfo, babaInfo, laps, raceId, raceDate, raceName }: RaceResultSectionProps) {
+export default function RaceResultSection({ entries, payouts, tenkaiData, distance, rpciInfo, babaInfo, laps, raceId, raceDate, raceName, mlPredictions, aiMarks }: RaceResultSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
   
   // 結果のある馬のみフィルタしてソート
@@ -140,12 +67,17 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
       return posA - posB;
     });
 
-  if (resultsEntries.length === 0) {
-    return null;
-  }
-
   // 上り最速を特定
   const fastestLast3f = getFastestLast3fEntry(resultsEntries);
+
+  // 実測コーナー通過データの有無（ResultTenkaiReplay の描画条件と同じ）
+  // 実測リプレイが出せるレースでは、タイム逆算の推定展開図は出さない
+  const hasCornerReplay = resultsEntries.filter(
+    e => parsePassingOrders(e.result?.passing_orders, entries.length).length >= 1
+  ).length >= 2;
+
+  // 事前評価列（AI印/W順/EV）の表示有無
+  const hasMlColumns = !!mlPredictions && Object.keys(mlPredictions).length > 0;
 
   // レイティング統計を計算（レース内相対表示用）
   const ratingStats = useMemo(() => {
@@ -200,6 +132,11 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
     }
     return calculateActualRpci(entries, rpciInfo);
   }, [entries, rpciInfo, laps]);
+
+  // ※ hooks の後に置くこと（rules-of-hooks）
+  if (resultsEntries.length === 0) {
+    return null;
+  }
 
   return (
     <>
@@ -264,20 +201,30 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
                     <th className="px-2 py-2 text-center border w-12">上3F</th>
                     <th className="px-2 py-2 text-center border w-20">通過</th>
                     <th className="px-2 py-2 text-center border w-10">4角</th>
+                    <th className="px-2 py-2 text-center border w-12" title="JRDB実測コース取り（1:最内〜5:大外）">取り</th>
                     <th className="px-2 py-2 text-left border min-w-16">騎手</th>
                     <th className="px-2 py-2 text-right border w-16">オッズ</th>
+                    {hasMlColumns && (
+                      <>
+                        <th className="px-2 py-2 text-center border w-14" title="事前のAI評価（AI印 + 勝率ランク）。緑=上位評価が好走 / 赤=本命(W1位)が着外 / 橙=ノーマーク激走">AI予想</th>
+                        <th className="px-2 py-2 text-center border w-12" title="事前の単勝EV（キャリブレーション勝率×オッズ）">EV</th>
+                      </>
+                    )}
                     <th className="px-2 py-2 text-center border w-12">レート</th>
                     <th className="px-2 py-2 text-left border min-w-32">寸評</th>
                   </tr>
                 </thead>
                 <tbody>
                   {resultsEntries.slice(0, 12).map((entry) => (
-                    <ResultRow 
-                      key={entry.horse_number} 
+                    <ResultRow
+                      key={entry.horse_number}
                       entry={entry}
                       isFastestLast3f={entry.horse_number === fastestLast3f?.horse_number}
                       ratingStats={ratingStats}
                       totalHorses={entries.length}
+                      mlPred={hasMlColumns ? mlPredictions?.[entry.horse_number] : undefined}
+                      aiMark={aiMarks?.[entry.horse_number]}
+                      showMlColumns={hasMlColumns}
                     />
                   ))}
                 </tbody>
@@ -298,26 +245,25 @@ export default function RaceResultSection({ entries, payouts, tenkaiData, distan
 
     {/* 視覚的分析セクション */}
     <div className="mt-4 space-y-4">
-      {/* RPCI分析結果 */}
-      {rpciAnalysis && (
-        <RpciAnalysisCard
+      {/* ペース分析（RPCI + 33ラップ + 判定根拠の統合カード） */}
+      {(rpciAnalysis || laps) && (
+        <PaceAnalysisCard
           analysis={rpciAnalysis}
           courseInfo={rpciInfo || undefined}
+          laps={laps || undefined}
         />
-      )}
-
-      {/* 33ラップ + v2傾向カード */}
-      {laps && (laps.race_trend_v2 || laps.lap33 != null) && (
-        <RaceTrendCard laps={laps} />
       )}
 
       {/* ラップタイムチャート */}
       {laps?.lap_times && laps.lap_times.length > 0 && (
-        <LapTimesChart lapTimes={laps.lap_times} distance={distance || 0} />
+        <LapTimesChart lapTimes={laps.lap_times} distance={distance || 0} s3={laps.s3} l3={laps.l3} />
       )}
 
-      {/* レース展開図（残600m → ゴール） */}
-      <RaceProgressVisualization entries={entries} distance={distance || 0} defaultOpen={false} />
+      {/* レース展開図（残600m → ゴール）— タイム逆算の推定値。
+          実測コーナー通過があるレースは ResultTenkaiReplay が上位互換なので出さない */}
+      {!hasCornerReplay && (
+        <RaceProgressVisualization entries={entries} distance={distance || 0} defaultOpen={false} />
+      )}
 
       {/* 序盤位置取り比較 */}
       <EarlyPositionComparison 
@@ -354,15 +300,18 @@ interface ResultRowProps {
   isFastestLast3f: boolean;
   ratingStats: RatingStats;
   totalHorses: number;
+  mlPred?: MlPredictionEntry;
+  aiMark?: string;
+  showMlColumns?: boolean;
 }
 
-function ResultRow({ entry, isFastestLast3f, ratingStats, totalHorses }: ResultRowProps) {
+function ResultRow({ entry, isFastestLast3f, ratingStats, totalHorses, mlPred, aiMark, showMlColumns }: ResultRowProps) {
   const { entry_data, result } = entry;
   if (!result) return null;
 
   const wakuColorClass = getWakuColor(entry_data.waku);
   const position = parseFinishPosition(result.finish_position);
-  
+
   // 着順による行の背景色
   let rowBgClass = '';
   if (position === 1) rowBgClass = 'bg-yellow-50 dark:bg-yellow-900/10';
@@ -371,6 +320,39 @@ function ResultRow({ entry, isFastestLast3f, ratingStats, totalHorses }: ResultR
 
   // 寸評を取得
   const sunpyo = result.sunpyo || result.raw_data?.寸評 || '';
+
+  // JRDB SED 不利補正（IDM補正ポイント。>0 = その分の不利があった）
+  const furiTotal =
+    (entry.jrdb_furi ?? 0) + (entry.jrdb_mae_furi ?? 0) +
+    (entry.jrdb_naka_furi ?? 0) + (entry.jrdb_ato_furi ?? 0);
+  const furiDetail = [
+    entry.jrdb_furi ? `不利${entry.jrdb_furi}` : '',
+    entry.jrdb_mae_furi ? `前${entry.jrdb_mae_furi}` : '',
+    entry.jrdb_naka_furi ? `中${entry.jrdb_naka_furi}` : '',
+    entry.jrdb_ato_furi ? `後${entry.jrdb_ato_furi}` : '',
+    entry.jrdb_deokure ? `出遅${entry.jrdb_deokure}` : '',
+    entry.jrdb_ichi_tori ? `位置取${entry.jrdb_ichi_tori}` : '',
+  ].filter(Boolean).join(' / ');
+
+  // JRDB実測コース取り
+  const courseToriLabel = entry.jrdb_course_tori != null
+    ? ({ 1: '最内', 2: '内', 3: '中', 4: '外', 5: '大外' } as Record<number, string>)[entry.jrdb_course_tori] ?? '-'
+    : '-';
+
+  // 事前AI評価 vs 結果の答え合わせ
+  const rankW = mlPred?.rank_w ?? null;
+  let aiVerdict: 'hit' | 'bust' | 'surprise' | null = null;
+  if (rankW != null && position > 0) {
+    if (rankW <= 3 && position <= 3) aiVerdict = 'hit';          // 上位評価が好走
+    else if (rankW === 1 && position >= 6) aiVerdict = 'bust';   // 本命が着外
+    else if (rankW >= 8 && position <= 3) aiVerdict = 'surprise'; // ノーマーク激走
+  }
+  const aiCellClass =
+    aiVerdict === 'hit' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 font-bold'
+    : aiVerdict === 'bust' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold'
+    : aiVerdict === 'surprise' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 font-bold'
+    : 'text-gray-600 dark:text-gray-400';
+  const winEv = mlPred?.win_ev ?? null;
 
   return (
     <tr className={`hover:bg-gray-100 dark:hover:bg-gray-800/50 ${rowBgClass}`}>
@@ -393,9 +375,17 @@ function ResultRow({ entry, isFastestLast3f, ratingStats, totalHorses }: ResultR
       <td className="px-2 py-1.5 border font-medium">
         <span className="flex items-center gap-1">
           {entry.horse_name}
-          {entry.is_slow_start && (
+          {(entry.is_slow_start || (entry.jrdb_deokure ?? 0) > 0) && (
             <span className="inline-flex items-center justify-center w-4 h-4 rounded-sm bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] font-bold shrink-0" title="出遅れ">
               遅
+            </span>
+          )}
+          {furiTotal > 0 && (
+            <span
+              className="inline-flex items-center justify-center px-1 h-4 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 text-[10px] font-bold shrink-0"
+              title={`JRDB不利補正: ${furiDetail}（IDM補正ポイント）`}
+            >
+              不利
             </span>
           )}
         </span>
@@ -433,6 +423,19 @@ function ResultRow({ entry, isFastestLast3f, ratingStats, totalHorses }: ResultR
       <td className="px-2 py-1.5 text-center border text-gray-600 dark:text-gray-400">
         {result.last_corner_position || '-'}
       </td>
+
+      {/* コース取り（JRDB実測） */}
+      <td
+        className={cn(
+          "px-2 py-1.5 text-center border text-xs",
+          entry.jrdb_course_tori != null && entry.jrdb_course_tori >= 4
+            ? 'text-orange-600 dark:text-orange-400'
+            : 'text-gray-600 dark:text-gray-400'
+        )}
+        title={entry.jrdb_course_tori != null ? `JRDBコース取り: ${entry.jrdb_course_tori}（1:最内〜5:大外）` : undefined}
+      >
+        {courseToriLabel}
+      </td>
       
       {/* 騎手 */}
       <td className="px-2 py-1.5 border">
@@ -446,7 +449,36 @@ function ResultRow({ entry, isFastestLast3f, ratingStats, totalHorses }: ResultR
           ({entry_data.odds_rank})
         </span>
       </td>
-      
+
+      {/* 事前AI評価（答え合わせ） */}
+      {showMlColumns && (
+        <>
+          <td
+            className={cn("px-2 py-1.5 text-center border text-xs whitespace-nowrap", aiCellClass)}
+            title={
+              rankW != null
+                ? `事前評価: 勝率${rankW}位${aiMark ? ` / AI印 ${aiMark}` : ''}${
+                    aiVerdict === 'hit' ? ' → 好走（的中）' :
+                    aiVerdict === 'bust' ? ' → 本命崩れ' :
+                    aiVerdict === 'surprise' ? ' → ノーマーク激走' : ''
+                  }`
+                : undefined
+            }
+          >
+            {aiMark && <span className="mr-0.5">{aiMark}</span>}
+            {rankW != null ? <span className="font-mono">W{rankW}</span> : (aiMark ? '' : '-')}
+          </td>
+          <td className={cn(
+            "px-2 py-1.5 text-center border font-mono text-xs",
+            winEv != null && winEv >= 1.3 ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+            : winEv != null && winEv >= 1.0 ? 'text-emerald-600/70 dark:text-emerald-400/70'
+            : 'text-gray-500 dark:text-gray-400'
+          )}>
+            {winEv != null ? winEv.toFixed(2) : '-'}
+          </td>
+        </>
+      )}
+
       {/* レイティング */}
       <RatingResultCell 
         rating={entry_data.rating}
@@ -688,79 +720,13 @@ function getFastestLast3fEntry(entries: HorseEntry[]): HorseEntry | null {
 }
 
 /**
- * RPCI分析結果カード
+ * ペース分析統合カード（RPCI + 33ラップ + 判定根拠）
+ * 旧 RpciAnalysisCard と RaceTrendCard を1枚に統合 (Session 187)
  */
-interface RpciAnalysisCardProps {
-  analysis: RaceRpciAnalysis;
+interface PaceAnalysisCardProps {
+  analysis: RaceRpciAnalysis | null;
   courseInfo?: CourseRpciInfo;
-}
-
-// ラップタイムチャート
-// =============================================================================
-// 33ラップ + v2傾向カード
-// =============================================================================
-
-function RaceTrendCard({ laps }: { laps: LapsData }) {
-  const trendV2 = laps.race_trend_v2 as RaceTrendV2Type | undefined;
-  const lap33 = laps.lap33;
-  const detail = laps.trend_detail;
-
-  const trendLabel = trendV2 ? RACE_TREND_V2_LABELS[trendV2] : null;
-  const trendColor = trendV2 ? RACE_TREND_V2_COLORS[trendV2] : '';
-
-  const signalLabel = (sig: string) => {
-    if (sig === 'sprint') return <span className="text-blue-600 dark:text-blue-400">瞬発</span>;
-    if (sig === 'sustained') return <span className="text-red-600 dark:text-red-400">持続</span>;
-    return <span className="text-gray-500">中立</span>;
-  };
-
-  return (
-    <div className="rounded-lg border bg-card p-3">
-      <div className="flex items-center gap-3 mb-2">
-        <Activity className="w-4 h-4 text-muted-foreground" />
-        <span className="text-sm font-medium">ペース型</span>
-        {trendLabel && (
-          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${trendColor}`}>
-            {trendLabel}
-          </span>
-        )}
-        {detail && (
-          <span className="text-xs text-muted-foreground ml-auto">
-            確信度: {Math.round(detail.confidence * 100)}%
-          </span>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        {/* 33ラップ */}
-        {lap33 != null && (
-          <div className="space-y-0.5">
-            <div className="text-xs text-muted-foreground">33ラップ</div>
-            <div className="flex items-baseline gap-1.5">
-              <span className={`text-lg font-bold ${lap33 >= 0.5 ? 'text-blue-600 dark:text-blue-400' : lap33 <= -0.5 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
-                {lap33 > 0 ? '+' : ''}{lap33.toFixed(1)}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {getLap33Interpretation(lap33)}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* 判定シグナル詳細 */}
-        {detail && (
-          <div className="space-y-0.5">
-            <div className="text-xs text-muted-foreground">判定根拠</div>
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-              <span>L3F: {signalLabel(detail.l3f_signal)}</span>
-              <span>RPCI: {signalLabel(detail.rpci_signal)}</span>
-              <span>33: {signalLabel(detail.lap33_signal)}</span>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  laps?: LapsData;
 }
 
 // =============================================================================
@@ -768,14 +734,15 @@ function RaceTrendCard({ laps }: { laps: LapsData }) {
 interface LapTimesChartProps {
   lapTimes: string[];  // ["7.3", "11.0", "11.5", ...]
   distance: number;    // レース距離(m)
+  s3?: number;         // 前半3F実測（レースレベル・JRA-VAN）
+  l3?: number;         // 後半3F実測（レースレベル・JRA-VAN）
 }
 
-function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
+function LapTimesChart({ lapTimes, distance, s3, l3 }: LapTimesChartProps) {
   const times = lapTimes.map(t => parseFloat(t)).filter(t => !isNaN(t) && t > 0);
   if (times.length < 2) return null;
 
   // ラップ区間のラベルを生成（200m刻み。最初だけ距離が違う場合がある）
-  const totalFromLaps = times.length * 200;
   const firstLapDist = distance > 0 ? distance - (times.length - 1) * 200 : 200;
   const labels: string[] = [];
   let cumDist = 0;
@@ -1028,13 +995,17 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
               <span>最速: <span className="text-blue-600 font-bold">{minLap.toFixed(1)}</span>秒 ({labels[fastestIdx]}m)</span>
               <span>最遅: <span className="text-red-600 font-bold">{maxLap.toFixed(1)}</span>秒 ({labels[slowestIdx]}m)</span>
-              <span>前後差: {(totalFromLaps > 0 ? (() => {
-                const half = Math.floor(times.length / 2);
-                const first = times.slice(0, half).reduce((a, b) => a + b, 0);
-                const second = times.slice(half).reduce((a, b) => a + b, 0);
-                const diff = first - second;
-                return `${diff > 0 ? '-' : '+'}${Math.abs(diff).toFixed(1)}`;
-              })() : '-')}秒</span>
+              {/* 前後3F比較（同一距離の実測比較。ラップ本数の半割りは距離が揃わず不正確） */}
+              {s3 != null && l3 != null && s3 > 0 && l3 > 0 && (
+                <span>
+                  テン3F: <span className="font-mono">{s3.toFixed(1)}</span>
+                  {' / '}上がり3F: <span className="font-mono">{l3.toFixed(1)}</span>
+                  {' '}
+                  <span className={l3 - s3 >= 0.5 ? 'text-red-600 dark:text-red-400' : s3 - l3 >= 0.5 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500'}>
+                    ({l3 - s3 > 0 ? '+' : ''}{(l3 - s3).toFixed(1)}秒 {l3 - s3 >= 0.5 ? '前傾' : s3 - l3 >= 0.5 ? '後傾' : '均等'})
+                  </span>
+                </span>
+              )}
               <span className="text-gray-400">|</span>
               <span className="inline-flex items-center gap-1">
                 <span className="inline-block w-3 h-0.5 bg-green-600 rounded"></span>
@@ -1056,52 +1027,65 @@ function LapTimesChart({ lapTimes, distance }: LapTimesChartProps) {
   );
 }
 
-function RpciAnalysisCard({ analysis, courseInfo }: RpciAnalysisCardProps) {
+function PaceAnalysisCard({ analysis, courseInfo, laps }: PaceAnalysisCardProps) {
   // 傾向に応じたスタイル
   const getTrendStyle = (trend: 'instantaneous' | 'sustained' | 'neutral') => {
     switch (trend) {
       case 'instantaneous':
-        return { 
-          bg: 'bg-blue-50', 
-          border: 'border-blue-200', 
-          text: 'text-blue-700',
+        return {
+          bg: 'bg-blue-50 dark:bg-blue-950/30',
+          border: 'border-blue-200 dark:border-blue-900',
+          text: 'text-blue-700 dark:text-blue-400',
           icon: <TrendingUp className="w-5 h-5" />,
           label: '瞬発戦'
         };
       case 'sustained':
-        return { 
-          bg: 'bg-red-50', 
-          border: 'border-red-200', 
-          text: 'text-red-700',
+        return {
+          bg: 'bg-red-50 dark:bg-red-950/30',
+          border: 'border-red-200 dark:border-red-900',
+          text: 'text-red-700 dark:text-red-400',
           icon: <TrendingDown className="w-5 h-5" />,
           label: '持続戦'
         };
       default:
-        return { 
-          bg: 'bg-gray-50', 
-          border: 'border-gray-200', 
-          text: 'text-gray-700',
+        return {
+          bg: 'bg-gray-50 dark:bg-gray-900/40',
+          border: 'border-gray-200 dark:border-gray-700',
+          text: 'text-gray-700 dark:text-gray-300',
           icon: <Minus className="w-5 h-5" />,
           label: '平均的'
         };
     }
   };
 
-  const style = getTrendStyle(analysis.actualTrend);
-  
+  const style = getTrendStyle(analysis?.actualTrend ?? 'neutral');
+
   // 基準値との比較
   const getComparisonStyle = (compared: 'faster' | 'slower' | 'typical') => {
     switch (compared) {
       case 'slower':
-        return { color: 'text-blue-600', label: 'スロー' };
+        return { color: 'text-blue-600 dark:text-blue-400', label: 'スロー' };
       case 'faster':
-        return { color: 'text-red-600', label: 'ハイペース' };
+        return { color: 'text-red-600 dark:text-red-400', label: 'ハイペース' };
       default:
-        return { color: 'text-gray-600', label: '平均的' };
+        return { color: 'text-gray-600 dark:text-gray-400', label: '平均的' };
     }
   };
 
-  const compStyle = getComparisonStyle(analysis.comparedToStandard);
+  const compStyle = analysis ? getComparisonStyle(analysis.comparedToStandard) : null;
+
+  // 33ラップ + v2傾向（旧 RaceTrendCard 由来）
+  const trendV2 = laps?.race_trend_v2 as RaceTrendV2Type | undefined;
+  const lap33 = laps?.lap33;
+  const detail = laps?.trend_detail;
+  const trendV2Label = trendV2 ? RACE_TREND_V2_LABELS[trendV2] : null;
+  const trendV2Color = trendV2 ? RACE_TREND_V2_COLORS[trendV2] : '';
+
+  const signalLabel = (sig: string) => {
+    if (sig === 'sprint') return <span className="text-blue-600 dark:text-blue-400">瞬発</span>;
+    if (sig === 'sustained') return <span className="text-red-600 dark:text-red-400">持続</span>;
+    return <span className="text-gray-500">中立</span>;
+  };
 
   return (
     <div className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
@@ -1111,17 +1095,31 @@ function RpciAnalysisCard({ analysis, courseInfo }: RpciAnalysisCardProps) {
             <Activity className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-sm font-medium text-gray-600">このレースのペース分析</div>
+            <div className="text-sm font-medium text-gray-600 dark:text-gray-400 flex items-center gap-2">
+              このレースのペース分析
+              {trendV2Label && (
+                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${trendV2Color}`}>
+                  {trendV2Label}
+                </span>
+              )}
+              {detail && (
+                <span className="text-xs text-muted-foreground font-normal">
+                  確信度 {Math.round(detail.confidence * 100)}%
+                </span>
+              )}
+            </div>
             <div className={`text-lg font-bold flex items-center gap-2 ${style.text}`}>
               {style.icon}
               <span>{style.label}</span>
-              <span className="text-base font-normal">(RPCI: {analysis.actualRpci.toFixed(1)})</span>
+              {analysis && (
+                <span className="text-base font-normal">(RPCI: {analysis.actualRpci.toFixed(1)})</span>
+              )}
             </div>
           </div>
         </div>
-        
+
         {/* 基準値との比較 */}
-        {courseInfo && (
+        {courseInfo && analysis && compStyle && (
           <div className="text-right">
             <div className="text-xs text-gray-500">
               コース基準: {courseInfo.rpciMean.toFixed(1)}
@@ -1137,27 +1135,54 @@ function RpciAnalysisCard({ analysis, courseInfo }: RpciAnalysisCardProps) {
       </div>
 
       {/* 詳細情報 */}
-      <div className="mt-3 pt-3 border-t border-gray-200 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-        <div>
-          <div className="text-gray-500 text-xs">実測RPCI</div>
-          <div className="font-mono font-bold">{analysis.actualRpci.toFixed(2)}</div>
-        </div>
+      <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+        {analysis && (
+          <div>
+            <div className="text-gray-500 text-xs">実測RPCI</div>
+            <div className="font-mono font-bold">{analysis.actualRpci.toFixed(2)}</div>
+          </div>
+        )}
         {courseInfo && (
           <>
+            {/* RPCIが閾値以下→瞬発戦 / 閾値以上→持続戦 */}
             <div>
               <div className="text-gray-500 text-xs">瞬発戦閾値</div>
-              <div className="font-mono text-blue-600">&gt;{courseInfo.thresholds.instantaneous.toFixed(1)}</div>
+              <div className="font-mono text-blue-600 dark:text-blue-400">&le;{courseInfo.thresholds.instantaneous.toFixed(1)}</div>
             </div>
             <div>
               <div className="text-gray-500 text-xs">持続戦閾値</div>
-              <div className="font-mono text-red-600">&lt;{courseInfo.thresholds.sustained.toFixed(1)}</div>
+              <div className="font-mono text-red-600 dark:text-red-400">&ge;{courseInfo.thresholds.sustained.toFixed(1)}</div>
             </div>
           </>
         )}
-        <div>
-          <div className="text-gray-500 text-xs">データソース</div>
-          <div className="font-mono">{analysis.sourceHorses > 0 ? `${analysis.sourceHorses}頭` : 'JRA-VAN'}</div>
-        </div>
+        {lap33 != null && (
+          <div>
+            <div className="text-gray-500 text-xs">33ラップ</div>
+            <div className="flex items-baseline gap-1">
+              <span className={`font-mono font-bold ${lap33 >= 0.5 ? 'text-blue-600 dark:text-blue-400' : lap33 <= -0.5 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                {lap33 > 0 ? '+' : ''}{lap33.toFixed(1)}
+              </span>
+              <span className="text-xs text-muted-foreground">{getLap33Interpretation(lap33)}</span>
+            </div>
+          </div>
+        )}
+        {detail ? (
+          <div>
+            <div className="text-gray-500 text-xs">判定根拠</div>
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-xs pt-0.5">
+              <span>L3F: {signalLabel(detail.l3f_signal)}</span>
+              <span>RPCI: {signalLabel(detail.rpci_signal)}</span>
+              <span>33: {signalLabel(detail.lap33_signal)}</span>
+            </div>
+          </div>
+        ) : (
+          analysis && (
+            <div>
+              <div className="text-gray-500 text-xs">データソース</div>
+              <div className="font-mono">{analysis.sourceHorses > 0 ? `馬別再計算(${analysis.sourceHorses}頭)` : 'JRA-VAN公式'}</div>
+            </div>
+          )
+        )}
       </div>
     </div>
   );

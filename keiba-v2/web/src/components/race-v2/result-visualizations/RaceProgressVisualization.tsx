@@ -10,14 +10,15 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { HorseEntry, parseFinishPosition, toCircleNumber } from '@/types/race-data';
-import { ChevronDown, ChevronUp, Flag, MapPin, Timer, ArrowRight, ArrowUpDown } from 'lucide-react';
+import { HorseEntry, parseFinishPosition } from '@/types/race-data';
+import { ChevronDown, ChevronUp, Flag, MapPin, Timer, ArrowUpDown } from 'lucide-react';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
+import { timeToSeconds } from '@/lib/data/result-utils';
 
 /** Get waku color as RGB values for inline styles */
 function getWakuColorRGB(waku: number): { bg: string; text: string } {
@@ -53,75 +54,9 @@ interface HorseProgressData {
   timeDiff600m: number;         // 残り600m地点でのタイム差
 }
 
-/**
- * タイム文字列を秒に変換
- * @param timeStr - "M.SS.T" or "SS.T" 形式
- * @returns 秒数
- */
+/** タイム文字列 → 秒（共通ユーティリティ委譲。パース不能は 0） */
 function parseTimeToSeconds(timeStr: string): number {
-  if (!timeStr) return 0;
-  
-  // 空白を除去
-  const cleaned = timeStr.trim();
-  
-  // "M.SS.T" 形式 (例: "2.00.9", "1.46.3")
-  const parts = cleaned.split('.');
-  
-  if (parts.length === 3) {
-    const minutes = parseInt(parts[0]) || 0;
-    const seconds = parseInt(parts[1]) || 0;
-    const tenths = parseInt(parts[2]) || 0;
-    return minutes * 60 + seconds + tenths / 10;
-  }
-  
-  if (parts.length === 2) {
-    // "SS.T" 形式 (例: "33.7")
-    const seconds = parseInt(parts[0]) || 0;
-    const tenths = parseInt(parts[1]) || 0;
-    return seconds + tenths / 10;
-  }
-  
-  return parseFloat(cleaned) || 0;
-}
-
-/**
- * 着差文字列を秒に変換（概算）
- * 1馬身 ≒ 0.17秒として計算
- */
-function parseMarginToSeconds(margin: string): number {
-  if (!margin || margin === '') return 0;
-  
-  const trimmed = margin.trim();
-  
-  // 特殊表記
-  const specialMargins: Record<string, number> = {
-    'ハナ': 0.02,
-    'アタマ': 0.05,
-    'クビ': 0.08,
-    '大差': 3.0,
-    '同着': 0,
-  };
-  
-  if (specialMargins[trimmed] !== undefined) {
-    return specialMargins[trimmed];
-  }
-  
-  // 分数形式 "1 3/4" or "3/4"
-  const fractionMatch = trimmed.match(/^(\d+)?\s*(\d+)\/(\d+)$/);
-  if (fractionMatch) {
-    const whole = parseInt(fractionMatch[1]) || 0;
-    const numerator = parseInt(fractionMatch[2]) || 0;
-    const denominator = parseInt(fractionMatch[3]) || 1;
-    return (whole + numerator / denominator) * 0.17;
-  }
-  
-  // 整数のみ
-  const numMatch = trimmed.match(/^(\d+)$/);
-  if (numMatch) {
-    return parseInt(numMatch[1]) * 0.17;
-  }
-  
-  return 0;
+  return timeToSeconds(timeStr) ?? 0;
 }
 
 /**
@@ -459,6 +394,12 @@ export default function RaceProgressVisualization({
             <div className="flex items-center gap-2">
               <Timer className="h-5 w-5 text-green-600" />
               <span className="font-semibold">レース展開図（残600m → ゴール）</span>
+              <span
+                className="text-xs bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 px-2 py-0.5 rounded"
+                title="残600m順位はタイム逆算（ゴールタイム−上がり3F）による推定値。実測コーナー通過があるレースでは結果リプレイが表示されます"
+              >
+                推定
+              </span>
               {is1200m && (
                 <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">
                   1200m戦
