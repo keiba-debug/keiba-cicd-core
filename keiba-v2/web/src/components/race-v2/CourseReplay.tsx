@@ -24,9 +24,10 @@ import { Play } from 'lucide-react';
 
 /** 1馬×1コマの隊列位置 (JrdbTenkaiFrame と構造互換) */
 export interface CourseFramePos {
-  order: number;                // 順位 (1=先頭)
+  order: number;                // 順位 (1=先頭)。gateコマではゲート番号(=馬番)
   diff: number | null;          // 先頭からの差 (半馬身単位・先頭=0)
   inout: number | null;         // 内外 1(最内)〜5(大外)
+  posLabel?: string;            // ツールチップの位置表記を上書き (「◯番手」の代わり。ゲート等)
 }
 
 /** コマ定義 */
@@ -37,6 +38,7 @@ export interface CourseFrameDef {
   inPlay?: boolean;             // ▶再生シーケンスに含める (レース進行のコマ)
   accent?: 'ml' | 'pred';      // ボタン配色 (ml=紫 / pred=teal / 無指定=青)
   buttonTitle?: string;
+  gate?: boolean;               // ゲート整列コマ (order=ゲート番号。テロップは順位変動でなく隊列形成を出す)
 }
 
 /** 1頭分の描画データ */
@@ -150,9 +152,14 @@ export default function CourseReplay({
   const [frameIdx, setFrameIdx] = useState(0);       // ボタン選択中のコマ
   const [prog, setProg] = useState(0);               // 連続コマ位置 (rAFが駆動)
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);             // 再生時間の倍率 (2=🐢ゆっくり / 1=普通 / 0.5=速い)
+  const [telop, setTelop] = useState<string | null>(null);   // 再生中の区間テロップ
   const progRef = useRef(0);
   const rafRef = useRef(0);
+  const speedRef = useRef(1);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => { speedRef.current = speed; }, [speed]);
 
   useEffect(() => () => {
     cancelAnimationFrame(rafRef.current);
@@ -163,7 +170,7 @@ export default function CourseReplay({
   const animateTo = useCallback((target: number, done?: () => void) => {
     cancelAnimationFrame(rafRef.current);
     const from = progRef.current;
-    const dur = Math.max(500, Math.abs(target - from) * 2600);   // ゆっくり=動き(馬ごとの速度差)が読める
+    const dur = Math.max(400, Math.abs(target - from) * 2600 * speedRef.current);   // ゆっくり=動き(馬ごとの速度差)が読める
     const t0 = performance.now();
     const tick = (now: number) => {
       const u = Math.min(1, (now - t0) / dur);
@@ -180,9 +187,39 @@ export default function CourseReplay({
     cancelAnimationFrame(rafRef.current);
     if (timerRef.current) clearTimeout(timerRef.current);
     setPlaying(false);
+    setTelop(null);
   }, []);
 
-  /** ▶再生: inPlay なコマを先頭から順に流す */
+  /**
+   * 区間テロップ: ia→ib のコマ間で目立った動きを一行にする。
+   * 通常区間 = 2番手以上上がった馬 (最大2頭)。ゲート区間 = 隊列形成 (先頭に立った馬)。
+   */
+  const telopFor = useCallback((ia: number, ib: number): string | null => {
+    const a = frameDefs[ia], b = frameDefs[ib];
+    const seg = `${a.label}→${b.label}`;
+    if (a.gate) {
+      const leaders = horses
+        .map(h => ({ num: h.num, f: h.frames[ib] }))
+        .filter((x): x is { num: number; f: CourseFramePos } => !!x.f)
+        .sort((p, q) => p.f.order - q.f.order)
+        .slice(0, 2);
+      if (leaders.length === 0) return null;
+      return `${seg}: ${leaders.map(x => `${toCircleNumber(x.num)}${x.f.order === 1 ? 'が先頭' : ` ${x.f.order}番手`}`).join('・')}`;
+    }
+    const movers = horses
+      .map(h => {
+        const fa = h.frames[ia], fb = h.frames[ib];
+        if (!fa || !fb) return null;
+        return { num: h.num, from: fa.order, to: fb.order, up: fa.order - fb.order };
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null && v.up >= 2)
+      .sort((p, q) => q.up - p.up)
+      .slice(0, 2);
+    if (movers.length === 0) return null;
+    return `${seg}: ${movers.map(m => `${toCircleNumber(m.num)} ${m.from}位→${m.to}位↑`).join(' ・ ')}`;
+  }, [frameDefs, horses]);
+
+  /** ▶再生: inPlay なコマを先頭から順に流す (コマ間ポーズで区間テロップを読ませる) */
   const play = useCallback(() => {
     stopAnim();
     const seq = frameDefs.map((f, i) => (f.inPlay ? i : -1)).filter(i => i >= 0);
@@ -194,14 +231,19 @@ export default function CourseReplay({
     const step = (k: number) => {
       timerRef.current = setTimeout(() => {
         setFrameIdx(seq[k]);
+        setTelop(telopFor(seq[k - 1], seq[k]));
         animateTo(seq[k], () => {
           if (k < seq.length - 1) step(k + 1);
-          else setPlaying(false);
+          else {
+            setPlaying(false);
+            // 最終区間のテロップは余韻を持たせて消す
+            timerRef.current = setTimeout(() => setTelop(null), 1600);
+          }
         });
-      }, k === 1 ? 400 : 600);
+      }, Math.round((k === 1 ? 500 : 1100) * speedRef.current));
     };
     step(1);
-  }, [animateTo, stopAnim, frameDefs]);
+  }, [animateTo, stopAnim, telopFor, frameDefs]);
 
   if (horses.length < 2 || frameDefs.length < 2) return null;
 
@@ -321,14 +363,36 @@ export default function CourseReplay({
             </button>
           ))}
           {canPlay && (
-            <button
-              onClick={play}
-              disabled={playing}
-              className="ml-1 px-2.5 py-1 rounded text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1"
-              title="コース経路に沿ってコマ送り再生"
-            >
-              <Play className="w-3 h-3" /> {playLabel}
-            </button>
+            <>
+              <span className="ml-1 inline-flex rounded overflow-hidden border border-gray-200 dark:border-gray-700">
+                {([
+                  { mult: 2, label: '🐢', title: 'ゆっくり (×2)' },
+                  { mult: 1, label: '▶', title: '普通' },
+                  { mult: 0.5, label: '⏩', title: '速い (×0.5)' },
+                ] as const).map(s => (
+                  <button
+                    key={s.mult}
+                    onClick={() => setSpeed(s.mult)}
+                    title={`再生速度: ${s.title}`}
+                    className={`px-1.5 py-1 text-xs transition-colors ${
+                      speed === s.mult
+                        ? 'bg-gray-600 dark:bg-gray-500 text-white'
+                        : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </span>
+              <button
+                onClick={play}
+                disabled={playing}
+                className="px-2.5 py-1 rounded text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1"
+                title="コース経路に沿ってコマ送り再生"
+              >
+                <Play className="w-3 h-3" /> {playLabel}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -354,13 +418,21 @@ export default function CourseReplay({
         <text x={500} y={245} textAnchor="middle" fontSize={12} className="fill-gray-400">{mirrored ? '左回り' : '右回り'}</text>
         <text x={500} y={472} textAnchor="middle" fontSize={12} className="fill-gray-400">スタンド前 (最終直線)</text>
 
+        {/* 区間テロップ (再生中・インフィールド中央) */}
+        {telop && (
+          <text x={500} y={290} textAnchor="middle" fontSize={16} fontWeight={700}
+            className="fill-amber-600 dark:fill-amber-400" style={{ paintOrder: 'stroke' }}>
+            {telop}
+          </text>
+        )}
+
         {/* 馬マーカー (rAF がコース経路に沿って駆動) */}
         {rendered.map(({ h, x, y, ang, cur, closing, ghost }) => {
           const cap = WAKU_HEX[parseInt(h.waku ?? '', 10)] ?? WAKU_HEX_FALLBACK;
           const lineLen = Math.min(20, 7 + closing * 1.3);
           return (
             <g key={h.num} transform={`translate(${x.toFixed(1)},${y.toFixed(1)})`} opacity={ghost ? 0.45 : 1}>
-              <title>{`${toCircleNumber(h.num)} ${h.name}${h.bucket ? ` / 競馬ブック: ${h.bucket}` : ''} / ${frameDefs[frameIdx].label}: ${cur.order}番手${cur.diff != null && cur.diff > 0 ? ` (先頭差${cur.diff}半馬身)` : ''}`}</title>
+              <title>{`${toCircleNumber(h.num)} ${h.name}${h.bucket ? ` / 競馬ブック: ${h.bucket}` : ''} / ${frameDefs[frameIdx].label}: ${cur.posLabel ?? `${cur.order}番手${cur.diff != null && cur.diff > 0 ? ` (先頭差${cur.diff}半馬身)` : ''}`}`}</title>
               {/* 伸び流線 (差を詰めている馬・再生中のみ・進行方向の逆に流す) */}
               {moving && racingSegment && closing >= 3 && (
                 <g transform={`rotate(${((ang * 180) / Math.PI).toFixed(1)})`} opacity={Math.min(0.85, closing / 8)}>

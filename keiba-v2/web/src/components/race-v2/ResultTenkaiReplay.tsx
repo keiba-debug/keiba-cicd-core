@@ -51,7 +51,7 @@ function spearman(pairs: Array<[number, number]>): number | null {
   return da > 0 && db > 0 ? num / Math.sqrt(da * db) : null;
 }
 
-/** 内外のフォールバック: JRDBコース取りが無い馬は順位の3レーン循環(内1.5/中3/外4.5)で散らして重なりを防ぐ */
+/** 内外の最終フォールバック: 順位の3レーン循環(内1.5/中3/外4.5)で散らして重なりを防ぐ */
 const laneOf = (order: number): number => [3, 1.5, 4.5][order % 3];
 
 const rhoColor = (rho: number): string =>
@@ -95,10 +95,14 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
   const hasMl = devs.length >= 2;
   const hasPred = !!legProfiles && finishers.some(f => legProfiles[f.e.horse_number]?.jrdb?.goal);
 
-  // --- コマ定義: [コーナー...] → ゴール(結果) → 予想ゴール → MLゴール ---
+  // --- コマ定義: スタート(枠順ゲート) → [コーナー...] → ゴール(結果) → 予想ゴール → MLゴール ---
   const cornerLabels = ['1角', '2角', '3角', '4角'].slice(4 - nCorners);
   const cornerAnchors = [COURSE_ANCHORS.c1, COURSE_ANCHORS.c2, COURSE_ANCHORS.c3, COURSE_ANCHORS.c4].slice(4 - nCorners);
   const frameDefs: CourseFrameDef[] = [
+    {
+      key: 'start', label: 'スタート', anchor: COURSE_ANCHORS.startStraight, inPlay: true, gate: true,
+      buttonTitle: '枠順のゲート横一列 (確定情報) — 出遅れ馬は後方から。1角への動きで誰がダッシュしたかが見える',
+    },
     ...cornerLabels.map((label, i) => ({
       key: `c${i}`, label, anchor: cornerAnchors[i], inPlay: true,
     })),
@@ -124,22 +128,76 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
   );
   const useTori = toriLanes.size >= 2;
 
-  const horses: CourseHorse[] = finishers.map(({ e, finish, corners, timeSec }) => {
-    // 内外: JRDB実測コース取り（レース全体の代表値）→ 無ければ順位循環フォールバック
+  const maxNum = Math.max(...finishers.map(f => f.e.horse_number));
+
+  // --- 内外レーンの確率的推定 (実測コース取りが無い馬用) ---
+  // 進路データは現ソースに存在しないため経験則で近似する:
+  //   ① 同じような位置取りの集団は内枠の馬がそのまま内を通ることが多い
+  //   ② 残り3F(3角)以降に順位を上げた馬は外を通ってまくるケースが多い
+  const alignedOrders = finishers.map(f => {
+    const arr: (number | undefined)[] = new Array(nCorners).fill(undefined);
+    const off = nCorners - Math.min(f.corners.length, nCorners);
+    f.corners.slice(-nCorners).forEach((o, i) => { arr[off + i] = o; });
+    return arr;
+  });
+  // フレーム f (0..nCorners-1=コーナー / nCorners=ゴール) → finisher添字 → レーン
+  const lateFrom = Math.max(1, nCorners - 2);   // 残り3F圏 = 3角以降 (②は直前コーナーとの比較が必要)
+  const heuristicLanes: Array<Map<number, number>> = [];
+  for (let f = 0; f <= nCorners; f++) {
+    const lanes = new Map<number, number>();
+    const at = finishers
+      .flatMap((fin, i) => {
+        const order = f < nCorners ? alignedOrders[i][f] : fin.finish;
+        if (order == null) return [];
+        const waku = parseInt(fin.e.entry_data?.waku ?? '', 10);
+        return [{ i, order, waku: waku >= 1 ? waku : fin.e.horse_number }];   // 枠欠損は馬番で代用(順序にのみ使用)
+      })
+      .sort((a, b) => a.order - b.order);
+    // ① 近接順位3頭のグループ内で内枠→内レーン
+    for (let g = 0; g < at.length; g += 3) {
+      at.slice(g, g + 3)
+        .sort((a, b) => a.waku - b.waku)
+        .forEach((m, j) => lanes.set(m.i, [1.5, 3, 4.5][j]));
+    }
+    // ② 直前コーナーから2番手以上上げた馬は大外へ (まくり)
+    if (f >= lateFrom) {
+      for (const m of at) {
+        const prev = alignedOrders[m.i][f - 1];
+        if (prev != null && prev - m.order >= 2) lanes.set(m.i, 4.5);
+      }
+    }
+    heuristicLanes.push(lanes);
+  }
+
+  const horses: CourseHorse[] = finishers.map(({ e, finish, corners, timeSec }, idx) => {
+    // 内外: JRDB実測コース取り（レース全体の代表値）→ 無ければ確率的推定レーン
     const tori = useTori && e.jrdb_course_tori != null && e.jrdb_course_tori >= 1 && e.jrdb_course_tori <= 5
       ? e.jrdb_course_tori
       : null;
+    // スタート: 枠順ゲート横一列 (全馬 diff=0・内外=枠番を1〜5レーンに圧縮)。
+    // 出遅れ馬 (keibabook is_slow_start / SED出遅補正) だけ1.5馬身後方から出る
+    const waku = parseInt(e.entry_data?.waku ?? '', 10);
+    const gateLane = waku >= 1 && waku <= 8
+      ? 1 + ((waku - 1) * 4) / 7
+      : 1 + ((e.horse_number - 1) / Math.max(1, maxNum - 1)) * 4;   // 枠番欠損は馬番で散らす
+    const slowStart = e.is_slow_start || (e.jrdb_deokure ?? 0) > 0;
+    const startFrame: CourseFramePos = {
+      order: e.horse_number,
+      diff: slowStart ? 3 : 0,
+      inout: gateLane,
+      posLabel: `ゲート${waku >= 1 ? ` (枠${waku})` : ''}${slowStart ? '・出遅れ' : ''}`,
+    };
     // コーナー通過 (馬側のコーナー数が少ない場合は末尾=4角側に揃える)
     const cframes: (CourseFramePos | undefined)[] = new Array(nCorners).fill(undefined);
     const offset = nCorners - Math.min(corners.length, nCorners);
     corners.slice(-nCorners).forEach((o, i) => {
-      cframes[offset + i] = { order: o, diff: (o - 1) * 2, inout: tori ?? laneOf(o) };
+      cframes[offset + i] = { order: o, diff: (o - 1) * 2, inout: tori ?? heuristicLanes[offset + i].get(idx) ?? laneOf(o) };
     });
     // ゴール(結果): タイム差→半馬身。タイム欠損は着順から概算
     const diffHl = timeSec != null && winnerSec !== Infinity
       ? Math.min(40, Math.round(((timeSec - winnerSec) / SEC_PER_HALF) * 10) / 10)
       : (finish - 1) * 2;
-    const goalFrame: CourseFramePos = { order: finish, diff: diffHl, inout: tori ?? laneOf(finish) };
+    const goalFrame: CourseFramePos = { order: finish, diff: diffHl, inout: tori ?? heuristicLanes[nCorners].get(idx) ?? laneOf(finish) };
     // 比較用コマ
     const jrGoal = legProfiles?.[e.horse_number]?.jrdb?.goal;
     const mlFrame = hasMl
@@ -157,6 +215,7 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
       waku: e.entry_data?.waku,
       ring,
       frames: [
+        startFrame,
         ...cframes,
         goalFrame,
         ...(hasPred ? [jrGoal ?? undefined] : []),
@@ -203,11 +262,11 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
       horses={horses}
       mirrored={mirrored}
       title="結果リプレイ・答え合わせ"
-      headerNote={`位置=実測(コーナー通過順位・着差) / 帽色=枠番${useTori ? ' / 内外=JRDB実測コース取り' : ''}`}
+      headerNote={`位置=実測(枠順→コーナー通過順位→着差) / 帽色=枠番${useTori ? ' / 内外=JRDB実測コース取り' : ''}`}
       headerExtra={headerExtra}
       playLabel="リプレイ"
       ringFrameKeys={['rgoal', 'pgoal']}
-      legendNote={`コース模式図(${mirrored ? '左' : '右'}回り) / 通過順位=JRA-VAN / ゴール着差=タイム差の半馬身換算 / 内外=${useTori ? 'JRDB実測コース取り(1最内〜5大外)' : '順位から機械的に散らした仮配置'}`}
+      legendNote={`コース模式図(${mirrored ? '左' : '右'}回り) / スタート=枠順ゲート(出遅れ馬は後方から) / 通過順位=JRA-VAN / ゴール着差=タイム差の半馬身換算 / 内外=${useTori ? 'JRDB実測コース取り(1最内〜5大外・欠損馬は確率的推定)' : '確率的推定(近い位置は内枠が内・3角以降の追い上げ馬は外)'}`}
     />
   );
 }
