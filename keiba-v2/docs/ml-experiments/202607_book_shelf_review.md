@@ -113,14 +113,38 @@ A-1 受け入れ試験ベンチ（`--market-offset` で BestIter>1 か20分審�
 
 ---
 
-## 5. 次の一手
-1. **Eclipse v3**: ten_idx/pred_ten_idx のレース集約特徴量 → closing AUC ablation（20分級）。
-   効けば pace_scenario 共通部品化 → A-4 荒れ度 / D-3 選定層 / Web 展開図へ。
-2. frame 軸モデル（内外決着予測）の試作 — 目的変数は §4.2 の frame_bias（符号 or 連続）。
-3. C-3 着手時に `docs/regulus/sources/` の特徴量カタログを材料表として持ち込む。
-4. 風バイアスは A-1 ベンチの被験者キューへ。
+## 5. Eclipse v3a ablation — 実施済み・NO-GO（同日 S185 実施）
 
-## 6. 変更履歴
+§2-B の第一手として、KYI 事前予想指数のレース集約 11 特徴量
+（eten_top1/gap12/top3_mean/mean/std・n_eten_contenders・lead_side_ten・
+eagari_top3_mean・eten_agari_balance・kyi_front_ratio/nige_count — 全て当日朝公表・リーク無し）を
+Eclipse v2.1 と同一 splits・同一 5seed・同一パラメータで ablation（`C:/tmp/eclipse_v3_ablation.py`・本番保存なし）。
+
+| | test AUC | PR-AUC | val AUC |
+|---|---|---|---|
+| baseline (47f) | 0.6948 | 0.1717 | 0.6907 |
+| +ten v3a (58f) | 0.6946 | 0.1737 | 0.6996 |
+
+- **ΔAUC = -0.0002 = フラット → Eclipse の AUC 改善手段としては NO-GO**（v2.1 続投）。
+- ただし新特徴量は重用されている（eagari_top3_mean 全58中2位・eten_mean 5位・eten_agari_balance 11位）
+  = **既存の通過順ベース集約と情報等価**で GBDT が情報源を差し替えただけ。val +0.009 は test に汎化せず。
+- **含意**: 「Eclipse は KYI を見たことがない」のに AUC が動かない = 通過順集約が展開情報を既に拾い切っていた。
+  書籍法（双馬式テン→隊列）の情報自体は JRDB pred 指数として綺麗に在庫があるので、
+  通過順では作りにくい出口へ回す: ①Web 展開図（残対応「タイム推定→実データ」に pred_ten_idx）
+  ②A-4 荒れ度モデル（目的変数が別・未検証） ③frame 軸モデルの入力（lead_side_ten）。
+- 教訓（実装バグ）: KYI pred 系指数は**負値中心**（pred_ten_idx mean≈-13・range -50〜+37）。
+  `>0` を有効値と仮定すると 94% を捨てる（初回 run はこれでカバー率 2% になり無効・破棄）。
+
+## 6. 次の一手
+1. ~~Eclipse v3 ablation~~ → **✅実施・NO-GO（§5）**。Eclipse の伸びは入力側でなく別目的変数へ。
+2. **A-4 荒れ度モデル試作** — 同じレース集約特徴量で目的変数を「波乱（人気薄激走）」に。§5 の含意の本線。
+3. frame 軸モデル（内外決着予測）の試作 — 目的変数は §4.2 の frame_bias（符号 or 連続）。
+4. Web 展開図に pred_ten_idx 配線（表示系・残対応リスト消化）。
+5. C-3 着手時に `docs/regulus/sources/` の特徴量カタログを材料表として持ち込む。風バイアスは A-1 ベンチ被験者キューへ。
+
+## 7. 変更履歴
+
 | Session | 内容 |
 |---|---|
 | 185 | 初版。書籍12冊の消化状況マップ+未消化候補A-E。立川ラベル v0 検証（収益✗・予報✗・成熟の道筋=race-levelモデル化）。 |
+| 185 | §5 追加: Eclipse v3a ablation = NO-GO（ΔAUC-0.0002・KYI事前指数は通過順集約と情報等価）。次はA-4荒れ度/展開図/frame軸へ。 |
