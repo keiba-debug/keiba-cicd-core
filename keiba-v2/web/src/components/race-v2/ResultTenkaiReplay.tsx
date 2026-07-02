@@ -198,10 +198,11 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
       : null;
     // スタート: 枠順ゲート横一列 (全馬 diff=0・内外=馬番で内→外に均等配置=ゲート番号そのまま)。
     // ゲートコマはエンジン側でマーカー縮小+前後ずらし無効なので、全馬が同じ線上に並ぶ。
-    // 出遅れ馬 (keibabook is_slow_start / SED出遅補正) だけ1.5馬身後方から出る
+    // 出遅れ演出は「このレースで実際に出遅れた」実測のSED出遅補正のみ。
+    // is_slow_start(keibabook)は事前の「出遅れ癖」フラグなので結果側では使わない
     const waku = parseInt(e.entry_data?.waku ?? '', 10);
     const gateLane = maxNum > 1 ? 1 + ((e.horse_number - 1) * 4) / (maxNum - 1) : 3;
-    const slowStart = e.is_slow_start || (e.jrdb_deokure ?? 0) > 0;
+    const slowStart = (e.jrdb_deokure ?? 0) > 0;
     const startFrame: CourseFramePos = {
       order: e.horse_number,
       diff: slowStart ? 3 : 0,
