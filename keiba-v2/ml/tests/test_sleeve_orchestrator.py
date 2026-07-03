@@ -14,6 +14,7 @@ from datetime import datetime
 
 import pytest
 
+from ml.strategies import comment_a_live as cal
 from ml.strategies import gap_tansho_live as gl
 from ml.strategies import honmei_ev_live as hl
 from ml.strategies import sleeve_orchestrator as ORCH
@@ -51,6 +52,9 @@ def _sleeves_off_by_default(monkeypatch):
     monkeypatch.setattr(hl, "read_honmei_ev_config",
                         lambda *a, **k: hl.HonmeiEvConfig(False, 300000, 2.0, 10.0))
     monkeypatch.setattr(hl, "account_balance", lambda *a, **k: 300000)
+    monkeypatch.setattr(cal, "read_comment_a_config",
+                        lambda *a, **k: cal.CommentAConfig(False, 300000, 0.5, 10.0))
+    monkeypatch.setattr(cal, "account_balance", lambda *a, **k: 300000)
 
 
 @pytest.fixture
@@ -196,8 +200,8 @@ def test_orch_overall_cap_blocks(gap_on, monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_registry_priority_order_honmei_first():
-    # ★優先順 = 本命EV単 > 逆張り単 (登録順)★
-    assert list(SLEEVES.keys()) == ["honmei_ev", "gap_tansho"]
+    # ★優先順 = 本命EV単 > 逆張り単 > コメＡ3点セット (登録順・S189 で3本目)★
+    assert list(SLEEVES.keys()) == ["honmei_ev", "gap_tansho", "comment_a"]
 
 
 def test_two_sleeves_enabled_order(gap_on, honmei_on):
@@ -216,6 +220,58 @@ def test_orch_merges_both_sleeves_b_betsuda(gap_on, honmei_on, monkeypatch, tmp_
     legs = {l["sleeve"]: l for l in res["legs"]}
     assert legs["honmei_ev"]["horses"] == [1] and legs["honmei_ev"]["amount"] == 6000
     assert legs["gap_tansho"]["horses"] == [11] and legs["gap_tansho"]["amount"] == 3000
+
+
+@pytest.fixture
+def comment_a_on(monkeypatch, tmp_path):
+    cfg = cal.CommentAConfig(True, 300000, 0.5, 10.0, source="TEST")
+    monkeypatch.setattr(cal, "read_comment_a_config", lambda *a, **k: cfg)
+    monkeypatch.setattr(cal, "account_balance", lambda *a, **k: cfg.initial_bankroll_yen)
+    pd = tmp_path / "picks"
+    pd.mkdir(exist_ok=True)
+    (pd / "picks_2026-06-28.json").write_text(json.dumps([
+        {"race_id": "2026062805030611", "picks": [
+            {"umaban": 11, "name": "pick", "confidence": "高", "reason": "t"}]}
+    ], ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(cal, "PICKS_DIR", pd)
+    return cfg
+
+
+def _with_fillers(race, *umabans):
+    """有効オッズのみのモブ馬を足して頭数≥5にする (comment_a の少頭数縮退ガード回避)。"""
+    race["entries"] = race["entries"] + [
+        {"umaban": u, "horse_name": "mob", "odds": 30.0} for u in umabans]
+    return race
+
+
+def test_orch_comment_a_three_bet_types(comment_a_on, monkeypatch, tmp_path):
+    """コメＡ単独: 3券種 (fukusho/tansho/wide) の bet_specs が orchestrator 経由で正しく出る。"""
+    _wire(monkeypatch, tmp_path, {"races": [_with_fillers(_gap_race(), 2, 3, 4)]},
+          per_race_cap=20000)
+    out = ORCH.run_pass("2026-06-28", now=datetime(2026, 6, 28, 15, 40), live=False, verbose=False)
+    assert len(out["voted"]) == 1
+    rid, res = out["voted"][0]
+    assert res["sleeves"] == ["comment_a"]
+    # u = 300000×0.5% = 1500。R4 は proba/place_odds 不在 → 不通過 = 複2u。
+    # wide 相手 = rank_w1 の uma1 → horses [11, 1] (ソートせず生成順)
+    assert sorted(res["bet_specs"]) == sorted([
+        f"{rid}:fukusho:11:3000", f"{rid}:tansho:11:1500", f"{rid}:wide:11/1:1500"])
+    assert all(l["sleeve"] == "comment_a" for l in res["legs"])
+
+
+def test_orch_three_sleeves_merge(gap_on, honmei_on, comment_a_on, monkeypatch, tmp_path):
+    """3スリーブ並行: 本命EV単(uma1)+逆張り単(uma11)+コメＡ(uma11 3脚) が1レースにマージ。"""
+    r = _with_fillers(_both_race(), 2, 3, 4)
+    _wire(monkeypatch, tmp_path, {"races": [r]}, per_race_cap=20000)
+    out = ORCH.run_pass("2026-06-28", now=datetime(2026, 6, 28, 15, 40), live=False, verbose=False)
+    assert len(out["voted"]) == 1
+    rid, res = out["voted"][0]
+    assert res["sleeves"] == ["honmei_ev", "gap_tansho", "comment_a"]  # 優先順
+    by_sleeve = {}
+    for l in res["legs"]:
+        by_sleeve.setdefault(l["sleeve"], []).append(l)
+    assert res["amount"] == 6000 + 3000 + 6000  # honmei6000 + gap3000 + コメＡ(複3000+単1500+W1500)
+    assert len(by_sleeve["comment_a"]) == 3
 
 
 def test_orch_total_cap_keeps_priority_sleeve_deterministic(gap_on, honmei_on, monkeypatch, tmp_path):

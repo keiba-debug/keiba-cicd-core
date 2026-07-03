@@ -10,14 +10,17 @@ from __future__ import annotations
 from typing import Dict, List
 
 from ml.strategies.sleeves.base import Sleeve
+from ml.strategies.sleeves.comment_a_sleeve import CommentASleeve
 from ml.strategies.sleeves.gap_sleeve import GapSleeve
 from ml.strategies.sleeves.honmei_ev_sleeve import HonmeiEvSleeve
 
 # ★登録順 = 優先度 (全体cap執行の第1キー)★。dict は挿入順を保持する。
 # S177 ふくだ確定: 本命EV単 (honmei_ev) > 逆張り単 (gap_tansho)。
+# S189: 3本目 = コメＡ3点セット (comment_a・新参は最後尾 = cap 競合時に先に見送り)。
 SLEEVES: Dict[str, Sleeve] = {
     HonmeiEvSleeve.key: HonmeiEvSleeve(),
     GapSleeve.key: GapSleeve(),
+    CommentASleeve.key: CommentASleeve(),
 }
 
 
