@@ -67,6 +67,7 @@ const getRoiColor = (roi: number) => {
 const SLEEVE_LABELS: Record<string, { label: string; cls: string }> = {
   honmei_ev: { label: '本命EV単', cls: 'bg-sky-500 text-white' },
   gap_tansho: { label: '逆張り単', cls: 'bg-amber-500 text-white' },
+  comment_a: { label: '深読み三点', cls: 'bg-violet-500 text-white' },  // 3スリーブ目 (Session 189)
 };
 
 const StrategyCell = ({ name }: { name: string }) => {

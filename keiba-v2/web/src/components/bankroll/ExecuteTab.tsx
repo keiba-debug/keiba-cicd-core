@@ -48,6 +48,7 @@ interface RecommendationEntry {
   adaptive_rule?: string | null; // 'danger_sniper' | 'high_ev_win' | 'relaxed_base'
   place_odds_min?: number | null;  // 複勝最低オッズ
   market_signal?: string | null;   // 鉄板/穴注目/妙味/やや妙味/人気しすぎ
+  unit_weight?: number | null;     // 深読み三点の単位数 (複2u/R4複3u/単1u/W1u) — getRecAmount で傾斜
 }
 
 interface PredictionsData {
@@ -113,6 +114,8 @@ interface PredictionsData {
       predicted_margin?: number;
       ar_deviation?: number;
       pred_proba_w_cal?: number;
+      pred_proba_p_raw?: number;   // 深読み三点 R4 EVゲート用
+      place_odds_min?: number;     // 深読み三点 R4 EVゲート用 (vb_refresh で日中更新)
     }>;
   }>;
   finish_positions?: Record<string, Record<number, number>>; // race_id -> {umaban: finish_position}
@@ -156,6 +159,7 @@ const PRESET_LABELS: Record<string, string> = {
   honmei_umaren: '本命馬連',
   umaren_hirome: '馬連広め',
   gap_tansho: '逆張り単',   // 自動投票2スリーブ目 (client-side で selectGapTansho 算出・下記注入)
+  comment_a: '深読み三点',  // 自動投票3スリーブ目 (コメAI Ａ印 3点セット・picks API + 下記注入)
 };
 
 // 現行シミュ (bankroll_simulation.json / v2.3-s164) に基づく戦略説明
@@ -172,6 +176,13 @@ const PRESET_DESCRIPTIONS: Record<string, React.ReactNode> = {
       <p><strong>逆張り単</strong> — AI評価＞人気の過小評価馬の単勝（gap≥5・未勝利/条件/重賞）</p>
       <p>市場較正監査で確定したエッジ（in-sample ROI 130% / P(null≥130%)=0.026）</p>
       <p>自動投票の逆張り単スリーブと同条件。中〜高配狙い・該当は月数回</p>
+    </>
+  ),
+  comment_a: (
+    <>
+      <p><strong>深読み三点</strong> — コメAI (qwen2.5:14b) Ａ印の 複勝+単勝+ワイド(×ML本命) 3点セット</p>
+      <p>実払戻backtest 2026年 ROI 167.6% / CI[124.6, 215.4] / p=0.001（複勝Ａ単体 163.9%）</p>
+      <p>自動投票の深読み三点スリーブと同条件（複2:単1:W1・R4通過で複増額）。picks は朝固定・<a href="/analysis/comment-marks" className="text-violet-600 hover:underline">検証→</a></p>
     </>
   ),
   honmei_umaren: (
@@ -545,6 +556,82 @@ export function ExecuteTab() {
       });
       if (gapEntries.length > 0) presetsMap['gap_tansho'] = gapEntries;
 
+      // ★深読み三点 (comment_a) を picks API + client-side で算出して注入 (Session 190)★
+      //   選定の canonical は Python select_comment_a (ml/strategies/comment_a_live.py) — その TS 再現。
+      //   Ａ印 = picks API (朝固定)。1 pick = 複勝 + 単勝 + ワイド(×rank_w最上位) の3行。
+      //   取消/除外 (有効オッズ無し) は pick ごと見送り・有効オッズ<5頭は複勝/ワイド発売なし→単勝のみ。
+      //   R4 EVゲート = (pred_proba_p_raw + 0.196) × place_odds_min ≥ 1.0 → 複勝行に R4 バッジ
+      //   (自動投票スリーブは複勝 2u→3u 増額)。金額は他プリセット同様 getRecAmount (手動投票用)。
+      try {
+        const caRes = await fetch(`/api/bankroll/comment-a-picks?date=${date}`);
+        if (caRes.ok) {
+          const caData: { races?: Array<{ race_id: string; picks: Array<{ umaban: number; name: string; reason: string }> }> } = await caRes.json();
+          const caEntries: RecommendationEntry[] = [];
+          const validOdds = (e: { odds?: number }) => typeof e.odds === 'number' && e.odds > 0;
+          for (const pr of (caData.races || [])) {
+            const race = data.races?.find(r => r.race_id === pr.race_id);
+            if (!race) continue;
+            const active = race.entries.filter(e => e.umaban != null && validOdds(e));
+            const sellable = active.length >= 5;  // 4頭以下は複勝/ワイド発売なし
+            const ranked = active
+              .filter(e => e.rank_w != null)
+              .sort((a, b) => (a.rank_w as number) - (b.rank_w as number));
+            for (const pk of (pr.picks || [])) {
+              const ent = race.entries.find(e => e.umaban === pk.umaban);
+              if (!ent || !validOdds(ent)) continue;  // 取消・除外ガード (picks は朝固定)
+              const partner = ranked.find(e => e.umaban !== pk.umaban)?.umaban ?? null;
+              const pp = ent.pred_proba_p_raw;
+              const po = ent.place_odds_min;
+              const r4 = typeof pp === 'number' && typeof po === 'number' && po > 0
+                && (pp + 0.196) * po >= 1.0;
+              const base = {
+                race_id: pr.race_id,
+                venue: race.venue_name,
+                race_number: race.race_number,
+                umaban: pk.umaban,
+                horse_name: ent.horse_name || pk.name,
+                odds: ent.odds,
+                rank_w: ent.rank_w ?? 0,
+                win_vb_gap: ent.win_vb_gap ?? 0,
+                win_ev: ent.win_ev ?? 0,
+                predicted_margin: ent.predicted_margin ?? null,
+                ar_deviation: ent.ar_deviation ?? null,
+                pred_proba_w_cal: ent.pred_proba_w_cal ?? null,
+                win_amount: 0,
+                place_amount: 0,
+                strength: 'normal',
+                track_type: race.track_type,
+              };
+              // 配分は自動投票スリーブと同じ単位傾斜: 複勝2u (R4通過で3u) / 単勝1u / ワイド1u
+              if (sellable) {
+                caEntries.push({
+                  ...base, bet_type: '複勝',
+                  strength: r4 ? 'strong' : 'normal',
+                  market_signal: r4 ? 'R4' : null,
+                  place_odds_min: po ?? null,
+                  unit_weight: r4 ? 3 : 2,
+                });
+              }
+              caEntries.push({ ...base, bet_type: '単勝', unit_weight: 1 });
+              if (sellable && partner != null) {
+                caEntries.push({
+                  ...base, bet_type: 'ワイド',
+                  wide_pair: [pk.umaban, partner],
+                  wide_source: 'コメＡ',
+                  unit_weight: 1,
+                });
+              }
+            }
+          }
+          caEntries.sort((a, b) => {
+            if (a.race_number !== b.race_number) return a.race_number - b.race_number;
+            if (a.venue !== b.venue) return a.venue.localeCompare(b.venue);
+            return a.umaban - b.umaban;
+          });
+          if (caEntries.length > 0) presetsMap['comment_a'] = caEntries;
+        }
+      } catch { /* picks 未生成日は無視 (深読み三点スリーブの no-op と同じ) */ }
+
       setAllPresetsMap(presetsMap);
       setOtherPresets(others);
     } catch {
@@ -871,6 +958,11 @@ export function ExecuteTab() {
       const defAmt = defaultBetAmount || r.win_amount || 100;
       return Math.max(100, defAmt);
     }
+    // 深読み三点: 1単位 u = デフォルト額 (残高×ベット率) に単位数を掛ける
+    // (自動投票スリーブの 複2u/R4複3u/単1u/W1u と同じ傾斜。1 pick = 4〜5u)
+    if (r.unit_weight != null && r.unit_weight > 0) {
+      return Math.max(100, (defaultBetAmount || 100) * r.unit_weight);
+    }
     const kellyAmt = r.kelly_amount || 0;
     const defAmt = defaultBetAmount || r.win_amount || 100;
     return Math.max(kellyAmt, defAmt);
@@ -894,7 +986,7 @@ export function ExecuteTab() {
   // プリセット選択肢 (現行シミュ v2.3-s164 / bankroll_simulation.json)
   // tansho_ippon(本命EV単): Flat ROI 108.3% (rw1+gap3+EV1.3+m60, 単勝)
   // honmei_umaren: 本命EV単軸 + Pモデル馬連2点 / umaren_hirome: 本命EV単軸 + ARd馬連3点
-  const PRESET_CHOICES = ['tansho_ippon', 'gap_tansho', 'honmei_umaren', 'umaren_hirome'] as const;
+  const PRESET_CHOICES = ['tansho_ippon', 'gap_tansho', 'comment_a', 'honmei_umaren', 'umaren_hirome'] as const;
 
   return (
     <div className="space-y-6">
