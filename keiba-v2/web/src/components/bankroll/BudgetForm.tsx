@@ -25,6 +25,12 @@ interface Config {
     tansho_ev_initial_bankroll_yen?: number;
     tansho_ev_bet_pct?: number;
     tansho_ev_day_pct?: number;
+    // コメＡ3点セット 本投票 (Session 189) — 3本目スリーブ (隔離口座)。
+    comment_a_enabled?: boolean;
+    comment_a_initial_bankroll_yen?: number;
+    comment_a_bet_pct?: number;
+    comment_a_day_pct?: number;
+    comment_a_r4_boost?: boolean;
     sleeve_total_day_cap_yen?: number; // スリーブ全体の日次純投資ハード上限 (0=自動=Σ)
     sleeve_per_race_cap_yen?: number; // スリーブのレース合算per_race上限 (案A・per_race_max_yenと連動)
   };
@@ -60,6 +66,12 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
     tansho_ev_initial_bankroll_yen: 300000,
     tansho_ev_bet_pct: 2.0,
     tansho_ev_day_pct: 10.0,
+    // コメＡ3点セット 本投票 (Session 189)。 既定 = 無効・30万・1単位0.5%・日次10%・R4増額on。
+    comment_a_enabled: false,
+    comment_a_initial_bankroll_yen: 300000,
+    comment_a_bet_pct: 0.5,
+    comment_a_day_pct: 10.0,
+    comment_a_r4_boost: true,
     sleeve_total_day_cap_yen: 0, // 0=自動(各スリーブ日次capの合計)
     // レース合算per_race上限 (案A・Session 178)。保存時 per_race_max_yen にも連動して書く
     //   (= runner番人と一致必須)。初期は現 per_race_max_yen を引き継ぐ。
@@ -88,6 +100,11 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
             tansho_ev_initial_bankroll_yen: data.settings?.tansho_ev_initial_bankroll_yen ?? 300000,
             tansho_ev_bet_pct: data.settings?.tansho_ev_bet_pct ?? 2.0,
             tansho_ev_day_pct: data.settings?.tansho_ev_day_pct ?? 10.0,
+            comment_a_enabled: data.settings?.comment_a_enabled ?? false,
+            comment_a_initial_bankroll_yen: data.settings?.comment_a_initial_bankroll_yen ?? 300000,
+            comment_a_bet_pct: data.settings?.comment_a_bet_pct ?? 0.5,
+            comment_a_day_pct: data.settings?.comment_a_day_pct ?? 10.0,
+            comment_a_r4_boost: data.settings?.comment_a_r4_boost ?? true,
             sleeve_total_day_cap_yen: data.settings?.sleeve_total_day_cap_yen ?? 0,
             sleeve_per_race_cap_yen:
               data.settings?.sleeve_per_race_cap_yen ?? data.settings?.per_race_max_yen ?? 5200,
@@ -157,6 +174,11 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
         tansho_ev_initial_bankroll_yen: config.settings.tansho_ev_initial_bankroll_yen ?? 300000,
         tansho_ev_bet_pct: config.settings.tansho_ev_bet_pct ?? 2.0,
         tansho_ev_day_pct: config.settings.tansho_ev_day_pct ?? 10.0,
+        comment_a_enabled: config.settings.comment_a_enabled ?? false,
+        comment_a_initial_bankroll_yen: config.settings.comment_a_initial_bankroll_yen ?? 300000,
+        comment_a_bet_pct: config.settings.comment_a_bet_pct ?? 0.5,
+        comment_a_day_pct: config.settings.comment_a_day_pct ?? 10.0,
+        comment_a_r4_boost: config.settings.comment_a_r4_boost ?? true,
         sleeve_total_day_cap_yen: config.settings.sleeve_total_day_cap_yen ?? 0,
         sleeve_per_race_cap_yen:
           config.settings.sleeve_per_race_cap_yen ?? config.settings.per_race_max_yen ?? 5200,
@@ -184,8 +206,13 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
   //   formData が config と食い違うときだけ「未保存」を別バッジで出す＝今動いてるか／これから変える予定かを分離。
   const savedGapEnabled = config?.settings.gap_enabled ?? false;
   const savedTanshoEvEnabled = config?.settings.tansho_ev_enabled ?? false;
+  const savedCommentAEnabled = config?.settings.comment_a_enabled ?? false;
   const gapDirty = formData.gap_enabled !== savedGapEnabled;
   const tanshoEvDirty = formData.tansho_ev_enabled !== savedTanshoEvEnabled;
+  const commentADirty = formData.comment_a_enabled !== savedCommentAEnabled;
+  // コメＡ: 1単位額と1頭あたり額 (複2u+単1u+ワイド1u=4u / R4通過時 5u)
+  const commentAUnit =
+    Math.floor((formData.comment_a_initial_bankroll_yen * formData.comment_a_bet_pct) / 100 / 100) * 100;
 
   // フォームコンテンツ
   const formContent = (
@@ -590,10 +617,153 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
         </div>
       </div>
 
+      {/* ★コメＡ3点セット 本投票 (Session 189) = 3本目スリーブ・隔離口座★ */}
+      <div className="p-4 rounded-lg border-2 border-violet-500/40 bg-violet-500/5">
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm font-semibold flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-violet-600" />
+            深読み三点（コメＡ3点セット）自動投票・隔離口座
+          </label>
+          <span className="flex items-center gap-1">
+            <span
+              className={`text-xs font-bold px-2 py-1 rounded ${
+                savedCommentAEnabled
+                  ? 'bg-green-600 text-white'
+                  : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {savedCommentAEnabled ? '● 稼働中' : '○ 停止中'}
+            </span>
+            {commentADirty && (
+              <span className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded bg-orange-100 text-orange-700 border border-orange-300">
+                <AlertTriangle className="h-3 w-3" />
+                未保存（保存で{formData.comment_a_enabled ? '稼働' : '停止'}）
+              </span>
+            )}
+          </span>
+        </div>
+        <div className="flex gap-2 mb-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={formData.comment_a_enabled ? 'default' : 'outline'}
+            onClick={() => setFormData({ ...formData, comment_a_enabled: true })}
+            className="flex-1"
+          >
+            有効にする
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={!formData.comment_a_enabled ? 'default' : 'outline'}
+            onClick={() => setFormData({ ...formData, comment_a_enabled: false })}
+            className="flex-1"
+          >
+            無効にする
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          競馬新聞の関係者コメントをAI（ローカルLLM）が行間まで深読みし、高確信で拾った人気薄「Ａ印」を
+          <strong>複勝2：単勝1：ワイド(×ML本命)1</strong> の3点セットで買う収益源枠
+          （実払戻バックテスト 2026年 ROI 167.6%・約4頭/開催日）。
+          <strong>逆張り単・本命EV単とは別口座</strong>です。「有効にする」を選んで<strong>保存</strong>すると次の開催から稼働します。
+          残高が初期の<strong>50%を割ると自動停止</strong>します（ハードDDストップ・再開は原因究明後に手動で）。
+        </p>
+        <div className={formData.comment_a_enabled ? 'space-y-3' : 'space-y-3 opacity-50'}>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">初期残高（隔離口座）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="10000"
+                value={formData.comment_a_initial_bankroll_yen}
+                disabled={!formData.comment_a_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, comment_a_initial_bankroll_yen: parseInt(e.target.value) || 0 })
+                }
+                className="flex-1 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground w-8">円</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              残高 = 初期 + 実現損益。比例サイジングの素になります。
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">1単位の比率（残高×%）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="0.1"
+                value={formData.comment_a_bet_pct}
+                disabled={!formData.comment_a_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, comment_a_bet_pct: parseFloat(e.target.value) || 0 })
+                }
+                className="w-24 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground">%</span>
+              <span className="text-lg font-bold text-violet-600 ml-auto">
+                → 1単位 ¥{commentAUnit.toLocaleString()}（1頭 ¥{(commentAUnit * 4).toLocaleString()}〜{(commentAUnit * 5).toLocaleString()}）
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              1頭あたり = 複勝2単位＋単勝1単位＋ワイド1単位（R4通過時は複勝3単位）。
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">日次上限（残高×%・暴走ガード）</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="number"
+                step="0.5"
+                value={formData.comment_a_day_pct}
+                disabled={!formData.comment_a_enabled}
+                onChange={(e) =>
+                  setFormData({ ...formData, comment_a_day_pct: parseFloat(e.target.value) || 0 })
+                }
+                className="w-24 text-right text-lg font-bold h-12"
+              />
+              <span className="text-base text-muted-foreground">%</span>
+              <span className="text-lg font-bold text-violet-600 ml-auto">
+                → 日次 ¥{(Math.floor((formData.comment_a_initial_bankroll_yen * formData.comment_a_day_pct) / 100 / 100) * 100).toLocaleString()}
+              </span>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">
+              R4増額（モデルEVゲート通過のＡ印は複勝を2→3単位に増額）
+            </label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={formData.comment_a_r4_boost ? 'default' : 'outline'}
+                disabled={!formData.comment_a_enabled}
+                onClick={() => setFormData({ ...formData, comment_a_r4_boost: true })}
+                className="flex-1"
+              >
+                有効（推奨）
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!formData.comment_a_r4_boost ? 'default' : 'outline'}
+                disabled={!formData.comment_a_enabled}
+                onClick={() => setFormData({ ...formData, comment_a_r4_boost: false })}
+                className="flex-1"
+              >
+                無効（全頭同額）
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ★レース合算上限 (案A・Session 178) = 1レースに自動投票する最大額(両スリーブ合算)★ */}
       <div className="p-4 rounded-lg border border-border bg-muted/20">
         <label className="text-xs text-muted-foreground block mb-1">
-          レース合算上限（1レースの自動投票 最大額・両スリーブ合算 / runner番人と共通）
+          レース合算上限（1レースの自動投票 最大額・全スリーブ合算 / runner番人と共通）
         </label>
         <div className="flex items-center gap-3">
           <Input
@@ -609,12 +779,15 @@ export function BudgetForm({ isModal = false }: BudgetFormProps) {
         </div>
         <p className="text-xs text-muted-foreground mt-1">
           各スリーブは自分の比率で満額を買い、同一レースで重なって合算がこの額を超えるときだけ
-          <strong>優先度の低い逆張り単からレース単位で見送り</strong>ます。両方を満額で通すには
+          <strong>優先度の低いスリーブ（コメＡ → 逆張り単の順）からレース単位で見送り</strong>ます。
+          全部を満額で通すには
           本命EV単 ¥{(Math.floor((formData.tansho_ev_initial_bankroll_yen * formData.tansho_ev_bet_pct) / 100 / 100) * 100).toLocaleString()}
           ＋逆張り単 ¥{(Math.floor((formData.gap_initial_bankroll_yen * formData.gap_bet_pct) / 100 / 100) * 100).toLocaleString()}
+          ＋コメＡ ¥{(commentAUnit * 5).toLocaleString()}
           ＝¥{(
             Math.floor((formData.tansho_ev_initial_bankroll_yen * formData.tansho_ev_bet_pct) / 100 / 100) * 100 +
-            Math.floor((formData.gap_initial_bankroll_yen * formData.gap_bet_pct) / 100 / 100) * 100
+            Math.floor((formData.gap_initial_bankroll_yen * formData.gap_bet_pct) / 100 / 100) * 100 +
+            commentAUnit * 5
           ).toLocaleString()} 以上が必要です。
           <strong>保存すると runner の per_race_max_yen にも同じ額が入ります（一致必須）。</strong>
         </p>

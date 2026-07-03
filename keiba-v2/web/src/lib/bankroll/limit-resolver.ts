@@ -71,6 +71,21 @@ export interface BankrollConfig {
     tansho_ev_bet_pct?: number;
     tansho_ev_day_pct?: number;
     /**
+     * コメＡ3点セット 本投票 (Session 189) — コメントAI Ａ印 (confidence=高) を
+     * 複勝2u(R4通過3u)/単勝1u/ワイド(×ML本命)1u の3点セットで買う3本目スリーブ
+     * (comment_a_live が読む隔離口座)。
+     *  comment_a_enabled: master switch (false=投票しない)。
+     *  comment_a_initial_bankroll_yen: 初期残高 (既定30万)。
+     *  comment_a_bet_pct: 1単位 = 残高 × この% (既定0.5・1頭 = 4〜5単位)。
+     *  comment_a_day_pct: 日次cap = 残高 × この% (既定10.0)。
+     *  comment_a_r4_boost: R4 EVゲート通過時に複勝 2u→3u (既定 true)。
+     */
+    comment_a_enabled?: boolean;
+    comment_a_initial_bankroll_yen?: number;
+    comment_a_bet_pct?: number;
+    comment_a_day_pct?: number;
+    comment_a_r4_boost?: boolean;
+    /**
      * スリーブ全体の日次純投資ハード上限 (Session 177・§5/§11-1a)。 複数スリーブの
      * Σ純投資 ≤ この額 を sleeve_orchestrator が runner 直前にアサート (誤って増えない専用キー)。
      * 未設定なら Σ sleeve day_cap にフォールバック (単一スリーブ時 = そのスリーブの cap)。

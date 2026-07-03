@@ -77,7 +77,9 @@ function MethodCardBody({ method, active, params }: {
           {params && method.hasMasterSwitch && (
             <>
               <Badge variant="outline">初期 {yen(params.initialBankrollYen)}</Badge>
-              <Badge variant="outline">1点 残高×{params.betPct}%</Badge>
+              <Badge variant="outline">
+                {method.key === 'comment_a' ? '1単位' : '1点'} 残高×{params.betPct}%
+              </Badge>
               <Badge variant="outline">日次上限 残高×{params.dayPct}%</Badge>
             </>
           )}

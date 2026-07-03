@@ -66,6 +66,12 @@ interface ConfigPatchBody {
   tansho_ev_initial_bankroll_yen?: number | null;
   tansho_ev_bet_pct?: number | null;
   tansho_ev_day_pct?: number | null;
+  // コメＡ3点セット 本投票 (Session 189): 3本目スリーブ (隔離口座・gap/honmei と同型)
+  comment_a_enabled?: boolean;
+  comment_a_initial_bankroll_yen?: number | null;
+  comment_a_bet_pct?: number | null;
+  comment_a_day_pct?: number | null;
+  comment_a_r4_boost?: boolean;
   // スリーブ全体の日次純投資ハード上限 (Session 177)。null=削除(Σにフォールバック)
   sleeve_total_day_cap_yen?: number | null;
   // スリーブのレース合算 per_race 上限 (Session 178・案A)。null=削除(per_race_max_yenにフォールバック)
@@ -138,6 +144,21 @@ function applyPatch(config: BankrollConfig, patch: ConfigPatchBody): BankrollCon
     if (patch.tansho_ev_day_pct === null) delete next.settings.tansho_ev_day_pct;
     else next.settings.tansho_ev_day_pct = patch.tansho_ev_day_pct;
   }
+  // コメＡ3点セット 本投票 (Session 189)。 null は削除 (= 既定にフォールバック)。
+  if (patch.comment_a_enabled !== undefined) next.settings.comment_a_enabled = patch.comment_a_enabled;
+  if (patch.comment_a_initial_bankroll_yen !== undefined) {
+    if (patch.comment_a_initial_bankroll_yen === null) delete next.settings.comment_a_initial_bankroll_yen;
+    else next.settings.comment_a_initial_bankroll_yen = patch.comment_a_initial_bankroll_yen;
+  }
+  if (patch.comment_a_bet_pct !== undefined) {
+    if (patch.comment_a_bet_pct === null) delete next.settings.comment_a_bet_pct;
+    else next.settings.comment_a_bet_pct = patch.comment_a_bet_pct;
+  }
+  if (patch.comment_a_day_pct !== undefined) {
+    if (patch.comment_a_day_pct === null) delete next.settings.comment_a_day_pct;
+    else next.settings.comment_a_day_pct = patch.comment_a_day_pct;
+  }
+  if (patch.comment_a_r4_boost !== undefined) next.settings.comment_a_r4_boost = patch.comment_a_r4_boost;
   if (patch.sleeve_total_day_cap_yen !== undefined) {
     if (patch.sleeve_total_day_cap_yen === null) delete next.settings.sleeve_total_day_cap_yen;
     else next.settings.sleeve_total_day_cap_yen = patch.sleeve_total_day_cap_yen;

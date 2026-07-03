@@ -19,8 +19,8 @@ export const dynamic = 'force-dynamic';
 
 const BAT_PATH = path.join(SCRIPTS_PATH, 'bettype_auto.bat');
 
-type MethodKey = 'gap_tansho' | 'honmei_ev' | 'sanrentan_formation' | 'wide_anaba' | 'shobu_rate'
-  | 'fixed_grade_v2' | 'freebudget' | 'unknown';
+type MethodKey = 'gap_tansho' | 'honmei_ev' | 'comment_a' | 'sanrentan_formation' | 'wide_anaba'
+  | 'shobu_rate' | 'fixed_grade_v2' | 'freebudget' | 'unknown';
 
 interface MethodInfo {
   key: MethodKey;
@@ -53,6 +53,19 @@ const METHODS: Record<MethodKey, MethodInfo> = {
       '推奨馬券画面の主力プリセット tansho_ippon と同一条件（現行シミュ Flat ROI 108.3%）。',
     betType: '単勝1点（本命・妙味/期待値狙い）',
     resultsLink: '/analysis/honmei-ev-validation',
+    hasMasterSwitch: true,
+  },
+  comment_a: {
+    key: 'comment_a',
+    label: '深読み三点（ふかよみさんてん）',
+    thesis:
+      '競馬新聞の関係者コメントをAIが行間まで深読みし、「人気薄の本気」（Ａ印・約4頭/開催日）を' +
+      '複勝2：単勝1：ワイド（AI本命と組む）1 の3点セットで受け止めるスリーブ。' +
+      '当てるのは複勝（的中率エッジ 市場期待+20pt・2年連続で再現）、跳ねるのは単勝、繋ぐのはワイド。' +
+      '逆張り単・本命EV単がオッズと確率の歪みを撃つのに対し、これは言葉の歪みを撃つ' +
+      '（実払戻バックテスト 2026年 ROI 167.6%・p=0.001）。モデルEVゲート（R4）通過時は複勝を増額。',
+    betType: '複勝＋単勝＋ワイド（3点セット・人気薄Ａ印）',
+    resultsLink: '/analysis/comment-marks',
     hasMasterSwitch: true,
   },
   sanrentan_formation: {
@@ -180,6 +193,16 @@ export async function GET() {
             initialBankrollYen: gap.initialBankrollYen,
             betPct: gap.betPct,
             dayPct: gap.dayPct,
+          },
+        },
+        // S189: 3本目 = コメＡ3点セット (registry 最後尾と同順)
+        {
+          method: METHODS.comment_a,
+          active: Boolean(s.comment_a_enabled),
+          params: {
+            initialBankrollYen: s.comment_a_initial_bankroll_yen ?? 300000,
+            betPct: s.comment_a_bet_pct ?? 0.5,
+            dayPct: s.comment_a_day_pct ?? 10.0,
           },
         },
       ];
