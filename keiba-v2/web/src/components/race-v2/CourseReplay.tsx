@@ -134,6 +134,26 @@ export const COURSE_ANCHORS = {
 /** 半馬身→path単位 (視認性優先でややデフォルメ) */
 export const HALF_LEN = 6;
 
+/** 模式図1周のpath長 (ゴール→逆走1周でゴールに戻るまで。スタンド前直線はゴール〜1角の50単位のみ) */
+const LAP_UNITS = SEG_HOME + SEG_ARC + SEG_BACK + SEG_ARC + (GOAL_X - ARC_CX_L);
+
+/**
+ * コース別発走位置: 初角(1-4角)+初角までの実距離(m)+周長(m) → 発走anchor (ゴール残距離)。
+ * 実距離を周長比で模式図path単位へ変換し、初角の入口から逆算する。
+ * ポケット発走は各区間の端でキャップ (2角奥ポケット=2角を少し回った位置まで等)。
+ * データは course-start-points.ts (発走地点_JRA全10場.md 由来)
+ */
+export function startAnchorFor(firstCorner: 1 | 2 | 3 | 4, distToCornerM: number, lapM: number): number {
+  const d = (distToCornerM / lapM) * LAP_UNITS;
+  const A = COURSE_ANCHORS;
+  switch (firstCorner) {
+    case 1: return Math.min(MAX_GD, A.c1 + d);          // スタンド前直線 (4角奥ポケット含む)
+    case 2: return Math.min(A.c1 - 30, A.c2 + d);       // 1-2角中間ポケット
+    case 3: return Math.min(A.c2 + 40, A.c3 + d);       // 向こう正面 (2角奥ポケットは2角を少し回った奥まで)
+    case 4: return Math.min(A.c3 - 30, A.c4 + d);       // 3-4角中間 (中山芝2500)
+  }
+}
+
 /** 馬マーカーの表示倍率 (ゲート一列でも重なりにくい小サイズで全コマ統一) */
 const MARKER_SCALE = 0.55;
 

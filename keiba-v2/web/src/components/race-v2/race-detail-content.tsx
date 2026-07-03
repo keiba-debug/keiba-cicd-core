@@ -358,6 +358,8 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 legProfiles={legProfiles}
                 mlPredictions={mlPredictions}
                 track={urlTrack}
+                trackType={raceData.race_info.track}
+                distance={raceData.race_info.distance}
               />
               {/* レース収支パネル（投票があるレースのみ） */}
               <div className="mt-4">
@@ -499,6 +501,8 @@ export function RaceDetailContent({ raceData, showResults, urlDate, urlTrack, tr
                 legProfiles={legProfiles}
                 mlPredictions={mlPredictions}
                 track={urlTrack}
+                trackType={raceData.race_info.track}
+                distance={raceData.race_info.distance}
               />
               {/* レース収支パネル（投票があるレースのみ） */}
               <RacePnlPanel purchases={purchases ?? null} />

@@ -14,8 +14,9 @@ import React from 'react';
 import { HorseEntry, parseFinishPosition } from '@/types/race-data';
 import type { LegProfile } from '@/lib/data/leg-profile-reader';
 import type { MlPredictionEntry } from './HorseEntryTable';
-import CourseReplay, { COURSE_ANCHORS, LEFT_HANDED_TRACKS } from './CourseReplay';
+import CourseReplay, { COURSE_ANCHORS, LEFT_HANDED_TRACKS, startAnchorFor } from './CourseReplay';
 import type { CourseFrameDef, CourseHorse, CourseFramePos } from './CourseReplay';
+import { courseStartOf } from '@/lib/data/course-start-points';
 import { buildMlGoalFrame } from './TenkaiSection';
 import { parsePassingOrders, timeToSeconds, marginToBashin, SEC_PER_HALF_BASHIN } from '@/lib/data/result-utils';
 
@@ -65,11 +66,15 @@ interface ResultTenkaiReplayProps {
   legProfiles?: Record<number, LegProfile> | null;
   /** ML予測 (MLゴールコマ) */
   mlPredictions?: Record<number, MlPredictionEntry>;
-  /** 場名 (右/左回り判定) */
+  /** 場名 (右/左回り判定+コース別発走位置) */
   track?: string;
+  /** トラック種別 '芝'/'ダート' (コース別発走位置) */
+  trackType?: string;
+  /** レース距離m (コース別発走位置) */
+  distance?: number;
 }
 
-export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions, track }: ResultTenkaiReplayProps) {
+export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions, track, trackType, distance }: ResultTenkaiReplayProps) {
   // --- 完走馬の実測データを収集 ---
   const finishers = entries
     .map(e => {
@@ -123,14 +128,22 @@ export default function ResultTenkaiReplay({ entries, legProfiles, mlPredictions
   // 出遅れ馬 (実測SED出遅補正) がいるレースは「発走直後」の中間コマを挟んで出遅れを動きで表現する
   const hasSlow = finishers.some(f => (f.e.jrdb_deokure ?? 0) > 0);
 
+  // --- コース別発走位置 (発走地点_JRA全10場.md 由来) ---
+  // 初角+初角まで距離+周長 → 模式図anchor。データ無し or 発走位置が最初の描画コーナーより
+  // ゴール側になる場合 (距離>周長の+1周レースで通過順位が最終周4角分残っている等=逆走アニメに
+  // なってしまう) は従来のスタンド前フォールバック
+  const cs = courseStartOf(track, trackType, distance);
+  let startAnchor = cs ? startAnchorFor(cs.firstCorner, cs.distToCornerM, cs.lapM) : COURSE_ANCHORS.startStraight;
+  if (startAnchor < cornerAnchors[0] + 120) startAnchor = COURSE_ANCHORS.startStraight;
+
   const frameDefs: CourseFrameDef[] = [
     {
-      key: 'start', label: 'スタート', anchor: COURSE_ANCHORS.startStraight, inPlay: true, gate: true,
-      buttonTitle: '枠順のゲート横一列 (確定情報) — 出遅れ馬は発走直後に下がる。1角への動きで誰がダッシュしたかが見える',
+      key: 'start', label: 'スタート', anchor: startAnchor, inPlay: true, gate: true,
+      buttonTitle: '枠順のゲート横一列 (発走位置=コース実データ) — 出遅れ馬は発走直後に下がる。初角への動きで誰がダッシュしたかが見える',
     },
     ...(hasSlow
       ? [{
-          key: 'dash', label: '直後', anchor: COURSE_ANCHORS.startStraight - 80,
+          key: 'dash', label: '直後', anchor: startAnchor - 80,
           inPlay: true, gate: true, hidden: true,
         } satisfies CourseFrameDef]
       : []),
